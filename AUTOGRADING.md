@@ -43,7 +43,7 @@ if: github.event.head_commit.message == 'einde examen'
 Then:
 
 1. **They come with my template** → **Only on a hand-in commit**.
-2. Type the same words in **Commit message**. Matched exactly. `Einde examen` and `einde examen!` do not count.
+2. Type the same words in **Commit message**. The whole message is compared, ignoring case, because that is how GitHub compares it: `Einde Examen` counts, `einde examen!` and ` einde examen` (a leading space) do not.
 3. **They may hand in more than once** is on. The last hand-in before the deadline is graded, so a student who fixes something and hands in again is graded on the fix. Turn it off and the first one counts.
 4. Optional: **Maximum hand-ins per student**. Empty is no limit. With 5, only a student's first 5 hand-ins before the deadline count and the 5th is graded. Every hand-in costs a full run of your workflow - on a cloud exam, a deploy in the student's lab and about 25 Actions minutes - so a limit keeps that in check.
 
@@ -57,9 +57,10 @@ A hand-in after the deadline is never graded. That student appears by name with 
 
 The limit decides what is **graded**, not what a student can do: pushes and workflow runs are never blocked, so hand-in 6 of 5 still runs and still costs its minutes. It is simply not the one that counts.
 
-- Hand-ins are counted on or before **that student's** deadline, extensions included, in the order they were pushed. A late one does not use up a place.
+- Hand-ins are counted on or before **that student's** deadline, extensions included, in the order they were pushed. A late one does not use up a place. **On time means pushed on time**: where GitHub recorded the push, that time decides (less two minutes for the run to start), not the date on the commit, which is whatever the student's computer said.
+- **A grading run the student starts themselves counts as a hand-in.** The grading workflow can be started from the repository's Actions tab, and a student is usually admin of their own repository. Each such run uses a place and is never the one graded, and it is listed as *a grading run the student started*. Runs you start with **Grade this commit now** are yours and count for nothing.
 - Every hand-in that does not count is listed under the Autograder results by name, with the reason: *hand-in 6 of 5 at 11:42 (a1b2c3d) ignored: over the limit*, or *after the deadline*. Nothing is dropped silently.
-- The results table and **Export CSV** show each student's count: **6 / 5** means six hand-ins, five counted.
+- The results table and **Export CSV** show each student's count: **6 / 5** means six on-time hand-ins were made and the limit is five, so the sixth was not counted. Late ones are not in the first number.
 - A student cannot reset the count by rewriting their branch. Hand-ins are also counted from GitHub's record of the pushes, so one removed from the branch still counts and is listed as *no longer on the branch*. Only deleting those records too would hide it - on purpose, and visibly in the repository's history.
 
 **One student may hand in more.** Open their row → **Hand-ins**:
@@ -199,7 +200,8 @@ They are listed by name in the Autograder panel with the reason. They are **not*
 
 | What it says | What happened |
 | :--- | :--- |
-| the grading workflow was skipped at `abc1234` | The workflow did not run on that commit. With a hand-in message set, they never handed in with those exact words. |
+| the grading workflow was skipped at `abc1234` | The workflow did not run on that commit. With a hand-in message set, that commit's message is not the hand-in message (case aside). |
+| commit `abc1234` no longer exists in this repository | The branch was rewritten and GitHub no longer has that commit, so there is nothing to read. Choose another commit, or set a score by hand. |
 | the only "einde examen" commit is after the deadline | They handed in late. The time is in the message. |
 | no commit says "einde examen" | They never handed in. |
 | could not read this repository's Actions run history | With a hand-in limit, hand-ins are also counted from GitHub's record of the pushes, and that could not be read. Nobody is graded on a count that might be short; read the scores again later. |

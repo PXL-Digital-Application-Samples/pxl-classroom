@@ -274,6 +274,28 @@ test("IT NEVER OVERWRITES A SUMMARY A PERSON PRODUCED", async () => {
   }
 });
 
+test("a page-run github_actions summary IS replaced, though it names a lecturer (third review, 2026-09-26)", async () => {
+  // Same reading as this job's, and every decision in it is in overrides/.
+  // Kept because `graded_by` was set, it froze: a later grant never arrived.
+  const pageRun = {
+    schema_version: 1,
+    assignment_id: ID,
+    generated_at: "2026-09-01T12:00:00.000Z",
+    graded_by: "tomcoolpxl",
+    runner: "github_actions",
+    students: [{ login: "ada", earned_points: 1, total_points: 20 }],
+  };
+  const dir = controlDir({ assignmentExtra: "template_grades: true", summary: pageRun });
+  try {
+    await withApi(dir, {}, (res) => {
+      assert.equal(res.status, 0, res.stderr);
+      assert.doesNotMatch(res.stdout, /already graded by/);
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("but it DOES replace its own earlier reading", async () => {
   // `graded_by: null` + `runner: github_actions` is this script's own answer,
   // and a finalize run is not once. Refusing to replace it would freeze a score

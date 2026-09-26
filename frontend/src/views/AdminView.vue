@@ -1795,7 +1795,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
-import { readMaxHandIns } from '../../../lib/submission-marker.mjs'
+import { readMaxHandIns, submissionBranch } from '../../../lib/submission-marker.mjs'
 import { templateChanged, templateChangeNotice } from '../lib/template-change.js'
 import { planPermissionApply, applyStudentPermission } from '../../../lib/permission-change.mjs'
 import {
@@ -3746,7 +3746,7 @@ async function addStarterWorkflow({ handInMessage } = {}) {
     target.owner,
     target.repo,
     STARTER_PATH,
-    buildStarterWorkflow({ handInMessage }),
+    buildStarterWorkflow({ handInMessage, branch: submissionBranch({ submission_ref: form.value.submission_ref }) }),
     'Add grading workflow (PXL Classroom)',
   )
 

@@ -19,11 +19,12 @@
 // scripts/close-acceptance.mjs exists to have ended. A webhook needs a
 // receiver, and polling is what the minimal-minutes design refuses.
 //
-// IT NEVER OVERWRITES A HUMAN RUN. A summary carrying `graded_by` or written by
-// a local runner is a lecturer's own result - they ran the checks on their
-// machine, or pressed the button - and it outranks this one. Same shape as
-// `email_source`, where an absent provenance marker means a person and outranks
-// both writers. Re-grading over it is a button, not a side effect of a nightly.
+// IT NEVER OVERWRITES A LOCAL RUN. A summary a local runner wrote is a
+// lecturer's own result - they ran the checks on their machine - and nothing
+// here can reproduce it. One a lecturer produced from the page with
+// `github_actions` IS this reading, and its decisions live in `overrides/`
+// (humanWrote, below). Re-grading over a local run is a button, not a side
+// effect of a nightly.
 //
 // Exits 0 for every ordinary outcome including "nothing to do". A grading read
 // that cannot be completed must not fail a finalize that has already locked the
@@ -81,12 +82,19 @@ export async function readOverrides(dir) {
   return { ok: true, docs };
 }
 
-/** Has a person already produced this summary? */
+/**
+ * Was this summary produced by something this job cannot reproduce?
+ *
+ * A LOCAL RUNNER only (`docker` / `host`: tests a person ran on their own
+ * machine). A summary a lecturer produced from the page with `github_actions`
+ * is the reading this job makes, from the same check runs - and every decision
+ * a lecturer made in it (a chosen commit, a score by hand) is stored in
+ * `overrides/`, which `gradeStudent` asks first. Keeping it because it names a
+ * lecturer froze it for good: a grant or a finished run after that click
+ * never reached the summary (third review, 2026-09-26).
+ */
 function humanWrote(summary) {
   if (!summary) return false;
-  // A named lecturer, or a runner only a person can drive. `github_actions` is
-  // this path's own answer and is the one thing that may be replaced.
-  if (summary.graded_by) return true;
   return summary.runner === "docker" || summary.runner === "host";
 }
 

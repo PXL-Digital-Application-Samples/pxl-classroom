@@ -11,6 +11,18 @@ test("a completed push run inside the window can run again", () => {
   assert.deepEqual(rerunAvailability({ runs: [run()], now: NOW }), { can: true, runId: 42, why: null });
 });
 
+test("THE GRADING WORKFLOW'S run, by its file - never another workflow's (third review, 2026-09-26)", () => {
+  const lint = run({ id: 7, name: "Lint", path: ".github/workflows/lint.yml" });
+  const grading = run({ id: 8, name: "Autograding Tests", path: ".github/workflows/classroom.yml" });
+  const path = ".github/workflows/classroom.yml";
+  assert.equal(rerunAvailability({ runs: [lint, grading], now: NOW, workflowPath: path }).runId, 8);
+  const onlyLint = rerunAvailability({ runs: [lint], now: NOW, workflowPath: path });
+  assert.equal(onlyLint.can, false, "another file's run is not re-run in its place");
+  // Without the file: a run whose name says grading, or nothing - never push[0].
+  assert.equal(rerunAvailability({ runs: [lint], now: NOW }).can, false);
+  assert.equal(rerunAvailability({ runs: [lint, grading], now: NOW }).runId, 8);
+});
+
 test("no run at all: the commit was not the head of its push", () => {
   const r = rerunAvailability({ runs: [], now: NOW });
   assert.equal(r.can, false);

@@ -74,6 +74,17 @@ jobs:
 // Is this a workflow that grades?
 // -----------------------------------------------------------------------------
 
+test("the written workflow triggers on the SUBMISSION branch, not a hard-coded main (third review, 2026-09-26)", async () => {
+  assert.deepEqual(parse(buildStarterWorkflow()).on.push.branches, ["main"]);
+  assert.deepEqual(parse(buildStarterWorkflow({ branch: "master" })).on.push.branches, ["master"]);
+  // The Admin Panel passes the form's own submission ref.
+  const { readFileSync } = await import("node:fs");
+  assert.match(
+    readFileSync(new URL("../frontend/src/views/AdminView.vue", import.meta.url), "utf8"),
+    /buildStarterWorkflow\(\{ handInMessage, branch: submissionBranch\(/,
+  );
+});
+
 test("the reporter is the signal, not the filename", () => {
   // A lecturer may call the file anything. What makes it a grading workflow is
   // the step that turns results into the `Points X/Y` annotation the dashboard

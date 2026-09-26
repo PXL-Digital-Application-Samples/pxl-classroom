@@ -235,7 +235,13 @@ async function main() {
       restore.push({ path: `assignments/${id}.yml`, content: stringify(closed) });
     }
     try {
-      await write(`Live test cleanup: ${id} (restore roster and ${STUDENT_A.login}'s binding)`, restore);
+      // Twice: GitHub answered a cleanup commit with a transient
+      // `GitRPC::BadObjectState` once (2026-09-26), leaving the fixture behind.
+      const message = `Live test cleanup: ${id} (restore roster and ${STUDENT_A.login}'s binding)`;
+      await write(message, restore).catch(async () => {
+        await sleep(5000);
+        return write(message, restore);
+      });
       r.ok("restored the roster and the original binding");
     } catch (e) {
       r.bad(`could not restore: ${e.message} - restore students/roster.yml and ${claimFile} by hand`);

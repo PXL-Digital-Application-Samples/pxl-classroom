@@ -28,7 +28,7 @@
         </p>
 
         <ul v-else class="commit-list" role="radiogroup" aria-label="Commits">
-          <li v-for="r in rows" :key="r.sha" class="commit-row" :class="{ chosen: selected === r.sha }">
+          <li v-for="r in rows" :key="`${r.dispatched ? 'd' : 'c'}:${r.sha}:${r.number}`" class="commit-row" :class="{ chosen: selected === r.sha }">
             <label class="commit-pick">
               <input
                 v-model="selected"
@@ -139,7 +139,7 @@ import { readScoreAtCommit } from '../lib/grade-cohort.js'
 import { listHandIns, selectHandIn, messageMatchesMarker } from '../../../lib/submission-marker.mjs'
 import { decisionProblem } from '../../../lib/grade-override.mjs'
 import { rerunAvailability } from '../../../lib/grading-rerun.mjs'
-import { dispatchGrading, findGradingWorkflow, readRunScore } from '../../../lib/grade-dispatch.mjs'
+import { GRADE_ENTRY_MISSING, dispatchGrading, findGradingWorkflow, readRunScore } from '../../../lib/grade-dispatch.mjs'
 
 const props = defineProps({
   student: { type: Object, required: true },
@@ -152,6 +152,8 @@ const props = defineProps({
   /** The commit graded now, from the summary row, to mark it. */
   currentSha: { type: String, default: null },
   teamSize: { type: Number, default: 1 },
+  /** Whose own grading runs count as hand-ins: the student, or their team. */
+  teamLogins: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'choose', 'manual'])
@@ -191,21 +193,27 @@ function commitRow(c, extra = {}) {
     result: { state: 'loading' },
     rerun: null,
     runId: null,
+    dispatched: c.dispatched === true,
     ...extra,
   }
 }
 
 async function loadHandIns() {
-  const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true })
+  const students = props.teamLogins.length ? props.teamLogins : [props.student.github_login].filter(Boolean)
+  const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true, students })
   if (!listed.ok) throw new Error(`Could not read their ${listed.failedRead === 'runs' ? 'run history' : 'commits'} (HTTP ${listed.status}).`)
   // A walk that hit its cap returns no hand-ins - which is NOT "they handed
   // nothing in". Said as what it is.
   if (!listed.complete) throw new Error(`They have more commits than can be read here (${listed.scanned} read), so their hand-ins cannot be listed. Set a score by hand instead.`)
   const picked = selectHandIn(listed.handIns, { until: props.student.effective_deadline_at || null, multiple: props.marker.multiple, limit: props.limit })
-  const why = new Map(picked.ignored.map((i) => [i.sha, i.reason === 'late' ? 'late' : 'over the limit']))
+  // Keyed by sha AND kind: a grading run the student started names the same
+  // commit as a hand-in may, and is a different row.
+  const key = (x) => `${x.reason === 'self-dispatched' || x.dispatched ? 'd' : 'c'}:${x.sha}`
+  const label = { late: 'late', 'over-limit': 'over the limit', 'self-dispatched': 'a grading run they started themselves: counted, never graded' }
+  const why = new Map(picked.ignored.map((i) => [key(i), label[i.reason]]))
   const out = listed.handIns.map((h, i) => commitRow(h, {
     number: i + 1,
-    flags: [why.get(h.sha), h.onBranch === false ? 'no longer on the branch' : null].filter(Boolean),
+    flags: [why.get(key(h)), h.onBranch === false && !h.dispatched ? 'no longer on the branch' : null].filter(Boolean),
   }))
   return out.reverse()
 }
@@ -244,10 +252,12 @@ async function readOne(row) {
     }
     row.result = { state: out.verdict === 'api-failed' ? 'error' : 'none', reason: sentence(out.reason) }
     const runs = await get(`/repos/${repo.value}/actions/runs?head_sha=${row.sha}&per_page=20`)
+    await graderFound
     row.rerun = rerunAvailability({
       runs: runs.status === 200 ? runs.data?.workflow_runs : null,
       marker: props.marker,
       isHandIn: props.marker ? messageMatchesMarker(row.message, props.marker) : null,
+      workflowPath: grader.value.path || null,
     })
   } catch (e) {
     row.result = { state: 'error', reason: `Could not read its result: ${e.message}.` }
@@ -359,13 +369,14 @@ async function findGrader() {
   const found = await findGradingWorkflow(request, { repo: repo.value, branch: props.branch })
   if (!open) return
   grader.value = found.ok && found.available
-    ? { available: true, workflowId: found.workflowId, reason: '' }
+    ? { available: true, workflowId: found.workflowId, path: found.path, reason: '' }
     : {
         available: false,
+        path: found.path || null,
         reason: !found.ok
           ? found.reason
           : found.workflowId
-            ? 'this repository\'s grading workflow cannot grade a chosen commit yet - sync the updated workflow file with Sync Starter Code'
+            ? GRADE_ENTRY_MISSING
             : found.reason,
       }
 }
@@ -394,8 +405,11 @@ function requestClose() {
   emit('close')
 }
 
+// Awaited by readOne: re-run availability picks the grading workflow's run by
+// its file, which this lookup names.
+let graderFound = Promise.resolve()
 onMounted(() => {
-  findGrader()
+  graderFound = findGrader().catch(() => {})
   load()
 })
 onUnmounted(() => {

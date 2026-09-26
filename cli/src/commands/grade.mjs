@@ -319,12 +319,18 @@ export function registerGradeCommand(program) {
           return;
         }
         if (s.team_slug && !decision && teamResultsCache.has(s.team_slug)) {
+          // The WHOLE row the first member got: the check run it came from and
+          // the hand-in count too. Only the result was cached, so a teammate's
+          // summary row came out in the local-runner shape - no run, no link,
+          // no count (third review, 2026-09-26).
           const cached = teamResultsCache.get(s.team_slug);
           result = {
-            ...cached,
+            ...cached.result,
             github_login: s.github_login,
             graded_at: new Date().toISOString(),
           };
+          ciRow = cached.ciRow;
+          handIns = cached.handIns;
         } else if (isGitHubActions) {
           try {
             // WITH A MARKER, THE HAND-IN COMMIT IS THE SUBMISSION - the
@@ -429,7 +435,7 @@ export function registerGradeCommand(program) {
               }]
             };
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, result);
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
@@ -455,7 +461,7 @@ export function registerGradeCommand(program) {
               login: s.github_login, sha: archive.sha, archive, gradedBy,
             });
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, result);
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);

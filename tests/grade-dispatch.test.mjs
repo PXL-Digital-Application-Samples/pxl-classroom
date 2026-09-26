@@ -86,7 +86,8 @@ test("a workflow without the entry says what to do; a short sha never reaches Gi
   const gh = fakeGitHub({ dispatch: { status: 422, data: { message: "Workflow does not have 'workflow_dispatch' trigger" } } });
   const res = await dispatchGrading(gh.request, { repo: "Org/r", workflowId: 5, sha: SHA });
   assert.equal(res.ok, false);
-  assert.match(res.reason, /sync the updated workflow file with Sync Starter Code/);
+  // The TEMPLATE needs the entry first; syncing alone changes nothing (third review).
+  assert.match(res.reason, /template.s grading workflow needs .*grade_sha.*Sync Starter Code sends/s);
   const short = await dispatchGrading(gh.request, { repo: "Org/r", workflowId: 5, sha: "abc123" });
   assert.equal(short.ok, false);
   assert.equal(gh.calls.filter((c) => c.method === "POST").length, 1);

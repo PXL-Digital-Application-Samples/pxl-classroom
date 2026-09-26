@@ -312,7 +312,8 @@ test("no hand-ins at all", () => {
 });
 
 test("a hand-in with no readable date cannot be shown to be on time", () => {
-  const r = selectHandIn([h(1, 10), h(2, 20, { date: null }), h(3, 30, { date: "garbage" })], { until: DEADLINE, limit: 5 });
+  // No run recorded their push either: nothing says when they were made.
+  const r = selectHandIn([h(1, 10), h(2, 20, { date: null, pushedAt: null }), h(3, 30, { date: "garbage", pushedAt: null })], { until: DEADLINE, limit: 5 });
   assert.equal(r.commit.sha, sha(1));
   assert.deepEqual(r.ignored.map((i) => i.reason), ["late", "late"]);
 });
@@ -448,7 +449,8 @@ test("a run on another branch, or for another message, is not a hand-in", async 
     extraRuns: [
       runRow(sha(8), MSG, at(20), { branch: "feature" }),
       runRow(sha(9), "einde examen!", at(30)),
-      runRow(sha(7), "Einde examen", at(30)),
+      // A leading space is not the workflow's `==` (case is ignored, spaces are not).
+      runRow(sha(7), " einde examen", at(30)),
     ],
   });
   const res = await listHandIns(w.get, { repoFullName: REPO, branch: "main", marker: marker() });
@@ -764,4 +766,78 @@ test("the form's summary line names the cap, and only when there is one", () => 
 test("readMaxHandIns is the one judge the others use", () => {
   assert.equal(readMaxHandIns(3), 3);
   assert.equal(readMaxHandIns(0), null);
+});
+
+// =============================================================================
+// Third review, 2026-09-26
+// =============================================================================
+
+/** A repository where the branch, the push runs and the dispatch runs are separate answers. */
+function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true } = {}) {
+  const branch = branchHandIns.map((b) => commitRow(sha(b.n), MSG, at(b.min))).reverse();
+  const push = pushRuns ? branchHandIns.map((b) => runRow(sha(b.n), MSG, at(b.min), { id: 100 + b.n })).reverse() : [];
+  const dispatch = dispatches.map((d, i) => ({
+    id: 500 + i,
+    event: "workflow_dispatch",
+    display_title: `Grade ${sha(d.n)} (PXL Classroom)`,
+    created_at: at(d.min),
+    triggering_actor: { login: d.by },
+    head_sha: "f".repeat(40),
+  }));
+  return async (path) => {
+    if (path.includes("/commits?")) return { status: 200, data: branch };
+    if (path.includes("event=workflow_dispatch")) return { status: 200, data: { workflow_runs: dispatch } };
+    if (path.includes("event=push")) return { status: 200, data: { workflow_runs: push } };
+    return { status: 404, data: null };
+  };
+}
+
+test("A GRADING RUN THE STUDENT STARTED counts as a hand-in: it uses a slot and is never graded", async () => {
+  // The user's decision: a student could otherwise have commits graded as
+  // often as they liked under a cap, by pressing Run workflow themselves.
+  const get = dispatchWorld({
+    branchHandIns: [{ n: 1, min: 10 }, { n: 3, min: 40 }],
+    dispatches: [{ n: 2, min: 20, by: "Ada" }, { n: 2, min: 25, by: "tomcoolpxl" }],
+  });
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] });
+  assert.equal(listed.handIns.length, 3, "the lecturer's dispatch is a grading decision, not a hand-in");
+  const r = selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 });
+  assert.equal(r.used, 3);
+  assert.equal(r.commit.sha, sha(1), "the dispatch took slot 2, so hand-in 3 is over the limit");
+  assert.deepEqual(r.ignored.map((i) => i.reason), ["self-dispatched", "over-limit"]);
+  assert.match(describeIgnoredHandIn(r.ignored[0], { allowed: 2 }), /grading run the student started .* counted as hand-in 2 of 2, never graded/);
+  // No students named: nothing to attribute, nothing counted (and no read).
+  const none = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.equal(none.handIns.length, 2);
+});
+
+test("a dispatch is never the graded hand-in, even when it is the last valid one", () => {
+  const r = selectHandIn([h(1, 10), { ...h(2, 20), dispatched: true, onBranch: false }], { until: DEADLINE, limit: 5 });
+  assert.equal(r.commit.sha, sha(1));
+  assert.equal(r.number, 1);
+});
+
+test("LATENESS is when GitHub saw the push, not the date the student's machine wrote", () => {
+  // Committed with a backdated clock at 11:00, pushed at 12:30: late.
+  const backdated = h(1, 120, { pushedAt: at(210) });
+  assert.equal(selectHandIn([backdated], { until: DEADLINE, limit: 1 }).commit, null);
+  // A push at 11:59:30 whose run started 12:00:40 is on time: the allowance.
+  const edge = { ...h(2, 179.5), pushedAt: new Date(Date.parse(DEADLINE) + 40_000).toISOString() };
+  assert.equal(selectHandIn([edge], { until: DEADLINE, limit: 1 }).commit.sha, sha(2));
+  // No run: the commit date is all there is.
+  assert.equal(selectHandIn([h(3, 100, { pushedAt: null })], { until: DEADLINE, limit: 1 }).commit.sha, sha(3));
+});
+
+test("UNCAPPED `multiple: false` takes the FIRST hand-in from the run history too, so a force-push cannot move it", async () => {
+  // Hand-in 1 was pushed, then erased from the branch; hand-in 2 is what the
+  // branch shows. The first is still 1.
+  const branch = [commitRow(sha(2), MSG, at(20))];
+  const push = [runRow(sha(2), MSG, at(20), { id: 2 }), runRow(sha(1), MSG, at(10), { id: 1 })];
+  const get = async (path) => path.includes("/commits?")
+    ? { status: 200, data: branch }
+    : { status: 200, data: { workflow_runs: path.includes("event=push") ? push : [] } };
+  const found = await resolveHandIn(get, { row: { github_login: "ada", repo_name: REPO, effective_deadline_at: DEADLINE }, marker: marker({ multiple: false }) });
+  assert.equal(found.verdict, "found");
+  assert.equal(found.commit.sha, sha(1));
+  assert.equal(found.handIns, null, "no cap, no count to report");
 });

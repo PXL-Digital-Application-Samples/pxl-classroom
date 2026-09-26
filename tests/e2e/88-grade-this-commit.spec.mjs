@@ -154,6 +154,9 @@ test.describe('88 - grade this commit now', () => {
     const two = picker(page).locator('.commit-row').filter({ hasText: '#2' });
     await expect(two).toContainText('no result');
     await expect(two.getByRole('button', { name: 'Grade this commit now' })).toHaveCount(0);
-    await expect(picker(page)).toContainText('sync the updated workflow file with Sync Starter Code');
+    // The TEMPLATE first, then the sync: syncing alone changes nothing when
+    // the template's own workflow lacks the entry (third review, 2026-09-26).
+    await expect(picker(page)).toContainText('Its template\'s grading workflow needs a workflow_dispatch input named grade_sha')
+    await expect(picker(page)).toContainText('once the template has them, Sync Starter Code sends the workflow to this repository');
   });
 });

@@ -160,8 +160,30 @@ test("pxl-classroom grade queues a score by hand with NO preserved submission - 
   ];
   const queue = archiveGradeQueue(students, [doc("lee", [score(15, 20)])]);
   assert.deepEqual(queue.map((s) => s.github_login), ["kim", "lee"], "mo has neither, and is not queued");
+  // A CHOSEN COMMIT with no preserved submission is queued too, and read or
+  // refused by name - left out, the summary this run replaces whole lost it.
+  const chosen = archiveGradeQueue(students, [doc("mo", [commit(SHA_A)])]);
+  assert.deepEqual(chosen.map((s) => s.github_login), ["kim", "mo"]);
   const { readFileSync } = await import("node:fs");
   assert.match(readFileSync(new URL("../cli/src/commands/grade.mjs", import.meta.url), "utf8"), /archiveGradeQueue\(report\.students, overrides\)/);
+});
+
+test("gradeQueue: a cohort of scores by hand IS something to grade (third review, 2026-09-26)", async () => {
+  const { gradeQueue } = await import("../lib/grade-cohort.mjs");
+  const students = [{ github_login: "oral1" }, { github_login: "oral2" }];
+  assert.equal(gradeQueue(students, []).length, 0);
+  assert.deepEqual(gradeQueue(students, [doc("oral1", [score(12, 20)])]).map((s) => s.github_login), ["oral1"]);
+  // The page asks the same function before deciding there is nothing to do.
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(new URL("../frontend/src/views/AssignmentDetailView.vue", import.meta.url), "utf8"), /gradeQueue\(report\.value\.students, overridesByLogin\.value\)/);
+});
+
+test("a commit that no longer exists (HTTP 422) is a named no-run for that student, not a failed read of the cohort", async () => {
+  const { readScoreAtCommit } = await import("../lib/grade-cohort.mjs");
+  const gone = async () => ({ ok: false, status: 422, data: { message: "No commit found for SHA: aaaa" } });
+  const out = await readScoreAtCommit(gone, { repoFullName: "Org/r", sha: SHA_A });
+  assert.equal(out.verdict, "no-run");
+  assert.match(out.reason, /no longer exists in this repository/);
 });
 
 test("without a decision nothing changes, except that the graded commit is now recorded", async () => {

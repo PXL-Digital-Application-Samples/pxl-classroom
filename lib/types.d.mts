@@ -220,7 +220,7 @@ export type GradingSummary = {
         pushed_at?: string;
         on_branch?: boolean;
         number?: number;
-        reason?: "over-limit" | "late";
+        reason?: "over-limit" | "late" | "self-dispatched";
       }>;
     };
   }>;
@@ -239,7 +239,7 @@ export type GradingSummary = {
         pushed_at?: string;
         on_branch?: boolean;
         number?: number;
-        reason?: "over-limit" | "late";
+        reason?: "over-limit" | "late" | "self-dispatched";
       }>;
     };
   }>;

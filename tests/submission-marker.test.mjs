@@ -70,16 +70,19 @@ test("handing in again is allowed unless the assignment says otherwise", () => {
 // Matching, which has to agree with the workflow's `==`
 // -----------------------------------------------------------------------------
 
-test("matching is exact, because the workflow's comparison is", () => {
+test("matching is the workflow's `==`: whole message, case IGNORED, nothing trimmed but a trailing newline", () => {
   assert.equal(messageMatchesMarker("einde examen", MARKER), true);
   // git stores the trailing newline the push payload does not carry.
   assert.equal(messageMatchesMarker("einde examen\n", MARKER), true);
+  // GitHub's expression `==` ignores case for strings, so the workflow graded
+  // this one - calling it "nothing handed in" was the defect (third review).
+  assert.equal(messageMatchesMarker("Einde Examen", MARKER), true);
 
   // Every one of these is a commit the workflow did NOT grade. Matching them
   // here would send the reader to a commit with no grading run on it and
   // report "the workflow was skipped" pointing at the commit the lecturer
   // believes is the hand-in.
-  assert.equal(messageMatchesMarker("Einde examen", MARKER), false);
+  assert.equal(messageMatchesMarker(" einde examen", MARKER), false);
   assert.equal(messageMatchesMarker("einde examen!", MARKER), false);
   assert.equal(messageMatchesMarker("einde examen\n\nfixed the vpc", MARKER), false);
   assert.equal(messageMatchesMarker("", MARKER), false);

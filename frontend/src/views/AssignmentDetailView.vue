@@ -1186,6 +1186,7 @@
         :fallback-total="autogradeTotalPoints"
         :current-sha="actionGrading?.current?.graded_sha || null"
         :team-size="teamMembersOf(actionStudent).length"
+        :team-logins="teamMembersOf(actionStudent).map((s) => s.github_login).filter(Boolean)"
         :saving="actionDeciding"
         @close="showRegradeCommit = false"
         @manual="showRegradeCommit = false"
@@ -1307,7 +1308,7 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { gradeCohort, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -3658,7 +3659,9 @@ async function syncGradesFromGitHub() {
   if (!token || !report.value || !assignment.value) return
 
   const queue = report.value.students.filter((s) => s.repo_name && gradingCommitFor(s))
-  if (queue.length === 0 && !readSubmissionMarker(assignment.value)) {
+  // A score set by hand is something to grade too, with no commit behind it.
+  const manual = gradeQueue(report.value.students, overridesByLogin.value).filter((s) => !s.repo_name)
+  if (queue.length === 0 && manual.length === 0 && !readSubmissionMarker(assignment.value)) {
     toast.info(
       'No student commit observations or preserved submissions found yet. Click Refresh to query student repositories first.',
     )
@@ -3666,7 +3669,7 @@ async function syncGradesFromGitHub() {
   }
   if (!capAllowancesReadable()) return
 
-  totalGradesToSync.value = queue.length
+  totalGradesToSync.value = queue.length + manual.length
   syncedGradesCount.value = 0
   syncingGrades.value = true
 
