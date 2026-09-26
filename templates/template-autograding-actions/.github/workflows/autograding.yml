@@ -1,5 +1,15 @@
 name: GitHub Classroom Autograding
-on: [push]
+# A lecturer's "Grade this commit now" in PXL Classroom starts this workflow on
+# main with the commit to grade; the checkout below checks that commit out.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Grade {0} (PXL Classroom)', inputs.grade_sha) || github.event.head_commit.message }}
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      grade_sha:
+        description: Commit to grade (started by a lecturer from PXL Classroom)
+        required: true
+        type: string
 
 permissions:
   checks: write
@@ -14,6 +24,8 @@ jobs:
       # v4 runs on Node 20, which GitHub has deprecated: every student's
       # grading result carries a warning annotation saying so.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.grade_sha || github.sha }}
 
       - name: Basic Stats Test
         id: test-basic

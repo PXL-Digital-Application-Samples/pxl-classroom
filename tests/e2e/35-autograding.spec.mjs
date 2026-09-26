@@ -617,7 +617,8 @@ jobs:
       },
     ).toBeTruthy();
     const written = contentWrites.find((w) => w.path === '.github/workflows/classroom.yml').content;
-    expect(written).toContain("if: github.event.head_commit.message == 'einde examen'");
+    // A lecturer's "Grade this commit now" dispatch passes the gate (lib/grade-dispatch.mjs).
+    expect(written).toContain("if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde examen'");
     // A placeholder that passes would report full marks for work nobody
     // measured, in every student repository (DESIGN.md §1.5).
     expect(written).toContain('exit 1');

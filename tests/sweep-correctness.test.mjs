@@ -96,7 +96,9 @@ test("two test ids that differ only in punctuation keep separate results", () =>
 
 test("the concurrency expression is preserved, not mangled by the serialiser", () => {
   const yaml = buildAutogradingWorkflow({ id: "lab", autograde: { visibility: "private" } }, "PXLAutomation");
-  assert.equal(parse(yaml).concurrency.group, "autograde-${{ github.ref }}");
+  // With the dispatch's own lane beside the push's (lib/grade-dispatch.mjs),
+  // so a student's next push cannot cancel a lecturer's "grade this commit".
+  assert.equal(parse(yaml).concurrency.group, "autograde-${{ github.ref }}-${{ inputs.grade_sha || 'push' }}");
 });
 
 // --- F16: no credential in a git command line -------------------------------

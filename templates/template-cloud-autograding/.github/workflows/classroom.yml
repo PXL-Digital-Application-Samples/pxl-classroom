@@ -12,20 +12,34 @@ name: Autograding Tests
 # the score from this commit instead of from the student's last one - and
 # without it, a student who pushes anything afterwards is reported as having no
 # grading run at all.
+#
+# A lecturer can also start it for a chosen commit ("Grade this commit now" in
+# PXL Classroom), which dispatches it with `grade_sha`. It runs against the
+# student's cloud account like a hand-in does, so it only works while their lab
+# session is still alive - afterwards it fails, like any grading run would.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Grade {0} (PXL Classroom)', inputs.grade_sha) || github.event.head_commit.message }}
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      grade_sha:
+        description: Commit to grade (started by a lecturer from PXL Classroom)
+        required: true
+        type: string
 
 jobs:
   run-autograding-tests:
     runs-on: ubuntu-latest
-    if: github.event.head_commit.message == 'einde examen'
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde examen'
     steps:
       # v4 runs on Node 20, which GitHub has deprecated: every student's
       # grading result carries a warning annotation saying so.
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.grade_sha || github.sha }}
 
       # The student commits their own lab credentials as `creds.txt`, in the
       # format the AWS CLI wants. `-p` because a re-run on a warm image already

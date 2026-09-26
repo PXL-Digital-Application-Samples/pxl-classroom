@@ -350,6 +350,7 @@ export type Override = {
     reason?: string;
     overridden_by?: string;
     overridden_at?: string;
+    run_id?: number;
   }>;
 };
 

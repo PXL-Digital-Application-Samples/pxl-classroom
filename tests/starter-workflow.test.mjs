@@ -136,7 +136,8 @@ test("the starter is valid YAML, and says what it grades on", () => {
   const doc = parse(buildStarterWorkflow({ handInMessage: "einde examen" }));
   const job = doc.jobs["run-autograding-tests"];
 
-  assert.equal(job.if, "github.event.head_commit.message == 'einde examen'");
+  // A lecturer's dispatch has no head_commit, so it is let through first.
+  assert.equal(job.if, "github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde examen'");
   // The job KEY becomes the check run's name, and the score reader picks the
   // run whose name says it grades (lib/check-run-score.mjs).
   assert.match("run-autograding-tests", /grad|classroom/i);
@@ -192,7 +193,7 @@ test("a hand-in message carrying a quote cannot break the file", () => {
   // `it` and the runner cannot evaluate what follows.
   assert.equal(
     doc.jobs["run-autograding-tests"].if,
-    `github.event.head_commit.message == 'einde "examen": it''s over'`,
+    `github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde "examen": it''s over'`,
   );
   // And it round-trips through the reader, which is what the mismatch warning
   // compares against. Without the escape this read back as `einde "examen": it`

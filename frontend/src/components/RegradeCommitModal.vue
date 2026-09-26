@@ -62,6 +62,11 @@
             <!-- No result: say why, and offer what can still be done. Never a zero. -->
             <div v-if="r.result.state === 'none' || r.result.state === 'error'" class="commit-none text-sm text-secondary">
               {{ r.result.reason }}
+              <template v-if="grader.available">
+                <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="gradeNow(r)">Grade this commit now</button>
+                <span>Runs the grading workflow on their {{ branch }} branch against the code of this commit. Tests written
+                  in the workflow are the current ones; test files in the repository are the ones at this commit.</span>
+              </template>
               <template v-if="r.rerun">
                 <template v-if="r.rerun.can">
                   <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="rerun(r)">Run grading again</button>
@@ -75,6 +80,9 @@
           </li>
         </ul>
         <button v-if="hasMore && !loading" type="button" class="btn-link" @click="loadMore">Show older commits</button>
+        <p v-if="grader.reason && rows.some((r) => r.result.state === 'none')" class="form-hint text-secondary">
+          Grading a chosen commit now is not possible here: {{ grader.reason }}.
+        </p>
       </section>
 
       <section class="modal-section">
@@ -89,7 +97,7 @@
             class="btn btn-primary"
             type="button"
             :disabled="saving || !selectedRow || !!problem"
-            @click="emit('choose', { sha: selected, reason: reason.trim() })"
+            @click="emit('choose', { sha: selected, reason: reason.trim(), runId: selectedRow.runId ?? null })"
           >{{ saving ? 'Saving…' : selectedRow ? `Grade on ${selectedRow.number ? '#' + selectedRow.number : selectedRow.sha.slice(0, 7)} (${selectedRow.result.earned}/${selectedRow.result.total})` : 'Pick a commit with a result' }}</button>
         </div>
       </section>
@@ -114,6 +122,12 @@
 // re-run replays the original push, so it runs the tests AS THEY WERE at that
 // commit - said beside the button. Where nothing can run, a score by hand.
 //
+// Where the repository's grading workflow carries the dispatch entry
+// (lib/grade-dispatch.mjs), "Grade this commit now" runs it for that commit
+// with the CURRENT workflow's tests - no 30-day limit, no hand-in gate. The run
+// belongs to the branch tip, so the choice carries its run id and every grader
+// reads that run.
+//
 // The data is read here and only here, while the dialog is open: it is the
 // dialog's own state (DESIGN.md §6).
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -125,6 +139,7 @@ import { readScoreAtCommit } from '../lib/grade-cohort.js'
 import { listHandIns, selectHandIn, messageMatchesMarker } from '../../../lib/submission-marker.mjs'
 import { decisionProblem } from '../../../lib/grade-override.mjs'
 import { rerunAvailability } from '../../../lib/grading-rerun.mjs'
+import { dispatchGrading, findGradingWorkflow, readRunScore } from '../../../lib/grade-dispatch.mjs'
 
 const props = defineProps({
   student: { type: Object, required: true },
@@ -156,6 +171,8 @@ const page = ref(1)
 const hasMore = ref(false)
 const selected = ref('')
 const reason = ref('')
+/** The grading workflow's dispatch entry: { available, workflowId?, reason? }. */
+const grader = ref({ available: false, reason: '' })
 let open = true
 const timers = new Set()
 
@@ -173,6 +190,7 @@ function commitRow(c, extra = {}) {
     flags: [],
     result: { state: 'loading' },
     rerun: null,
+    runId: null,
     ...extra,
   }
 }
@@ -251,21 +269,58 @@ async function rerun(row) {
     }
     return
   }
-  // Checked every 10 seconds WHILE THIS DIALOG IS OPEN, and never after: the
-  // same rule the starter sync's follow obeys. Closing it leaves the run going.
+  whenDone(row.rerun.runId, async () => {
+    row.result = { state: 'loading' }
+    await readOne(row)
+  })
+}
+
+// Checked every 10 seconds WHILE THIS DIALOG IS OPEN, and never after: the
+// same rule the starter sync's follow obeys. Closing it leaves the run going.
+function whenDone(runId, then) {
   const poll = async () => {
     if (!open) return
-    const r = await get(`/repos/${repo.value}/actions/runs/${row.rerun.runId}`)
-    if (r.status === 200 && r.data?.status === 'completed') {
-      row.result = { state: 'loading' }
-      await readOne(row)
-      return
-    }
+    const r = await get(`/repos/${repo.value}/actions/runs/${runId}`)
+    if (r.status === 200 && r.data?.status === 'completed') return then()
     const t = setTimeout(() => { timers.delete(t); poll() }, 10_000)
     timers.add(t)
   }
   const t = setTimeout(() => { timers.delete(t); poll() }, 10_000)
   timers.add(t)
+}
+
+async function gradeNow(row) {
+  row.result = { state: 'running' }
+  const res = await dispatchGrading(request, { repo: repo.value, workflowId: grader.value.workflowId, sha: row.sha, branch: props.branch })
+  if (!res.ok) {
+    row.result = { state: 'none', reason: sentence(res.reason) }
+    return
+  }
+  whenDone(res.runId, async () => {
+    const out = await readRunScore(request, { repoFullName: repo.value, runId: res.runId, sha: row.sha, fallbackTotal: props.fallbackTotal })
+    if (out.verdict === 'graded') {
+      row.result = { state: 'graded', earned: out.parsed.earned, total: out.parsed.total > 0 ? out.parsed.total : props.fallbackTotal }
+      row.runId = res.runId
+      row.rerun = null
+      return
+    }
+    row.result = { state: out.verdict === 'api-failed' ? 'error' : 'none', reason: sentence(out.reason) }
+  })
+}
+
+async function findGrader() {
+  const found = await findGradingWorkflow(request, { repo: repo.value, branch: props.branch })
+  if (!open) return
+  grader.value = found.ok && found.available
+    ? { available: true, workflowId: found.workflowId, reason: '' }
+    : {
+        available: false,
+        reason: !found.ok
+          ? found.reason
+          : found.workflowId
+            ? 'this repository\'s grading workflow cannot grade a chosen commit yet - sync the updated workflow file with Sync Starter Code'
+            : found.reason,
+      }
 }
 
 async function load() {
@@ -292,7 +347,10 @@ function requestClose() {
   emit('close')
 }
 
-onMounted(load)
+onMounted(() => {
+  findGrader()
+  load()
+})
 onUnmounted(() => {
   open = false
   for (const t of timers) clearTimeout(t)

@@ -381,7 +381,11 @@ test("the workflow written into student repositories is not on a deprecated Node
   // their own GITHUB_TOKEN. What it must not do is ship a major GitHub has
   // deprecated - v4 put a Node 20 warning annotation on every student's grading
   // run, which is noise on the one screen a student reads for their mark.
-  const src = readFileSync(join(root, "provisioning", "provision.mjs"), "utf8");
+  // The checkout step both generators write lives in lib/grade-dispatch.mjs
+  // (it checks out a lecturer's chosen commit on a dispatch), so that is where
+  // its version is read; provision.mjs is scanned too in case one comes back.
+  const src = ["provisioning/provision.mjs", "lib/grade-dispatch.mjs"]
+    .map((p) => readFileSync(join(root, ...p.split("/")), "utf8")).join("\n");
   const uses = checkoutRefs(src);
   assert.ok(uses.length > 0, "the generated workflow must still check the repository out");
   for (const { ref, deprecated } of uses) {

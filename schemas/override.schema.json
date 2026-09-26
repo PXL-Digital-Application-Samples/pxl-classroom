@@ -115,6 +115,11 @@
             "type": "string",
             "format": "date-time",
             "description": "ISO 8601 timestamp when the override was applied."
+          },
+          "run_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Only on `submission_sha`: the run a lecturer started with \"Grade this commit now\" (lib/grade-dispatch.mjs). A dispatched run belongs to the branch tip, not to the chosen commit, so the score is read from THIS run rather than from whatever is attached to the commit. Absent: the commit's own grading run."
           }
         }
       }

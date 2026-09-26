@@ -32,6 +32,7 @@ import {
   buildGradingSummary,
 } from "../../../lib/grading-summary.mjs";
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
+import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
 import { resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
@@ -230,6 +231,12 @@ export function registerGradeCommand(program) {
       // commit, a score by hand - lib/grade-override.mjs) lives here too, and a
       // CLI run that ignored one would overwrite it in the summary.
       const overrides = await listOverrides(octokit, { org, assignmentId: opts.assignment });
+      // The lib's `request(method, path)` shape, for the reads it does (GET only).
+      const readPath = toRequest(octokit);
+      const readRequest = async (_method, path) => {
+        const res = await readPath(path);
+        return { ...res, ok: res.status >= 200 && res.status < 300 };
+      };
 
       // ONE commit's worth of reading, so it can be done twice - at the
       // preserved commit, and again at the hand-in commit when the first says
@@ -238,7 +245,12 @@ export function registerGradeCommand(program) {
         const short = String(sha).slice(0, 7);
         // s.repo_name is already the full org/repo name.
         const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${sha}/check-runs`);
-        const checkRuns = checksReq.data.check_runs || [];
+        // Never a dispatched run's result (lib/grade-dispatch.mjs).
+        const own = await withoutDispatchedRuns(readRequest, { repoFullName: s.repo_name, sha, checkRuns: checksReq.data.check_runs });
+        if (!own.ok) {
+          return { verdict: "api-failed", reason: `could not read which runs at commit ${short} a lecturer started - HTTP ${own.status}` };
+        }
+        const checkRuns = own.checkRuns;
         if (checkRuns.length === 0) {
           return { verdict: "no-run", reason: `no CI run at commit ${short}` };
         }
@@ -322,8 +334,14 @@ export function registerGradeCommand(program) {
             // read never did.
             let outcome;
             if (decision?.kind === "commit") {
-              // The rules are the lecturer's to skip; the run is not.
-              outcome = await readScoreAtCommit(s, decision.sha);
+              // The rules are the lecturer's to skip; the run is not. Graded by
+              // "Grade this commit now": that run is the result, read through
+              // the same lib function the page and the nightly use.
+              if (decision.runId) {
+                outcome = await readRunScore(readRequest, { repoFullName: s.repo_name, runId: decision.runId, sha: decision.sha, fallbackTotal: totalFallback });
+              } else {
+                outcome = await readScoreAtCommit(s, decision.sha);
+              }
               if (outcome.verdict !== "graded") {
                 outcome = { ...outcome, reason: `the commit @${decision.by} chose (${decision.sha.slice(0, 7)}) cannot be read: ${outcome.reason}` };
               }

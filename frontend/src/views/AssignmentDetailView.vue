@@ -1189,7 +1189,7 @@
         :saving="actionDeciding"
         @close="showRegradeCommit = false"
         @manual="showRegradeCommit = false"
-        @choose="decideGrade(actionStudent, { type: 'submission_sha', value: $event.sha, reason: $event.reason })"
+        @choose="decideGrade(actionStudent, { type: 'submission_sha', value: $event.sha, reason: $event.reason, runId: $event.runId })"
       />
 
       <!-- Open a draft Feedback PR per eligible student repository. -->
@@ -1272,6 +1272,7 @@ import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 import StudentActionsModal from '../components/StudentActionsModal.vue'
 import RegradeCommitModal from '../components/RegradeCommitModal.vue'
+import { withoutDispatchedRuns } from '../../../lib/grade-dispatch.mjs'
 import { MANUAL_SCORE, decisionEntry, decisionProblem, gradeDecisionFor } from '../../../lib/grade-override.mjs'
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
@@ -3336,10 +3337,15 @@ async function refreshOne(token, s) {
       // deliberate action a lecturer takes once.
       if (isGitHubActionsAutograde.value) {
         const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
-        if (checkRes.ok && checkRes.data?.check_runs) {
+        // Without dispatched runs: one started for an older commit is listed
+        // on this one (lib/grade-dispatch.mjs).
+        const own = checkRes.ok && checkRes.data?.check_runs
+          ? await withoutDispatchedRuns((m, p, b) => ghApi(token, m, p, b), { repoFullName: s.repo_name, sha, checkRuns: checkRes.data.check_runs })
+          : { ok: false }
+        if (own.ok) {
           // Shared picker: this had its own `includes('grade')` variant, which
           // misses the `classroom` naming the other copy matched.
-          const run = pickAutogradeCheckRun(checkRes.data.check_runs)
+          const run = pickAutogradeCheckRun(own.checkRuns)
           if (run) {
             s.ci_status = run.conclusion || run.status
             s.ci_run_url = run.html_url || run.details_url || s.ci_run_url || null
@@ -3785,7 +3791,7 @@ const actionHandInLimit = computed(() => {
  * rules - on the student (every member of a team: one repository, one
  * submission), then read their grade again so it shows at once.
  */
-async function decideGrade(student, { type, value, reason }) {
+async function decideGrade(student, { type, value, reason, runId = null }) {
   if (!student || actionDeciding.value) return
   const problem = decisionProblem({ type, value, reason })
   if (problem) {
@@ -3795,7 +3801,8 @@ async function decideGrade(student, { type, value, reason }) {
   if (!capAllowancesReadable()) return
   const by = user.value?.login || getUser()?.login || 'unknown'
   const at = new Date().toISOString()
-  const entry = decisionEntry({ type, value, reason, by, at })
+  // runId: the run "Grade this commit now" started (lib/grade-dispatch.mjs).
+  const entry = decisionEntry({ type, value, reason, by, at, runId })
   const what = value === null ? 'Back to the rules' : type === MANUAL_SCORE ? `Score by hand ${value.earned}/${value.total}` : `Grade on ${String(value).slice(0, 7)}`
   actionDeciding.value = true
   try {

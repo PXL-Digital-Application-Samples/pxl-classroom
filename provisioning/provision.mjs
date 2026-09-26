@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { applyStudentPermission } from "../lib/permission-change.mjs";
+import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
 // The branch grading reads from. One decision, one implementation - the
@@ -212,8 +213,12 @@ export function buildAutogradingWorkflow(assignment, org) {
     // check run at that commit, so the score read reports "no grading run" and
     // the assignment looks configured. Two halves of one fact, in two files,
     // with nothing deriving either from the other.
-    on: { push: { branches: [submissionBranch(assignment)] } },
-    concurrency: { group: "autograde-${{ github.ref }}", "cancel-in-progress": true },
+    on: { push: { branches: [submissionBranch(assignment)] }, ...gradeDispatchTrigger() },
+    // A lecturer's "grade this commit now" (lib/grade-dispatch.mjs) runs on the
+    // same branch ref as a push; its own group, so the two never cancel each
+    // other - a student's next push must not kill the lecturer's run.
+    "run-name": GRADE_RUN_NAME,
+    concurrency: { group: `autograde-\${{ github.ref }}-\${{ inputs.${GRADE_DISPATCH_INPUT} || 'push' }}`, "cancel-in-progress": true },
   };
 
   // THERE IS ONE PATH, and there only ever was one that worked.
@@ -269,7 +274,8 @@ export function buildAutogradingWorkflow(assignment, org) {
   // beyond their own GITHUB_TOKEN. The classroom-resources graders below are
   // still v1 and still on Node 20 - upstream has published nothing newer, so
   // that warning is not ours to remove.
-  const steps = [{ name: "Checkout code", uses: "actions/checkout@v7" }];
+  // The commit a lecturer named on a dispatch, the pushed one otherwise.
+  const steps = [gradeCheckoutStep()];
   const runnerIds = [];
   const env = {};
 

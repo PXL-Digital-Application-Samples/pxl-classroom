@@ -57,3 +57,9 @@ by name.
 The sandbox account is gone once the session ends, so the archived code cannot
 be re-graded against it. The check run left on the hand-in commit is the
 measurement, and it is what the archive preserves alongside the code.
+
+The workflow can still be started for one chosen commit from the dashboard
+(**Grade this commit now**), and that works while the exam runs - a hand-in
+whose run failed for a reason that was not the student's. After the session it
+checks an account that no longer exists and fails; give a score by hand
+instead.

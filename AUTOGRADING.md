@@ -156,6 +156,31 @@ Each grader takes a `max-score` and a `timeout` - **in minutes**, which every on
 
 **How the score gets back here.** The reporter publishes a GitHub *check run* named after the workflow's job, and puts the score in that run's **annotations** rather than its summary. PXL Classroom finds the run by name and reads the annotations - which is why the job is called `run-autograding-tests` and why changing that name loses the score.
 
+### Grading a commit you choose
+
+The **Grade this commit now** button (the student's **⋯** → *Re-grade a commit…*) starts this workflow for one commit the student made earlier. Workflows PXL Classroom writes can do it already; a template's own workflow needs three changes:
+
+```yaml
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Grade {0} (PXL Classroom)', inputs.grade_sha) || github.event.head_commit.message }}
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      grade_sha:
+        required: true
+        type: string
+jobs:
+  run-autograding-tests:
+    # only with a hand-in message: let the button through the gate
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde examen'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.grade_sha || github.sha }}
+```
+
+The title matters: the result is only accepted from a run whose title names the commit it graded. Tests written in the workflow are the current ones; test files in the repository are the ones at that commit.
+
 GitHub's own documentation: [autograding with GitHub Classroom](https://docs.github.com/en/education/manage-coursework-with-github-classroom/teach-with-github-classroom/use-autograding).
 
 ## Reading the scores

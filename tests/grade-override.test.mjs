@@ -27,7 +27,7 @@ test("a chosen commit, then a score by hand: the score wins; removing it falls b
   assert.equal(gradeDecisionFor("kim", { overrides: withBoth }).kind, "score");
   const scoreRemoved = [doc("kim", [commit(SHA_A), score(15, 20), score(null)])];
   assert.deepEqual(gradeDecisionFor("kim", { overrides: scoreRemoved }), {
-    kind: "commit", sha: SHA_A, by: "tomcoolpxl", at: "2026-09-26T10:00:00Z", reason: "wifi dropped",
+    kind: "commit", sha: SHA_A, by: "tomcoolpxl", at: "2026-09-26T10:00:00Z", reason: "wifi dropped", runId: null,
   });
 });
 
