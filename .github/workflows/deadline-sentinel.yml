@@ -433,8 +433,12 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TARGET_ORG: ${{ matrix.sentinel.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         with:
           script: |
+            github.hook.before('request', (o) => { o.headers = { ...o.headers, 'x-github-api-version': process.env.GITHUB_API_VERSION }; });
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,

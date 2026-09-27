@@ -42,6 +42,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
 import { HUB_OWNER, HUB_REPO_NAME } from "#deployment";
+import { GITHUB_API_VERSION } from "../lib/github-api-version.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback = null) => {
@@ -150,7 +151,9 @@ async function convert(code) {
  * and gh refuses it. Same reason the commands printed at the end omit it.
  */
 function verify(slug) {
-  const res = spawnSync("gh", ["api", `apps/${slug}`], {
+  // No space after the colon: with `shell` on Windows the arguments are joined
+  // unquoted, and gh reads `Name:value` the same.
+  const res = spawnSync("gh", ["api", "-H", `X-GitHub-Api-Version:${GITHUB_API_VERSION}`, `apps/${slug}`], {
     encoding: "utf8",
     shell: process.platform === "win32",
   });

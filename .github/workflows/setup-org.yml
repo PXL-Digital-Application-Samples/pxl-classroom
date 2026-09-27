@@ -68,6 +68,9 @@ jobs:
           GH_TOKEN: ${{ steps.billing_token.outputs.token }}
           TARGET_ORG: ${{ inputs.target_org }}
           APP_OWNER: ${{ github.repository_owner }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           if [ -z "${GH_TOKEN}" ]; then
             echo "::error::Cannot mint a token with 'Organization Administration: read' for ${TARGET_ORG}. Fix in this order, then re-run. (1) App owner: https://github.com/organizations/${APP_OWNER}/settings/apps/pxl-classroom-provisioner/permissions -> Organization permissions -> Administration: Read-only -> Save changes. Verify with 'gh api apps/pxl-classroom-provisioner --jq .permissions'. (2) ${TARGET_ORG} owner: https://github.com/organizations/${TARGET_ORG}/settings/installations -> pxl-classroom-provisioner -> Review request -> approve, and set Repository access to 'All repositories'. See ADMIN.md §6.6."
@@ -75,7 +78,7 @@ jobs:
           fi
           YEAR=$(date -u +%Y)
           MONTH=$(date -u +%-m)
-          if ! gh api "/organizations/${TARGET_ORG}/settings/billing/usage?year=${YEAR}&month=${MONTH}" >/dev/null; then
+          if ! gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "/organizations/${TARGET_ORG}/settings/billing/usage?year=${YEAR}&month=${MONTH}" >/dev/null; then
             echo "::error::The App holds 'Organization Administration: read' for ${TARGET_ORG} but the Enhanced Billing usage endpoint is still inaccessible - most likely Enhanced Billing is unavailable on this org's plan. See ADMIN.md §6.6."
             exit 1
           fi
@@ -95,9 +98,14 @@ jobs:
 
       - name: Create pxl-classroom-control repository
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         with:
           github-token: ${{ steps.generate_token.outputs.token }}
           script: |
+            github.hook.before('request', (o) => { o.headers = { ...o.headers, 'x-github-api-version': process.env.GITHUB_API_VERSION }; });
             const org = context.payload.inputs.target_org;
             const repoName = 'pxl-classroom-control';
             

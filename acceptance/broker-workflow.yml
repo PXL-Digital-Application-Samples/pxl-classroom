@@ -240,6 +240,9 @@ jobs:
           # before this change meant.
           KIND: ${{ steps.verify.outputs.kind }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           ARGS=(
             "/repos/PXL-Digital-Application-Samples/pxl-classroom/dispatches"
@@ -260,7 +263,7 @@ jobs:
           if [ -n "$KIND" ]; then
             ARGS+=(-f "client_payload[kind]=$KIND")
           fi
-          gh api --method POST "${ARGS[@]}"
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "${ARGS[@]}"
 
       # The trigger issue's TITLE carries the assignment's signed invitation, and
       # this repository is public. Closing and locking hide nothing - a locked,
