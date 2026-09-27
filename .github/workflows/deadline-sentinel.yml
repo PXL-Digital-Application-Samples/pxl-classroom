@@ -202,7 +202,9 @@ jobs:
       # the freshest list. That is why the running sentinel re-reads its group
       # while it waits and stops every assignment whose deadline is this
       # instant, not just `assignment_ids` (deadline-sentinel.mjs). The queued
-      # duplicate re-stops the same group idempotently after the instant.
+      # duplicate then finds the stop recorded as held and does nothing - no
+      # second stop, timeline or finalize (`already-stopped`). It stops only
+      # what the first did not: a member whose stop failed or never ran.
       group: sentinel-${{ matrix.sentinel.org }}-${{ matrix.sentinel.key }}
       cancel-in-progress: false
     runs-on: ubuntu-latest

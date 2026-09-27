@@ -62,7 +62,7 @@ import { gh } from "../lib/gh.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir } from "../lib/control-layout.mjs";
-import { sentinelInstant } from "../lib/sentinel-window.mjs";
+import { sentinelInstant, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -425,6 +425,51 @@ export function timelineFileName(key, existing, { runId, runAttempt }) {
 }
 
 /**
+ * Whether ANOTHER sentinel of this same group already stopped this assignment,
+ * and the stop held.
+ *
+ * Arming is not coordinated, so two jobs for one instant are the normal case,
+ * not an accident: the SPA arms before a publish and publish-assignment.yml arms
+ * again after it, and the 4-hourly cron's 4.5h window arms a deadline in the
+ * overlap twice. The duplicate queues in the same concurrency group, starts once
+ * the first has finished, and reaches the instant immediately - where it used to
+ * stop the cohort again, commit a second timeline and dispatch a SECOND
+ * finalize. Measured 2026-09-27: every drill instant that night ran finalize
+ * twice, and the second one collided with the dashboard regeneration the first
+ * had triggered.
+ *
+ * Only a stop that is CONFIRMED counts (`confirmedOnly`, the same judge
+ * lockdown.mjs uses to credit the instant): a first sentinel whose stop failed,
+ * or that died with `stop: pending`, is exactly what the duplicate is still
+ * there to cover. Only this group's key, so a stop at an earlier instant (a
+ * deadline since moved and reopened) is not mistaken for this one. Never this
+ * run's own timeline.
+ *
+ * @param {string} key
+ * @param {Array<{name: string, doc: any}>} timelines `lockdowns/<id>/sentinel-*.json`, parsed
+ * @param {string} runUrl this run's `observer_run`
+ */
+export function stoppedByAnotherSentinel(key, timelines, runUrl) {
+  const others = (timelines || []).filter(({ name, doc }) =>
+    (name === `sentinel-${key}.json` || name.startsWith(`sentinel-${key}-`)) && doc?.observer_run !== runUrl);
+  return sentinelStoppedAt(others.map((t) => t.doc), { confirmedOnly: true }) !== null;
+}
+
+async function readTimelines(id) {
+  const dir = join(cfg.dataDir, "lockdowns", id);
+  const names = (await readdir(dir).catch(() => [])).filter((n) => /^sentinel-.*\.json$/.test(n));
+  const out = [];
+  for (const name of names) {
+    try {
+      out.push({ name, doc: JSON.parse(await readFile(join(dir, name), "utf8")) });
+    } catch {
+      // An unreadable timeline is not evidence of a stop.
+    }
+  }
+  return out;
+}
+
+/**
  * The assignments this sentinel may stop, at the instant it fired.
  *
  * An assignment is due when its own current deadline has passed. One whose
@@ -531,10 +576,25 @@ async function main() {
     await sleep(Math.min(cfg.pollIntervalMs, target.getTime() - now));
   }
 
-  const due = outcome === "fired" ? dueAssignments(members, latestByAssignment, Date.now()) : [];
+  let due = outcome === "fired" ? dueAssignments(members, latestByAssignment, Date.now()) : [];
   const skipped = members.filter((id) => !due.includes(id));
   if (outcome === "fired" && skipped.length) {
     log(`not due at this instant, so not stopped: ${skipped.join(", ")} (deadline moved out)`);
+  }
+
+  // A duplicate of this group that finds the stop already held does nothing:
+  // no second stop, no second timeline, no second finalize. It still stops any
+  // member the other sentinel did not (stoppedByAnotherSentinel).
+  const alreadyStopped = [];
+  if (outcome === "fired") {
+    for (const id of due) {
+      if (stoppedByAnotherSentinel(cfg.key, await readTimelines(id), cfg.runUrl)) alreadyStopped.push(id);
+    }
+    if (alreadyStopped.length) {
+      log(`already stopped by another sentinel for this instant, left alone: ${alreadyStopped.join(", ")}`);
+      due = due.filter((id) => !alreadyStopped.includes(id));
+      if (!due.length) outcome = "already-stopped";
+    }
   }
 
   // A handover writes no timeline: this watch has not reached its instant, and
@@ -551,8 +611,11 @@ async function main() {
   }
 
   // Persist the timeline before anything else can fail. It sits beside the
-  // lockdown record it explains; nothing globs that directory.
-  for (const id of members) {
+  // lockdown record it explains; nothing globs that directory. Not for a member
+  // another sentinel already stopped: its record is that sentinel's, and one
+  // more written after the instant says nothing about the instant.
+  const recorded = outcome === "already-stopped" ? [] : members.filter((m) => !alreadyStopped.includes(m));
+  for (const id of recorded) {
     const dir = join(cfg.dataDir, "lockdowns", id);
     await mkdir(dir, { recursive: true });
     const joined = joinedAt.get(id);

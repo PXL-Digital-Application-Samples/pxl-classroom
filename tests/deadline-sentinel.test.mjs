@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
 import {
   assignmentsAtInstant, dueAssignments, handoverState, memberDeadlines, positiveNumber, resumeFrom,
-  timelineFileName,
+  stoppedByAnotherSentinel, timelineFileName,
 } from "../scripts/deadline-sentinel.mjs";
 
 // A SET-BUT-EMPTY environment variable is the ordinary shape of an unset
@@ -791,6 +791,78 @@ test("a second sentinel for the same instant does not overwrite the first's time
   assert.match(timelineFileName(key, [`sentinel-${key}.json`], run), /^sentinel-.*\.json$/, "lockdown.mjs's own glob");
 });
 
+// --- a duplicate for the same instant ------------------------------------------
+//
+// Arming is not coordinated: the SPA arms before a publish and
+// publish-assignment.yml again after it, so every imminent publish queues two
+// watches in one group. On 2026-09-27 the second of each fired after the instant
+// and dispatched a second finalize, which collided with the first's dashboard
+// regeneration and went red.
+
+const THIS_RUN = "https://github.com/_/actions/runs/999";
+const OTHER_RUN = "https://github.com/_/actions/runs/111";
+const firedTimeline = (over = {}) => ({
+  outcome: "fired", due: true, deadline_at: "2026-09-27T02:13:00.000Z", stop: "done", observer_run: OTHER_RUN, ...over,
+});
+
+test("stoppedByAnotherSentinel counts only a confirmed stop, by another run, at this instant", () => {
+  const key = "20260927T021300Z";
+  const named = (doc, name = `sentinel-${key}.json`) => [{ name, doc }];
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline()), THIS_RUN), true);
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline(), `sentinel-${key}-111-1.json`), THIS_RUN), true);
+  // A timeline from before `stop` existed is a stop, as lockdown credits it.
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ stop: undefined })), THIS_RUN), true);
+
+  // What the duplicate is still there for.
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ stop: "failed" })), THIS_RUN), false, "a failed stop");
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ stop: "pending" })), THIS_RUN), false, "a job that died mid-stop");
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ due: false })), THIS_RUN), false, "extended past the instant");
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ outcome: "gave-up:runtime" })), THIS_RUN), false);
+  // Not this run's own record, and not another instant's.
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline({ observer_run: THIS_RUN })), THIS_RUN), false);
+  assert.equal(stoppedByAnotherSentinel(key, named(firedTimeline(), "sentinel-20260926T090000Z.json"), THIS_RUN), false);
+  assert.equal(stoppedByAnotherSentinel(key, [], THIS_RUN), false);
+});
+
+function withEarlierTimeline(doc) {
+  const dir = makeControlDir();
+  mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+  writeFileSync(join(dir, "lockdowns", "exam", "sentinel-TESTKEY.json"), JSON.stringify(doc));
+  return dir;
+}
+
+test("a duplicate that finds the stop held does nothing: no stop, no timeline, no finalize", async () => {
+  const deadline = new Date(Date.now() - 60_000).toISOString();
+  const dir = withEarlierTimeline(firedTimeline({ deadline_at: deadline }));
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /outcome=already-stopped/);
+      // `fired` is what gates Stop writes, the stop record and Finalize now.
+      assert.match(res.outputs, /^fired=false$/m);
+      assert.match(res.outputs, /^due_assignment_ids=$/m);
+      assert.deepEqual(readdirSync(join(dir, "lockdowns", "exam")), ["sentinel-TESTKEY.json"], "no second timeline");
+    },
+    { deadlineFor: () => deadline },
+  );
+});
+
+test("a duplicate still stops what the first sentinel's stop did not", async () => {
+  const deadline = new Date(Date.now() - 60_000).toISOString();
+  const dir = withEarlierTimeline(firedTimeline({ deadline_at: deadline, stop: "failed" }));
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /outcome=fired/);
+      assert.match(res.outputs, /^fired=true$/m);
+      assert.match(res.outputs, /^due_assignment_ids=exam$/m);
+    },
+    { deadlineFor: () => deadline },
+  );
+});
+
 // --- a watch outlives its credential -----------------------------------------
 //
 // An App installation token lives for at most an hour; the watch waits for up
@@ -953,7 +1025,10 @@ test("handoverState carries what the next phase cannot read for itself", () => {
   assert.equal(back.polls, 3);
 });
 
-test("the duplicate writes its own timeline beside the one already there", async () => {
+test("a duplicate that cannot credit the first's stop writes its own timeline beside it", async () => {
+  // The earlier record carries no deadline_at, so sentinelStoppedAt cannot
+  // credit it as a stop and this run stops again. Where it CAN, the duplicate
+  // writes nothing at all (the already-stopped tests above).
   const deadline = new Date(Date.now() + 250).toISOString();
   const dir = makeControlDir();
   mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
