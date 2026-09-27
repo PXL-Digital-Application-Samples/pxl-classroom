@@ -468,13 +468,21 @@ async function verify() {
   for (const began = Date.now(); ; ) {
     lockdown = await readControlJson(`lockdowns/${id}/lockdown-record.json`);
     report = await readControlJson(`reports/${id}.json`);
-    pendingRuns = (await runsSince("daily-activity.yml", deadline)).filter((run) => run.status !== "completed");
+    const runs = await runsSince("daily-activity.yml", deadline);
+    pendingRuns = runs.filter((run) => run.status !== "completed");
+    // The report must be DERIVED after the last finalize landed. Finalize
+    // commits the sources and regenerate-dashboard.yml, dispatched after it,
+    // rebuilds reports/<id>.json - so for a minute or so the committed report
+    // is the pre-deadline one, whose `not-required` reads as settled. Measured
+    // 2026-09-27: verify checked that copy and failed a finalize that was right.
+    const lastFinished = Math.max(0, ...runs.filter((run) => run.status === "completed").map((run) => Date.parse(run.updated_at)));
+    const derivedAfter = lastFinished > 0 && Date.parse(report?.generated_at || "") > lastFinished;
     const rows = report?.students || [];
-    const settled = lockdown && rows.length >= STUDENTS.length && rows.every((row) => isSettled(row.preservation_status));
+    const settled = lockdown && derivedAfter && rows.length >= STUDENTS.length && rows.every((row) => isSettled(row.preservation_status));
     if (settled && pendingRuns.length === 0) break;
     if (Date.now() - began > timeout) {
       bad(`not settled after ${timeout / 60_000} minutes: lockdown record ${lockdown ? "present" : "absent"}, ` +
-        `report rows ${rows.length}, daily-activity runs still going ${pendingRuns.length}`);
+        `report rows ${rows.length}${derivedAfter ? "" : " (not regenerated since the last finalize)"}, daily-activity runs still going ${pendingRuns.length}`);
       break;
     }
     await sleep(30_000);
