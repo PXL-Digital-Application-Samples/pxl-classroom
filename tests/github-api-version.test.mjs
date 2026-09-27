@@ -95,6 +95,27 @@ const GH_SUBCOMMANDS_ALLOWED = new Set(["secret set"]);
 // `&&`, `||`, `;`, `(`, `$(`, `if`, `!`.
 const GH_COMMAND = /(?:^|[|&;(]\s*|\$\(\s*|\bif\s+|!\s+)gh\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?/g;
 
+test("every gh call in a workflow is a command of its own, never an argument", () => {
+  // The broker's lock went out as `... || true          gh api ... /lock` -
+  // two lines joined into one by an edit - so bash ran `true gh api ...`,
+  // exited 0, and never locked a student's issue. Nothing else noticed: the
+  // text was all there, and every check that read it was satisfied. A `gh`
+  // that is not at a command start is that, or something like it.
+  const offenders = [];
+  for (const { step, name } of workflowSteps()) {
+    if (typeof step.run !== "string") continue;
+    for (const raw of step.run.split("\n")) {
+      // A message that mentions gh is text, not a call: drop what an echo prints.
+      const line = raw.trim().replace(/\becho\b.*$/, "");
+      if (line.startsWith("#") || !line) continue;
+      const mentions = [...line.matchAll(/(?<![\w./-])gh\s+[a-z]/g)].length;
+      const commands = [...line.matchAll(GH_COMMAND)].length;
+      if (mentions !== commands) offenders.push(`${name}: ${raw.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test("a workflow talks to GitHub through `gh api` only - one call, and the pinned version", () => {
   // Every other gh subcommand cannot send a header, and costs lookups before
   // the call: `gh workflow run` spent a GraphQL query and a workflow read

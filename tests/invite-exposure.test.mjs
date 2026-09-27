@@ -45,6 +45,11 @@ test("the broker redacts the title on the success path", () => {
   const edit = step.run.indexOf("-f title=");
   const lock = step.run.indexOf('"$ISSUE/lock"');
   assert.ok(edit > -1 && lock > -1 && edit < lock, "redact first - the title is the exposure");
+  // And the lock is a COMMAND. Joined onto the rename's line it was an
+  // argument to `true`, and no issue was locked.
+  const lockLine = step.run.split("\n").map((l) => l.trim()).find((l) => l.includes('"$ISSUE/lock"'));
+  assert.match(lockLine, /^gh api /, "the lock must be its own command line");
+  assert.equal((lockLine.match(/\bgh api\b/g) || []).length, 1, "one call per line");
 });
 
 // A close, in either spelling. The reject path below DOES close, so this is

@@ -318,4 +318,5 @@ jobs:
           # "acceptance in flight" check reads `state=all`.
           LABEL="Acceptance"
           if [ "$KIND" = "confirm" ]; then LABEL="Email confirmation"; fi
-          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (processed)" >/dev/null || true          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT "$ISSUE/lock" -f lock_reason=resolved >/dev/null || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (processed)" >/dev/null || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT "$ISSUE/lock" -f lock_reason=resolved >/dev/null || true
