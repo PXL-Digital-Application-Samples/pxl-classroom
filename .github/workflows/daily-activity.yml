@@ -482,6 +482,36 @@ jobs:
       # runs, so those facts are already true of the world - dropping them on a
       # preserve failure loses the frozen snapshot and the attempt counter that
       # find-finalizable uses to retry (and to stop retrying).
+      #
+      # THIS LEG COMMITS NO REPORT - not reports/dashboard.json, and not
+      # reports/<id>.json or .csv either. Every one of them is DERIVED: report.mjs
+      # computes it from observations/, lockdowns/, acceptances/, overrides/ and
+      # the rest, all of which this commit carries, and stamps `generated_at`, so
+      # two runs over the same sources still write different bytes.
+      #
+      # regenerate-dashboard.yml owns all of reports/. It runs the same
+      # report.mjs over every published or closed assignment, it is serialised
+      # per ORGANIZATION (`group: dashboard-<org>`), and trigger-dashboard
+      # dispatches it after this job on `always()` - so it rebuilds this
+      # assignment's report from the sources pushed here. A second git writer
+      # of the same derived file collides with it whenever the two overlap:
+      #  - 2026-09-08, two assignments finalizing at once both rewrote
+      #    dashboard.json, and the second leg died rebasing into a conflict;
+      #  - 2026-09-27, the sentinel fired twice, the second finalize (serialised
+      #    behind the first by its concurrency group) ran while
+      #    regenerate-dashboard committed six times, and its push conflicted on
+      #    reports/<id>.json. Lock, archive and report were all right; the
+      #    deadline still went red.
+      # step 6 still reads the report computed above from disk.
+      #
+      # Discarded from the WORKTREE as well as never staged: `git pull --rebase`
+      # refuses to run over a modified tracked file, and a new untracked report
+      # the remote also added stops it too ("would be overwritten").
+      #
+      # `git add a/ b/ c/` with ANY of them missing exits 128 and stages
+      # NOTHING, and `|| true` would turn that into a green "no changes" - so
+      # mkdir -p first. `grading/` is not scaffolded (nothing creates it until
+      # something grades), which makes its mkdir load-bearing.
       - name: Commit + push
         if: always()
         env:
@@ -490,51 +520,11 @@ jobs:
           set -e
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          # `git add a/ b/ c/` with ANY of them missing exits 128 and stages
-          # NOTHING - not even the ones that matched. `|| true` then swallows
-          # that, `diff --cached --quiet` is true, and the step exits 0 having
-          # committed none of the finalisation it just computed. A control repo
-          # scaffolded before a directory joined CONTROL_SCAFFOLD_DIRS has that
-          # shape today. mkdir -p is a no-op when the directory is there.
-          # `grading/` joins the list because step 6 now writes it. It is
-          # deliberately NOT a scaffolded directory - nothing creates it until
-          # something grades - so the mkdir is what stops `git add` exiting 128
-          # and staging none of the finalisation on the first assignment an
-          # organization ever grades.
-          mkdir -p control/observations control/lockdowns control/reports control/grading
-          git -C control add observations/ lockdowns/ reports/ grading/
-          # THIS LEG DOES NOT PUBLISH THE DASHBOARD, and that is the whole fix
-          # for a failure measured on a live drill (2026-09-08).
-          #
-          # Everything else finalize writes is per assignment - its own
-          # observations, its own lockdown record, reports/<id>.json - so two
-          # legs never touch one file. `reports/dashboard.json` is the single
-          # exception: report.mjs rewrites it on every run, this matrix is
-          # concurrent per ASSIGNMENT (max-parallel: 4), and two assignments in
-          # one organization reaching their deadline on the same night is
-          # ordinary. Both legs then commit the same file, the second push is
-          # rejected, and git-push-with-retry.sh rebases straight into a
-          # conflict - so a leg that had already applied the lock and pushed to
-          # the archive lost every record of having done so, and the assignment
-          # came back for another attempt with its attempts counter not even
-          # incremented.
-          #
-          # regenerate-dashboard.yml already owns this file: it is serialised
-          # per ORGANIZATION (`group: dashboard-<org>`), regenerates every
-          # published or closed assignment's entry, and trigger-dashboard
-          # dispatches it after this job on `always()`. Two writers of one
-          # document, one of which is redundant.
-          # `--worktree` as well as `--staged`, and that half was missing.
-          # Unstaging alone leaves the file MODIFIED, and `git pull --rebase`
-          # refuses to run with unstaged changes - so the push was rejected,
-          # every retry re-ran the same refused pull, and the leg died after
-          # five identical attempts. Measured on a live drill with two
-          # assignments finalizing at once, which is the case this whole
-          # exclusion exists for.
-          #
-          # Discarding is right: regenerate-dashboard.yml rebuilds this file
-          # from the reports and is dispatched after this job.
-          git -C control restore --staged --worktree reports/dashboard.json 2>/dev/null || true
+          mkdir -p control/observations control/lockdowns control/grading
+          git -C control add observations/ lockdowns/ grading/
+          # A pathspec that matches nothing tracked is not a failure here.
+          git -C control restore --staged --worktree -- reports/ 2>/dev/null || true
+          git -C control clean -fdq -- reports/
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
