@@ -64,7 +64,7 @@ import {
 } from "../../lib/control-layout.mjs";
 import { buildRetiredManifest } from "../../lib/retired-manifest.mjs";
 import {
-  deleteWaitsForReport, readReportSourceChanges, reportFreshness, STALE_REPORT_REFUSAL, UNKNOWN_REPORT_REFUSAL,
+  deleteWaitsForReport, readReportFreshness, STALE_REPORT_REFUSAL, UNKNOWN_REPORT_REFUSAL, UNREADABLE_REPORT_REFUSAL,
 } from "../../lib/report-freshness.mjs";
 import { commitWithRebase } from "../../lib/gittree.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
@@ -795,10 +795,15 @@ async function cleanupLocked(named, request) {
     // and preservation would be retired as out-of-date evidence, and the
     // manifest would count nothing preserved (lib/report-freshness.mjs).
     if (deleteWaitsForReport(doc.state)) {
+      if (!reportText.ok && reportText.status !== 404) {
+        bad(`${id}: ${UNREADABLE_REPORT_REFUSAL}`);
+        continue;
+      }
       let report = null;
       try { report = reportText.ok ? JSON.parse(reportText.text) : null; } catch { report = null; }
-      const freshness = reportFreshness(report, await readReportSourceChanges(
-        (method, path) => request(method, path), { owner: ORG, repo: CONTROL_REPO, assignmentId: id }));
+      const freshness = await readReportFreshness(
+        (method, path) => request(method, path),
+        { owner: ORG, repo: CONTROL_REPO, assignmentId: id, derivedFrom: report?.derived_from });
       if (freshness !== "current") {
         if (freshness === "stale") await dispatch("regenerate-dashboard.yml", { org: ORG });
         bad(`${id}: ${freshness === "stale" ? STALE_REPORT_REFUSAL : UNKNOWN_REPORT_REFUSAL}`);

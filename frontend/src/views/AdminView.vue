@@ -1820,10 +1820,10 @@ import { archiveRepoName } from '../../../lib/archive-repo.mjs'
 import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
 import {
   deleteWaitsForReport,
-  readReportSourceChanges,
-  reportFreshness,
+  readReportFreshness,
   STALE_REPORT_REFUSAL,
   UNKNOWN_REPORT_REFUSAL,
+  UNREADABLE_REPORT_REFUSAL,
 } from '../../../lib/report-freshness.mjs'
 // Deleting an assignment has to take its organization ruleset with it: unlike a
 // repository one, it does not live in a student repository and would be left
@@ -4966,8 +4966,14 @@ async function deleteAssignment() {
   deleting.value = true
   try {
     // 1. EVIDENCE FIRST, read before anything is removed.
+    // A failed read is not an absent report: `null` would read as "no report"
+    // and the check below would blame a regeneration for a read that failed.
+    let reportUnreadable = false
     const [reportJson, reportCsv, gradingJson] = await Promise.all([
-      getRepoContent(token, props.org, config.controlRepo, reportPath(id)).catch(() => null),
+      getRepoContent(token, props.org, config.controlRepo, reportPath(id)).catch(() => {
+        reportUnreadable = true
+        return null
+      }),
       getRepoContent(token, props.org, config.controlRepo, reportCsvPath(id)).catch(() => null),
       getRepoContent(token, props.org, config.controlRepo, gradingSummaryPath(id)).catch(() => null),
     ])
@@ -4979,13 +4985,16 @@ async function deleteAssignment() {
     //     preserved. Refuse, and start the rebuild the lecturer is waiting for
     //     (lib/report-freshness.mjs). Before the broker: nothing has changed yet.
     if (deleteWaitsForReport(form.value.state)) {
+      if (reportUnreadable) {
+        toast.error(UNREADABLE_REPORT_REFUSAL)
+        return
+      }
       let report = null
       try { report = reportJson ? JSON.parse(reportJson) : null } catch { report = null }
-      const changes = await readReportSourceChanges(
+      const freshness = await readReportFreshness(
         (method, path) => ghApi(token, method, path),
-        { owner: props.org, repo: config.controlRepo, assignmentId: id },
+        { owner: props.org, repo: config.controlRepo, assignmentId: id, derivedFrom: report?.derived_from },
       )
-      const freshness = reportFreshness(report, changes)
       if (freshness === 'unknown') {
         toast.error(UNKNOWN_REPORT_REFUSAL)
         return

@@ -47,16 +47,16 @@ const TREE = [
   `acceptances/${ID}-2/bob.json`,
 ];
 
-// The report was regenerated after the last commit to its sources, unless a
-// test says otherwise (lib/report-freshness.mjs).
-const SOURCES_CHANGED_AT = '2026-08-20T20:05:00Z';
-const REPORT_GENERATED_AT = '2026-08-20T20:06:30Z';
+// The report was built from a commit that contains the newest commit to its
+// sources, unless a test says otherwise (lib/report-freshness.mjs).
+const SOURCE_SHA = 'a'.repeat(40);
+const DERIVED_FROM = 'b'.repeat(40);
 
 async function openClosedAssignment(
   page,
   {
     gitCommits, workflowDispatches, treeTruncated = false, brokerStatus = 200, reportStudents = [],
-    generatedAt = REPORT_GENERATED_AT, sourcesStatus = 200,
+    ancestry = 'ahead', sourcesStatus = 200, reportStatus = 200,
   } = {},
 ) {
   await injectAuth(page, LECTURER);
@@ -65,22 +65,26 @@ async function openClosedAssignment(
     assignments: { [ID]: assignment() },
     // The evidence has to exist to be kept: without a report on record the
     // delete correctly copies nothing, which is not what this is testing.
-    reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: generatedAt, students: reportStudents } },
+    reports: { [ID]: { schema_version: 1, assignment_id: ID, derived_from: DERIVED_FROM, students: reportStudents } },
     gitCommits,
     workflowDispatches,
   });
 
-  // The newest commit to observations/<id> and lockdowns/<id>, which is what
-  // the delete compares the report's generated_at against.
+  // The newest commit to observations/<id> and lockdowns/<id>, and whether it
+  // is an ancestor of the commit the report was built from.
   await page.route(new RegExp(`/repos/${ORG}/pxl-classroom-control/commits\\?path=`), (route) =>
     sourcesStatus !== 200
       ? route.fulfill({ status: sourcesStatus, body: '{"message":"boom"}' })
-      : route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ sha: 'a'.repeat(40), commit: { committer: { date: SOURCES_CHANGED_AT } } }]),
-        }),
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ sha: SOURCE_SHA }]) }),
   );
+  await page.route(`**/repos/${ORG}/pxl-classroom-control/compare/${SOURCE_SHA}...${DERIVED_FROM}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: ancestry }) }),
+  );
+  if (reportStatus !== 200) {
+    await page.route(`**/repos/${ORG}/pxl-classroom-control/contents/reports/${ID}.json`, (route) =>
+      route.fulfill({ status: reportStatus, body: '{"message":"boom"}' }),
+    );
+  }
 
   await page.route('**/git/trees/main?recursive=1', (route) =>
     route.fulfill({
@@ -213,10 +217,22 @@ test.describe('59 - what it writes and what it removes', () => {
     // regeneration landed, kept the pre-deadline report as evidence and wrote
     // `preserved_submissions: 0` over an archive holding both students' work -
     // in a commit that also removed the preservation records it was wrong about.
+    // `behind`: the regeneration read the tree before finalize pushed, which a
+    // timestamp cannot tell (review of v1.5.0).
     const workflowDispatches = [];
-    const commits = await del(page, { workflowDispatches, generatedAt: '2026-08-20T19:30:00Z' });
+    const commits = await del(page, { workflowDispatches, ancestry: 'behind' });
     await expect(page.locator('.toast').first()).toContainText('try again in a minute or two', { timeout: 10000 });
     await expect.poll(() => workflowDispatches.map((d) => d.workflow)).toContain('regenerate-dashboard.yml');
+    expect(commits).toHaveLength(0);
+  });
+
+  test('a report that could not be read deletes nothing, and says so', async ({ page }) => {
+    // Not "being regenerated": that would send the lecturer to wait for a
+    // rebuild that cannot fix a failed read.
+    const workflowDispatches = [];
+    const commits = await del(page, { workflowDispatches, reportStatus: 500 });
+    await expect(page.locator('.toast').first()).toContainText('Could not read the report', { timeout: 10000 });
+    expect(workflowDispatches.map((d) => d.workflow)).not.toContain('regenerate-dashboard.yml');
     expect(commits).toHaveLength(0);
   });
 

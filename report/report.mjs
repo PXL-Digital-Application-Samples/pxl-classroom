@@ -18,9 +18,11 @@ import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { loadYaml } from "../lib/yaml.mjs";
 import { buildDashboardEntry, pruneMissingAssignments } from "../lib/dashboard-aggregate.mjs";
 import { ASSIGNMENTS_DIR } from "../lib/control-layout.mjs";
+import { REPORT_SOURCE_DIRS } from "../lib/report-freshness.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { csvCell } from "../lib/csv-cell.mjs";
 import { REPORT_ROW_COLUMNS } from "../lib/report-csv.mjs";
@@ -43,6 +45,30 @@ async function setOutput(name, value) {
 async function summaryMd(md) {
   if (process.env.GITHUB_STEP_SUMMARY)
     await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
+}
+
+/**
+ * The control-repository commit this report is computed from, or null.
+ *
+ * What a delete compares with the newest commit to the report's sources
+ * (lib/report-freshness.mjs). A timestamp cannot answer that: a regeneration
+ * that checks out before a finalize pushes and finishes after it stamps a later
+ * `generated_at` over pre-deadline data.
+ *
+ * NULL when the sources in the checkout differ from that commit - the finalize
+ * job runs this over observations and a lockdown record it has not committed
+ * yet, so HEAD would be a claim about data the report did not read. And null
+ * outside a git checkout. Absent reads as "not known to be current", which is
+ * the safe direction.
+ */
+function derivedFromCommit(dataDir, assignmentId) {
+  const git = (args) => spawnSync("git", ["-C", dataDir, ...args], { encoding: "utf8" });
+  const head = git(["rev-parse", "HEAD"]);
+  const sha = head.status === 0 ? head.stdout.trim() : "";
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  const dirty = git(["status", "--porcelain", "--", ...REPORT_SOURCE_DIRS(assignmentId)]);
+  if (dirty.status !== 0 || dirty.stdout.trim() !== "") return null;
+  return sha;
 }
 
 async function readJsonSafe(path) {
@@ -836,10 +862,12 @@ async function main() {
   });
 
   // Build report
+  const derivedFrom = derivedFromCommit(dataDir, assignmentId);
   const report = {
     schema_version: 1,
     assignment_id: assignmentId,
     generated_at: new Date().toISOString(),
+    ...(derivedFrom ? { derived_from: derivedFrom } : {}),
     generator_version: "1.0.0",
     source_revision: process.env.GITHUB_SHA || "unknown",
     ...(assignment.assignment_type === "group" ? { teams: teamsReport } : {}),

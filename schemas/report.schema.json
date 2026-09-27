@@ -26,6 +26,11 @@
       "format": "date-time",
       "description": "ISO 8601 timestamp when this report was generated."
     },
+    "derived_from": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The control-repository commit whose documents this report was computed from. Absent when that is not known (a report built in the browser by Refresh, or outside a git checkout). A delete compares it with the newest commit to the report's sources (lib/report-freshness.mjs): a generated_at timestamp cannot say which data a report was built from, because a regeneration can check out before a finalize pushes and finish after it."
+    },
     "generator_version": {
       "type": "string",
       "description": "Version of the report generator that produced this report."

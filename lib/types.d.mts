@@ -384,6 +384,7 @@ export type Report = {
   schema_version?: 1;
   assignment_id?: string;
   generated_at?: string;
+  derived_from?: string;
   generator_version?: string;
   source_revision?: string;
   live_refreshed_at?: string;

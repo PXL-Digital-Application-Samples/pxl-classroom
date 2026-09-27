@@ -3585,6 +3585,11 @@ function reportForStorage(source) {
   for (const team of doc.teams || []) {
     for (const f of DISPLAY_ONLY_ROW_FIELDS) delete team[f]
   }
+  // `derived_from` names the commit report.mjs READ. This report was rebuilt
+  // here, from data loaded when the page opened, so the loaded value would be a
+  // claim about data this report did not read - and a delete trusts it
+  // (lib/report-freshness.mjs). Absent means "not known to be current".
+  delete doc.derived_from
   return doc
 }
 
