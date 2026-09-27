@@ -326,6 +326,44 @@ grep -c "verify-dispatch-signature" .github/workflows/acceptance-handler.yml
 
 ---
 
+## 11. A grading run a student started and then deleted leaves no trace
+
+**Status: open, accepted.** Measured 2026-09-27 on `pxl-classroom-testbed/pxl-grade-dispatch-probe`.
+
+Under a hand-in cap, a grading run the student starts themselves uses a slot (`lib/submission-marker.mjs` `listHandIns`). The only record of such a run is the run list. It is not a push, so it never appears in the push log (`/activity`) or the repository events, and deleting the run also deletes its check suite and check runs. A student is admin of their own repository and can delete runs. So a student who starts a grading run, reads the score and deletes the run has spent no slot.
+
+**Why this is accepted.** What it buys is extra graded feedback, never an extra graded submission: the graded commit is still chosen from pushes, which the push log records whatever runs are deleted. The organization audit log would be a witness, but its API needs Enterprise, which this project does not target, and the audit log a Team owner can see in the browser is nothing a job can read.
+
+**The shape of a fix, if it is ever wanted.** Stop the student starting it at all: a grading workflow whose `workflow_dispatch` job refuses any actor who is not the App or a lecturer. That is a change to every student repository's workflow file, delivered by starter sync, and a student with admin can edit it back - so it only raises the cost.
+
+**How to tell it is still open** - start a grading run on a probe repository, delete it, and look for it:
+
+```bash
+gh api "repos/pxl-classroom-testbed/pxl-grade-dispatch-probe/actions/runs/<deleted-run-id>" --jq .id
+```
+
+`Not Found` while it is open, and neither `/activity` nor `/events` lists the dispatch.
+
+---
+
+## 12. Claim bindings from before `claimed_through` count as gate-admitted
+
+**Status: open, accepted.** Found in the review of v1.5.0, 2026-09-27.
+
+A refusal on a binding the claim gate admitted is not counted as a guess; a refusal on one the confirm link or open enrolment wrote is (`acceptance/accept.mjs`, `claimed_through`). A binding written before that field existed has none, and absent is read as gate-admitted - the permissive reading, against "Fail closed".
+
+**Why this is accepted.** The exposure is the one address already bound to that account: switching to any other address writes a new binding with `claimed_through: confirm`, which is counted. It is not a general roster oracle. Reading absent as unchecked instead would count, and so could block, students admitted long ago who open the wrong section's link, which is the lock-out this field was added to end.
+
+**How to tell it is closed** - no binding without the field is left in an organization's control repository:
+
+```bash
+gh api "repos/<org>/pxl-classroom-control/contents/students/claims" --jq '.[].name'
+```
+
+then read each and count those with no `claimed_through`; `0` in every organization means it is closed.
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog - 2026-08-31 unless the row says otherwise.
