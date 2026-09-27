@@ -19,6 +19,8 @@ import {
   orderHandIns,
   selectHandIn,
   describeIgnoredHandIn,
+  handInTime,
+  PUSH_TO_RUN_ALLOWANCE_MS,
 } from "../lib/submission-marker.mjs";
 import {
   HAND_IN_ALLOWANCE,
@@ -257,7 +259,7 @@ test("a saved cap validates and reads back", () => {
 // Which hand-in counts - the pure rule
 // =============================================================================
 
-const h = (n, min, extra = {}) => ({ sha: sha(n), message: MSG, date: at(min), pushedAt: at(min), onBranch: true, ...extra });
+const h = (n, min, extra = {}) => ({ sha: sha(n), message: MSG, date: at(min), pushedAt: at(min), pushedFrom: "run", onBranch: true, ...extra });
 
 test("under the cap, the last hand-in counts and nothing is ignored", () => {
   const r = selectHandIn([h(1, 10), h(2, 20), h(3, 30)], { until: DEADLINE, limit: 5 });
@@ -891,6 +893,34 @@ test("LATENESS is when GitHub saw the push, not the date the student's machine w
   assert.equal(selectHandIn([edge], { until: DEADLINE, limit: 1 }).commit.sha, sha(2));
   // No run: the commit date is all there is.
   assert.equal(selectHandIn([h(3, 100, { pushedAt: null })], { until: DEADLINE, limit: 1 }).commit.sha, sha(3));
+});
+
+test("the push log's time IS the push: no allowance for GitHub's latency is taken off it", () => {
+  const fortySecondsLate = new Date(Date.parse(DEADLINE) + 40_000).toISOString();
+  // The same instant from a run is on time (the run started after the push)...
+  assert.equal(handInTime({ pushedAt: fortySecondsLate, pushedFrom: "run" }), Date.parse(fortySecondsLate) - PUSH_TO_RUN_ALLOWANCE_MS);
+  // ...and from the push log, or from nowhere named, it is the time as it stands.
+  assert.equal(handInTime({ pushedAt: fortySecondsLate, pushedFrom: "log" }), Date.parse(fortySecondsLate));
+  assert.equal(handInTime({ pushedAt: fortySecondsLate }), Date.parse(fortySecondsLate));
+  assert.equal(selectHandIn([h(1, 0, { pushedAt: fortySecondsLate, pushedFrom: "log" })], { until: DEADLINE, limit: 1 }).commit, null);
+  assert.equal(selectHandIn([h(1, 0, { pushedAt: fortySecondsLate, pushedFrom: "run" })], { until: DEADLINE, limit: 1 }).commit.sha, sha(1));
+});
+
+test("listHandIns says where each push time came from, and a log-timed hand-in pushed after the deadline is late", async () => {
+  // Hand-in 2's runs were deleted, so only the push log times it - 40s late.
+  const late = new Date(Date.parse(DEADLINE) + 40_000).toISOString();
+  const base = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }] });
+  const get = async (path) => {
+    const res = await base(path);
+    if (path.includes("event=push")) return { ...res, data: { workflow_runs: res.data.workflow_runs.filter((r) => r.head_sha !== sha(2)) } };
+    if (path.includes("/activity?")) return { ...res, data: res.data.map((a) => (a.after === sha(2) ? { ...a, timestamp: late } : a)) };
+    return res;
+  };
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.deepEqual(listed.handIns.map((x) => [x.sha, x.pushedFrom]), [[sha(1), "run"], [sha(2), "log"]]);
+  const r = selectHandIn(listed.handIns, { until: DEADLINE, limit: 5 });
+  assert.equal(r.commit.sha, sha(1));
+  assert.deepEqual(r.ignored.map((i) => [i.sha, i.reason]), [[sha(2), "late"]]);
 });
 
 test("UNCAPPED `multiple: false` takes the FIRST hand-in from the run history too, so a force-push cannot move it", async () => {
