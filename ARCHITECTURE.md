@@ -1136,7 +1136,7 @@ A duplicate sentinel is still ordinary - the SPA arms before a publish and `publ
 
 That timeline is the point. `pushed_at` is GitHub's own server-side timestamp and a student cannot set it, so a five-minute push record through the critical window answers what §11.2.2 cannot: *"at 21:55 your last push was 21:12; at 22:05 it was 22:31."* The `until` fallback filters on the committer date, and the committer date comes from the student's machine.
 
-**The sentinel stops nothing itself.** Everything that stops a write goes through `applySubmissionLock`, so there is one implementation and the sentinel cannot drift from it. `STOP_ONLY` deliberately writes **no** lockdown record: `find-finalizable.mjs` reads that record's existence as evidence a finalize happened, and one with no results would strand the assignment forever.
+**The sentinel stops nothing itself.** Everything that stops a write goes through `applySubmissionLock`, so there is one implementation and the sentinel cannot drift from it. `STOP_ONLY` deliberately writes **no** lockdown record: `find-finalizable.mjs` reads that record's existence as evidence a finalize happened, and one with no results would strand the assignment forever. **It exits non-zero when a repository was not stopped**, because the exit code is the only thing the workflow reads: it is what turns the timeline's `stop` into `done` or `failed`, and `done` is what lockdown credits and what a queued duplicate sentinel trusts. An organization owner, whom nothing can demote, is excused exactly as the full run excuses them; an unreadable owner list excuses nobody.
 
 Three failure paths, and every one degrades to the nightly:
 

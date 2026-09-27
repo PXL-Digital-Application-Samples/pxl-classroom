@@ -33,7 +33,7 @@ const DEADLINE = new Date(Date.now() - 3600_000).toISOString();
  * `brokenRepos` 404s the repository object for those names, which is how a
  * failed phase 2 is simulated.
  */
-async function withStubApi(fn, { brokenRepos = [] } = {}) {
+async function withStubApi(fn, { brokenRepos = [], failDemote = [], owners = [] } = {}) {
   const calls = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
@@ -50,8 +50,14 @@ async function withStubApi(fn, { brokenRepos = [] } = {}) {
       return send(200, { id: 42, default_branch: "main", pushed_at: PUSHED_AT });
     }
     if (/\/commits\/main$/.test(url)) return send(200, { sha: HEAD_SHA });
-    if (/\/collaborators\/[^/]+\/permission$/.test(url)) return send(200, { permission: "read" });
+    if (url === "/orgs/TestOrg/members") return send(200, owners.map((login) => ({ login })));
+    const who = url.match(/\/collaborators\/([^/]+)/)?.[1];
+    if (/\/collaborators\/[^/]+\/permission$/.test(url)) {
+      return send(200, { permission: failDemote.includes(who) ? "admin" : "read" });
+    }
     if (/\/collaborators\/[^/]+$/.test(url) && req.method === "PUT") {
+      // 422, not a 5xx: a 5xx is retried with backoff, which only slows the test.
+      if (failDemote.includes(who)) return send(422, { message: "refused" });
       res.writeHead(204);
       return res.end();
     }
@@ -254,6 +260,37 @@ test("stop-only writes NO lockdown record - one with no results strands the assi
     assert.match(res.outputs, /outcome=stopped/);
     assert.ok(calls.some((c) => /^PUT .*\/collaborators\//.test(c)), "it did stop the cohort");
   });
+});
+
+test("stop-only FAILS when a repository was not stopped, so the timeline says failed", async () => {
+  // It used to exit 0 whatever happened: every per-repository failure is caught
+  // inside the lock, and the workflow reads only the exit code. The timeline
+  // then said `stop: done`, a queued duplicate sentinel re-stopped nobody, and
+  // the nightly credited the instant to a student who could still push.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir(["alice", "bob"]);
+      const res = await runStopOnly(dir, api);
+      assert.equal(res.status, 1, "a missed stop is a failed step");
+      assert.match(res.outputs, /^error_count=1$/m);
+      assert.match(res.stdout + res.stderr, /NOT stopped: .*bob/);
+    },
+    { failDemote: ["bob"] },
+  );
+});
+
+test("stop-only does not fail over an organization owner, whom nothing can demote", async () => {
+  // The same exemption the full run makes: a lecturer who accepted their own
+  // assignment would otherwise turn every deadline red.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir(["alice", "bob"]);
+      const res = await runStopOnly(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /^error_count=0$/m);
+    },
+    { failDemote: ["bob"], owners: ["bob"] },
+  );
 });
 
 test("stop-only records nothing and observes nothing", async () => {

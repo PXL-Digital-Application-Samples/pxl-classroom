@@ -890,8 +890,29 @@ async function main() {
   // idempotent, so it will report the lock `unchanged` rather than redo it.
   if (cfg.stopOnly) {
     const stopped = [...lock.byRepo.values()].filter((s) => s.locked).length;
+    // A MISSED STOP FAILS THE RUN. The workflow reads only this exit code:
+    // "Record whether the stop held" writes `stop: done` on success, a queued
+    // duplicate sentinel then re-stops nobody (stoppedByAnotherSentinel), and
+    // the nightly credits the instant as the lock time of students who could
+    // still push. Every per-repository failure is caught above, so this used to
+    // exit 0 whatever happened (review of v1.5.0).
+    //
+    // The same exemption the full run makes, for the same reason: an
+    // organization OWNER cannot be demoted by anything, so failing on them
+    // would turn every deadline red on an org where a lecturer accepted their
+    // own assignment. An unreadable owner list excuses nobody.
+    const missed = targets.filter((t) => {
+      const s = lock.byRepo.get(t);
+      return s && !s.locked && lock.method !== "none";
+    });
+    let unstoppable = missed;
+    if (missed.length) {
+      const { owners } = await fetchOrgOwners(gh, cfg.org);
+      const loginsOfTarget = (t) => (t.teamMembers?.length ? t.teamMembers : [t.login]).filter(Boolean);
+      unstoppable = missed.filter((t) => !loginsOfTarget(t).some((l) => isKnownOwner(owners, l)));
+    }
     await setOutput("locked_count", stopped);
-    await setOutput("error_count", targets.length - stopped);
+    await setOutput("error_count", unstoppable.length);
     await setOutput("deferred_count", deferrals.length);
     await setOutput("lock_method", lock.method);
     await setOutput("outcome", "stopped");
@@ -901,6 +922,13 @@ async function main() {
       (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
       `. No record written - the finalize run does phases 2-4.\n`
     );
+    if (unstoppable.length) {
+      log("stop-only", {
+        ok: false,
+        note: `${stopped}/${targets.length} stopped - NOT stopped: ${unstoppable.map((t) => t.displayKey).join(", ")}`,
+      });
+      process.exit(1);
+    }
     log("stop-only", { ok: true, note: `${stopped}/${targets.length} stopped; no lockdown record written` });
     process.exit(0);
   }
