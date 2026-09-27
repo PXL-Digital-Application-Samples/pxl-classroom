@@ -22,6 +22,14 @@
 //   6 no cap       the same repository without a cap: the last hand-in (4)
 //   7 runs deleted every run of hand-in 1 deleted: the push log still counts
 //                  it, and hand-in 2 is still graded
+//   8 no cap, late the case-4 deadline without a cap: hand-in 2, not 4 - the
+//                  uncapped path times by the push too, not the commit date
+//   9 log only     hand-in 5, deadline 40s before its logged push: on time
+//                  with its runs (allowance), late once they are deleted
+//  10 dispatches   student1 dispatches the grading workflow with
+//                  grade_sha=main: counted, never graded; the lecturer's
+//                  dispatch and the student's dispatch of a non-grading
+//                  workflow titled like a PXL one are not counted
 //
 // Commit dates are set explicitly one minute apart, hours in the past. The
 // late case does NOT use them: lateness is when GitHub recorded the push (the
@@ -30,10 +38,10 @@
 // commit DATED before the deadline but pushed after it is late.
 
 import { resolveHandIn, readScoreAtCommit } from "../../lib/grade-cohort.mjs";
-import { PUSH_TO_RUN_ALLOWANCE_MS, readSubmissionMarker } from "../../lib/submission-marker.mjs";
+import { PUSH_TO_RUN_ALLOWANCE_MS, listHandIns, readSubmissionMarker } from "../../lib/submission-marker.mjs";
 import { allowanceEntry } from "../../lib/hand-in-allowance.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
-import { api, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
+import { acceptInvitation, accounts, api, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
 
 const env = loadEnv();
 const org = process.env.PROBE_ORG || "pxl-classroom-testbed";
@@ -65,6 +73,56 @@ const WORKFLOW = [
   "        run: |",
   "          n=$(gh api \"repos/$GITHUB_REPOSITORY/contents/score.txt?ref=$GITHUB_SHA\" -H 'Accept: application/vnd.github.raw')",
   "          echo \"::notice title=Autograding complete::Points $n/10\"",
+  "",
+].join("\n");
+
+// A grading workflow a STUDENT can start: dispatch only (so it adds no push
+// runs), a `grade_sha` input, the PXL run name, and a checkout of the input in
+// the job that grades - what `hasGradeDispatch` recognises.
+const DISPATCH_WORKFLOW = [
+  "name: Grade on demand",
+  "run-name: ${{ format('Grade {0} (PXL Classroom)', inputs.grade_sha) }}",
+  "on:",
+  "  workflow_dispatch:",
+  "    inputs:",
+  "      grade_sha:",
+  "        description: Commit to grade",
+  "        required: true",
+  "        type: string",
+  "permissions:",
+  "  contents: read",
+  "jobs:",
+  "  regrade:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+  "        with:",
+  "          ref: ${{ inputs.grade_sha }}",
+  "      - run: echo \"::notice title=Autograding complete::Points $(cat score.txt)/10\"",
+  "",
+].join("\n");
+
+// NOT a grading workflow, though a student can dispatch it and its title is
+// exactly the one a PXL dispatch of a full commit gets - so a count that went
+// by the title (the code before 85436b9) counts it, and only reading the file
+// tells it apart. Job name matches neither /grad|classroom/ nor a checkout of
+// the input.
+const LINT_WORKFLOW = [
+  "name: Lint",
+  "run-name: ${{ format('Grade {0} (PXL Classroom)', inputs.grade_sha) }}",
+  "on:",
+  "  workflow_dispatch:",
+  "    inputs:",
+  "      grade_sha:",
+  "        required: true",
+  "        type: string",
+  "permissions:",
+  "  contents: read",
+  "jobs:",
+  "  lint:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - run: echo linted",
   "",
 ].join("\n");
 
@@ -118,15 +176,47 @@ async function commit(files, parent, message, date) {
 const push = async (sha) =>
   must(await api(`/repos/${FULL}/git/refs/heads/main`, { token, method: "PATCH", body: { sha, force: true } }), `push ${sha.slice(0, 7)}`);
 
-async function waitForRuns(shas) {
+async function waitForRuns(shas, atLeast = shas.length) {
   const want = new Set(shas);
   for (let waited = 0; waited < 10 * 60_000; waited += 10_000) {
     await sleep(10_000);
     const runs = (await must(await api(`/repos/${FULL}/actions/runs?event=push&per_page=100`, { token }), "runs")).workflow_runs;
     const mine = runs.filter((x) => want.has(x.head_sha));
-    if (mine.length >= want.size && mine.every((x) => x.status === "completed")) return mine;
+    if (mine.length >= atLeast && mine.every((x) => x.status === "completed")) return mine;
   }
   die(`runs for ${shas.length} pushes did not all complete in 10 minutes`);
+}
+
+/** When the push log recorded a push ending on `sha` - polled, the log is not instant. */
+async function loggedPushAt(sha) {
+  for (let waited = 0; waited < 3 * 60_000; waited += 10_000) {
+    const rows = await must(await api(`/repos/${FULL}/activity?ref=refs/heads/main&per_page=100`, { token }), "activity");
+    const times = rows.filter((a) => a.after === sha).map((a) => Date.parse(a.timestamp));
+    if (times.length) return Math.min(...times);
+    await sleep(10_000);
+  }
+  die(`the push log never named ${sha.slice(0, 7)}`);
+}
+
+/**
+ * Dispatch `file` as `who` and wait for its run to complete. The run is found
+ * by what only it can be: this workflow, this actor, an id not seen before.
+ */
+async function dispatch(who, file, gradeSha) {
+  const listRuns = async () =>
+    (await must(await api(`/repos/${FULL}/actions/runs?event=workflow_dispatch&per_page=100`, { token }), "dispatch runs")).workflow_runs;
+  const seen = new Set((await listRuns()).map((x) => x.id));
+  const res = await api(`/repos/${FULL}/actions/workflows/${file}/dispatches`, {
+    token: who.token, method: "POST", body: { ref: "main", inputs: { grade_sha: gradeSha } },
+  });
+  if (res.status !== 204 && res.status !== 200) die(`${who.login} could not dispatch ${file}: HTTP ${res.status} ${res.data?.message ?? ""}`);
+  for (let waited = 0; waited < 10 * 60_000; waited += 10_000) {
+    await sleep(10_000);
+    const run = (await listRuns()).find((x) =>
+      !seen.has(x.id) && String(x.path).endsWith(`/${file}`) && x.triggering_actor?.login?.toLowerCase() === who.login.toLowerCase());
+    if (run?.status === "completed") return run;
+  }
+  die(`${who.login}'s dispatch of ${file} did not complete in 10 minutes`);
 }
 
 const row = (over = {}) => ({ github_login: LOGIN, repo_name: FULL, effective_deadline_at: null, ...over });
@@ -138,10 +228,12 @@ const overrideDoc = (entries) => {
 };
 const grant = (extra, at) => allowanceEntry({ extra, reason: `live probe ${extra}`, by: "tomcoolpxl-lecturer1", at });
 
-async function expectGraded(label, { cap, overrides = null, deadline = null, want, used, ignored, score }) {
-  const assignment = { submission_marker: { type: "commit_message", value: MARKER, multiple: true, ...(cap ? { max_hand_ins: cap } : {}) } };
-  const marker = readSubmissionMarker(assignment);
-  const res = await resolveHandIn(get, { row: row({ effective_deadline_at: deadline }), marker, overrides });
+const markerFor = (cap) =>
+  readSubmissionMarker({ submission_marker: { type: "commit_message", value: MARKER, multiple: true, ...(cap ? { max_hand_ins: cap } : {}) } });
+
+async function expectGraded(label, { cap, overrides = null, deadline = null, login = LOGIN, want, used, ignored, score }) {
+  const marker = markerFor(cap);
+  const res = await resolveHandIn(get, { row: row({ effective_deadline_at: deadline, github_login: login }), marker, overrides });
   const got = res.commit?.sha;
   const problems = [];
   if (res.verdict !== "found") problems.push(`verdict ${res.verdict} (${res.reason})`);
@@ -174,7 +266,12 @@ async function main() {
   // seconds apart so each run starts after the one before.
   const base = Date.parse("2026-09-26T08:00:00Z");
   const at = (min) => new Date(base + min * 60_000).toISOString();
-  let files = { ".github/workflows/grading.yml": WORKFLOW, "score.txt": "0\n", "notes.md": `probe ${stamp}\n` };
+  let files = {
+    ".github/workflows/grading.yml": WORKFLOW,
+    ".github/workflows/regrade.yml": DISPATCH_WORKFLOW,
+    ".github/workflows/lint.yml": LINT_WORKFLOW,
+    "score.txt": "0\n", "notes.md": `probe ${stamp}\n`,
+  };
   const setup = await commit(files, null, "setup", at(0));
   await push(setup);
   files = { ...files, "work.md": "work\n" };
@@ -222,7 +319,24 @@ async function main() {
   // history and the push log are read without a cap too, for the push time
   // lateness is judged by; hand-in 4 is the newest push-ended hand-in either way.
   await push(H[3].sha);
+  // Moving the branch back to hand-in 4 is a push and starts a NEW run there,
+  // and the score is read from the newest run at a commit: wait for it, or the
+  // read finds it in progress (measured 2026-09-27).
+  await waitForRuns([H[3].sha], 2);
   await expectGraded("6 no cap", { cap: null, want: h4, score: 4 });
+  // 8 no cap, late by push: the same deadline as case 4, between the pushes of
+  // hand-ins 2 and 3, while every commit is DATED a day before it. Uncapped
+  // grading judged by the commit's own date until ee857b1 and graded hand-in
+  // 4; by the push it is hand-in 2. And a deadline before every push but after
+  // every commit date is no hand-in at all, with the late one named.
+  await expectGraded("8 no cap, late by push", { cap: null, deadline: new Date(between).toISOString(), want: h2, score: 2 });
+  {
+    const before = new Date(pushedAt(h1) - PUSH_TO_RUN_ALLOWANCE_MS - 60_000).toISOString();
+    if (!(Date.parse(h4.date) < Date.parse(before))) r.bad("8 no cap: the commit dates are not before the deadline - the case proves nothing");
+    const res = await resolveHandIn(get, { row: row({ effective_deadline_at: before }), marker: markerFor(null) });
+    if (res.verdict === "no-commit" && /after the deadline/.test(res.reason)) r.ok(`8 no cap, all pushed late: no hand-in (${res.reason})`);
+    else r.bad(`8 no cap, all pushed late: verdict ${res.verdict}, graded ${res.commit?.sha?.slice(0, 7)} (${res.reason ?? ""})`);
+  }
 
   // 7 runs deleted: a repository admin deletes every run of hand-in 1. The
   // push log still says a push ended on it, so it still uses its place and
@@ -236,6 +350,74 @@ async function main() {
   if (left.some((x) => x.head_sha === h1.sha)) r.bad("7 runs deleted: hand-in 1 still has a run");
   else r.ok(`7 runs deleted: ${h1Runs.length} run(s) of hand-in 1 are gone`);
   await expectGraded("7 runs deleted", { cap: 2, want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
+
+  // 9 timed by the push log alone: hand-in 5 is pushed, the deadline set 40s
+  // BEFORE the log's record of that push. With its runs it is on time - a run
+  // is a push plus GitHub's latency, so it gets PUSH_TO_RUN_ALLOWANCE_MS. Its
+  // runs deleted, only the log times it, and the log's time is the push: late.
+  // Before ba970d4 the allowance came off the log's time too, on time again.
+  files = { ...files, "score.txt": "5\n" };
+  const h5 = { n: 5, sha: await commit(files, h4.sha, MARKER, at(30)), date: at(30) };
+  await push(h5.sha);
+  const h5Runs = (await waitForRuns([h5.sha])).filter((x) => x.head_sha === h5.sha);
+  const logAt = await loggedPushAt(h5.sha);
+  const runAt = Math.min(...h5Runs.map((x) => Date.parse(x.created_at)));
+  const justAfter = new Date(logAt - 40_000).toISOString();
+  r.note(`9: push log ${new Date(logAt).toISOString()}, first run ${new Date(runAt).toISOString()} (+${(runAt - logAt) / 1000}s), deadline ${justAfter}`);
+  if (!(runAt - PUSH_TO_RUN_ALLOWANCE_MS <= logAt - 40_000)) r.bad("9: the run started over 80s after the push - the control below cannot pass");
+  await expectGraded("9 log only, control with runs", { cap: null, deadline: justAfter, want: h5, score: 5 });
+  for (const run of h5Runs) {
+    const del = await api(`/repos/${FULL}/actions/runs/${run.id}`, { token, method: "DELETE" });
+    if (del.status !== 204) r.bad(`9: could not delete run ${run.id} (HTTP ${del.status})`);
+  }
+  {
+    const listed = await listHandIns(get, { repoFullName: FULL, branch: "main", marker: markerFor(null), withRuns: true });
+    const mine = listed.handIns.find((h) => h.sha === h5.sha);
+    if (mine?.pushedFrom === "log" && Date.parse(mine.pushedAt) === logAt) r.ok(`9: hand-in 5 is now timed by the push log alone (${mine.pushedAt})`);
+    else r.bad(`9: hand-in 5 is timed ${JSON.stringify({ pushedAt: mine?.pushedAt, pushedFrom: mine?.pushedFrom })}, wanted the log's ${new Date(logAt).toISOString()}`);
+  }
+  await expectGraded("9 log only, no allowance", { cap: null, deadline: justAfter, want: h4, score: 4 });
+  await expectGraded("9 log only, capped", { cap: 10, deadline: justAfter, want: h4, used: 4, ignored: [[h5, "late"]], score: 4 });
+
+  // 10 dispatches. A student who is a collaborator starts the grading
+  // workflow with grade_sha=main: titled `Grade main (PXL Classroom)`, which
+  // the title-only count before 85436b9 did not recognise. It uses a place and
+  // is never the one graded. A lecturer's dispatch is not a hand-in; the
+  // student's dispatch of a workflow that does not grade is not one either,
+  // even titled exactly like a PXL dispatch of a full commit.
+  const { LECTURER, STUDENT_A } = accounts(env);
+  if (!STUDENT_A.token || !STUDENT_A.login) die("TEST_STUDENT1_LOGIN / TEST_STUDENT1_TOKEN are required (.env.test)");
+  const added = await api(`/repos/${FULL}/collaborators/${STUDENT_A.login}`, { token, method: "PUT", body: { permission: "push" } });
+  if (added.status !== 201 && added.status !== 204) die(`could not add ${STUDENT_A.login}: HTTP ${added.status} ${added.data?.message ?? ""}`);
+  await acceptInvitation({ student: STUDENT_A, repoName: REPO }, r);
+  const S = STUDENT_A.login;
+  const dispatchedRunIds = async (students) =>
+    (await listHandIns(get, { repoFullName: FULL, branch: "main", marker: markerFor(10), withRuns: true, students }))
+      .handIns.filter((h) => h.dispatched).map((h) => h.run_id);
+  // Hand-in 5's own runs were deleted in case 9, so no score is read at it here.
+  await expectGraded("10 before any dispatch", { cap: 10, login: S, want: h5, used: 5, ignored: [] });
+
+  const byStudent = await dispatch(STUDENT_A, "regrade.yml", "main");
+  if (byStudent.display_title === "Grade main (PXL Classroom)" && byStudent.head_sha === h5.sha) {
+    r.ok(`10 student dispatch: run ${byStudent.id} "${byStudent.display_title}" on ${h5.sha.slice(0, 7)} - a title no full-commit match reads`);
+  } else r.bad(`10 student dispatch: title "${byStudent.display_title}", head ${byStudent.head_sha?.slice(0, 7)}`);
+  // Hand-in 5 is late by nothing here (no deadline), so it is the last pushed
+  // one and graded... except that selectHandIn never grades a dispatch, and
+  // the dispatch names hand-in 5's commit: graded stays hand-in 5.
+  await expectGraded("10 student dispatch counts", { cap: 10, login: S, want: h5, used: 6, ignored: [[h5, "self-dispatched"]] });
+
+  const byLecturer = await dispatch(LECTURER, "regrade.yml", "main");
+  await expectGraded("10 lecturer dispatch does not count", { cap: 10, login: S, want: h5, used: 6, ignored: [[h5, "self-dispatched"]] });
+  const asLecturer = await dispatchedRunIds([LECTURER.login]);
+  if (asLecturer.length === 1 && asLecturer[0] === byLecturer.id) r.ok(`10 control: listed as the student, the lecturer's run ${byLecturer.id} IS counted - it was visible and grading`);
+  else r.bad(`10 control: with the lecturer listed, dispatched runs ${JSON.stringify(asLecturer)}, wanted [${byLecturer.id}]`);
+
+  const lint = await dispatch(STUDENT_A, "lint.yml", h5.sha);
+  if (lint.display_title !== `Grade ${h5.sha} (PXL Classroom)`) r.bad(`10 lint: title "${lint.display_title}" - the case needs the full-commit title`);
+  const asStudent = await dispatchedRunIds([S]);
+  if (asStudent.length === 1 && asStudent[0] === byStudent.id) r.ok(`10 student's lint dispatch "${lint.display_title.slice(0, 20)}..." is not counted; only run ${byStudent.id} is`);
+  else r.bad(`10 lint: the student's dispatched runs counted ${JSON.stringify(asStudent)}, wanted [${byStudent.id}] (lint run ${lint.id})`);
+  await expectGraded("10 after the lint dispatch", { cap: 10, login: S, want: h5, used: 6, ignored: [[h5, "self-dispatched"]] });
 
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);
