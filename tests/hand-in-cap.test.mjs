@@ -35,6 +35,7 @@ import { buildGradingSummary } from "../lib/grading-summary.mjs";
 import { buildAssignmentDoc } from "../lib/assignment-doc.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { summariseGrading } from "../frontend/src/lib/autograde.js";
+import { STARTER_PATH, buildStarterWorkflow } from "../lib/starter-workflow.mjs";
 
 const MSG = "einde examen";
 const DEADLINE = "2026-10-01T12:00:00Z";
@@ -790,26 +791,54 @@ test("readMaxHandIns is the one judge the others use", () => {
 // Third review, 2026-09-26
 // =============================================================================
 
-/** A repository where the branch, the push runs and the dispatch runs are separate answers. */
-function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true } = {}) {
+// The workflow files a dispatch can have run: the grading workflow PXL
+// Classroom writes (the real builder, so the judge is asked of the real file),
+// and a student's own workflow that grades nothing.
+const GRADING_PATH = STARTER_PATH;
+const LINT_PATH = ".github/workflows/lint.yml";
+const WORKFLOW_FILES = {
+  [GRADING_PATH]: buildStarterWorkflow({ handInMessage: MSG }),
+  [LINT_PATH]: "name: Lint\non: [push, workflow_dispatch]\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo lint\n",
+};
+const DISPATCH_HEAD = "f".repeat(40);
+
+/**
+ * A repository where the branch, the push runs and the dispatch runs are separate answers.
+ * A dispatch is `{ n, min, by }`, graded commit `n` named in its title; `input: ""` or
+ * `input: "main"` is one whose title names no commit, and `path` is the workflow it ran.
+ */
+function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true, contentsStatus = 200, files = WORKFLOW_FILES } = {}) {
   const branch = branchHandIns.map((b) => commitRow(sha(b.n), MSG, at(b.min))).reverse();
   const push = pushRuns ? branchHandIns.map((b) => runRow(sha(b.n), MSG, at(b.min), { id: 100 + b.n })).reverse() : [];
   const dispatch = dispatches.map((d, i) => ({
     id: 500 + i,
     event: "workflow_dispatch",
-    display_title: `Grade ${sha(d.n)} (PXL Classroom)`,
+    path: d.path ?? GRADING_PATH,
+    // What `run-name` makes of the input: GitHub's format() of an empty or a
+    // ref-name input, which is not a full commit.
+    display_title: `Grade ${d.input ?? sha(d.n)} (PXL Classroom)`,
     created_at: at(d.min),
     triggering_actor: { login: d.by },
-    head_sha: "f".repeat(40),
+    head_sha: d.head ?? DISPATCH_HEAD,
   }));
   const log = pushLog(push);
-  return async (path) => {
+  const reads = [];
+  const get = async (path) => {
     if (path.includes("/commits?")) return { status: 200, data: branch };
     if (path.includes("event=workflow_dispatch")) return { status: 200, data: { workflow_runs: dispatch } };
     if (path.includes("event=push")) return { status: 200, data: { workflow_runs: push } };
     if (path.includes("/activity?")) return { status: 200, data: log };
+    const file = path.match(new RegExp(`^/repos/${REPO}/contents/(.+)\\?ref=([0-9a-f]{40})$`));
+    if (file) {
+      reads.push(path);
+      if (contentsStatus !== 200) return { status: contentsStatus, data: null };
+      const text = files[decodeURIComponent(file[1])];
+      return text == null ? { status: 404, data: null } : { status: 200, data: { content: Buffer.from(text).toString("base64") } };
+    }
     return { status: 404, data: null };
   };
+  get.reads = reads;
+  return get;
 }
 
 test("A GRADING RUN THE STUDENT STARTED counts as a hand-in: it uses a slot and is never graded", async () => {
@@ -829,6 +858,74 @@ test("A GRADING RUN THE STUDENT STARTED counts as a hand-in: it uses a slot and 
   // No students named: nothing to attribute, nothing counted (and no read).
   const none = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
   assert.equal(none.handIns.length, 2);
+});
+
+/** Hand-ins 1 and 3 pushed, one dispatch between them: what does a limit of 2 grade? */
+async function capOfTwoWith(dispatch, opts = {}) {
+  const get = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 3, min: 40 }], dispatches: [dispatch], ...opts });
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] });
+  return { listed, get, picked: listed.ok ? selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 }) : null };
+}
+
+test("A DISPATCH WITH AN EMPTY INPUT counts: it graded the branch tip, and the title names no commit", async () => {
+  // run-name formats an empty input to `Grade  (PXL Classroom)`; the checkout
+  // is `github.sha`, the run's head_sha.
+  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" });
+  const d = listed.handIns.find((x) => x.dispatched);
+  assert.equal(d?.sha, DISPATCH_HEAD, "the commit it graded is best known as the run's head");
+  assert.equal(picked.used, 3);
+  assert.equal(picked.commit.sha, sha(1), "the dispatch took slot 2");
+  assert.deepEqual(picked.ignored.map((i) => i.reason), ["self-dispatched", "over-limit"]);
+});
+
+test("A DISPATCH OF `main` counts too", async () => {
+  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "Ada", input: "main" });
+  assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
+  assert.equal(picked.commit.sha, sha(1));
+});
+
+test("a dispatch by a lecturer or the App is a grading decision, whatever its title", async () => {
+  for (const by of ["tomcoolpxl", "pxl-classroom[bot]"]) {
+    for (const input of [undefined, "", "main"]) {
+      const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by, input });
+      assert.equal(listed.handIns.some((x) => x.dispatched), false, `${by} ${input}`);
+      assert.equal(picked.commit.sha, sha(3), `${by} ${input}`);
+    }
+  }
+});
+
+test("a student's dispatch of ANOTHER workflow is not a hand-in, and each file is read once", async () => {
+  const get = dispatchWorld({
+    branchHandIns: [{ n: 1, min: 10 }, { n: 3, min: 40 }],
+    dispatches: [
+      { n: 2, min: 20, by: "ada", input: "", path: LINT_PATH },
+      { n: 2, min: 21, by: "ada", input: "main", path: LINT_PATH },
+    ],
+  });
+  const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] });
+  assert.equal(listed.handIns.some((x) => x.dispatched), false);
+  assert.equal(selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 }).commit.sha, sha(3));
+  assert.deepEqual(get.reads, [`/repos/${REPO}/contents/.github/workflows/lint.yml?ref=${DISPATCH_HEAD}`]);
+});
+
+test("the grading workflow is judged by what it does, not its file name", async () => {
+  // A template's own file, grading its own way: a job the grader would read.
+  const own = ".github/workflows/exam.yml";
+  const files = { ...WORKFLOW_FILES, [own]: "on: workflow_dispatch\njobs:\n  grading:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./test.sh\n" };
+  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "", path: own }, { files });
+  assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
+});
+
+test("a dispatched workflow file that could not be read is a failed read; one GitHub no longer has counts", async () => {
+  for (const status of [403, 500, 0]) {
+    const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" }, { contentsStatus: status });
+    assert.equal(listed.ok, false, String(status));
+    assert.equal(listed.failedRead, "runs");
+  }
+  // The commit it ran was force-pushed away: nothing can show it did NOT grade.
+  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" }, { contentsStatus: 404 });
+  assert.equal(listed.ok, true);
+  assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
 });
 
 /** `get` with hand-in 2's push runs gone, and optionally its push-log entry too. */
