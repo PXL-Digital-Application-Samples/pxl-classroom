@@ -184,7 +184,8 @@ test("a script that spawns `gh api` sends the version too", () => {
 });
 
 // Counts what reaches the transport for one request answered `status`.
-async function attemptsFor(status) {
+// `call` picks the method: issues.create is a POST.
+async function attemptsFor(status, call = (o) => o.rest.issues.create({ owner: "o", repo: "r", title: "t" })) {
   const { makeOctokit } = await import("../cli/src/lib/octokit.mjs");
   let calls = 0;
   const fetch = async () => {
@@ -192,9 +193,11 @@ async function attemptsFor(status) {
     return new Response(JSON.stringify({ message: `HTTP ${status}` }), { status, headers: { "content-type": "application/json" } });
   };
   const octokit = makeOctokit({ token: "test", fetch, retryBaseMs: 1 });
-  await assert.rejects(octokit.rest.issues.create({ owner: "o", repo: "r", title: "t" }), (e) => e.status === status);
+  await assert.rejects(call(octokit), (e) => e.status === status);
   return calls;
 }
+
+const viaMethod = (method) => (o) => o.request(`${method} /repos/{owner}/{repo}/issues/1`, { owner: "o", repo: "r" });
 
 test("the CLI asks a refused request ONCE: a 4xx is an answer, not a blip", async () => {
   // `request: { retries: 3 }` made the retry plugin skip its never-retry list,
@@ -204,7 +207,26 @@ test("the CLI asks a refused request ONCE: a 4xx is an answer, not a blip", asyn
   }
 });
 
-test("the CLI still retries a 5xx three times", async () => {
-  assert.equal(await attemptsFor(500), 4);
-  assert.equal(await attemptsFor(502), 4);
+test("the CLI still retries a 5xx three times, on a method whose repeat is the same request", async () => {
+  for (const method of ["GET", "HEAD", "PUT", "DELETE"]) {
+    assert.equal(await attemptsFor(500, viaMethod(method)), 4, method);
+    assert.equal(await attemptsFor(502, viaMethod(method)), 4, method);
+  }
+});
+
+test("the CLI never retries a POST or a PATCH: a 5xx may be an issue GitHub already created", async () => {
+  // The plugin retried every 5xx, so one 502 on issues.create could open the
+  // same issue four times.
+  assert.equal(await attemptsFor(500), 1, "issues.create (POST)");
+  assert.equal(await attemptsFor(502), 1, "issues.create (POST)");
+  assert.equal(await attemptsFor(502, viaMethod("POST")), 1, "POST");
+  assert.equal(await attemptsFor(502, viaMethod("PATCH")), 1, "PATCH");
+  // And a 4xx on a GET is still asked once.
+  assert.equal(await attemptsFor(422, viaMethod("GET")), 1, "GET 422");
+});
+
+test("isIdempotent: RFC 9110's list, case-insensitive, and unknown is no", async () => {
+  const { isIdempotent } = await import("../cli/src/lib/octokit.mjs");
+  for (const m of ["GET", "get", "HEAD", "PUT", "DELETE", "OPTIONS"]) assert.equal(isIdempotent(m), true, m);
+  for (const m of ["POST", "PATCH", "patch", "", undefined, null, "TRACE"]) assert.equal(isIdempotent(m), false, String(m));
 });
