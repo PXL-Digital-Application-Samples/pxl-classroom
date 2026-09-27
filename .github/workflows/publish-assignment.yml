@@ -492,16 +492,26 @@ jobs:
           #
           # `|| true` for the same reason as the line above: never fail a
           # publish over the precision layer.
-          gh workflow run deadline-sentinel.yml --field org="$ORG" \
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deadline-sentinel.yml/dispatches" \
+            -f ref=main -f "inputs[org]=$ORG" >/dev/null \
             || echo "::warning::Could not arm deadline-sentinel.yml - a deadline within the next 4.5h will lock on the nightly instead."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ inputs.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
 
       - name: Trigger dashboard regeneration
         if: inputs.dry_run != true
         run: |
-          gh workflow run regenerate-dashboard.yml --field org="$ORG"
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/regenerate-dashboard.yml/dispatches" \
+            -f ref=main -f "inputs[org]=$ORG" >/dev/null
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ inputs.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"

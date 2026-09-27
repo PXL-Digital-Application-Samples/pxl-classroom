@@ -139,7 +139,7 @@ test("both arming callers exist, or the cron gap is still open", () => {
   );
   assert.match(
     publish,
-    /gh workflow run deadline-sentinel\.yml/,
+    /workflows\/deadline-sentinel\.yml\/dispatches/,
     "publishing must arm the sentinel, not merely enable it",
   );
 

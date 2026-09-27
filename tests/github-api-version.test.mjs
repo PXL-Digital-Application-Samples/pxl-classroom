@@ -85,6 +85,18 @@ test("every `gh api` in a workflow sends the version, from a step env equal to t
   }
 });
 
+test("a workflow dispatches through `gh api`, never `gh workflow run`", () => {
+  // `gh workflow run` cannot send a header, and costs a GraphQL lookup and a
+  // workflow read before the dispatch (measured with GH_DEBUG=api) where the
+  // POST alone is one call.
+  const offenders = workflowSteps()
+    .filter(({ step }) => typeof step.run === "string")
+    .flatMap(({ step, name }) => step.run.split("\n").map((l) => l.trim())
+      .filter((l) => /\bgh\s+workflow\s+run\b/.test(l) && !l.startsWith("#") && !l.startsWith("echo"))
+      .map((l) => `${name}: ${l}`));
+  assert.deepEqual(offenders, []);
+});
+
 test("every github-script step sends the version, through one prelude that really sets the header", async () => {
   const found = workflowSteps().filter(({ step }) => String(step.uses || "").startsWith("actions/github-script@"));
   assert.ok(found.length >= 6, `found only ${found.length} github-script steps`);

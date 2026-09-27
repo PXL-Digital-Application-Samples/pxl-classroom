@@ -782,7 +782,7 @@ publish-assignment.yml:
    g. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
    h. Flips state: draft -> published in assignments/<id>.yml
    i. gh workflow enable daily-activity.yml + deadline-sentinel.yml, then
-      gh workflow run deadline-sentinel.yml - ENABLING IS NOT ARMING, and a
+      dispatches deadline-sentinel.yml - ENABLING IS NOT ARMING, and a
       cron cannot see an assignment published since it last fired
 ```
 

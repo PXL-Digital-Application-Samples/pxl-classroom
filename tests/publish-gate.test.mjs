@@ -61,7 +61,7 @@ test("a save that publishes does not also regenerate - the publish does that its
   const publish = readFileSync(join(ROOT, ".github", "workflows", "publish-assignment.yml"), "utf8");
   assert.match(
     publish,
-    /gh workflow run regenerate-dashboard\.yml/,
+    /workflows\/regenerate-dashboard\.yml\/dispatches/,
     "publish-assignment.yml no longer regenerates the student pages, so a save that publishes must",
   );
 });

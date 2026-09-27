@@ -258,6 +258,11 @@ jobs:
 
       - name: Trigger initial frontend deployment
         run: |
-          gh workflow run deploy-frontend.yml
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-frontend.yml/dispatches" \
+            -f ref=main >/dev/null
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
