@@ -31,7 +31,8 @@ import { commitWithRebase } from "../../lib/gittree.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { syncMarker } from "../../lib/starter-sync.mjs";
 import { CONTROL_REPO } from "../../lib/deployment.mjs";
-import { accounts, api, die, loadEnv, reporter, root } from "./live-kit.mjs";
+import { sameLogin } from "../../lib/github-login.mjs";
+import { accounts, api, decode, die, loadEnv, reporter, root } from "./live-kit.mjs";
 
 const env = loadEnv();
 const org = process.env.PROBE_ORG || "pxl-classroom-testbed";
@@ -94,6 +95,17 @@ async function openIssues() {
     await new Promise((res) => setTimeout(res, 5_000));
   }
   return issues;
+}
+
+async function newestRecord() {
+  const list = await api(`/repos/${org}/${CONTROL_REPO}/contents/syncs/${ID}`, { token });
+  if (!list.ok || !Array.isArray(list.data)) return null;
+  const docs = [];
+  for (const f of list.data) {
+    const one = await api(`/repos/${org}/${CONTROL_REPO}/contents/${f.path}`, { token });
+    if (one.ok) docs.push(JSON.parse(decode(one.data.content)));
+  }
+  return docs.sort((a, b) => String(a.synced_at).localeCompare(String(b.synced_at))).at(-1) ?? null;
 }
 
 function runCli(configDir, args) {
@@ -173,6 +185,20 @@ async function main() {
     const issues = await openIssues();
     if (issues.length === 1) r.ok(`1 ONE tracking issue (#${issues[0].number}), assigned to [${issues[0].assignees.map((a) => a.login)}]`);
     else r.bad(`1 ${issues.length} tracking issues`);
+    // The record the CLI wrote: EACH member's row names that one issue, and
+    // its assignees are what GitHub shows on it (9bee23d; before it a CLI row
+    // carried no issue fields at all).
+    const rec = await newestRecord();
+    const onGitHub = (issues[0]?.assignees || []).map((a) => a.login).sort().join(",");
+    for (const login of members) {
+      const row = rec?.results?.find((x) => sameLogin(x.github_login, login));
+      if (row?.issue_number === issues[0]?.number && row.issue_url === issues[0]?.html_url
+        && [...(row.issue_assignees || [])].sort().join(",") === onGitHub) {
+        r.ok(`1 record: ${login}'s row names issue #${row.issue_number}, assignees [${row.issue_assignees}] as GitHub shows`);
+      } else {
+        r.bad(`1 record: ${login}'s row ${JSON.stringify(row && { n: row.issue_number, u: row.issue_url, a: row.issue_assignees })}, GitHub #${issues[0]?.number} [${onGitHub}]`);
+      }
+    }
 
     // --- 2 -------------------------------------------------------------------
     const two = runCli(configDir, ["sync-starter", "--org", org, "--assignment", ID, "--issue"]);
