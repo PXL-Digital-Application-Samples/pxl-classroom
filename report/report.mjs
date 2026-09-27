@@ -570,8 +570,18 @@ async function main() {
     const reconstructedNothing =
       lockdownRowForStatus?.reconstructed === true && !lockdownRowForStatus.snapshot_sha;
 
+    // AN ABSENT ACCEPTANCE RECORD DOES NOT ERASE A REPOSITORY. The acceptance
+    // file is the one record a later run deletes: retry-acceptance used to
+    // commit its wipe before the gates ran, so a Retry pressed for a locked
+    // student after the deadline was refused as frozen and still left no
+    // record - and this row turned from on-time into `no-submission` while it
+    // carried `preserved_sha` (testbed drill-20260927-0146). A repository
+    // record or a preservation says this student was given a repository, and
+    // then the observations decide, exactly as they would with the record.
+    const hadRepository = Boolean(acceptance || repo || preservation);
+
     let submissionStatus = "unknown";
-    if (!acceptance || isUnstarted) {
+    if (!hadRepository || isUnstarted) {
       submissionStatus = "no-submission";
       noSubCount++;
     } else if (preservedOnTimeSha) {

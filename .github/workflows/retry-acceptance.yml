@@ -171,7 +171,16 @@ jobs:
           esac
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
-      - name: Wipe half-done acceptance state
+      # IN THE CHECKOUT ONLY - NEVER COMMITTED HERE. Removing the record is what
+      # makes accept.mjs run every gate again instead of leaving through
+      # `already-accepted`; the replacement it writes is committed by the
+      # record step below, which runs only when the acceptance was admitted. A
+      # refusal therefore changes nothing. This step used to commit and push
+      # the wipe first, so a lecturer pressing Retry for a locked student after
+      # the deadline had the record deleted, then the retry refused as frozen,
+      # and the student's report row read "No submission" (testbed
+      # drill-20260927-0146, LESSONS.md).
+      - name: Set half-done acceptance state aside
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           GITHUB_LOGIN: ${{ inputs.github_login }}
@@ -183,15 +192,7 @@ jobs:
             exit 0
           fi
           rm -f "control/$ACCEPT_FILE"
-
-          git -C control config user.name "pxl-classroom[bot]"
-          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control add -A
-          git -C control commit -m "Reset acceptance state for ${GITHUB_LOGIN} on ${ASSIGNMENT_ID} (manual retry)"
-          # Was `git pull --rebase || true; git push`, which pushed whatever the
-          # working tree held even when the rebase had failed. The retry helper
-          # rebases properly and fails if it cannot.
-          scripts/git-push-with-retry.sh control
+          echo "Removed $ACCEPT_FILE from the checkout; it is replaced only if the acceptance is admitted."
 
       - name: Run acceptance
         id: accept
