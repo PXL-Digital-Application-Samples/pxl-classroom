@@ -54,7 +54,8 @@ export function makeOctokit({ token, fetch, retryBaseMs } = {}) {
   return octokit;
 }
 
-// RFC 9110 §9.2.2: a repeat of these has the effect of one. PATCH is not in it.
+// RFC 9110's idempotent methods (section 9.2.2): a repeat of these has the
+// effect of one. PATCH is not in it.
 const IDEMPOTENT = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
 
 /** Is a retry of this method the same request? Unknown or absent is no. */
