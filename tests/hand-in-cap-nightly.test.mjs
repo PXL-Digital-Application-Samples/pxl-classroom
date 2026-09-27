@@ -211,11 +211,22 @@ scenario("the run history refused (no Actions permission) names the student and 
 
 // The overrides ARE read without a cap now: they hold a lecturer's grading
 // decisions too (tests/grade-at-deadline.test.mjs).
-scenario("no cap: no run-history read", { cap: null }, {}, (res, dir, state) => {
+// Without a cap there is no count, but lateness is still when GitHub saw the
+// push, so the push runs and the push log are read; the student's own
+// dispatches are not, because without a cap they cannot change the answer.
+scenario("no cap: timed by the push, no count, no dispatch read", { cap: null }, {}, (res, dir, state) => {
   const doc = summaryAt(dir);
   assert.equal(doc.students[0].earned_points, 3);
   assert.equal("hand_ins" in doc.students[0], false);
-  assert.equal(state.calls.some((c) => c.includes("/actions/runs")), false);
+  assert.ok(state.calls.some((c) => c.includes("/actions/runs?event=push")), state.calls.join("\n"));
+  assert.ok(state.calls.some((c) => c.includes("/activity?")), state.calls.join("\n"));
+  assert.equal(state.calls.some((c) => c.includes("event=workflow_dispatch")), false);
+});
+
+scenario("no cap: an unreadable run history names the student and writes nothing", { cap: null }, { runsStatus: 403 }, (res, dir) => {
+  assert.equal(res.status, 0);
+  assert.equal(summaryAt(dir), null);
+  assert.match(res.stdout, /ada: could not read this repository's Actions run history \(HTTP 403\)/);
 });
 
 test("readOverrides: absent is none, unreadable is a failure", async () => {

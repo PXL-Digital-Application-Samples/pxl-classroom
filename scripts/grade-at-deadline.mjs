@@ -165,7 +165,7 @@ async function main() {
   // that to fix a score a lecturer can read with one button.
   if (!res.ok) {
     const why = {
-      permission: "GitHub refused a read (HTTP 403) - named below; the App needs Checks (read), and Actions (read) for a hand-in cap or a commit graded on request",
+      permission: "GitHub refused a read (HTTP 403) - named below; the App needs Checks (read), and Actions (read) for a hand-in message or a commit graded on request",
       "api-errors": `${res.apiFailedCount} student(s) could not be read - nothing was written rather than a partial summary`,
       "nothing-graded": `no student had a readable grading run (${res.failed.length} named below)`,
     }[res.refusal];

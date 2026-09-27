@@ -703,12 +703,42 @@ test("the run history being unreadable refuses the student, by name, with why", 
   assert.match(res.reason, /Actions run history \(HTTP 403\)/);
 });
 
-test("UNCAPPED grading makes no run-history read at all", async () => {
+test("UNCAPPED grading reads when each hand-in was pushed, and not the student's dispatches", async () => {
   const w = world({ handIns: SIX });
   const res = await gradeStudent(w.request, { row: row(), marker: marker() });
   assert.equal(res.parsed.earned, 6);
-  assert.equal(res.handIns, null);
-  assert.equal(w.calls.some((c) => c.includes("/actions/runs")), false, w.calls.join("\n"));
+  assert.equal(res.handIns, null, "no cap, no count to report");
+  assert.ok(w.calls.some((c) => c.includes("/actions/runs?event=push")), w.calls.join("\n"));
+  assert.ok(w.calls.some((c) => c.includes("/activity?")), w.calls.join("\n"));
+  // Without a cap a dispatch uses no slot and is never graded: nothing to read.
+  assert.equal(w.calls.some((c) => c.includes("event=workflow_dispatch")), false, w.calls.join("\n"));
+});
+
+test("UNCAPPED, a BACKDATED hand-in pushed after the deadline is late (review of v1.5.0)", async () => {
+  // Hand-in 2's commit claims 10:00; GitHub saw it pushed at 13:00, an hour
+  // after the 12:00 deadline. The uncapped path judged the commit date.
+  const handIns = [{ n: 1, min: 30 }, { n: 2, min: 240, date: at(60) }];
+  for (const multiple of [true, false]) {
+    const res = await gradeStudent(world({ handIns }).request, { row: row(), marker: marker({ multiple }) });
+    assert.equal(res.verdict, "graded");
+    assert.equal(res.sha, sha(1), "the last ON-TIME hand-in, by push time");
+  }
+  const only = await resolveHandIn(world({ handIns: [{ n: 2, min: 240, date: at(60) }] }).get, { row: row(), marker: marker() });
+  assert.equal(only.verdict, "no-commit");
+  assert.match(only.reason, /after the deadline .*pushed 2026-10-01T13:00:00/);
+  // And the grader and the Regrade dialog's rule agree: the same list, the same choice.
+  const listed = await listHandIns(world({ handIns }).get, { repoFullName: REPO, branch: "main", marker: marker() });
+  assert.equal(selectHandIn(listed.handIns, { until: DEADLINE, multiple: true }).commit.sha, sha(1));
+});
+
+test("UNCAPPED, an unreadable run history or push log refuses the student - never a guess from the commit dates", async () => {
+  for (const [bad, pattern] of [[{ runsStatus: 502 }, /Actions run history \(HTTP 502\)/], [{ activityStatus: 500 }, /push history \(HTTP 500\)/]]) {
+    for (const multiple of [true, false]) {
+      const res = await gradeStudent(world({ handIns: SIX, ...bad }).request, { row: row(), marker: marker({ multiple }) });
+      assert.equal(res.verdict, "lookup-failed", `${JSON.stringify(bad)} multiple=${multiple}`);
+      assert.match(res.reason, pattern);
+    }
+  }
 });
 
 test("resolveHandIn names no hand-in and a late one differently under a cap", async () => {
@@ -804,8 +834,8 @@ const DISPATCH_HEAD = "f".repeat(40);
 
 /**
  * A repository where the branch, the push runs and the dispatch runs are separate answers.
- * A dispatch is `{ n, min, by }`, graded commit `n` named in its title; `input: ""` or
- * `input: "main"` is one whose title names no commit, and `path` is the workflow it ran.
+ * A dispatch is `{ n, min, by }`, graded commit `n` named in its title; `input: "main"` or
+ * a short commit id is one whose title names no full commit, and `path` is the workflow it ran.
  */
 function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true, contentsStatus = 200, files = WORKFLOW_FILES } = {}) {
   const branch = branchHandIns.map((b) => commitRow(sha(b.n), MSG, at(b.min))).reverse();
@@ -814,8 +844,8 @@ function dispatchWorld({ branchHandIns = [], dispatches = [], pushRuns = true, c
     id: 500 + i,
     event: "workflow_dispatch",
     path: d.path ?? GRADING_PATH,
-    // What `run-name` makes of the input: GitHub's format() of an empty or a
-    // ref-name input, which is not a full commit.
+    // What `run-name` makes of the input - measured 2026-09-27: `grade_sha=main`
+    // is titled `Grade main (PXL Classroom)`, with head_sha main's tip.
     display_title: `Grade ${d.input ?? sha(d.n)} (PXL Classroom)`,
     created_at: at(d.min),
     triggering_actor: { login: d.by },
@@ -867,10 +897,10 @@ async function capOfTwoWith(dispatch, opts = {}) {
   return { listed, get, picked: listed.ok ? selectHandIn(listed.handIns, { until: DEADLINE, limit: 2 }) : null };
 }
 
-test("A DISPATCH WITH AN EMPTY INPUT counts: it graded the branch tip, and the title names no commit", async () => {
-  // run-name formats an empty input to `Grade  (PXL Classroom)`; the checkout
-  // is `github.sha`, the run's head_sha.
-  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" });
+test("A DISPATCH OF `main` counts: it graded the branch tip, and the title names no commit (review of v1.5.0)", async () => {
+  // Measured 2026-09-27: `grade_sha=main` is accepted, titled
+  // `Grade main (PXL Classroom)`, and checks out main's tip - the run's head_sha.
+  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "Ada", input: "main" });
   const d = listed.handIns.find((x) => x.dispatched);
   assert.equal(d?.sha, DISPATCH_HEAD, "the commit it graded is best known as the run's head");
   assert.equal(picked.used, 3);
@@ -878,15 +908,15 @@ test("A DISPATCH WITH AN EMPTY INPUT counts: it graded the branch tip, and the t
   assert.deepEqual(picked.ignored.map((i) => i.reason), ["self-dispatched", "over-limit"]);
 });
 
-test("A DISPATCH OF `main` counts too", async () => {
-  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "Ada", input: "main" });
+test("A DISPATCH OF A SHORT COMMIT ID counts too", async () => {
+  const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: sha(2).slice(0, 7) });
   assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
   assert.equal(picked.commit.sha, sha(1));
 });
 
 test("a dispatch by a lecturer or the App is a grading decision, whatever its title", async () => {
   for (const by of ["tomcoolpxl", "pxl-classroom[bot]"]) {
-    for (const input of [undefined, "", "main"]) {
+    for (const input of [undefined, "main"]) {
       const { listed, picked } = await capOfTwoWith({ n: 2, min: 20, by, input });
       assert.equal(listed.handIns.some((x) => x.dispatched), false, `${by} ${input}`);
       assert.equal(picked.commit.sha, sha(3), `${by} ${input}`);
@@ -898,7 +928,7 @@ test("a student's dispatch of ANOTHER workflow is not a hand-in, and each file i
   const get = dispatchWorld({
     branchHandIns: [{ n: 1, min: 10 }, { n: 3, min: 40 }],
     dispatches: [
-      { n: 2, min: 20, by: "ada", input: "", path: LINT_PATH },
+      { n: 2, min: 20, by: "ada", path: LINT_PATH },
       { n: 2, min: 21, by: "ada", input: "main", path: LINT_PATH },
     ],
   });
@@ -912,18 +942,18 @@ test("the grading workflow is judged by what it does, not its file name", async 
   // A template's own file, grading its own way: a job the grader would read.
   const own = ".github/workflows/exam.yml";
   const files = { ...WORKFLOW_FILES, [own]: "on: workflow_dispatch\njobs:\n  grading:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./test.sh\n" };
-  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "", path: own }, { files });
+  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "main", path: own }, { files });
   assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
 });
 
 test("a dispatched workflow file that could not be read is a failed read; one GitHub no longer has counts", async () => {
   for (const status of [403, 500, 0]) {
-    const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" }, { contentsStatus: status });
+    const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "main" }, { contentsStatus: status });
     assert.equal(listed.ok, false, String(status));
     assert.equal(listed.failedRead, "runs");
   }
   // The commit it ran was force-pushed away: nothing can show it did NOT grade.
-  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "" }, { contentsStatus: 404 });
+  const { listed } = await capOfTwoWith({ n: 2, min: 20, by: "ada", input: "main" }, { contentsStatus: 404 });
   assert.equal(listed.ok, true);
   assert.equal(listed.handIns.filter((x) => x.dispatched).length, 1);
 });

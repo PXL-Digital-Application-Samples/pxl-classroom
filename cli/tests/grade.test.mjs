@@ -445,6 +445,20 @@ autograde:
         { sha: handInSha, commit: { message: "einde examen", committer: { date: "2026-09-02T07:50:04Z" } } },
       ]), { status: 200, headers: { "content-type": "application/json" } });
     }
+    // When GitHub saw each push, which is what the deadline is compared to
+    // (lib/submission-marker.mjs `handInTime`): the push runs and the push log.
+    if (u.startsWith("https://api.github.com/repos/TestOrg/proef-pe1-alice/actions/runs?")) {
+      return new Response(JSON.stringify({ workflow_runs: [
+        { id: 2, head_sha: headSha, head_branch: "main", event: "push", created_at: "2026-09-02T08:10:09Z", head_commit: { message: "fix the readme" } },
+        { id: 1, head_sha: handInSha, head_branch: "main", event: "push", created_at: "2026-09-02T07:50:09Z", head_commit: { message: "einde examen" } },
+      ] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (u.startsWith("https://api.github.com/repos/TestOrg/proef-pe1-alice/activity?")) {
+      return new Response(JSON.stringify([
+        { activity_type: "push", ref: "refs/heads/main", after: headSha, timestamp: "2026-09-02T08:10:05Z" },
+        { activity_type: "push", ref: "refs/heads/main", after: handInSha, timestamp: "2026-09-02T07:50:05Z" },
+      ]), { status: 200, headers: { "content-type": "application/json" } });
+    }
     if (u === "https://api.github.com/repos/TestOrg/proef-pe1-alice/check-runs/991/annotations?per_page=100&page=1") {
       return new Response(JSON.stringify([
         { annotation_level: "warning", title: "", message: "Node.js 20 is deprecated." },
@@ -502,10 +516,10 @@ autograde:
     assert.ok(stdout.includes("alice: 10/10"), `saw: ${stdout}${_stderr}`);
     assert.ok(stdout.includes("1 graded, 0 failed"));
 
-    // The submission branch is read whole; the deadline is applied to each
-    // commit's own timestamp in lib/submission-marker.mjs rather than handed to
-    // GitHub, so a hand-in pushed after it can be reported as late instead of
-    // being invisible.
+    // The submission branch is read whole; the deadline is applied to when
+    // GitHub saw each hand-in pushed, in lib/submission-marker.mjs, rather
+    // than handed to GitHub, so a hand-in pushed after it can be reported as
+    // late instead of being invisible.
     assert.ok(commitsQuery, "the hand-in commit has to be looked for");
     assert.match(commitsQuery, /sha=main/);
     assert.ok(!commitsQuery.includes("until="), "the deadline is not GitHub's filter to apply");

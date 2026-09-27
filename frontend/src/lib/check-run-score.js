@@ -18,9 +18,11 @@ export { fetchCheckRunAnnotations } from '../../../lib/check-run-annotations.mjs
 // hand-in commit and nothing else. Same rule: one module, imported by the SPA
 // and by `pxl-classroom grade`, never a second `=== 'einde examen'` written
 // wherever it happened to be needed.
+// Not `findMarkedCommit`: it times a hand-in by the commit's own date, which
+// the student sets. Which hand-in counts is `resolveHandIn`'s
+// (lib/grade-cohort.mjs), timed by when GitHub saw the push.
 export {
   readSubmissionMarker,
   submissionBranch,
-  findMarkedCommit,
   describeIgnoredHandIn,
 } from '../../../lib/submission-marker.mjs'

@@ -155,6 +155,18 @@ test("a student who has not pushed is named, never counted as an API error", asy
 
 const MARKER = { type: "commit_message", value: "hand-in", multiple: true };
 
+/**
+ * When GitHub saw each hand-in pushed - the push runs and the push log a
+ * marker is timed from (lib/submission-marker.mjs `handInTime`).
+ * `pushes`: [[sha, iso]].
+ */
+const pushed = (pushes = []) => ({
+  [`/repos/${REPO}/actions/runs?`]: ok({
+    workflow_runs: pushes.map(([sha, at], i) => ({ id: i + 1, head_sha: sha, head_branch: "main", event: "push", created_at: at, head_commit: { id: sha, message: MARKER.value } })),
+  }),
+  [`/repos/${REPO}/activity?`]: ok(pushes.map(([sha, at]) => ({ activity_type: "push", ref: "refs/heads/main", after: sha, timestamp: at }))),
+});
+
 test("WITH A MARKER THE HAND-IN COMMIT IS THE SUBMISSION, and the report's SHA is not consulted", async () => {
   // The report's commit used to be read FIRST and the hand-in used only as a
   // fallback - which graded a hand-in pushed after the deadline whenever it
@@ -167,6 +179,7 @@ test("WITH A MARKER THE HAND-IN COMMIT IS THE SUBMISSION, and the report's SHA i
     ]),
     [`/repos/${REPO}/commits/${HANDIN}/check-runs`]: ok({ check_runs: [RUN] }),
     [`/repos/${REPO}/check-runs/77/annotations`]: ok(ANNOTATIONS),
+    ...pushed([[HANDIN, "2026-09-09T10:00:05Z"]]),
   });
   const res = await gradeCohort(t.request, {
     students: [row({ effective_deadline_at: "2026-09-10T22:00:00Z" })],
@@ -185,12 +198,23 @@ test("WITH A MARKER THE HAND-IN COMMIT IS THE SUBMISSION, and the report's SHA i
 });
 
 test("no hand-in and a LATE hand-in are different sentences", async () => {
-  const nothing = transport({ [`/repos/${REPO}/commits?`]: ok([]) });
+  const nothing = transport({ [`/repos/${REPO}/commits?`]: ok([]), ...pushed([]) });
   const res = await gradeCohort(nothing.request, {
     students: [row({ effective_deadline_at: "2026-09-10T22:00:00Z" })],
     marker: MARKER,
   });
   assert.match(res.failed[0].reason, /nothing was handed in/);
+  // Committed on time by the student's clock, pushed a day late by GitHub's.
+  const LATE = "l".repeat(40);
+  const late = transport({
+    [`/repos/${REPO}/commits?`]: ok([{ sha: LATE, commit: { message: "hand-in", committer: { date: "2026-09-10T20:00:00Z" } } }]),
+    ...pushed([[LATE, "2026-09-11T20:00:00Z"]]),
+  });
+  const lateRes = await gradeCohort(late.request, {
+    students: [row({ effective_deadline_at: "2026-09-10T22:00:00Z" })],
+    marker: MARKER,
+  });
+  assert.match(lateRes.failed[0].reason, /after the deadline \(lllllll, pushed 2026-09-11T20:00:00Z\)/);
 });
 
 test("a commit lookup that FAILED is not 'there is no hand-in'", async () => {

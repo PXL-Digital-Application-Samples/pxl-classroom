@@ -2638,3 +2638,15 @@ The duplicate now asks, at the instant, whether a sentinel for this key already 
 The review of v1.5.0 found the record this rests on was not true. Under `STOP_ONLY`, lockdown caught every per-repository failure and exited 0 whatever happened, and the exit code is the only thing the workflow reads - so a stop that missed three students was marked `stop: done`, the duplicate trusted it and re-stopped nobody, and the nightly credited the instant as their lock time while they could still push. The fix to the duplicate had made an old lie load-bearing. Stop-only now fails when a repository was not stopped, excusing only an organization owner, as the full run does. The general form: before a new decision reads a record, check that the record's writer can actually say the thing being read.
 
 A duplicate that finds the stop held also no longer re-dispatches finalize, so if the first sentinel's dispatch failed, finalize waits for the nightly. Accepted: the lock already held at the instant, the nightly still finalizes, and recording the dispatch would be one more field for a rare failure.
+
+### A hand-in rule applied on one path is a rule the other path breaks.
+
+2026-09-27, the review of v1.5.0. Four findings in grading, all the same shape: a rule stated once and enforced in only some of the places it applies.
+
+**A self-started grading run was recognised by its title.** It counted against a hand-in cap only when titled `Grade <40-hex sha> (PXL Classroom)`, and the title names a commit only when the input was one. Measured on the testbed: `grade_sha=main` is accepted, titled `Grade main (PXL Classroom)`, and grades main's tip - so a student could be graded as often as they liked without spending a hand-in. (An empty input is refused with a 422 while it is `required`; the reviewer's first guess at the bypass was that one, and it does not exist.) Every dispatch a listed student triggers now counts when the workflow file it executed grades, judged by the grader's own tests; the same measurement showed that deleting such a run leaves nothing any REST read can see, which is OPEN-ITEMS §11.
+
+**The uncapped path dated hand-ins by the commit.** The capped path and the Regrade dialog used the push time, so a backdated hand-in pushed after the deadline was graded on one path and late on the other, over the same repository. Every marker assignment now goes through `selectHandIn`. Two rules that must agree are one function, not two walks written to the same spec.
+
+**The run-to-push allowance was taken off push-log times too.** A run starts a few seconds after its push, so its time gets two minutes back; the push log's timestamp is the push. Subtracted from it, a push up to two minutes late was on time whenever its runs had been deleted. A time now carries where it came from (`pushedFrom`).
+
+**The CLI retried a POST after a 5xx.** GitHub can answer 502 to a request it already acted on, so `retry: { retries: 3 }` could open one issue four times. Only idempotent methods are retried now. `lib/gh.mjs`, which every script uses, still retries a POST the same way - found by the same agent, not yet decided.

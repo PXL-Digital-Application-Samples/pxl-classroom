@@ -218,8 +218,9 @@ async function main() {
   const after = await expectGraded("5 force-push", { cap: 2, want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
   if (after.commit && after.commit.onBranch === false) r.ok("5 force-push: the graded hand-in is known from its run alone (not on the branch)");
   else r.bad(`5 force-push: graded hand-in onBranch ${after.commit?.onBranch}`);
-  // 6 no cap: every hand-in counts and the last one is graded (the run
-  // history is not read without a cap, so the rewritten branch has none).
+  // 6 no cap: every hand-in counts and the last one is graded. The run
+  // history and the push log are read without a cap too, for the push time
+  // lateness is judged by; hand-in 4 is the newest push-ended hand-in either way.
   await push(H[3].sha);
   await expectGraded("6 no cap", { cap: null, want: h4, score: 4 });
 
