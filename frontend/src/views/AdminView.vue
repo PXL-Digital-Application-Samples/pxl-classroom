@@ -1818,6 +1818,13 @@ import {
 } from '../../../lib/control-layout.mjs'
 import { archiveRepoName } from '../../../lib/archive-repo.mjs'
 import { buildRetiredManifest } from '../../../lib/retired-manifest.mjs'
+import {
+  deleteWaitsForReport,
+  readReportSourceChanges,
+  reportFreshness,
+  STALE_REPORT_REFUSAL,
+  UNKNOWN_REPORT_REFUSAL,
+} from '../../../lib/report-freshness.mjs'
 // Deleting an assignment has to take its organization ruleset with it: unlike a
 // repository one, it does not live in a student repository and would be left
 // behind, named after an assignment that no longer exists.
@@ -4964,6 +4971,31 @@ async function deleteAssignment() {
       getRepoContent(token, props.org, config.controlRepo, reportCsvPath(id)).catch(() => null),
       getRepoContent(token, props.org, config.controlRepo, gradingSummaryPath(id)).catch(() => null),
     ])
+
+    // 1b. ...AND CURRENT. The report is rebuilt a minute or so after a
+    //     finalize commits the lock and preservation, and this commit removes
+    //     those sources while keeping the report as evidence - so a report read
+    //     inside that minute would be kept for ever saying nothing was
+    //     preserved. Refuse, and start the rebuild the lecturer is waiting for
+    //     (lib/report-freshness.mjs). Before the broker: nothing has changed yet.
+    if (deleteWaitsForReport(form.value.state)) {
+      let report = null
+      try { report = reportJson ? JSON.parse(reportJson) : null } catch { report = null }
+      const changes = await readReportSourceChanges(
+        (method, path) => ghApi(token, method, path),
+        { owner: props.org, repo: config.controlRepo, assignmentId: id },
+      )
+      const freshness = reportFreshness(report, changes)
+      if (freshness === 'unknown') {
+        toast.error(UNKNOWN_REPORT_REFUSAL)
+        return
+      }
+      if (freshness === 'stale') {
+        toast.error(STALE_REPORT_REFUSAL)
+        await republishStudentPages({ token, org: props.org, failure: 'Nothing was deleted, and starting the report rebuild failed' })
+        return
+      }
+    }
 
     // 2. Every path this assignment owns, from ONE tree read rather than a
     //    listing per directory. `observations/<id>/<login>/<file>` is three

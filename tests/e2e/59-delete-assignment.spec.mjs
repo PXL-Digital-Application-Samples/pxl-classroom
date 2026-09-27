@@ -47,9 +47,17 @@ const TREE = [
   `acceptances/${ID}-2/bob.json`,
 ];
 
+// The report was regenerated after the last commit to its sources, unless a
+// test says otherwise (lib/report-freshness.mjs).
+const SOURCES_CHANGED_AT = '2026-08-20T20:05:00Z';
+const REPORT_GENERATED_AT = '2026-08-20T20:06:30Z';
+
 async function openClosedAssignment(
   page,
-  { gitCommits, treeTruncated = false, brokerStatus = 200, reportStudents = [] } = {},
+  {
+    gitCommits, workflowDispatches, treeTruncated = false, brokerStatus = 200, reportStudents = [],
+    generatedAt = REPORT_GENERATED_AT, sourcesStatus = 200,
+  } = {},
 ) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -57,9 +65,22 @@ async function openClosedAssignment(
     assignments: { [ID]: assignment() },
     // The evidence has to exist to be kept: without a report on record the
     // delete correctly copies nothing, which is not what this is testing.
-    reports: { [ID]: { schema_version: 1, assignment_id: ID, students: reportStudents } },
+    reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: generatedAt, students: reportStudents } },
     gitCommits,
+    workflowDispatches,
   });
+
+  // The newest commit to observations/<id> and lockdowns/<id>, which is what
+  // the delete compares the report's generated_at against.
+  await page.route(new RegExp(`/repos/${ORG}/pxl-classroom-control/commits\\?path=`), (route) =>
+    sourcesStatus !== 200
+      ? route.fulfill({ status: sourcesStatus, body: '{"message":"boom"}' })
+      : route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ sha: 'a'.repeat(40), commit: { committer: { date: SOURCES_CHANGED_AT } } }]),
+        }),
+  );
 
   await page.route('**/git/trees/main?recursive=1', (route) =>
     route.fulfill({
@@ -185,6 +206,24 @@ test.describe('59 - what it writes and what it removes', () => {
     expect(manifest.archive_repo, 'read off the preserved rows, not composed').toBe(legacy);
     expect(manifest.archive_repo).not.toContain(ID);
     expect(manifest.preserved_submissions, 'only the rows actually preserved').toBe(2);
+  });
+
+  test('a report older than the lock and preservation deletes nothing, and starts the rebuild', async ({ page }) => {
+    // Measured 2026-09-27: a delete a minute after a finalize, before the
+    // regeneration landed, kept the pre-deadline report as evidence and wrote
+    // `preserved_submissions: 0` over an archive holding both students' work -
+    // in a commit that also removed the preservation records it was wrong about.
+    const workflowDispatches = [];
+    const commits = await del(page, { workflowDispatches, generatedAt: '2026-08-20T19:30:00Z' });
+    await expect(page.locator('.toast').first()).toContainText('try again in a minute or two', { timeout: 10000 });
+    await expect.poll(() => workflowDispatches.map((d) => d.workflow)).toContain('regenerate-dashboard.yml');
+    expect(commits).toHaveLength(0);
+  });
+
+  test('a delete that cannot tell whether the report is current deletes nothing', async ({ page }) => {
+    const commits = await del(page, { sourcesStatus: 500 });
+    await expect(page.locator('.toast').first()).toContainText('Could not check whether the report is up to date', { timeout: 10000 });
+    expect(commits).toHaveLength(0);
   });
 
   test('a truncated tree deletes nothing', async ({ page }) => {

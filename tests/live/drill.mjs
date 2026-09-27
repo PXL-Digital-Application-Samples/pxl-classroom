@@ -63,6 +63,9 @@ import {
   reportCsvPath, reportPath, retiredDir, retiredManifestPath,
 } from "../../lib/control-layout.mjs";
 import { buildRetiredManifest } from "../../lib/retired-manifest.mjs";
+import {
+  deleteWaitsForReport, readReportSourceChanges, reportFreshness, STALE_REPORT_REFUSAL, UNKNOWN_REPORT_REFUSAL,
+} from "../../lib/report-freshness.mjs";
 import { commitWithRebase } from "../../lib/gittree.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
 import { normalizeLogin } from "../../lib/github-login.mjs";
@@ -787,6 +790,21 @@ async function cleanupLocked(named, request) {
     const grading = await readControl(gradingSummaryPath(id));
     let students = [];
     try { students = reportText.ok ? JSON.parse(reportText.text).students || [] : []; } catch { students = []; }
+
+    // The Admin Panel's gate, asked the same way: a report older than the lock
+    // and preservation would be retired as out-of-date evidence, and the
+    // manifest would count nothing preserved (lib/report-freshness.mjs).
+    if (deleteWaitsForReport(doc.state)) {
+      let report = null;
+      try { report = reportText.ok ? JSON.parse(reportText.text) : null; } catch { report = null; }
+      const freshness = reportFreshness(report, await readReportSourceChanges(
+        (method, path) => request(method, path), { owner: ORG, repo: CONTROL_REPO, assignmentId: id }));
+      if (freshness !== "current") {
+        if (freshness === "stale") await dispatch("regenerate-dashboard.yml", { org: ORG });
+        bad(`${id}: ${freshness === "stale" ? STALE_REPORT_REFUSAL : UNKNOWN_REPORT_REFUSAL}`);
+        continue;
+      }
+    }
 
     const tree = await request("GET", `/repos/${ORG}/${CONTROL_REPO}/git/trees/main?recursive=1`);
     if (!tree.ok || tree.data?.truncated) { bad(`control tree ${tree.ok ? "truncated" : `HTTP ${tree.status}`} - nothing deleted`); continue; }

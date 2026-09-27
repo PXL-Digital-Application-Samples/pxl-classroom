@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadYaml } from "../lib/yaml.mjs";
+import { REGENERATED_STATES } from "../lib/report-freshness.mjs";
 
 async function main() {
   const dataDir = process.argv[2] || "control";
@@ -20,7 +21,9 @@ async function main() {
       const filePath = path.join(assignmentsDir, file);
       try {
         const assignment = await loadYaml(filePath);
-        if (assignment && (assignment.state === "published" || assignment.state === "closed")) {
+        // lib/report-freshness.mjs: a delete waits for a current report only in
+        // the states this rebuilds, so the two cannot disagree.
+        if (assignment && REGENERATED_STATES.includes(assignment.state)) {
           console.log(`Generating interim report for assignment ${id}...`);
           const res = spawnSync("node", ["report/report.mjs"], {
             env: {

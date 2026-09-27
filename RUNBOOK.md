@@ -477,7 +477,7 @@ The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohor
 
 What it does, in this order, because the order is the safety property:
 
-1. Reads the evidence, before anything is removed.
+1. Reads the evidence, before anything is removed - and, for a published or closed assignment, checks the report was regenerated after the last lock and preservation were recorded. For about a minute after a deadline it has not been yet; the delete then changes nothing, starts the regeneration, and asks you to try again in a minute or two.
 2. Enumerates what the assignment owns from **one** recursive tree call. A truncated tree **aborts** the whole thing: deleting from a partial listing strands whatever it did not name, unreachable from any surface because the assignment is gone.
 3. Deletes the **broker first**. The nightly finds work by walking `assignments/`, so a record removed while its broker still stands is a public repository nothing will ever close - the rule in CLAUDE.md that whatever `publish` switches on, something has to switch off. If the broker will not delete, nothing else moves.
 4. **One atomic commit** writes `retired/<id>/` (`report.json`, `report.csv`, `grading.json`, `manifest.json`) and deletes `assignments/<id>.yml`, `reports/<id>.*` and every `acceptances|observations|repositories|lockdowns|teams|overrides|grading/<id>/` path, and drops the entry from `reports/dashboard.json`. Evidence and removal land together or not at all.
