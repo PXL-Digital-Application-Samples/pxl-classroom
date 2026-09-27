@@ -99,6 +99,13 @@ inputs:
       it. See INSTALL.md §3.2.
     required: false
     default: ''
+  prior-acceptance-file:
+    description: >-
+      Path to the acceptance record a retry set aside so the gates run again.
+      Read for its `accepted_at` alone, so a retried student keeps the time
+      they originally accepted. Empty for an ordinary acceptance.
+    required: false
+    default: ''
 
 outputs:
   assignment_id:
@@ -210,4 +217,5 @@ runs:
         CLAIM_VERIFIED: ${{ inputs.claim-verified }}
         CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}
         CLAIM_PRIVATE_KEYS_RETIRED: ${{ inputs.claim-private-keys-retired }}
+        PRIOR_ACCEPTANCE_FILE: ${{ inputs.prior-acceptance-file }}
       run: node "$GITHUB_ACTION_PATH/accept.mjs"

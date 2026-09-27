@@ -171,6 +171,9 @@ jobs:
           esac
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      # Moved to RUNNER_TEMP, outside the checkout, so accept.mjs can keep the
+      # original `accepted_at` and nothing can commit the copy.
+      #
       # IN THE CHECKOUT ONLY - NEVER COMMITTED HERE. Removing the record is what
       # makes accept.mjs run every gate again instead of leaving through
       # `already-accepted`; the replacement it writes is committed by the
@@ -191,8 +194,8 @@ jobs:
             echo "No prior acceptance file at $ACCEPT_FILE - proceeding to fresh acceptance."
             exit 0
           fi
-          rm -f "control/$ACCEPT_FILE"
-          echo "Removed $ACCEPT_FILE from the checkout; it is replaced only if the acceptance is admitted."
+          mv "control/$ACCEPT_FILE" "${RUNNER_TEMP}/prior-acceptance.json"
+          echo "Set $ACCEPT_FILE aside; it is replaced only if the acceptance is admitted."
 
       - name: Run acceptance
         id: accept
@@ -208,6 +211,7 @@ jobs:
           github-id: ${{ steps.lookup.outputs.id }}
           workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           bypass-window: ${{ inputs.bypass_window || 'true' }}
+          prior-acceptance-file: ${{ runner.temp }}/prior-acceptance.json
 
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning

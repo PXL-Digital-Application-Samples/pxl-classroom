@@ -1289,10 +1289,18 @@ async function main() {
   // `now` moved a student's acceptance time forward every time they changed
   // team. That timestamp is what says whether they accepted before the
   // deadline, so it is the original or nothing.
+  //
+  // A RETRY SETS THE RECORD ASIDE rather than leaving it here, so every gate
+  // above runs again instead of the `already-accepted` shortcut - and reading
+  // only `acceptFile` stamped a retried student as accepting at the moment the
+  // lecturer pressed Retry, possibly after the deadline. retry-acceptance.yml
+  // passes the set-aside copy as PRIOR_ACCEPTANCE_FILE; it is read for this
+  // one field and nothing else.
   let acceptedAt = now.toISOString();
-  if (existsSync(acceptFile)) {
+  const priorFile = existsSync(acceptFile) ? acceptFile : env("PRIOR_ACCEPTANCE_FILE", "");
+  if (priorFile && existsSync(priorFile)) {
     try {
-      const prior = JSON.parse(await readFile(acceptFile, "utf-8"));
+      const prior = JSON.parse(await readFile(priorFile, "utf-8"));
       if (typeof prior.accepted_at === "string" && prior.accepted_at) acceptedAt = prior.accepted_at;
     } catch {
       // Unreadable prior record - `now` is the best we have.

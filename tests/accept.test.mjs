@@ -315,6 +315,35 @@ template:
   assert.equal(res.outputs.target_repo, "hw-charlie");
 });
 
+test("a retried acceptance keeps the ORIGINAL accepted_at from the record it set aside", () => {
+  // retry-acceptance.yml moves the record out of the data dir so every gate
+  // runs again, and passes the copy as PRIOR_ACCEPTANCE_FILE. Without reading
+  // it the retried student was stamped as accepting when the lecturer pressed
+  // Retry - possibly after the deadline.
+  const yaml = `state: published
+repository_name_pattern: hw-{github_login}
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const aside = join(mkdtempSync(join(tmpdir(), "pxl-prior-")), "prior-acceptance.json");
+  writeFileSync(aside, JSON.stringify({ github_login: "charlie", accepted_at: "2026-09-02T08:15:00.000Z", status: "failed" }));
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: yaml }
+  );
+  assert.equal(res.outputs.outcome, "accepted", "the gates ran, as a fresh acceptance");
+  const record = JSON.parse(readFileSync(join(res.dir, "acceptances", "test-asgn", "charlie.json"), "utf8"));
+  assert.equal(record.accepted_at, "2026-09-02T08:15:00.000Z");
+
+  // An absent set-aside file (no prior record) is an ordinary acceptance at now.
+  const fresh = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside + ".missing" },
+    { assignmentYaml: yaml }
+  );
+  const freshRecord = JSON.parse(readFileSync(join(fresh.dir, "acceptances", "test-asgn", "charlie.json"), "utf8"));
+  assert.ok(Date.now() - Date.parse(freshRecord.accepted_at) < 60_000, freshRecord.accepted_at);
+});
+
 test("accepted - deriveRepoName `{login}` legacy mis-match (doesn't substitute)", () => {
   const yaml = `state: published
 repository_name_pattern: hw-{login}

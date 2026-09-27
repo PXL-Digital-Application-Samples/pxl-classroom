@@ -32,8 +32,13 @@ const WRITES_REMOTE = /git-push-with-retry|git\s+(-C\s+\S+\s+)?push\b|git\s+(-C\
 const ADMITTED = /steps\.accept\.outputs\.outcome\s*==\s*'accepted'/;
 
 test("the step that removes the acceptance record does not commit or push it", () => {
-  const removers = steps.filter((s) => typeof s.run === "string" && /rm -f "control\/\$ACCEPT_FILE"/.test(s.run));
+  const removers = steps.filter((s) => typeof s.run === "string" && /(rm -f|mv) "control\/\$ACCEPT_FILE"/.test(s.run));
   assert.equal(removers.length, 1, "exactly one step removes the record from the checkout");
+  // Set aside OUTSIDE the checkout, so `git add -A` anywhere later cannot
+  // commit the copy, and handed to accept.mjs for the original accepted_at.
+  assert.match(removers[0].run, /mv "control\/\$ACCEPT_FILE" "\$\{RUNNER_TEMP\}\/prior-acceptance\.json"/);
+  const accept = steps.find((s) => s.id === "accept");
+  assert.equal(accept.with["prior-acceptance-file"], "${{ runner.temp }}/prior-acceptance.json");
   assert.doesNotMatch(removers[0].run, WRITES_REMOTE, "the removal stays in the checkout until the student is admitted");
 });
 
