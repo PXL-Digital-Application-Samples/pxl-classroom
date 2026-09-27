@@ -562,7 +562,7 @@ A single workflow, `daily-activity.yml`, runs at `0 0 * * *` UTC. For every part
 1. **Collects** observations for the configured submission ref of every accepted student.
 2. **Finds finalizable** assignments - those whose `deadline_at` has passed and whose finalize is not yet *complete*.
 3. **Finalizes** each one in a per-assignment matrix leg: `collect -> lockdown -> preserve -> report`.
-4. **Disables itself** (`gh workflow disable daily-activity.yml`) if no active assignments remain **and** no finalize leg failed.
+4. **Disables itself** (`PUT .../actions/workflows/daily-activity.yml/disable`) if no active assignments remain **and** no finalize leg failed.
 
 #### 6.2.1 Finalize is complete only when the submissions are archived
 
@@ -614,11 +614,11 @@ It also **reconciles** `reports/dashboard.json` against the assignments that sti
 ```
 Lecturer publishes assignment
    v
-publish-assignment.yml runs `gh workflow enable daily-activity.yml`
+publish-assignment.yml enables daily-activity.yml (`PUT .../enable`)
    v
 Nightly cron runs - collects, finalizes, regenerates dashboard
    v
-After all deadlines pass, check-idle job runs `gh workflow disable daily-activity.yml`
+After all deadlines pass, check-idle job disables daily-activity.yml (`PUT .../disable`)
    v
 0 runs / 0 billed minutes until the next publish
 ```
@@ -754,7 +754,7 @@ For each finalizable assignment:
    collect (deadline-mode) -> lockdown -> preserve -> report
    commit observations/, lockdowns/, reports/ to control repo
    v
-check-idle: if no active assignments remain -> gh workflow disable daily-activity.yml
+check-idle: if no active assignments remain -> disable daily-activity.yml
    v
 trigger-dashboard: dispatches regenerate-dashboard.yml
 ```
@@ -781,7 +781,7 @@ publish-assignment.yml:
       INVITE_ENABLED variables on the broker
    g. Pushes acceptance/broker-workflow.yml as .github/workflows/acceptance-trigger.yml
    h. Flips state: draft -> published in assignments/<id>.yml
-   i. gh workflow enable daily-activity.yml + deadline-sentinel.yml, then
+   i. enables daily-activity.yml + deadline-sentinel.yml, then
       dispatches deadline-sentinel.yml - ENABLING IS NOT ARMING, and a
       cron cannot see an assignment published since it last fired
 ```

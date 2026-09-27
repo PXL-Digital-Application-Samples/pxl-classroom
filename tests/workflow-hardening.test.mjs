@@ -496,7 +496,8 @@ test("a step dispatching a workflow with GITHUB_TOKEN declares actions: write", 
   // and the nightly still finalized, so no data was at risk; what it cost was
   // a red job at every single deadline, and a workflow that goes red whenever
   // it does its job is one people stop reading.
-  const DISPATCHES = /createWorkflowDispatch|createDispatchEvent|gh\s+workflow\s+run|\/dispatches\b/;
+  // Enabling and disabling a workflow need `actions: write` the same way.
+  const DISPATCHES = /createWorkflowDispatch|createDispatchEvent|gh\s+workflow\s+(run|enable|disable)|\/dispatches\b|actions\/workflows\/[^/\s"']+\/(enable|disable)\b/;
   const stripComments = (s) =>
     s.split("\n").filter((l) => !/^\s*(#|\/\/)/.test(l)).join("\n");
 
@@ -541,16 +542,22 @@ test("a scoped dispatch can never disable a workflow for every org", () => {
   //
   // The guard is the same in every case: a scheduled run may disable; a
   // workflow_dispatch may only disable when it was not narrowed to one org.
+  //
+  // A disable is the REST call (`PUT .../actions/workflows/<file>/disable`,
+  // tests/github-api-version.test.mjs) or the old `gh workflow disable`. The
+  // count below keeps a rename of either from turning this into a test of
+  // nothing.
+  const DISABLES = /gh\s+workflow\s+disable|actions\/workflows\/[^/\s"']+\/disable\b/;
   const offenders = [];
+  let disablingJobs = 0;
   for (const { file, doc } of workflows()) {
     const takesOrgInput = doc?.on?.workflow_dispatch?.inputs?.org !== undefined;
     if (!takesOrgInput) continue;
 
     for (const [jobName, job] of Object.entries(doc?.jobs ?? {})) {
-      const disables = (job?.steps ?? []).some((s) =>
-        /gh\s+workflow\s+disable/.test(String(s?.run ?? "")),
-      );
+      const disables = (job?.steps ?? []).some((s) => DISABLES.test(String(s?.run ?? "")));
       if (!disables) continue;
+      disablingJobs++;
 
       const guard = String(job?.if ?? "").replace(/\s+/g, " ");
       const scopeChecked =
@@ -559,6 +566,8 @@ test("a scoped dispatch can never disable a workflow for every org", () => {
       if (!scopeChecked) offenders.push(`${file} job '${jobName}'`);
     }
   }
+  // daily-activity.yml (two jobs) and deadline-sentinel.yml.
+  assert.ok(disablingJobs >= 3, `found ${disablingJobs} disabling jobs - is the sweep still recognising a disable?`);
   assert.deepEqual(
     offenders,
     [],

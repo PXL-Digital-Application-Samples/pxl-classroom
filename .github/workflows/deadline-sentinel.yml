@@ -51,10 +51,13 @@ jobs:
       - name: Disable deadline-sentinel (no participating orgs)
         run: |
           echo "No participating orgs registered. Disabling deadline-sentinel.yml until next publish."
-          gh workflow disable deadline-sentinel.yml
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deadline-sentinel.yml/disable"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
 
   arm:
     environment: provisioning

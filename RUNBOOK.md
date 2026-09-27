@@ -159,7 +159,7 @@ This dispatches `publish-assignment.yml`, which:
 - Pushes the broker's `acceptance-trigger.yml` workflow.
 - Sets five variables on the broker: `ASSIGNMENT_ID`, `CONTROL_ORG`, `INVITE_PUBKEY`, `INVITE_NONCE`, `INVITE_ENABLED`.
 - Flips `state` from `draft` -> `published` in the control repo.
-- **Enables the nightly workflow and the deadline sentinel** (`gh workflow enable daily-activity.yml`, then `deadline-sentinel.yml`). From here on the nightly cycle is active for your org, and deadlines lock at the instant rather than on the next nightly (§4.1).
+- **Enables the nightly workflow and the deadline sentinel** (`daily-activity.yml`, then `deadline-sentinel.yml`). From here on the nightly cycle is active for your org, and deadlines lock at the instant rather than on the next nightly (§4.1).
 
 ### 1.5 Share the link
 

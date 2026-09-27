@@ -49,10 +49,13 @@ jobs:
       - name: Disable daily-activity (no participating orgs)
         run: |
           echo "No participating orgs registered. Disabling daily-activity.yml until next publish."
-          gh workflow disable daily-activity.yml
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-activity.yml/disable"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
 
   collect:
     environment: provisioning
@@ -605,10 +608,13 @@ jobs:
       - name: Disable Daily Activity Workflow
         run: |
           echo "No active assignments remain. Disabling daily-activity.yml to save minutes."
-          gh workflow disable daily-activity.yml
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-activity.yml/disable"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
   trigger-dashboard:
     needs: [aggregate-finalizable, finalize]
     if: always()
