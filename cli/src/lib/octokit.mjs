@@ -10,6 +10,7 @@ import { retry } from "@octokit/plugin-retry";
 const RetryOctokit = Octokit.plugin(retry);
 import { requireToken } from "./auth.mjs";
 import { GITHUB_API_VERSION } from "../../../lib/github-api-version.mjs";
+import { isIdempotent } from "../../../lib/rate-limit.mjs";
 
 const USER_AGENT = "pxl-classroom-cli/0.1.0";
 
@@ -54,11 +55,6 @@ export function makeOctokit({ token, fetch, retryBaseMs } = {}) {
   return octokit;
 }
 
-// RFC 9110's idempotent methods (section 9.2.2): a repeat of these has the
-// effect of one. PATCH is not in it.
-const IDEMPOTENT = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
-
-/** Is a retry of this method the same request? Unknown or absent is no. */
-export function isIdempotent(method) {
-  return IDEMPOTENT.has(String(method ?? "").toUpperCase());
-}
+// One list for the CLI and lib/gh.mjs (lib/rate-limit.mjs), re-exported for
+// the tests that ask it here.
+export { isIdempotent };

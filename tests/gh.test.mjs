@@ -58,6 +58,48 @@ test("gh retries a 5xx, and not before the base delay has passed", async (t) => 
   assert.equal(res.status, 200);
 });
 
+test("gh sends a POST or PATCH once after a 5xx - a retry can open a second issue", async (t) => {
+  // GitHub can answer 502 to a request it has already acted on (review of
+  // v1.5.0). The CLI stopped retrying these in #12c; every hub script goes
+  // through here.
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts++;
+    return new Response("bad gateway", { status: 502, headers: { "content-type": "text/plain" } });
+  };
+  t.after(() => (globalThis.fetch = originalFetch));
+
+  for (const method of ["POST", "PATCH", "post"]) {
+    attempts = 0;
+    const res = await gh(method, "/repos/o/r/issues", { title: "x" }, { token: "secret" });
+    assert.equal(res.status, 502);
+    assert.equal(attempts, 1, `${method} after a 502 is sent exactly once`);
+  }
+});
+
+test("gh still retries a POST that a rate limit refused - nothing was done", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts++;
+    if (attempts === 1) {
+      return new Response('{"message":"slow down"}', { status: 429, headers: { "content-type": "application/json", "retry-after": "1" } });
+    }
+    return new Response('{"number": 7}', { status: 201, headers: { "content-type": "application/json" } });
+  };
+  t.after(() => (globalThis.fetch = originalFetch));
+
+  const p = gh("POST", "/repos/o/r/issues", { title: "x" }, { token: "secret" });
+  await settle();
+  assert.equal(attempts, 1);
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(attempts, 2, "a 429 is a refusal, so the POST is sent again");
+  assert.equal((await p).status, 201);
+});
+
 test("gh honours Retry-After exactly, jitter and all", async (t) => {
   // An explicit instruction from GitHub is not a suggestion to randomise.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
