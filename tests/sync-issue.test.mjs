@@ -1,7 +1,8 @@
 // Who a starter sync's tracking issue is assigned to: lib/sync-issue.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { issueAssignees, loginsByRepo, MAX_ASSIGNEES, oneRecordPerRepo } from "../lib/sync-issue.mjs";
+import { readFileSync } from "node:fs";
+import { assignmentOutcome, issueAssignees, loginsByRepo, MAX_ASSIGNEES, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 
 const rec = (login, repo) => ({ github_login: login, repo_name: repo });
 
@@ -54,6 +55,21 @@ test("the CLI sync plans per repository, not per record", async () => {
   assert.match(src, /withConcurrency\(perRepo,/);
   assert.match(src, /oneRecordPerRepo\(\s*records,/);
   assert.match(src, /startingPointFor\(\{ login: rec\.doc\.github_login, records: syncRecords \}\)/, "ranked by whose start is known");
+});
+
+test("what is recorded as assigned is GitHub's answer - a failed call is nobody, never the list asked for", () => {
+  const wanted = ["Ann", "ben", "cas"];
+  // 201, and an account it will not assign simply missing from the answer.
+  assert.deepEqual(
+    assignmentOutcome({ wanted, ok: true, data: { assignees: [{ login: "ann" }, { login: "ben" }] } }),
+    { assignees: ["ann", "ben"], missed: ["cas"] },
+  );
+  assert.deepEqual(assignmentOutcome({ wanted, ok: false, data: { message: "Validation Failed" } }), { assignees: [], missed: wanted });
+  assert.deepEqual(assignmentOutcome({ wanted, ok: true, data: null }), { assignees: [], missed: wanted });
+  // Both writers read it from here.
+  for (const file of ["../scripts/sync-starter.mjs", "../cli/src/commands/sync-starter.mjs"]) {
+    assert.match(readFileSync(new URL(file, import.meta.url), "utf8"), /assignmentOutcome\(/, file);
+  }
 });
 
 test("a record whose repository nobody else names still assigns its own login", () => {

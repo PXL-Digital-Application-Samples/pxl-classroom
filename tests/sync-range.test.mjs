@@ -310,6 +310,37 @@ test("A FILE AN EARLIER, NON-EVIDENCE SYNC DELIVERED at the target's version, th
   }
 });
 
+test("DELIVERED MEANS DELIVERED TO THEM: a file others got in a sync whose start for this student was unknown is still offered (2026-09-27)", async () => {
+  // Sync 1 (lab 3) sent Program.cs and Tests.cs to the cohort. X's start was
+  // unknown, so X got only what the newest commit changed - Tests.cs. Read as
+  // the cohort's union, `selected_files` said X had Program.cs too, and X's own
+  // Program.cs was filed as theirs for ever: the template's never offered.
+  const P = "Lab03/Program.cs";
+  const sync1 = (xRow) => record(
+    { template_sha: LAB3, selected_files: [P, "Lab03/Tests.cs"] },
+    [{ ...row("other", "auto-merged", "generated") }, xRow],
+  );
+  const xRow = { ...row("x", "auto-merged", "unknown"), applied_files: ["Lab03/Tests.cs"] };
+  const studentTree = new Map([...TREES[LAB2], [P, "their-l3"], ["Lab03/Tests.cs", "t3"]]);
+  const res = await plan("x", { studentTree, records: [sync1(xRow)], roots: { "labs-x": "tree-2" }, commitCounts: { "labs-x": 4 } });
+  assert.equal(res.source, "generated", "the unknown-start row is not evidence of where they are");
+  assert.deepEqual(res.plan.conflicts.map((c) => c.path), [P], "a pull request, never kept");
+  assert.deepEqual(res.plan.kept, []);
+  assert.deepEqual(res.plan.upToDate, ["Lab03/Tests.cs"]);
+  assert.deepEqual(res.plan.clean.map((c) => c.path), ["Lab04/Program.cs"]);
+
+  // A row written before the field has only the union to go on, and keeps
+  // meaning what it meant.
+  const { applied_files: _gone, ...oldRow } = xRow;
+  const legacy = await plan("x", { studentTree, records: [sync1(oldRow)], roots: { "labs-x": "tree-2" }, commitCounts: { "labs-x": 4 } });
+  assert.deepEqual(legacy.plan.kept, [P]);
+  assert.deepEqual(legacy.plan.conflicts, []);
+
+  // Their own row naming P: delivered to them, then edited - theirs.
+  const got = await plan("x", { studentTree, records: [sync1({ ...xRow, applied_files: [P, "Lab03/Tests.cs"] })], roots: { "labs-x": "tree-2" }, commitCounts: { "labs-x": 4 } });
+  assert.deepEqual(got.plan.kept, [P]);
+});
+
 test("THE CASE: generated at lab 2, lab 3 never arrived, lab 4 did - lab 3 is sent now", async () => {
   // What 43 students of .NET Advanced held on 2026-09-25 at 14:30.
   const studentTree = new Map([...TREES[LAB2], ["Lab02/Program.cs", "their-work"], ["Lab04/Program.cs", "l4"]]);
@@ -618,6 +649,23 @@ test("...but one they hold at an OLDER template version (an earlier sync) is upd
   const first = new Map([["README.md", "old-readme"], [".github/workflows/classroom.yml", "wf"]]);
   const res = await swapped(new Map([["README.md", "old-readme"], [".github/workflows/classroom.yml", "wf-old"]]), { first });
   assert.ok(res.plan.clean.some((c) => c.path === ".github/workflows/classroom.yml" && c.action === "write"));
+});
+
+test("...and one held at an older version that an old sync wrote as a PLAIN FILE is updated too - the mode is not the content", async () => {
+  // Before 2026-09-26 every sync wrote gradlew as 100644, so the copy they hold
+  // is `gw1` where the template's older version is `gw1@100755`.
+  NEW_TREE.set("gradlew", "gw2@100755");
+  NEW_PARENT_TREE.set("gradlew", "gw1@100755");
+  try {
+    const first = new Map([["README.md", "old-readme"], ["gradlew", "gw2@100755"]]);
+    const res = await swapped(new Map([["README.md", "old-readme"], ["gradlew", "gw1"]]), { first });
+    assert.ok(res.paths.includes("gradlew"), "in range: held at an older template version");
+    assert.ok(res.plan.clean.some((c) => c.path === "gradlew" && c.action === "write"));
+    assert.ok(!res.plan.conflicts.some((c) => c.path === "gradlew"));
+  } finally {
+    NEW_TREE.delete("gradlew");
+    NEW_PARENT_TREE.delete("gradlew");
+  }
 });
 
 test("SWAPPED TEMPLATE: every file of the new template arrives, not just the newest commit's", async () => {

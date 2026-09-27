@@ -23,11 +23,12 @@ import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
 import { submissionBranch } from "../../../lib/submission-marker.mjs";
-import { buildSyncRecord, generateSyncId, syncRow } from "../../../lib/sync-record.mjs";
+import { buildSyncRecord, generateSyncId, progressFlusher, syncRow } from "../../../lib/sync-record.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
-import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
+import { assignmentOutcome, issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
 import {
   changedPaths,
+  closeSupersededSyncPrs,
   outcomeFor,
   syncMarker,
   findExistingSyncPr,
@@ -184,7 +185,8 @@ export function registerSyncStarterCommand(program) {
       // next sync started those students earlier, and a file it had delivered
       // and the student had since edited came back as a pull request offering
       // the version they already had (2026-09-27). Written at the START - and
-      // if that write fails nothing is sent - and at the end. Never on a dry run.
+      // if that write fails nothing is sent - as it goes, and at the end.
+      // Never on a dry run.
       const recordPath = (id) => `syncs/${opts.assignment}/${id}.json`;
       const syncId = generateSyncId();
       const startedAt = new Date().toISOString();
@@ -216,7 +218,50 @@ export function registerSyncStarterCommand(program) {
         }
       }
 
+      // The record's rows, built AS EACH STUDENT FINISHES and flushed as it
+      // goes (lib/sync-record.mjs `progressFlusher`, the workflow's policy).
+      // Written only at the end, a CLI run whose terminal was closed left a
+      // `running` record with `results: []` over students it had changed, and
+      // the next sync planned them as if nothing had reached them.
+      // Every student, a team's members each under their own login (the next
+      // sync reads each member's own start).
+      const rows = [];
+      const rowOf = (res) => {
+        if (!res.plan) {
+          return { github_login: res.login, repo_name: res.repoFull, ...(res.teamSlug ? { team_slug: res.teamSlug } : {}), outcome: res.outcome, ...(res.error ? { error: res.error } : {}) };
+        }
+        if (res.outcome !== "failed") for (const e of [...res.plan.clean, ...res.plan.conflicts]) appliedPaths.add(e.path);
+        return {
+          ...syncRow({ login: res.login, repoName: res.repoFull, teamSlug: res.teamSlug, outcome: res.outcome, from: res.from, source: res.source, at: res.at, plan: res.plan }),
+          ...(res.sha ? { commit_sha: res.sha } : {}),
+          ...(res.prNumber ? { pr_number: res.prNumber, pr_url: res.prUrl } : {}),
+          ...(res.issueNumber ? { issue_number: res.issueNumber, issue_url: res.issueUrl } : {}),
+          ...(res.issueAssignees ? { issue_assignees: res.issueAssignees } : {}),
+          ...(res.issueError ? { issue_error: res.issueError } : {}),
+        };
+      };
+      const recordRows = (res) => {
+        const row = rowOf(res);
+        rows.push(row);
+        const mates = records.filter((r) => !sameLogin(r.doc.github_login, res.login) &&
+          repoOnly(r.doc.repo_name) && res.repoFull.toLowerCase() === `${org}/${repoOnly(r.doc.repo_name)}`.toLowerCase());
+        for (const m of mates) rows.push({ ...row, github_login: m.doc.github_login, ...(m.doc.team_slug ? { team_slug: m.doc.team_slug } : {}) });
+      };
+      const flush = progressFlusher({
+        write: () => writeRecord(recordOf("running", rows), `Starter code sync progress for ${opts.assignment} (CLI)`),
+        onError: (e) => process.stderr.write(`  ! could not record progress: ${e.message}\n`),
+      });
+
       const results = await withConcurrency(perRepo, CONCURRENCY, async (rec) => {
+        const res = await syncOne(rec);
+        if (!opts.dryRun && res) {
+          recordRows(res);
+          await flush(rows.length);
+        }
+        return res;
+      });
+
+      async function syncOne(rec) {
         const login = rec.doc.github_login;
         const repoName = repoOnly(rec.doc.repo_name);
         const teamSlug = rec.doc.team_slug || null;
@@ -320,6 +365,28 @@ export function registerSyncStarterCommand(program) {
             });
             row.prNumber = prData.number;
             row.prUrl = prData.html_url;
+
+            // The older sync pull requests this one supersedes - the same rule
+            // as the workflow, from the same function (lib/starter-sync.mjs
+            // `closeSupersededSyncPrs`). The CLI closed none, so every CLI
+            // sync added another pull request over the same files.
+            const superseded = await closeSupersededSyncPrs({
+              openPulls,
+              newPrNumber: prData.number,
+              offered: plan.conflicts.map((c) => c.path),
+              pullDetail: async (n) => {
+                const { data } = await octokit.rest.pulls.get({ owner: org, repo: repoName, pull_number: n });
+                return { ok: true, commits: data?.commits };
+              },
+              pullFiles: (n) => octokit.paginate(octokit.rest.pulls.listFiles, { owner: org, repo: repoName, pull_number: n, per_page: 100 }),
+              comment: (n, body) => octokit.rest.issues.createComment({ owner: org, repo: repoName, issue_number: n, body }),
+              close: (n) => octokit.rest.pulls.update({ owner: org, repo: repoName, pull_number: n, state: "closed" })
+                .then(() => ({ ok: true }), (e) => ({ ok: false, status: e.status ?? 0 })),
+            });
+            row.supersededClosed = superseded.filter((s) => s.closed).map((s) => s.number);
+            for (const s of superseded.filter((x) => !x.closed)) {
+              process.stdout.write(`  ! ${login}: could not close the superseded #${s.number} (HTTP ${s.status})\n`);
+            }
           }
 
           // The NOTIFICATION failing is not the SYNC failing: by here the
@@ -337,12 +404,22 @@ export function registerSyncStarterCommand(program) {
                 ? `A starter code update is available in Pull Request [#${row.prNumber}](${row.prUrl}). Please review and merge it.`
                 : `The starter code was updated from template commit \`${templateSha.slice(0, 7)}\`.\n\nRun \`git pull\` in your workspace to get it.`,
             });
+            row.issueNumber = issue.number;
+            row.issueUrl = issue.html_url;
             // Assigned in a second call, so an account that cannot be assigned
             // never costs the issue. Assigned is emailed; watching is optional.
-            const assignees = issueAssignees({ login, repoName: `${org}/${repoName}`, byRepo });
-            if (assignees.length) {
-              await octokit.rest.issues.addAssignees({ owner: org, repo: repoName, issue_number: issue.number, assignees })
-                .catch((e) => process.stdout.write(`  ! ${login}: issue not assigned (${e.status || e.message})\n`));
+            // The record keeps who GitHub ACTUALLY assigned, as the workflow's
+            // does: a failed call is nobody, never the list asked for
+            // (lib/sync-issue.mjs `assignmentOutcome`).
+            const wanted = issueAssignees({ login, repoName: `${org}/${repoName}`, byRepo });
+            if (wanted.length) {
+              const answer = await octokit.rest.issues.addAssignees({ owner: org, repo: repoName, issue_number: issue.number, assignees: wanted })
+                .then((r) => ({ ok: true, data: r.data }))
+                .catch((e) => ({ ok: false, status: e.status || e.message }));
+              const { assignees, missed } = assignmentOutcome({ wanted, ok: answer.ok, data: answer.data });
+              row.issueAssignees = assignees;
+              if (!answer.ok) process.stdout.write(`  ! ${login}: issue not assigned (${answer.status}) - they are emailed only if they watch the repository\n`);
+              else if (missed.length) process.stdout.write(`  ! ${login}: could not assign ${missed.join(", ")} - they are emailed only if they watch the repository\n`);
             }
           } catch (e) {
             row.issueError = `HTTP ${e.status ?? "?"}${e.message ? `: ${e.message}` : ""}`;
@@ -352,31 +429,9 @@ export function registerSyncStarterCommand(program) {
         } catch (err) {
           return { login, teamSlug, repoFull: studentFullName, outcome: "failed", error: err.message };
         }
-      });
+      }
 
-      // The record's rows: every student, a team's members each under their
-      // own login (the next sync reads each member's own start).
       if (!opts.dryRun) {
-        const rowOf = (res) => {
-          if (!res.plan) {
-            return { github_login: res.login, repo_name: res.repoFull, ...(res.teamSlug ? { team_slug: res.teamSlug } : {}), outcome: res.outcome, ...(res.error ? { error: res.error } : {}) };
-          }
-          if (res.outcome !== "failed") for (const e of [...res.plan.clean, ...res.plan.conflicts]) appliedPaths.add(e.path);
-          return {
-            ...syncRow({ login: res.login, repoName: res.repoFull, teamSlug: res.teamSlug, outcome: res.outcome, from: res.from, source: res.source, at: res.at, plan: res.plan }),
-            ...(res.sha ? { commit_sha: res.sha } : {}),
-            ...(res.prNumber ? { pr_number: res.prNumber, pr_url: res.prUrl } : {}),
-            ...(res.issueError ? { issue_error: res.issueError } : {}),
-          };
-        };
-        const rows = [];
-        for (const res of results.filter(Boolean)) {
-          const row = rowOf(res);
-          rows.push(row);
-          const mates = records.filter((r) => !sameLogin(r.doc.github_login, res.login) &&
-            repoOnly(r.doc.repo_name) && res.repoFull.toLowerCase() === `${org}/${repoOnly(r.doc.repo_name)}`.toLowerCase());
-          for (const m of mates) rows.push({ ...row, github_login: m.doc.github_login, ...(m.doc.team_slug ? { team_slug: m.doc.team_slug } : {}) });
-        }
         try {
           await writeRecord(recordOf("completed", rows), `Record starter code sync for ${opts.assignment} (CLI)`);
         } catch (e) {
@@ -415,6 +470,7 @@ export function registerSyncStarterCommand(program) {
             : "";
           const sha = res.sha ? ` ${res.sha.slice(0, 7)}` : "";
           process.stdout.write(`  + ${pad(res.login, 20)} ${res.outcome}${sha}${pr} - ${files}\n`);
+          if (res.supersededClosed?.length) process.stdout.write(`    (closed the superseded ${res.supersededClosed.map((n) => `#${n}`).join(", ")})\n`);
           if (res.issueError) process.stdout.write(`    (the notification issue could not be created: ${res.issueError} - they have not been told)\n`);
         }
       }

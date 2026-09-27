@@ -569,6 +569,7 @@ export type SyncRecord = {
     from_sha?: string;
     from_source?: "synced" | "generated" | "first-commit" | "other-template" | "unknown";
     files_kept?: number;
+    applied_files?: string[];
     commit_sha?: string;
     pr_number?: number;
     pr_url?: string;

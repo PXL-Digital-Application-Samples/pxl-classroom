@@ -18,6 +18,7 @@ import { validateAgainst } from "../lib/validate.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
   changedPaths,
+  closeSupersededSyncPrs,
   outcomeFor,
   syncMarker,
   findExistingSyncPr,
@@ -26,10 +27,10 @@ import {
   startingPointFor,
 } from "../lib/starter-sync.mjs";
 import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
-import { issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
+import { assignmentOutcome, issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 import { submissionBranch } from "../lib/submission-marker.mjs";
-import { buildSyncRecord, generateSyncId, syncRow } from "../lib/sync-record.mjs";
+import { buildSyncRecord, failedRow, generateSyncId, progressFlusher, syncRow } from "../lib/sync-record.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -49,10 +50,6 @@ const cfg = {
   // a job the timeout kills writes nothing afterwards.
   budgetMs: Number(env("SYNC_BUDGET_MS", "")) || 38 * 60_000,
 };
-
-// Progress is recorded every FLUSH_EVERY students or FLUSH_MS, whichever first.
-const FLUSH_EVERY = 20;
-const FLUSH_MS = 2 * 60_000;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -312,20 +309,12 @@ async function main() {
   // effort: a failed progress write is logged and the sync goes on - the
   // students matter more than the tally, and the final write is not optional.
   // Counted in FINISHED students (`results`), checked before each next one.
-  let lastFlush = Date.now();
-  let flushedAt = 0;
-  const maybeFlush = async () => {
-    const done = results.length;
-    if (done === flushedAt) return;
-    if (done - flushedAt < FLUSH_EVERY && Date.now() - lastFlush < FLUSH_MS) return;
-    try {
-      await writeRecord(buildRecord("running"), `Starter code sync progress for ${cfg.assignmentId}`);
-    } catch (err) {
-      console.log(`[warn] could not record progress: ${err.message}`);
-    }
-    lastFlush = Date.now();
-    flushedAt = done;
-  };
+  // The policy is lib/sync-record.mjs `progressFlusher`, shared with the CLI.
+  const flush = progressFlusher({
+    write: () => writeRecord(buildRecord("running"), `Starter code sync progress for ${cfg.assignmentId}`),
+    onError: (err) => console.log(`[warn] could not record progress: ${err.message}`),
+  });
+  const maybeFlush = () => flush(results.length);
 
   results.push(...unreadableRows);
   // The other members of the repository `rec` was planned through - each gets
@@ -488,17 +477,25 @@ async function main() {
         // Closed only then, and only where it is still only ours: one commit,
         // the sync's own. One the student pushed to is their work and stays;
         // one with a file this range does not reach still offers something.
-        const offered = new Set(plan.conflicts.map((c) => c.path));
-        for (const old of openPulls) {
-          if (!/<!-- pxl-starter-sync: [0-9a-f]{40} -->/.test(old?.body || "") || old.number === prRes.data.number) continue;
-          const detailRes = await gh("GET", `/repos/${studentFullName}/pulls/${old.number}`, null, { token: cfg.token });
-          if (!detailRes.ok || detailRes.data?.commits !== 1) continue;
-          const oldFiles = await ghAll(`/repos/${studentFullName}/pulls/${old.number}/files?per_page=100`, { token: cfg.token }).catch(() => null);
-          if (!Array.isArray(oldFiles) || !oldFiles.every((f) => offered.has(f?.filename))) continue;
-          await gh("POST", `/repos/${studentFullName}/issues/${old.number}/comments`, { body: `Superseded by #${prRes.data.number}, which carries the newer starter code.` }, { token: cfg.token });
-          const closed = await gh("PATCH", `/repos/${studentFullName}/pulls/${old.number}`, { state: "closed" }, { token: cfg.token });
-          if (closed.ok) console.log(`[pr-closed] ${login}: #${old.number} superseded by #${prRes.data.number}`);
-          else console.log(`[warn] ${login}: could not close the superseded #${old.number} (HTTP ${closed.status})`);
+        // lib/starter-sync.mjs `closeSupersededSyncPrs`, shared with the CLI.
+        const superseded = await closeSupersededSyncPrs({
+          openPulls,
+          newPrNumber: prRes.data.number,
+          offered: plan.conflicts.map((c) => c.path),
+          pullDetail: async (n) => {
+            const res = await gh("GET", `/repos/${studentFullName}/pulls/${n}`, null, { token: cfg.token });
+            return { ok: res.ok, commits: res.data?.commits };
+          },
+          pullFiles: (n) => ghAll(`/repos/${studentFullName}/pulls/${n}/files?per_page=100`, { token: cfg.token }),
+          comment: (n, body) => gh("POST", `/repos/${studentFullName}/issues/${n}/comments`, { body }, { token: cfg.token }),
+          close: async (n) => {
+            const res = await gh("PATCH", `/repos/${studentFullName}/pulls/${n}`, { state: "closed" }, { token: cfg.token });
+            return { ok: res.ok, status: res.status };
+          },
+        });
+        for (const s of superseded) {
+          if (s.closed) console.log(`[pr-closed] ${login}: #${s.number} superseded by #${prRes.data.number}`);
+          else console.log(`[warn] ${login}: could not close the superseded #${s.number} (HTTP ${s.status})`);
         }
       }
 
@@ -522,13 +519,12 @@ async function main() {
           const wanted = issueAssignees({ login, repoName: studentFullName, byRepo });
           if (wanted.length) {
             const assignRes = await gh("POST", `/repos/${studentFullName}/issues/${row.issue_number}/assignees`, { assignees: wanted }, { token: cfg.token });
-            if (assignRes.ok) {
-              row.issue_assignees = (assignRes.data?.assignees || []).map((a) => a.login);
-              const missed = wanted.filter((w) => !row.issue_assignees.some((a) => sameLogin(a, w)));
-              if (missed.length) console.log(`[warn] ${login}: could not assign ${missed.join(", ")} - they are emailed only if they watch the repository`);
-            } else {
-              row.issue_assignees = [];
+            const { assignees, missed } = assignmentOutcome({ wanted, ok: assignRes.ok, data: assignRes.data });
+            row.issue_assignees = assignees;
+            if (!assignRes.ok) {
               console.log(`[warn] ${login}: the issue could not be assigned (HTTP ${assignRes.status}) - they are emailed only if they watch the repository`);
+            } else if (missed.length) {
+              console.log(`[warn] ${login}: could not assign ${missed.join(", ")} - they are emailed only if they watch the repository`);
             }
           }
         } else {
@@ -544,7 +540,7 @@ async function main() {
       results.push(row);
     } catch (err) {
       console.log(`[fail] ${login}: ${err.message}`);
-      results.push({ ...row, outcome: "failed", error: err.message });
+      results.push(failedRow(row, err.message));
     }
   }
 

@@ -211,6 +211,11 @@
             "minimum": 0,
             "description": "Files this commit ADDS that the student already has with other content - received earlier and worked in since - left alone rather than offered back as the starter version (lib/starter-sync.mjs `kept`)."
           },
+          "applied_files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "The paths THIS student was sent - written to their branch or offered in their pull request - where that differs from `selected_files` (the union over everyone). ABSENT: exactly `selected_files`, which is also what every row written before 2026-09-27 means; left out when equal so a cohort sent the same lab does not repeat the list per student (lib/sync-record.mjs `compactRow`). Never on a failed row. `[]`: nothing was sent to them. Read by lib/sync-record.mjs `appliedFilesFor`. No default: absent and empty are different answers."
+          },
           "commit_sha": {
             "type": [
               "string",

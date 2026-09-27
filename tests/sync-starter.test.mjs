@@ -34,7 +34,11 @@ import {
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
+  closeSupersededSyncPrs,
+  isKnownVersion,
+  sameContent,
 } from "../lib/starter-sync.mjs";
+import { FLUSH_EVERY, FLUSH_MS, progressFlusher } from "../lib/sync-record.mjs";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -366,13 +370,142 @@ test("FILE MODES: an executable stays executable, a symlink a link, and a mode-o
   }
 });
 
-test("a superseded sync PR is closed only when the new one carries ALL its files, and only while it is still only ours", () => {
+test("MODE DRIFT: a copy an old sync wrote as a plain file is still untouched - updated, deleted, recognised - and nothing else is (2026-09-27)", () => {
+  // Every sync before 2026-09-26 wrote gradlew and symlinks as 100644. Compared
+  // whole (`sha@mode`), such a copy was "edited", so the template's next change
+  // to it was a pull request - and so was its deletion.
+  const update = planStarterSync({
+    headTree: new Map([["gradlew", "g2@100755"], ["link", "l2@120000"]]),
+    baseTree: new Map([["gradlew", "g1@100755"], ["link", "l1@120000"]]),
+    studentTree: new Map([["gradlew", "g1"], ["link", "l1"]]),
+    paths: ["gradlew", "link"],
+  });
+  assert.deepEqual(update.clean, [{ path: "gradlew", action: "write" }, { path: "link", action: "write" }]);
+  assert.deepEqual(update.conflicts, []);
+
+  const deletion = planStarterSync({
+    headTree: new Map(),
+    baseTree: new Map([["gradlew", "g1@100755"]]),
+    studentTree: new Map([["gradlew", "g1"]]),
+    paths: ["gradlew"],
+  });
+  assert.deepEqual(deletion.clean, [{ path: "gradlew", action: "delete" }]);
+
+  // Against the template's known versions (after a switch, or an untrusted
+  // first commit): content decides there too.
+  const knownVersions = new Map([["gradlew", new Set(["g0@100755", "g1@100755"])]]);
+  for (const trustBase of [true, false]) {
+    const plan = planStarterSync({
+      headTree: new Map([["gradlew", "g2@100755"]]),
+      baseTree: new Map([["gradlew", "own"]]),
+      studentTree: new Map([["gradlew", "g0"]]),
+      paths: ["gradlew"],
+      knownVersions,
+      keepAdded: false,
+      trustBase,
+    });
+    assert.deepEqual(plan.clean, [{ path: "gradlew", action: "write" }], `trustBase ${trustBase}`);
+  }
+  assert.equal(isKnownVersion(knownVersions, "gradlew", "g1"), true);
+  assert.equal(isKnownVersion(knownVersions, "gradlew", "g1@100644"), true);
+  assert.equal(isKnownVersion(knownVersions, "gradlew", "theirs@100755"), false, "a mode is not content");
+  assert.equal(isKnownVersion(knownVersions, "gradlew", undefined), false);
+  assert.equal(isKnownVersion(knownVersions, "other", "g1"), false);
+
+  // Their CONTENT changed: still a pull request, whatever the mode.
+  const edited = planStarterSync({
+    headTree: new Map([["gradlew", "g2@100755"]]),
+    baseTree: new Map([["gradlew", "g1@100755"]]),
+    studentTree: new Map([["gradlew", "theirs"]]),
+    paths: ["gradlew"],
+  });
+  assert.deepEqual(edited.conflicts, [{ path: "gradlew", action: "write" }]);
+  // Absent in both base and student is a clean add, not "the same content".
+  const add = planStarterSync({ headTree: new Map([["new", "n1"]]), baseTree: new Map(), studentTree: new Map(), paths: ["new"] });
+  assert.deepEqual(add.clean, [{ path: "new", action: "write" }]);
+  // The write carries the TEMPLATE's mode, so the drift is repaired.
+  assert.equal(sameContent("l1", "l1@120000"), true);
+  assert.equal(sameContent("l1", "l2@120000"), false);
+});
+
+test("a superseded sync PR is closed only when the new one carries ALL its files, and only while it is still only ours", async () => {
   // Closing on the marker alone closed a lab 3 PR when the lab 5 sync offered
   // other files - withdrawing the only offer of lab 3.
-  const src = readFileSync(join(process.cwd(), "scripts/sync-starter.mjs"), "utf8");
-  const block = src.slice(src.indexOf("const offered = new Set(plan.conflicts"), src.indexOf("[pr-closed]"));
-  assert.match(block, /detailRes\.data\?\.commits !== 1\) continue/, "one commit: the sync's own");
-  assert.match(block, /oldFiles\.every\(\(f\) => offered\.has\(f\?\.filename\)\)\) continue/, "every file it offered is offered again");
+  const older = "9".repeat(40);
+  const pulls = {
+    7: { commits: 1, files: ["README.md"] },                 // superseded
+    8: { commits: 1, files: ["README.md", "Lab0/notes.md"] }, // offers something this one does not
+    9: { commits: 2, files: ["README.md"] },                 // the student pushed to it
+    10: { commits: 1, files: ["README.md"] },                // not a sync's
+    11: { commits: 1, files: null },                         // files unreadable
+    12: { commits: 1, files: ["README.md"], closeFails: true },
+    50: { commits: 1, files: ["README.md"] },                // the one just opened
+  };
+  const body = (n) => (n === 10 ? "their own" : `x\n${syncMarker(older)}`);
+  const calls = [];
+  const out = await closeSupersededSyncPrs({
+    openPulls: Object.keys(pulls).map((n) => ({ number: Number(n), body: body(Number(n)) })),
+    newPrNumber: 50,
+    offered: ["README.md", "src/App.cs"],
+    pullDetail: async (n) => ({ ok: true, commits: pulls[n].commits }),
+    pullFiles: async (n) => (pulls[n].files ? pulls[n].files.map((filename) => ({ filename })) : null),
+    comment: async (n) => calls.push(`comment ${n}`),
+    close: async (n) => (calls.push(`close ${n}`), pulls[n].closeFails ? { ok: false, status: 403 } : { ok: true }),
+  });
+  assert.deepEqual(out, [{ number: 7, closed: true }, { number: 12, closed: false, status: 403 }]);
+  assert.deepEqual(calls, ["comment 7", "close 7", "comment 12", "close 12"]);
+  // A detail read that throws or fails closes nothing.
+  const none = await closeSupersededSyncPrs({
+    openPulls: [{ number: 7, body: syncMarker(older) }], newPrNumber: 50, offered: ["README.md"],
+    pullDetail: async () => { throw new Error("502"); }, pullFiles: async () => [], comment: async () => {}, close: async () => ({ ok: true }),
+  });
+  assert.deepEqual(none, []);
+  // BOTH writers close through it; neither spells the rule itself.
+  for (const file of ["scripts/sync-starter.mjs", "cli/src/commands/sync-starter.mjs"]) {
+    const src = stripComments(readFileSync(join(process.cwd(), file), "utf8"));
+    assert.match(src, /closeSupersededSyncPrs\(/, file);
+    assert.doesNotMatch(src, /pxl-starter-sync: \[0-9a-f\]/, `${file} matches the marker itself`);
+  }
+});
+
+test("both writers flush progress through ONE policy, and neither keeps its own", async () => {
+  let t = 0;
+  const writes = [];
+  const errors = [];
+  let fail = false;
+  const flush = progressFlusher({
+    write: async () => { writes.push(t); if (fail) throw new Error("409"); },
+    onError: (e) => errors.push(e.message),
+    now: () => t,
+  });
+  await flush(0);
+  await flush(19);
+  assert.deepEqual(writes, [], "nothing before 20 or two minutes");
+  await flush(20);
+  assert.equal(writes.length, 1);
+  await flush(20);
+  assert.equal(writes.length, 1, "never twice for one count");
+  t = FLUSH_MS + 1;
+  await flush(21);
+  assert.equal(writes.length, 2, "two minutes is enough on its own");
+  // A failed write is logged, never thrown - the sync goes on.
+  fail = true;
+  await flush(41);
+  assert.deepEqual(errors, ["409"]);
+  // Concurrent callers (the CLI's workers): one write at a time.
+  fail = false;
+  let release;
+  const slow = progressFlusher({ write: () => new Promise((r) => { writes.push("slow"); release = r; }), now: () => 0 });
+  const first = slow(FLUSH_EVERY);
+  await slow(FLUSH_EVERY + 5);
+  assert.equal(writes.filter((w) => w === "slow").length, 1, "a write in flight is not joined by a second");
+  release();
+  await first;
+  for (const file of ["scripts/sync-starter.mjs", "cli/src/commands/sync-starter.mjs"]) {
+    const src = stripComments(readFileSync(join(process.cwd(), file), "utf8"));
+    assert.match(src, /progressFlusher\(/, file);
+    assert.doesNotMatch(src, /FLUSH_EVERY|FLUSH_MS/, `${file} keeps its own cadence`);
+  }
 });
 
 test("every sync surface reads and writes the SUBMISSION branch, never a hard-coded main (third review)", () => {
