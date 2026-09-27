@@ -12,6 +12,7 @@ import {
   CLAIM_PRIVATE_KEY_LENGTH,
   CLAIM_PUBLIC_KEY_LENGTH,
   MAX_CLAIM_ATTEMPTS,
+  attemptsAfterSuccess,
   buildClaimRecord,
   claimAttemptsExhausted,
   claimAttemptsPath,
@@ -286,6 +287,20 @@ test("a missing or corrupt counter reads as zero, not as blocked", () => {
   }
   assert.equal(recordFailedAttempt(undefined, "t").failures, 1);
   assert.equal(recordFailedAttempt({ failures: "many" }, "t").failures, 1);
+});
+
+test("a success forgives typos and probes on its own address, never probes on another (review 2026-09-27)", () => {
+  let state = recordFailedAttempt(null, "t1");
+  state = recordFailedAttempt(state, "t2", { probe: "Mal.Lory@student.pxl.be" });
+  state = recordFailedAttempt(state, "t3", { probe: "alice@student.pxl.be" });
+  assert.equal(state.failures, 3);
+  assert.deepEqual(state.probes, ["mal.lory@student.pxl.be", "alice@student.pxl.be"], "normalised");
+  const left = attemptsAfterSuccess(state, "ALICE@student.pxl.be");
+  assert.deepEqual(left, { schema_version: 1, failures: 1, first_at: "t1", last_at: "t3", probes: ["mal.lory@student.pxl.be"] });
+  assert.equal(attemptsAfterSuccess(left, "mal.lory@student.pxl.be"), null, "nothing left: delete the file");
+  assert.equal(attemptsAfterSuccess(recordFailedAttempt(null, "t"), "a@b.c"), null, "a typo alone is forgiven, as before");
+  assert.equal(attemptsAfterSuccess(null, "a@b.c"), null);
+  assert.equal(attemptsAfterSuccess({ failures: 2, probes: "junk" }, "a@b.c"), null, "a corrupt list is no probe");
 });
 
 test("roster matching is by address, case-insensitively", () => {

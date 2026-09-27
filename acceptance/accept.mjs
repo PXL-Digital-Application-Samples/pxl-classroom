@@ -26,6 +26,7 @@ import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deploym
 import {
   CLAIM_REJECTIONS,
   addressFormatAllowed,
+  attemptsAfterSuccess,
   bindingMeetsRules,
   resolveAddressFormat,
   buildClaimRecord,
@@ -111,11 +112,13 @@ function validate(assignmentId, login, id) {
 //   1. attempts spent   - refuse before anything, the reuse below included
 //   2. already claimed  - reused through the roster, cohort and first-holder
 //                         checks; a refusal counts only on a binding the claim
-//                         gate did not write (`claimed_through`), and a reuse
-//                         clears the counter like any success
+//                         gate did not write (`claimed_through`), and so does
+//                         falling through past an unchecked binding the roster
+//                         does not hold, payload or not; a reuse clears the
+//                         counter like any success, except for a probe on
+//                         another address, and upgrades the binding to `claim`
 //   3. no payload       - does NOT count; an absent claim is a stale link or a
-//                         client that did not prompt, not a guess - except on
-//                         top of an unchecked binding the roster does not hold
+//                         client that did not prompt, not a guess
 //   4. decrypt          - counts
 //   5. author mismatch  - counts; this is the replay check
 //   6. domain           - counts
@@ -169,7 +172,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   //    uncounted, that was a free roster oracle, and an account that had spent
   //    its attempts got in by the same loop (review 2026-09-26). A student who
   //    ever claimed successfully has no counter: a success deletes it.
-  const attempts = await readJson(attemptsFile);
+  let attempts = await readJson(attemptsFile);
   if (claimAttemptsExhausted(attempts)) {
     await reject(
       CLAIM_REJECTIONS.BLOCKED,
@@ -177,9 +180,21 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     );
   }
 
-  const countFailure = async () => {
+  // Accumulates within the run: the reuse fall-through below can count, and
+  // the payload after it can count again.
+  const countFailure = async (options) => {
+    attempts = recordFailedAttempt(attempts, iso, options);
     await mkdir(join(dataDir, "students", "claim-attempts"), { recursive: true });
-    await writeFile(attemptsFile, JSON.stringify(recordFailedAttempt(attempts, iso), null, 2) + "\n");
+    await writeFile(attemptsFile, JSON.stringify(attempts, null, 2) + "\n");
+  };
+  // A SUCCESS FORGIVES only what was not a probe on another address
+  // (attemptsAfterSuccess): a failure this run counted on a confirmed address
+  // survives a success on the address the student really holds, or "confirm
+  // X, accept with my own" is an unlimited roster oracle again.
+  const clearOnSuccess = async (email) => {
+    const left = attemptsAfterSuccess(attempts, email);
+    if (left) await writeFile(attemptsFile, JSON.stringify(left, null, 2) + "\n");
+    else if (existsSync(attemptsFile)) await rm(attemptsFile);
   };
 
   // COUNT GUESSES ONLY. A binding the claim gate admitted (roster and cohort
@@ -187,10 +202,12 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   // five times used to lock them out of every assignment, including ones they
   // had accepted (third review, 2026-09-26). A binding the confirm link or open
   // enrolment wrote was never checked, so a refusal on it answers a guess and
-  // counts. Absent `claimed_through` is a binding from before the field.
+  // counts - as a PROBE on that address, which only a success on the same
+  // address forgives. Absent `claimed_through` is a binding from before the
+  // field.
   const gateAdmitted = existing?.claimed_through === undefined || existing?.claimed_through === "claim";
   const countIfGuess = async () => {
-    if (!gateAdmitted) await countFailure();
+    if (!gateAdmitted) await countFailure({ probe: existing.email });
   };
 
   const existingEntry = existing?.email ? rosterEntryForEmail(roster, existing.email) : null;
@@ -215,30 +232,49 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     log("claim", { ok: true, note: `@${login} is already claimed as ${existing.email}` });
     // A SUCCESS CLEARS THE COUNTER, this path too: kept, four old typos left a
     // student one event from being blocked in every assignment.
-    if (existsSync(attemptsFile)) await rm(attemptsFile);
+    await clearOnSuccess(existing.email);
     // The login is REFRESHED (the schema says so): a renamed account kept its
     // old login in the binding, which `unlink --login` and the report key on.
-    if (existing.github_login !== login) {
-      await writeFile(claimFile, JSON.stringify({ ...existing, github_login: login }, null, 2) + "\n");
+    //
+    // AND THE MARKER IS UPGRADED. This reuse just ran every check the gate
+    // runs - roster, cohort, domain, first holder - so a binding the confirm
+    // link or open enrolment wrote is now gate-admitted. Left at `confirm`,
+    // each later wrong-section refusal of the student's own address was
+    // counted as a guess, and five blocked them in every assignment. Merged
+    // into the record, never rebuilt; committed with `students/` like the
+    // login refresh.
+    const refreshed = {
+      ...existing,
+      github_login: login,
+      ...(gateAdmitted ? {} : { claimed_through: "claim" }),
+    };
+    if (existing.github_login !== login || !gateAdmitted) {
+      await writeFile(claimFile, JSON.stringify(refreshed, null, 2) + "\n");
     }
     // domainAllowed is true by construction on this path. Stated rather than
     // left undefined so both gates return the same shape.
     return { email: existing.email, verified: Boolean(existing.claim_verified), domainAllowed: true, reused: true };
   }
   const replacing = existing?.email ? existing : null;
-  if (replacing) log("claim", { ok: true, note: `@${login} was claimed as ${replacing.email}, which is not a registered address for this assignment - asking again` });
+  // NOT REUSED BECAUSE THE ROSTER DOES NOT HOLD IT - the domain is public, the
+  // roster is not - is an answer about the confirmed address, whatever comes
+  // next. It is COUNTED HERE, before the payload, as a probe on that address:
+  // counted only when no payload followed, "confirm X, accept with my own
+  // address" read the answer and the acceptance went through uncounted, as
+  // often as anyone liked (review 2026-09-27). A success below on the payload's
+  // address does not forgive it (attemptsAfterSuccess).
+  if (replacing && domainAllowed(replacing.email, rules.domains)) await countIfGuess();
+  // The PUBLIC run log says neither which address nor why: naming the address
+  // beside "not registered" was the oracle's read-out.
+  if (replacing) log("claim", { ok: true, note: `@${login} has a confirmed address that is not reused here - asking again` });
 
   // 3. No payload at all. Deliberately does NOT count against the limit: this
   //    is a link issued before the assignment moved to `claim`, or a client
   //    that never showed the prompt, and burning a student's attempts for a
-  //    deployment fault is the `no-nonce` mistake in a new place.
+  //    deployment fault is the `no-nonce` mistake in a new place. (A binding
+  //    the roster does not hold was counted above, payload or not.)
   const payload = env("CLAIM_PAYLOAD", "").trim();
   if (!payload) {
-    // EXCEPT on top of a binding the roster does not hold: that answer
-    // ("asked again") says the confirmed address is not registered, which is
-    // the probe the counter exists to limit (the page always sends an
-    // address under `claim`, so a legitimate acceptance does not land here).
-    if (replacing) await countIfGuess();
     await reject(
       CLAIM_REJECTIONS.NO_CLAIM,
       `this assignment needs your ${INSTITUTION} email address, and the acceptance did not carry one. Open the invitation link again and confirm your address.`,
@@ -347,9 +383,10 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
     );
   }
 
-  // Bound. The counter is deleted rather than zeroed: an absent file and a
-  // zeroed one read identically, and one fewer file is one fewer thing to
-  // explain in the control repo.
+  // Bound. The counter is deleted rather than zeroed when nothing is left: an
+  // absent file and a zeroed one read identically, and one fewer file is one
+  // fewer thing to explain in the control repo. What is left is a probe on
+  // another address (clearOnSuccess).
   const record = buildClaimRecord({
     githubLogin: login,
     githubId,
@@ -370,7 +407,7 @@ async function runClaimGate({ assignment, assignmentId, roster, login, githubId,
   });
   await mkdir(join(dataDir, "students", "claims"), { recursive: true });
   await writeFile(claimFile, JSON.stringify(record, null, 2) + "\n");
-  if (existsSync(attemptsFile)) await rm(attemptsFile);
+  await clearOnSuccess(opened.email);
 
   log("claim", {
     ok: true,
@@ -460,11 +497,14 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   const replacing = existing?.email ? existing : null;
   if (replacing && !env("CLAIM_PAYLOAD", "").trim() && !required) return reuse();
   if (replacing) {
+    // PUBLIC LOG: no address, and the wording decided by the PUBLIC rules only
+    // (domain and form). `meetsRules` also asks the roster, so wording chosen
+    // by it said whether a number-form address is registered.
     log("claim", {
       ok: true,
-      note: correcting && meetsRules(existing)
-        ? `@${login} was bound to ${replacing.email} and is confirming an address again - a correction`
-        : `@${login} was bound to ${replacing.email}, which no longer meets the rules - asking again`,
+      note: bindingMeetsRules(existing, rules)
+        ? `@${login} is confirming an address again - a correction`
+        : `@${login} has a confirmed address that no longer meets the rules - asking again`,
     });
   }
 
@@ -568,7 +608,17 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   // outcome, so one outside the rules is refused rather than recorded and
   // reported as "confirmed" - the page refuses it too, but a stale page or a
   // hand-made issue would otherwise write a binding that is asked again at the
-  // next acceptance. Not counted: nothing is being guessed at here.
+  // next acceptance. The domain is public, so its refusal is not counted.
+  //
+  // THE FORM IS NOT PUBLIC WHEN IT FAILS: a number-form address is refused
+  // unless the roster registers it, so the outcome says whether it does -
+  // free and uncounted, sequential student numbers were a roster oracle
+  // (review 2026-09-27). So a number-form address the student does not already
+  // hold is COUNTED, hit or miss, as a probe on that address: a hit is
+  // forgiven by the acceptance that reuses it (attemptsAfterSuccess), which is
+  // the honest student's next step. A spent account is not asked the roster at
+  // all - the form refuses, whatever the roster says - and a name-form address
+  // still records, so the link keeps identifying a blocked student.
   if (voice === "confirm") {
     if (!domainOk) {
       await reject(
@@ -576,7 +626,23 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
         `${opened.email} is not an accepted address here. Confirm your ${rules.domains.join(" or ")} address.`,
       );
     }
-    if (!entry && !addressFormatAllowed(opened.email, rules.format)) {
+    const formOk = addressFormatAllowed(opened.email, rules.format);
+    if (!formOk && !sameAddress) {
+      const attemptsFile = join(dataDir, claimAttemptsPath(githubId));
+      const attempts = await readJson(attemptsFile);
+      const spent = claimAttemptsExhausted(attempts);
+      if (!spent) {
+        await mkdir(join(dataDir, "students", "claim-attempts"), { recursive: true });
+        await writeFile(attemptsFile, JSON.stringify(recordFailedAttempt(attempts, iso, { probe: opened.email }), null, 2) + "\n");
+      }
+      if (spent || !entry) {
+        await reject(
+          CLAIM_REJECTIONS.FORMAT,
+          `${opened.email} does not say who you are. Confirm the ${rules.format.example}@ form of your address - the one with your name in it.`,
+        );
+      }
+    }
+    if (!entry && !formOk) {
       await reject(
         CLAIM_REJECTIONS.FORMAT,
         `${opened.email} does not say who you are. Confirm the ${rules.format.example}@ form of your address - the one with your name in it.`,
@@ -622,7 +688,9 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
       `@${login} confirmed ${opened.email}` +
       `${domainOk ? "" : " (OUTSIDE the allowed domains)"}` +
       `${taken ? ` (ALSO held by @${taken.github_login})` : ""}` +
-      `${entry?.student_number ? ` (${entry.student_number})` : ""}` +
+      // NO STUDENT NUMBER. This path takes any address and refuses nothing on
+      // roster grounds, so a number in the PUBLIC run log was a free answer to
+      // "is this address registered" (review 2026-09-27). It is in the record.
       `, verified=${record.claim_verified}`,
   });
   return { email: opened.email, verified: record.claim_verified, domainAllowed: domainOk, reused: false };

@@ -255,19 +255,23 @@ test("a MISSING HUB KEY fails red rather than reporting a confirmation nobody ma
   assert.match(res.outputs.outcome, /^fail:/);
 });
 
-test("an off-domain or number-form address is REFUSED by a confirmation, not recorded as confirmed - and not counted", () => {
+test("an off-domain or number-form address is REFUSED by a confirmation, not recorded as confirmed - the domain uncounted, the form counted", () => {
   // A confirmation has no repository behind it: the address is the whole
   // outcome. Recording one outside the rules reported "confirmed" over a
   // binding the next acceptance asks again for. The allowed domains are
   // public on the student's page, so refusing reveals nothing. Reviewed
   // 2026-09-26: a stale page or a hand-made issue got a success outcome.
   const dir = makeDir();
+  const attemptsFile = join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`);
   const off = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offDomain }));
   assert.equal(off.outputs.outcome, "rejected:claim-domain");
+  assert.equal(existsSync(attemptsFile), false, "a public rule is not counted");
+  // The FORM refusal depends on the roster (a registered number-form address
+  // is confirmed), so it is counted (review 2026-09-27).
   const num = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
   assert.equal(num.outputs.outcome, "rejected:claim-format");
   assert.equal(existsSync(join(dir, "students", "claims", `${GITHUB_ID}.json`)), false, "nothing written");
-  assert.equal(existsSync(join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`)), false, "nothing counted");
+  assert.deepEqual(JSON.parse(readFileSync(attemptsFile, "utf8")).probes, ["12345678@student.pxl.be"], "counted as a probe on that address");
 });
 
 test("no attempt counter is touched - nothing is refused on roster grounds", () => {
@@ -617,4 +621,111 @@ test("an assignment that switched the form OFF keeps treating the number form as
   const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
   assert.equal(readClaim(dir).email, "12345678@student.pxl.be");
+});
+
+// --- the roster probe with a payload (review 2026-09-27) ---------------------
+//
+// Confirm a guessed address X through the free link, then accept with a valid
+// payload for your own. The reuse fails when X is not registered; the run log
+// said so, naming X; nothing was counted because a payload followed; and the
+// success deleted the counter anyway. An unlimited roster oracle in a public log.
+
+const attemptsPath = (dir) => join(dir, "students", "claim-attempts", `${GITHUB_ID}.json`);
+const readAttempts = (dir) => JSON.parse(readFileSync(attemptsPath(dir), "utf8"));
+const logOf = (dir, res) => res.stdout + res.stderr + (existsSync(join(dir, "summary.md")) ? readFileSync(join(dir, "summary.md"), "utf8") : "");
+
+test("PROBE: a confirmed unregistered address followed by a VALID payload is counted, and the success does not erase it", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster });
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster })).outputs.outcome, "confirmed");
+  assert.equal(readClaim(dir).claimed_through, "confirm");
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed });
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(readClaim(dir).email, "alice.peeters@student.pxl.be", "the payload's address binds");
+  const attempts = readAttempts(dir);
+  assert.equal(attempts.failures, 1, "counted");
+  assert.deepEqual(attempts.probes, ["mal.lory@student.pxl.be"], "as a probe on the confirmed address, which the success does not forgive");
+});
+
+test("PROBE: the public log names neither the confirmed address nor whether it is registered", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster });
+  run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster }));
+  const res = run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed });
+  const log = logOf(dir, res);
+  assert.doesNotMatch(log, /mal\.lory/, "no address");
+  assert.doesNotMatch(log, /not a registered/i, "no verdict");
+  assert.match(log, /asking again/);
+});
+
+test("PROBE: repeating the loop spends the attempts - a later clean success does not reset probes on other addresses", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster });
+  for (let i = 0; i < 5; i++) {
+    assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster })).outputs.outcome, "confirmed");
+    assert.match(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed }).outputs.outcome, /^(already-)?accepted$/);
+    assert.equal(readAttempts(dir).failures, i + 1);
+    // A clean reuse of the student's own binding in between forgives nothing -
+    // and the fifth probe has spent the account, so the last one is refused.
+    assert.match(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, i < 4 ? /^(already-)?accepted$/ : /^rejected:claim-blocked$/);
+    assert.equal(readAttempts(dir).failures, i + 1, "not reset");
+  }
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.offRoster })).outputs.outcome, "confirmed", "the link still records");
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey, CLAIM_PAYLOAD: SEALED.aliceNamed }).outputs.outcome, "rejected:claim-blocked");
+});
+
+test("PROBE: a probe on the address that later succeeds WAS the student's own, and is forgiven", () => {
+  // The honest wrong-section click: confirmed their own address, opened the
+  // other section's link (counted - the binding was unchecked), then their own.
+  const dir = makeDir({ over: { ...claimMode, cohort: ["num:0888"] }, roster: namedRoster, claims: [namedBinding({ claimed_through: "confirm" })] });
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:not-in-cohort");
+  assert.deepEqual(readAttempts(dir).probes, ["alice.peeters@student.pxl.be"]);
+  writeFileSync(join(dir, "assignments", `${ID}.yml`), assignment(claimMode));
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+  assert.ok(!existsSync(attemptsPath(dir)), "cleared");
+});
+
+// --- a reuse that passed every gate upgrades the marker (review 2026-09-27) --
+
+test("MARKER: a successful reuse of a confirm-written binding writes claimed_through: claim, and merges", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ claimed_through: "confirm", history: [{ email: "x.y@student.pxl.be", claimed_at: "2026-01-01T00:00:00.000Z" }] })] });
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+  const rec = readClaim(dir);
+  assert.equal(rec.claimed_through, "claim");
+  assert.equal(rec.claimed_at, "2026-09-10T08:00:00.000Z", "first-holder time kept");
+  assert.equal(rec.history.length, 1, "nothing else rewritten");
+});
+
+test("MARKER: after the upgrade, a wrong-section refusal is not counted", () => {
+  const dir = makeDir({ over: claimMode, roster: namedRoster, claims: [namedBinding({ claimed_through: "open" })] });
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+  writeFileSync(join(dir, "assignments", `${ID}.yml`), assignment({ ...claimMode, cohort: ["num:0888"] }));
+  for (let i = 0; i < 6; i++) {
+    assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "rejected:not-in-cohort", "never blocked");
+  }
+  assert.ok(!existsSync(attemptsPath(dir)), "not counted");
+});
+
+test("MARKER: a refused reuse does not upgrade", () => {
+  const dir = makeDir({ over: { ...claimMode, cohort: ["num:0888"] }, roster: namedRoster, claims: [namedBinding({ claimed_through: "confirm" })] });
+  run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey });
+  assert.equal(readClaim(dir).claimed_through, "confirm");
+});
+
+// --- the confirm link's own oracle (review 2026-09-27) -----------------------
+
+test("CONFIRM LINK: a registered number-form address costs an attempt, forgiven by the acceptance that reuses it", () => {
+  const dir = makeDir({ over: claimMode, roster: numberRoster });
+  const res = run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber }));
+  assert.equal(res.outputs.outcome, "confirmed");
+  assert.doesNotMatch(logOf(dir, res), /0999/, "the student number is not in the public log");
+  assert.deepEqual(readAttempts(dir).probes, ["12345678@student.pxl.be"], "hit or miss, the roster answered");
+  assert.equal(run(dir, { CLAIM_PRIVATE_KEY: keys.privateKey }).outputs.outcome, "accepted");
+  assert.ok(!existsSync(attemptsPath(dir)), "the honest student's next step forgives it");
+});
+
+test("CONFIRM LINK: a spent account is refused a number-form address without the roster being asked", () => {
+  const dir = makeDir({ over: claimMode, roster: numberRoster });
+  mkdirSync(join(dir, "students", "claim-attempts"), { recursive: true });
+  writeFileSync(attemptsPath(dir), JSON.stringify({ schema_version: 1, failures: 5, first_at: "2026-09-26T00:00:00Z", last_at: "2026-09-26T00:00:00Z" }));
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNumber })).outputs.outcome, "rejected:claim-format", "registered, and still refused");
+  assert.equal(readAttempts(dir).failures, 5, "not counted past the limit");
+  assert.equal(run(dir, confirm({ CLAIM_PAYLOAD: SEALED.aliceNamed })).outputs.outcome, "confirmed", "a name-form address still records");
 });

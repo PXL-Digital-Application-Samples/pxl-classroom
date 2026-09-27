@@ -151,14 +151,14 @@ test("a missing payload and a missing hub key never spend a student's attempts",
 
   // The no-payload branch: between finding no payload and rejecting, nothing
   // may increment.
-  // ONE exception, and it is not a deployment fault: no payload on top of a
-  // binding the roster does not hold is the second half of the confirm-link
-  // probe (review 2026-09-26), and the page always sends an address. Counted
-  // only when that binding is a guess (countIfGuess: not gate-written).
   const noPayload = body.slice(body.indexOf("if (!payload)"), body.indexOf("const privateKeys"));
-  const counted = noPayload.split(/countFailure|countIfGuess/).length - 1;
-  assert.equal(counted, 1, "exactly one counted case in the no-payload branch");
-  assert.match(noPayload, /if \(replacing\) await countIfGuess\(\);/, "and only on top of an unregistered, unchecked binding");
+  assert.equal(noPayload.split(/countFailure|countIfGuess/).length - 1, 0, "nothing counted in the no-payload branch");
+  // The confirm-link probe (an unchecked binding the roster does not hold) is
+  // counted BEFORE the payload is read, so a valid payload after it cannot
+  // make it free (review 2026-09-27).
+  const fallThrough = body.indexOf("if (replacing && domainAllowed(replacing.email, rules.domains)) await countIfGuess();");
+  assert.ok(fallThrough > -1, "the fall-through past an unregistered binding is counted");
+  assert.ok(fallThrough < body.indexOf("const payload"), "before the payload is read");
 
   // The hub holds a LIST of keys since rotation became possible, so "no key" is
   // an empty list rather than a falsy string. Same branch, same rule.
