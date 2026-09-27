@@ -218,7 +218,7 @@ When the check does report a genuine excess, fix it in **one** of two ways, both
   **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on every installation at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. Account-level permissions clear the same way, and need no owner at all.
 
   This asymmetry is worth remembering in the other direction: the day something genuinely needs a NEW permission, every org owner has to click *Review request* before that org works again, and the feature is dead on the ones nobody chases. That is what `check-installation-approvals.mjs` exists to see (§6.6).
-- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by `publish-assignment.yml`'s five `gh variable set` calls, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
+- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by the five broker variables `publish-assignment.yml` writes, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
 
 ---
 

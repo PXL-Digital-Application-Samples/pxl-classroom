@@ -7,14 +7,15 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-test("publish-assignment.yml creates/edits broker with --enable-issues", () => {
+test("publish-assignment.yml creates/edits broker with issues enabled", () => {
   const content = readFileSync(join(root, ".github", "workflows", "publish-assignment.yml"), "utf8");
+  // Both the create and the edit of an existing broker.
   assert.ok(
-    content.includes("--enable-issues"),
+    (content.match(/-F has_issues=true/g) || []).length >= 2,
     "publish-assignment.yml must enable issues on broker repos for group acceptance payloads"
   );
   assert.ok(
-    !content.includes("--disable-issues"),
+    !content.includes("has_issues=false"),
     "publish-assignment.yml must not disable issues on broker repos"
   );
 });

@@ -31,14 +31,14 @@ const TEMPLATE = readFileSync(join(ROOT, "acceptance/broker-workflow.yml"), "utf
 /**
  * Every title the broker can leave on an issue after it has handled it.
  *
- * Derived: the `--title "..."` arguments in the template, with `$LABEL`
+ * Derived: the `-f title="..."` arguments in the template, with `$LABEL`
  * expanded over the `LABEL="..."` assignments beside them.
  */
 function titlesTheBrokerLeaves() {
   const labels = [...TEMPLATE.matchAll(/LABEL="([^"]+)"/g)].map((m) => m[1]);
-  const titles = [...TEMPLATE.matchAll(/--title "([^"]+)"/g)].map((m) => m[1]);
+  const titles = [...TEMPLATE.matchAll(/-f title="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(labels.length > 0, "the template must still set LABEL for the redacted title");
-  assert.ok(titles.length > 0, "the template must still redact the title with gh issue edit");
+  assert.ok(titles.length > 0, "the template must still redact the title with a rename");
 
   const out = new Set();
   for (const title of titles) {

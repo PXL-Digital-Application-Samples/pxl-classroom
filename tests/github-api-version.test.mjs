@@ -85,16 +85,42 @@ test("every `gh api` in a workflow sends the version, from a step env equal to t
   }
 });
 
-test("a workflow dispatches, enables and disables through `gh api`, never `gh workflow`", () => {
-  // `gh workflow run|enable|disable` cannot send a header, and costs a GraphQL
-  // lookup and a workflow read before the call (measured with GH_DEBUG=api)
-  // where the POST or PUT alone is one call.
-  const offenders = workflowSteps()
-    .filter(({ step }) => typeof step.run === "string")
-    .flatMap(({ step, name }) => step.run.split("\n").map((l) => l.trim())
-      .filter((l) => /\bgh\s+workflow\s+(run|enable|disable)\b/.test(l) && !l.startsWith("#") && !l.startsWith("echo"))
-      .map((l) => `${name}: ${l}`));
+// The one `gh` subcommand a workflow may still run, and why. Setting a secret
+// over REST takes a value already sealed to the repository's public key with
+// libsodium; gh does that, and Node cannot without a crypto dependency - for a
+// value that is the broker App's private key.
+const GH_SUBCOMMANDS_ALLOWED = new Set(["secret set"]);
+
+// `gh <sub> <verb>` where a command starts: the line itself, or after a pipe,
+// `&&`, `||`, `;`, `(`, `$(`, `if`, `!`.
+const GH_COMMAND = /(?:^|[|&;(]\s*|\$\(\s*|\bif\s+|!\s+)gh\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?/g;
+
+test("a workflow talks to GitHub through `gh api` only - one call, and the pinned version", () => {
+  // Every other gh subcommand cannot send a header, and costs lookups before
+  // the call: `gh workflow run` spent a GraphQL query and a workflow read
+  // before its dispatch (measured with GH_DEBUG=api).
+  // `echo` lines are read too: `echo "$KEY" | gh secret set` is a command. A
+  // message that merely mentions gh ("Verify with 'gh api apps/...'") is not
+  // at a command start, so it does not match.
+  const offenders = [];
+  const allowedUsed = new Set();
+  let seen = 0;
+  for (const { step, name } of workflowSteps()) {
+    if (typeof step.run !== "string") continue;
+    for (const line of step.run.split("\n").map((l) => l.trim())) {
+      if (line.startsWith("#")) continue;
+      for (const m of line.matchAll(GH_COMMAND)) {
+        seen++;
+        if (m[1] === "api") continue;
+        if (GH_SUBCOMMANDS_ALLOWED.has(`${m[1]} ${m[2]}`)) { allowedUsed.add(`${m[1]} ${m[2]}`); continue; }
+        offenders.push(`${name}: ${line}`);
+      }
+    }
+  }
+  assert.ok(seen >= 20, `recognised only ${seen} gh commands - is the sweep still reading them?`);
   assert.deepEqual(offenders, []);
+  // An exception nothing uses any more is removed, not kept "just in case".
+  assert.deepEqual([...allowedUsed].sort(), [...GH_SUBCOMMANDS_ALLOWED].sort(), "an allowed gh subcommand no workflow runs");
 });
 
 test("every github-script step sends the version, through one prelude that really sets the header", async () => {

@@ -250,39 +250,51 @@ jobs:
           # "Verify the broker dispatch credential" step above for why.
           BROKER_CLIENT_ID: ${{ secrets.PXL_BROKER_CLIENT_ID }}
           BROKER_PRIVATE_KEY: ${{ secrets.PXL_BROKER_PRIVATE_KEY }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           BROKER_REPO="broker-${ASSIGNMENT_ID}"
-          if gh repo view "${ORG}/${BROKER_REPO}" --json name > /dev/null 2>&1; then
+          REPO="repos/${ORG}/${BROKER_REPO}"
+          if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "$REPO" > /dev/null 2>&1; then
             echo "Broker repo ${ORG}/${BROKER_REPO} already exists - ensuring issues are enabled"
-            gh repo edit "${ORG}/${BROKER_REPO}" --enable-issues
+            gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$REPO" -F has_issues=true >/dev/null
           else
-            gh repo create "${ORG}/${BROKER_REPO}" \
-              --public \
-              --description "Assignment acceptance broker for ${ASSIGNMENT_ID}" \
-              --disable-wiki \
-              --enable-issues
+            gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "orgs/${ORG}/repos" \
+              -f name="${BROKER_REPO}" -f visibility=public \
+              -f description="Assignment acceptance broker for ${ASSIGNMENT_ID}" \
+              -F has_wiki=false -F has_issues=true >/dev/null
             echo "Created broker repo ${ORG}/${BROKER_REPO}"
           fi
 
-          gh variable set ASSIGNMENT_ID --body "${ASSIGNMENT_ID}" --repo "${ORG}/${BROKER_REPO}"
-          gh variable set CONTROL_ORG --body "${ORG}" --repo "${ORG}/${BROKER_REPO}"
+          # Update, or create where it does not exist yet (404). Any other
+          # failure makes the create fail too (409), so the step still fails.
+          set_var() {
+            gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$REPO/actions/variables/$1" -f value="$2" >/dev/null 2>&1 \
+              || gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "$REPO/actions/variables" -f name="$1" -f value="$2" >/dev/null
+          }
+          set_var ASSIGNMENT_ID "${ASSIGNMENT_ID}"
+          set_var CONTROL_ORG "${ORG}"
           # The nonce is what the broker checks a token against, so writing it
           # here is what actually retires superseded links. INVITE_ENABLED is a
           # kill switch evaluated in the job-level `if`, before a runner is
           # allocated - switching it off costs nothing at all.
-          gh variable set INVITE_NONCE --body "${INVITE_NONCE}" --repo "${ORG}/${BROKER_REPO}"
-          gh variable set INVITE_ENABLED --body "true" --repo "${ORG}/${BROKER_REPO}"
+          set_var INVITE_NONCE "${INVITE_NONCE}"
+          set_var INVITE_ENABLED "true"
           # The acceptance PUBLIC key. Its presence is what switches this
           # assignment from the legacy bearer token to signed acceptance, so
           # migration is per assignment rather than a flag day - see
           # ARCHITECTURE §4.3.2. Public by design; the private half stays in the
           # control repo and in the student's link.
-          gh variable set INVITE_PUBKEY --body "${INVITE_PUBKEY}" --repo "${ORG}/${BROKER_REPO}"
+          set_var INVITE_PUBKEY "${INVITE_PUBKEY}"
 
           # The broker's ONLY credential: an App installed on the hub repository
           # alone, holding Contents: write alone. It can POST a dispatch to the
           # hub and nothing else. The provisioning App's key is never written
           # here - see the verify step above for what it used to grant.
+          # `gh secret set`, the one gh subcommand left: the REST call takes a
+          # value already sealed to the repository's public key (libsodium), which
+          # gh does and Node cannot without a crypto dependency.
           echo "$BROKER_CLIENT_ID" | gh secret set PXL_BROKER_CLIENT_ID --repo "${ORG}/${BROKER_REPO}"
           echo "$BROKER_PRIVATE_KEY" | gh secret set PXL_BROKER_PRIVATE_KEY --repo "${ORG}/${BROKER_REPO}"
 
@@ -377,8 +389,8 @@ jobs:
       # the step above.
       #
       # `|| true` on each: a broker that never had them is the ordinary case
-      # once the sweep is done, and `gh secret delete` exits non-zero on a
-      # secret that is not there. Nothing here is worth failing a publish over.
+      # once the sweep is done, and deleting a secret that is not there answers
+      # 404. Nothing here is worth failing a publish over.
       - name: Remove the provisioning App key from the broker
         if: inputs.dry_run != true
         shell: bash
@@ -386,11 +398,14 @@ jobs:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           ORG: ${{ inputs.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           BROKER_REPO="broker-${ASSIGNMENT_ID}"
           removed=0
           for name in PXL_APP_PRIVATE_KEY PXL_APP_CLIENT_ID; do
-            if gh secret delete "$name" --repo "${ORG}/${BROKER_REPO}" 2>/dev/null; then
+            if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method DELETE "repos/${ORG}/${BROKER_REPO}/actions/secrets/${name}" >/dev/null 2>&1; then
               echo "Removed legacy secret ${name} from ${ORG}/${BROKER_REPO}"
               removed=$((removed + 1))
             fi

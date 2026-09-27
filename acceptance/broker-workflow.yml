@@ -189,25 +189,27 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          # No checkout of this repo, so gh has no remote to infer it from.
-          GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ steps.parse.outputs.number }}
           REASON: ${{ steps.verify.outputs.reason }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           echo "::notice::Invitation rejected (${REASON}) - no credential was used"
           [ -n "$ISSUE_NUMBER" ] || exit 0
+          ISSUE="repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}"
           # Redact first. A rejection is usually a forged or retired token, but
           # `wrong-assignment` means a LIVE token for a different assignment was
           # posted here - and this repository is public. Renaming costs no
           # credential, so the §4.3.2 floor (a bad token reaches nothing
           # privileged) still holds.
-          gh issue edit "$ISSUE_NUMBER" --title "Acceptance attempt (rejected)" || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="Acceptance attempt (rejected)" >/dev/null || true
           # Deliberately generic: the precise reason stays in this run's log
           # rather than becoming a probing oracle on a public repository.
-          gh issue comment "$ISSUE_NUMBER" --body \
-            "This invitation link is not valid for this assignment, or is no longer current. Ask your lecturer for an up-to-date link." || true
-          gh issue close "$ISSUE_NUMBER" --reason "not planned" || true
-          gh issue lock "$ISSUE_NUMBER" --reason "resolved" || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "$ISSUE/comments" \
+            -f body="This invitation link is not valid for this assignment, or is no longer current. Ask your lecturer for an up-to-date link." >/dev/null || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f state=closed -f state_reason=not_planned >/dev/null || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT "$ISSUE/lock" -f lock_reason=resolved >/dev/null || true
 
       - name: Mint dispatcher token
         if: steps.verify.outputs.valid == 'true'
@@ -280,20 +282,23 @@ jobs:
       # group payload out of the body. Deleting here would race that read and
       # break every group acceptance.
       #
-      # `gh issue edit --title` needs only `issues: write`, so this costs no
+      # Renaming an issue needs only `issues: write`, so this costs no
       # extra credential on a repository that already holds too many.
       - name: Redact and lock trigger issue
         if: always() && steps.verify.outputs.valid == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ steps.parse.outputs.number }}
           # Only to name what happened. The redaction itself does not depend on
           # it, so an empty kind still rewrites the title.
           KIND: ${{ steps.verify.outputs.kind }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
         run: |
           [ -n "$ISSUE_NUMBER" ] || exit 0
+          ISSUE="repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}"
           # REDACT and LOCK, but do NOT close.
           #
           # The student authored this issue, so GitHub subscribes them to it -
@@ -313,5 +318,4 @@ jobs:
           # "acceptance in flight" check reads `state=all`.
           LABEL="Acceptance"
           if [ "$KIND" = "confirm" ]; then LABEL="Email confirmation"; fi
-          gh issue edit "$ISSUE_NUMBER" --title "$LABEL (processed)" || true
-          gh issue lock "$ISSUE_NUMBER" --reason "resolved" || true
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (processed)" >/dev/null || true          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT "$ISSUE/lock" -f lock_reason=resolved >/dev/null || true

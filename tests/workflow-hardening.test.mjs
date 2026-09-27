@@ -995,7 +995,7 @@ test("the provisioning App's key never reaches a public broker", () => {
   );
   assert.match(
     publishCode,
-    /gh secret delete "?\$?\{?name\}?"?|gh secret delete PXL_APP_PRIVATE_KEY/,
+    /--method DELETE "repos\/\$\{ORG\}\/\$\{BROKER_REPO\}\/actions\/secrets\/\$\{name\}"/,
     "publish must REMOVE the legacy secret from brokers that still hold it - republishing is the migration",
   );
   // Ordering is load-bearing: the old broker workflow reads PXL_APP_CLIENT_ID,

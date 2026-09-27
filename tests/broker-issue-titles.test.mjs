@@ -24,12 +24,12 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = readFileSync(join(ROOT, "acceptance/broker-workflow.yml"), "utf8");
 
-/** Every `gh issue edit --title` the template can perform, with $LABEL expanded. */
+/** Every title rename (`-f title="..."`) the template can perform, with $LABEL expanded. */
 function titlesTheBrokerWrites() {
   const labels = [...TEMPLATE.matchAll(/LABEL="([^"]+)"/g)].map((m) => m[1]);
-  const titles = [...TEMPLATE.matchAll(/--title "([^"]+)"/g)].map((m) => m[1]);
+  const titles = [...TEMPLATE.matchAll(/-f title="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(labels.length > 0, "the template must still set LABEL for the redacted title");
-  assert.ok(titles.length > 0, "the template must still redact with gh issue edit --title");
+  assert.ok(titles.length > 0, "the template must still redact with a title rename");
 
   const out = new Set();
   for (const title of titles) {

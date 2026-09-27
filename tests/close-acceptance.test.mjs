@@ -41,7 +41,7 @@ test("the variable this closes is the one the broker actually reads", () => {
   // paying for.
   assert.match(SCRIPT, /const VARIABLE = "INVITE_ENABLED"/);
   assert.match(BROKER, /vars\.INVITE_ENABLED != 'false'/, "the broker gate must still read it");
-  assert.match(PUBLISH, /gh variable set INVITE_ENABLED --body "true"/, "publishing must still open it");
+  assert.match(PUBLISH, /set_var INVITE_ENABLED "true"/, "publishing must still open it");
 
   // And it must be set to the exact string the gate compares against. `false`
   // as a boolean, or "False", leaves the door open.

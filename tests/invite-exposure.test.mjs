@@ -40,12 +40,17 @@ const handlerSteps = Object.values(HANDLER.jobs).flatMap((j) => j.steps || []);
 test("the broker redacts the title on the success path", () => {
   const step = brokerSteps.find((s) => s.name === "Redact and lock trigger issue");
   assert.ok(step, "the broker must clean up after a valid invitation");
-  assert.match(step.run, /gh issue edit .* --title/, "it must rename the issue");
+  assert.match(step.run, /--method PATCH "\$ISSUE" -f title=/, "it must rename the issue");
 
-  const edit = step.run.indexOf("gh issue edit");
-  const lock = step.run.indexOf("gh issue lock");
+  const edit = step.run.indexOf("-f title=");
+  const lock = step.run.indexOf('"$ISSUE/lock"');
   assert.ok(edit > -1 && lock > -1 && edit < lock, "redact first - the title is the exposure");
 });
+
+// A close, in either spelling. The reject path below DOES close, so this is
+// checked to match there - which is what keeps the "never closes" test from
+// passing on a spelling it no longer recognises.
+const CLOSES = /gh issue close|state=closed/;
 
 test("the broker does NOT close the issue, because closing emails the student", () => {
   // The student authored this issue, so GitHub subscribes them to it, and a
@@ -59,9 +64,11 @@ test("the broker does NOT close the issue, because closing emails the student", 
   const step = brokerSteps.find((s) => s.name === "Redact and lock trigger issue");
   assert.ok(step, "the cleanup step must still exist");
   assert.ok(
-    !/gh issue close/.test(step.run),
+    !CLOSES.test(step.run),
     "closing the issue emails its author, and the issue is authored by the student",
   );
+  const reject = brokerSteps.find((s) => s.name === "Reject invalid invitation");
+  assert.match(reject.run, CLOSES, "the close pattern must recognise the close the reject path performs");
 });
 
 test("the broker redacts the title on the reject path too", () => {
@@ -70,7 +77,7 @@ test("the broker redacts the title on the reject path too", () => {
   // the title is real, and this repository is public.
   const step = brokerSteps.find((s) => s.name === "Reject invalid invitation");
   assert.ok(step, "there must be a reject path");
-  assert.match(step.run, /gh issue edit .* --title/, "a rejected title must be redacted too");
+  assert.match(step.run, /--method PATCH "\$ISSUE" -f title=/, "a rejected title must be redacted too");
   assert.ok(
     !/create-github-app-token/.test(JSON.stringify(step)),
     "and must still reach no credential - that is the §4.3.2 floor"
