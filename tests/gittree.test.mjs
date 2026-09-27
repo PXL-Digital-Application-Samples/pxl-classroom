@@ -66,6 +66,47 @@ const blobRes = (sha) => ({ status: 201, body: { sha } });
 const treeRes = (sha) => ({ status: 201, body: { sha } });
 const updateOk = (sha) => ({ status: 200, body: { object: { sha } } });
 
+test("commitWithRebase: a GET never comes from the browser's cache - a stale head refused every retry", async () => {
+  // GitHub serves a ref with `Cache-Control: private, max-age=60` and a browser
+  // honours it. A delete made just after another write read the same stale head
+  // on all five attempts, each parent was refused as a non-fast-forward, and it
+  // failed "being changed by something else" until the minute was up
+  // (2026-09-27). This fake IS that cache: a GET without `cache: "no-store"`
+  // gets the head as it was, and the ref update refuses any other parent.
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, cache: init?.cache });
+    if (method === "GET" && url.includes("/git/ref/")) {
+      return mockResponse(200, { object: { sha: init?.cache === "no-store" ? "live-head" : "cached-head" } });
+    }
+    if (method === "GET" && url.includes("/git/commits/")) return mockResponse(200, { sha: "x", tree: { sha: "t" } });
+    if (url.endsWith("/git/blobs")) return mockResponse(201, { sha: "blob" });
+    if (url.endsWith("/git/trees")) return mockResponse(201, { sha: "tree" });
+    if (method === "POST" && url.endsWith("/git/commits")) {
+      const parent = JSON.parse(init.body).parents[0];
+      return mockResponse(201, { sha: `on-${parent}` });
+    }
+    if (method === "PATCH") {
+      const sha = JSON.parse(init.body).sha;
+      return sha === "on-live-head"
+        ? mockResponse(200, { object: { sha } })
+        : mockResponse(422, { message: "Update is not a fast forward" });
+    }
+    return mockResponse(404, { message: "unmocked" });
+  };
+
+  const res = await commitWithRebase({
+    fetch: fetchImpl, token: "t", owner: "o", repo: "r", message: "m", baseBackoffMs: 1,
+    changes: [{ path: "a.txt", content: "a" }],
+  });
+  assert.equal(res.attempts, 1, "the live head, first time");
+  for (const c of calls) {
+    if (c.method === "GET") assert.equal(c.cache, "no-store", `${c.url} must bypass the cache`);
+    else assert.equal(c.cache, undefined, `${c.method} carries no cache mode`);
+  }
+});
+
 test("commitWithRebase: single-file happy path", async () => {
   const { fetchImpl, calls } = makeMockFetch({
     "GET /repos/{owner}/{repo}/git/ref/{ref}": refRes("parent-sha"),
