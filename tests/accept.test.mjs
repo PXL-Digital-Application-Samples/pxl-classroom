@@ -1319,6 +1319,65 @@ test("an unfrozen repository is handed over, and the record says so", () => {
   assert.equal(acceptRecord(res).reused_existing_repo, true);
 });
 
+// --- whose repository is it? (own_earlier_attempt) ----------------------------
+//
+// Provisioning removes an EMPTY repository and creates it again only when
+// acceptance says the repository is this assignment's own earlier work. The
+// first version removed every empty one (v1.5.2, 2026-09-30) and would have
+// deleted a repository a student created themselves and then accepted with -
+// the case "give them the existing repository" exists for.
+
+test("a repository met on a student's FIRST acceptance is not ours to remove", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.own_earlier_attempt, "false", "the student may have created it; it is kept, empty or not");
+  assert.equal(acceptRecord(res).reused_existing_repo, true);
+});
+
+test("a student whose earlier attempt FAILED comes back as already-accepted, and the leftover is ours", () => {
+  // What a failed generate leaves: the acceptance record, status failed.
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    {
+      assignmentYaml: SOLO_YAML,
+      acceptances: { "test-asgn": { charlie: { github_login: "charlie", github_id: 789, accepted_at: "2026-09-29T13:00:00.000Z", status: "failed" } } },
+    },
+  );
+  assert.equal(res.outputs.outcome, "already-accepted");
+  assert.equal(res.outputs.own_earlier_attempt, "true");
+});
+
+test("a student who was GIVEN an existing repository keeps it on every later acceptance", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" },
+    {
+      assignmentYaml: SOLO_YAML,
+      acceptances: { "test-asgn": { charlie: { github_login: "charlie", github_id: 789, accepted_at: "2026-09-29T13:00:00.000Z", status: "provisioned", reused_existing_repo: true } } },
+    },
+  );
+  assert.equal(res.outputs.outcome, "already-accepted");
+  assert.equal(res.outputs.own_earlier_attempt, "false", "still their repository, however empty");
+});
+
+test("a lecturer's Retry after a failed attempt treats the leftover as ours, and not as a reuse", () => {
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const aside = join(mkdtempSync(join(tmpdir(), "pxl-prior-")), "prior-acceptance.json");
+  writeFileSync(aside, JSON.stringify({ github_login: "charlie", accepted_at: "2026-09-29T13:00:00.000Z", status: "failed" }));
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: SOLO_YAML },
+  );
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(res.outputs.own_earlier_attempt, "true");
+  assert.equal(acceptRecord(res).reused_existing_repo, undefined, "our own leftover is not a repository the assignment did not make");
+});
+
 test("a ruleset that is not ours does not freeze anything", () => {
   probe.setRepos({ "portfolio-charlie": { rulesets: ["main-protection"] } });
   const res = runAccept(

@@ -20,9 +20,10 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyFromCommits } from "../lib/existing-repo.mjs";
+import { emptyFromCommits, leftoverOfOwnAttempt } from "../lib/existing-repo.mjs";
 
-const script = join(dirname(fileURLToPath(import.meta.url)), "..", "provisioning", "provision.mjs");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const script = join(root, "provisioning", "provision.mjs");
 
 /**
  * `target`: "absent" | "empty" | "has-commits" | "unreadable" - what is at the
@@ -71,7 +72,11 @@ async function withApi(fn, { target = "absent", deleteStatus = 204 } = {}) {
   }
 }
 
-function provision(apiBase, { dryRun = false } = {}) {
+/**
+ * `recreateEmpty` is what acceptance passes (`own_earlier_attempt`): "true"
+ * when a repository at the name is this assignment's own earlier work.
+ */
+function provision(apiBase, { dryRun = false, recreateEmpty = "true" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-"));
   return new Promise((resolve, reject) => {
     const child = spawn("node", [script], {
@@ -89,6 +94,7 @@ function provision(apiBase, { dryRun = false } = {}) {
         STUDENT_LOGIN: "ann",
         STUDENT_PERMISSION: "push",
         DRY_RUN: dryRun ? "1" : "0",
+        RECREATE_EMPTY: recreateEmpty,
         FEEDBACK_PR: "false",
         GITHUB_OUTPUT: join(dir, "out.env"),
         GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
@@ -123,6 +129,42 @@ test("an empty repository a failed creation left behind is removed and created a
     const gen = calls.findIndex((c) => c === `POST /repos/Org/${"tpl"}/generate`);
     assert.ok(del > -1 && gen > del, `removed, then generated: ${calls.join(" | ")}`);
   }, { target: "empty" });
+});
+
+test("an EMPTY repository the student created themselves is kept - empty alone is never enough", async () => {
+  // The first version (v1.5.2) removed every empty repository. A student can
+  // create one and then accept, and "give them the existing repository" says
+  // they keep it. Only acceptance knows whose it is; anything but an explicit
+  // "true" keeps it.
+  for (const recreateEmpty of ["false", "", "1", "TRUE"]) {
+    await withApi(async (api, calls) => {
+      const res = await provision(api, { recreateEmpty });
+      assert.equal(res.status, 0, res.log);
+      assert.match(res.outputs, /^outcome=reused$/m, `RECREATE_EMPTY="${recreateEmpty}"`);
+      assert.ok(!calls.some((c) => c.startsWith("DELETE ")), `nothing is deleted with RECREATE_EMPTY="${recreateEmpty}"`);
+      assert.ok(!calls.some((c) => c.endsWith("/generate")), "and nothing is generated over it");
+    }, { target: "empty" });
+  }
+});
+
+test("leftoverOfOwnAttempt: a prior acceptance that was not a reuse, or the team's own repository", () => {
+  assert.equal(leftoverOfOwnAttempt({ status: "failed" }), true, "what a failed generate leaves");
+  assert.equal(leftoverOfOwnAttempt({ status: "provisioned" }), true);
+  assert.equal(leftoverOfOwnAttempt({ status: "provisioned", reused_existing_repo: true }), false, "they were given a repository they already had");
+  assert.equal(leftoverOfOwnAttempt(null), false, "a first acceptance");
+  assert.equal(leftoverOfOwnAttempt(undefined), false);
+  assert.equal(leftoverOfOwnAttempt("garbage"), false, "an unreadable record is not evidence");
+  assert.equal(leftoverOfOwnAttempt(null, { ownGroupRepo: true }), true, "the team's manifest already names it");
+});
+
+test("both workflows pass acceptance's answer to provisioning, and the action declares it", () => {
+  for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
+    const src = readFileSync(join(root, ".github", "workflows", wf), "utf8");
+    assert.match(src, /recreate-empty: \$\{\{ steps\.accept\.outputs\.own_earlier_attempt \}\}/, wf);
+  }
+  const action = readFileSync(join(root, "provisioning", "action.yml"), "utf8");
+  assert.match(action, /recreate-empty:[\s\S]*?default: "false"/, "absent means keep");
+  assert.match(action, /RECREATE_EMPTY: \$\{\{ inputs\.recreate-empty \}\}/);
 });
 
 test("a repository with a commit is reused exactly as before, and never deleted", async () => {

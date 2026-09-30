@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets, teamManifestNamesRepo } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, teamManifestNamesRepo } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -1243,6 +1243,10 @@ async function main() {
     await setOutput("team_name", teamName);
     await setOutput("is_first_member", isFirstMember ? "true" : "false");
     await setOutput("previous_repo", previousRepo || "");
+    // Whether an EMPTY repository at this name may be removed and created
+    // again by provisioning (lib/existing-repo.mjs `leftoverOfOwnAttempt`): an
+    // earlier attempt of this student's that failed after GitHub created it.
+    await setOutput("own_earlier_attempt", leftoverOfOwnAttempt(existing) ? "true" : "false");
     await setOutput("student_permission", studentPermission);
     await setOutput("template_owner", assignment.template.owner);
     await setOutput("template_repo", assignment.template.repository);
@@ -1366,14 +1370,23 @@ async function main() {
   // one field and nothing else.
   let acceptedAt = now.toISOString();
   const priorFile = existsSync(acceptFile) ? acceptFile : env("PRIOR_ACCEPTANCE_FILE", "");
+  let priorAcceptance = null;
   if (priorFile && existsSync(priorFile)) {
     try {
       const prior = JSON.parse(await readFile(priorFile, "utf-8"));
+      priorAcceptance = prior;
       if (typeof prior.accepted_at === "string" && prior.accepted_at) acceptedAt = prior.accepted_at;
     } catch {
-      // Unreadable prior record - `now` is the best we have.
+      // Unreadable prior record - `now` is the best we have, and it is not
+      // evidence of an earlier attempt either.
     }
   }
+  // Is a repository at this name this assignment's own earlier work? Decides
+  // whether provisioning may remove it when it is EMPTY, and so whether this
+  // acceptance "reused an existing repository": one a failed attempt of ours
+  // left behind is not a repository the assignment did not make.
+  const ownEarlierAttempt = leftoverOfOwnAttempt(priorAcceptance, { ownGroupRepo });
+  if (ownEarlierAttempt) reusedExistingRepo = false;
   const record = {
     schema_version: 1,
     assignment_id: assignmentId,
@@ -1424,6 +1437,7 @@ async function main() {
   await setOutput("team_name", teamName);
   await setOutput("is_first_member", isFirstMember ? "true" : "false");
   await setOutput("previous_repo", previousRepo || "");
+  await setOutput("own_earlier_attempt", ownEarlierAttempt ? "true" : "false");
   await setOutput("student_permission", studentPermission);
   await setOutput("template_owner", assignment.template.owner);
   await setOutput("template_repo", assignment.template.repository);

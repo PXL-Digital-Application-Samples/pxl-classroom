@@ -70,6 +70,14 @@ inputs:
     description: Previous repository to remove collaborator from if switching teams
     required: false
     default: ""
+  recreate-empty:
+    description: >-
+      "true" lets provisioning remove an existing repository that has no commit
+      and create it again from the template - the leftover of this student's
+      own failed attempt. Anything else keeps an existing repository as it is,
+      empty or not: a student may have created it themselves.
+    required: false
+    default: "false"
 
 outputs:
   repo-id:
@@ -140,4 +148,5 @@ runs:
         FEEDBACK_PR: ${{ inputs.feedback-pr }}
         FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
         PREVIOUS_REPO: ${{ inputs.previous-repo }}
+        RECREATE_EMPTY: ${{ inputs.recreate-empty }}
       run: node "$GITHUB_ACTION_PATH/provision.mjs"

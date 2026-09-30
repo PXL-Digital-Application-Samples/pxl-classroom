@@ -42,6 +42,9 @@ const cfg = {
   feedbackPr: env("FEEDBACK_PR", "false") === "true",
   baselineBranch: env("FEEDBACK_PR_BASELINE_BRANCH", "pxl-baseline"),
   previousRepo: env("PREVIOUS_REPO", ""),
+  // Exactly "true". Absent, empty or anything else keeps an existing
+  // repository: the safe default is never to delete.
+  recreateEmpty: env("RECREATE_EMPTY", "") === "true",
   apiBase: env("GITHUB_API_URL", "https://api.github.com"),
 };
 
@@ -506,14 +509,22 @@ async function main() {
   const existing = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
   let alreadyExists = existing.status === 200;
 
-  // AN EMPTY ONE IS NOT A REUSE. A `generate` that fails after GitHub created
-  // the repository leaves it behind with no commit in it, and reusing that
-  // handed the student a repository with no starter code, reported `reused`
-  // (lib/existing-repo.mjs `emptyFromCommits`). Nobody can have work in a
-  // repository with no commit, so it is removed and generated again. Only on
-  // GitHub's own "Git Repository is empty": an unreadable answer is not
-  // evidence, and that repository is reused exactly as before.
-  if (alreadyExists) {
+  // OUR OWN EMPTY LEFTOVER IS NOT A REUSE. A `generate` that fails after
+  // GitHub created the repository leaves it behind with no commit in it, and
+  // reusing that handed the student a repository with no starter code,
+  // reported `reused` (lib/existing-repo.mjs `emptyFromCommits`). It is
+  // removed and generated again.
+  //
+  // ONLY WHEN ACCEPTANCE SAYS IT IS OURS (`recreate-empty`, from
+  // `leftoverOfOwnAttempt`): this student accepted this assignment before, and
+  // not by reusing a repository it did not make. EMPTY ALONE IS NOT ENOUGH - a
+  // student can create an empty repository and then accept, and the
+  // assignment's "give them the existing repository" promises they keep it.
+  // The first version removed every empty one and would have deleted theirs.
+  //
+  // And only on GitHub's own "Git Repository is empty": an unreadable answer
+  // is not evidence, and that repository is reused exactly as before.
+  if (alreadyExists && cfg.recreateEmpty) {
     const empty = emptyFromCommits(await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?per_page=1`));
     if (empty === true && cfg.dryRun) {
       log("idempotency", { ok: true, note: `exists id=${existing.data.id} and is EMPTY - a real run would remove it and create it again` });

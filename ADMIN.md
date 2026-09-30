@@ -32,7 +32,7 @@ Done by a system administrator together with the organization owner.
 3. Scope: **All repositories** (the App needs Administration RW across the org to provision student repos and manage permissions).
 4. Confirm installation.
 
-Repository access **must** be "All repositories" - "Only select repositories" makes provisioning fail once students accept. Publishing refuses while it is narrowed, System Health flags it, and the weekly usage report's installation check fails on any participating org where it is. If it was narrowed after students started accepting: set it back, then retry the affected students (Retry on the assignment page) - the empty repository each failed attempt left behind is removed and created again by the retry.
+Repository access **must** be "All repositories" - "Only select repositories" makes provisioning fail once students accept. Publishing refuses while it is narrowed, System Health flags it, and the weekly usage report's installation check fails on any participating org where it is. If it was narrowed after students started accepting: set it back, then retry the affected students (Retry on the assignment page, or they open their invitation link again) - the empty repository each failed attempt left behind is removed and created again. Only that leftover is ever removed: a repository a student created themselves is kept, empty or not.
 
 The manifest at `/setup` declares Organization **Administration**, but the manifest only applies at App *creation*. If the App predates that manifest entry it does not hold the permission, and no installation - however fresh - can receive it. Confirm before onboarding:
 

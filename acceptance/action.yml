@@ -144,6 +144,13 @@ outputs:
   previous_repo:
     description: Previous team repository name if switching teams
     value: ${{ steps.accept.outputs.previous_repo }}
+  own_earlier_attempt:
+    description: >-
+      "true" when a repository at the student's name is this assignment's own
+      earlier work (a prior acceptance that did not reuse an existing
+      repository, or the team's own repository), so provisioning may remove it
+      if it is empty. "false" on a first acceptance: that repository is kept.
+    value: ${{ steps.accept.outputs.own_earlier_attempt }}
   template_owner:
     description: Template repository owner (from the assignment definition)
     value: ${{ steps.accept.outputs.template_owner }}
