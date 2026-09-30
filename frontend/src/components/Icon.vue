@@ -131,6 +131,10 @@ const ICONS = {
     '<line x1="6" y1="9" x2="6" y2="21"/>',
   'message-square':
     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  // A repository, where there is no room for its name.
+  book:
+    '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>' +
+    '<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
   archive:
     '<polyline points="21 8 21 21 3 21 3 8"/>' +
     '<rect x="1" y="3" width="22" height="5"/>' +

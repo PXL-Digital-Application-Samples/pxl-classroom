@@ -659,8 +659,12 @@
                 <th @click="sortBy('latest_observed_at')" @keydown.enter="sortBy('latest_observed_at')" @keydown.space.prevent="sortBy('latest_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('latest_observed_at')">
                   <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
                 </th>
-                <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')">
-                  <span class="th-label">Commits<SortIcon :dir="sortDir('commit_count')" /></span>
+                <!-- A heading sets its column's width as surely as a cell does:
+                     "Commits" was 86px over cells of one to five characters. The
+                     word is still the heading's name for a screen reader and
+                     on hover. -->
+                <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')" title="Commits">
+                  <span class="th-label"><span aria-hidden="true">#</span><span class="sr-only">Commits</span><SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
                 <th v-if="ciStatusColumn" class="col-ci">CI Status</th>
                 <th v-if="hasGrades" class="col-score">Score</th>
@@ -697,9 +701,13 @@
                      `.dot-warning` - "needs a look, not an alarm" - and outranks
                      the corroboration note, because it is the one thing here a
                      lecturer has to act on. -->
+                <!-- The note sits UNDER the address, not beside it: side by
+                     side the two made this the widest column in the table
+                     (378px), and most rows are two lines tall already because
+                     Last commit is. -->
                 <td v-if="hasClaimedEmails">
                   <template v-if="s.claimed_email">
-                    <span class="text-sm claimed-address">{{ s.claimed_email }}</span>
+                    <span class="text-sm claimed-address" :title="s.claimed_email">{{ s.claimed_email }}</span>
                     <div class="status-indicator" :title="claimNote(s).title">
                       <span class="status-dot" :class="claimNote(s).dot"></span>
                       <span class="text-xs">{{ claimNote(s).label }}</span>
@@ -739,8 +747,21 @@
                     </a>
                   </div>
                 </td>
+                <!-- An icon, with the name on hover. On an individual
+                     assignment the name is a prefix every row shares followed
+                     by the login, which is the first column: 250px that said
+                     nothing the row had not said already. -->
                 <td class="col-repo">
-                  <a v-if="s.repo_url" :href="s.repo_url" target="_blank" class="mono repo-link">{{ shortRepo(s.repo_name) }}</a>
+                  <a
+                    v-if="s.repo_url"
+                    :href="s.repo_url"
+                    target="_blank"
+                    class="repo-link repo-icon-link"
+                    :title="shortRepo(s.repo_name)"
+                    :aria-label="`Repository ${shortRepo(s.repo_name)}`"
+                  >
+                    <Icon name="book" :size="16" />
+                  </a>
                   <span v-else class="text-muted">-</span>
                   <!-- The one warning no other column can express. It is a fault
                        in the repository RECORD, so it belongs on the repository
@@ -4608,11 +4629,15 @@ main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
   line-height: 1.2;
   padding: 4px 0;
 }
-/* The address ran flush into the marker beside it - "tom@pxl.beTyped by the
-   student" - because the marker is an inline-flex indicator with no margin of
-   its own. */
+/* A block, so the note lands under it rather than beside it, and capped: an
+   address is one unbreakable token and the longest one in the cohort would
+   otherwise set the column. The cut falls in the domain, which every row
+   shares. */
 .claimed-address {
-  margin-right: var(--space-xs);
+  display: block;
+  max-width: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .summary-label {
@@ -4653,12 +4678,17 @@ th {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 10px 14px;
+  padding: 10px 12px;
   text-align: left;
   white-space: nowrap;
 }
+/* `nowrap` means a column is as wide as its widest cell or its heading,
+   whichever is longer, and the table has about 1190px: every column is paid
+   for out of that. 12px rather than 14, here and on `th`, is 40px back across
+   a graded table's ten columns, which is what lets CI Status and Score fit
+   beside the rest. tests/e2e/89 measures it. */
 td {
-  padding: 10px 14px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border-muted);
   white-space: nowrap;
@@ -4686,7 +4716,23 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 .text-secondary { color: var(--text-secondary); }
 .text-warning { color: var(--accent-yellow); }
 
-.col-repo .repo-link { display: inline-block; }
+/* The link is an icon, so it gets a box and the row menu's hover: a bare 16px
+   glyph is a poor target for the link this table is clicked on most. The
+   negative margin keeps the glyph on the heading's left edge and the row at
+   the height it had. */
+.col-repo .repo-icon-link {
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -6px 0 -6px -6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+}
+.col-repo .repo-icon-link:hover {
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-default);
+}
 .col-last-commit { white-space: nowrap; }
 .col-last-commit .sha { display: inline-block; }
 .col-submit-tag { white-space: nowrap; min-width: 150px; }

@@ -53,6 +53,7 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * **A picker and a table may name the same row differently, and that is not a fork.** The cohort picker leads each row with name → email → login, dropping any column no row fills, because its only job is *recognise this person and tick them*. The Roster tab keeps its columns and says `Name unknown` beside an address, because its job is *see what is missing and fill it in* - a column that vanished when empty would hide the very gap the lecturer is there to close. Same data, different question, so the answers differ on purpose; do not unify them on the grounds that they disagree. (Same shape as §7's rule that identical names over different constants are not a fork.)
    * **Name what happens to the reader, not the record that was written.** `Unlink` describes our data; a lecturer read `Remove GitHub account` as deleting the student's actual account. **Forget this account** says we stop knowing, which is what it does.
    * Nuance a reader only needs when deciding whether to trust something belongs in the `title`, not in the cell.
+     **One exception, decided 2026-09-30:** the student table's *Confirmed address* cell keeps *GitHub-verified* / *Typed by the student* on screen, under the address. Under open enrolment that column is the only place a claim is shown at all, so whether it was checked is what the column is for, not a detail of it. It sits on a second line rather than beside the address, which is what kept it from widening the table (§7).
    * Two exemptions, and they are narrow. A surface whose *subject* is the machinery may name it - `SystemHealthModal` diagnoses brokers and workflow dispatches and cannot report on what it may not name. `/setup` is read by whoever operates a deployment, per rule 6 above. Neither licenses a lecturer-facing table.
 
 8. **A value the form worked out is stated, not asked for - and the fields go in the order the values derive.** *(`tests/e2e/67-new-assignment-order.spec.mjs`)*
@@ -583,6 +584,38 @@ of view, passed here and had to be caught by measuring *the scroller* in
 the axis: `.roster-table-wrapper` scrolled horizontally only because
 `overflow-x: visible` computes to `auto` when the other axis is not visible, so
 removing the `max-height` would have taken the page sideways with it.
+
+### A `nowrap` table pays for every column out of one width
+
+The assignment page's student table gets 1190px on any screen 1500px or wider
+(the 1240px container, less its gutter and the wrapper's border; a little more
+between 1240 and 1500, where the gutter is still growing). Every cell is
+`white-space: nowrap`, so a column is as wide as its widest cell **or its
+heading**, whichever is longer. Reported 2026-09-30 from a cohort of 36: the
+commit count and the row menu were out of view on a full-width desktop. The old
+layout needed 1407px, and 1582 with grades showing. Three columns were wide for
+nothing (widths measured by spec 89 against the old layout):
+
+| Column | Was | Why | Now |
+| :--- | ---: | :--- | :--- |
+| Confirmed address | 378px | the address and its note sat side by side | the note is under the address (most rows are two lines tall already, because Last commit is); the address is cut at `15rem` with an ellipsis and is whole in its `title` |
+| Repo | 288px | on an individual assignment the name is a prefix every row shares, then the login from the first column | an icon link, the name in its `title` and its accessible name |
+| Commits | 86px | the heading, over cells of one to five characters (`1,043`) | `#`, still named Commits on hover and to a screen reader |
+
+Cell padding went from 14px to 12px on the same day, which is 40px across a
+graded table's ten columns.
+
+`tests/e2e/89-student-table-fits.spec.mjs` reads what the table **needs**
+against what its scroller has, at 1920px: 1000 of 1190px, and 1167 once CI
+Status and Score are showing. The second number is tight, 23px, which is less
+than any column.
+Run it before adding a column or lengthening a label here. Feedback PR, Submit
+tag and Team are not in that budget: an assignment showing them on top of grades
+still scrolls inside the table's own box.
+
+It waits for Inter before measuring, because `index.html` loads the font late on
+purpose and the table needs 38px more once it has swapped in. A measurement
+taken at "the rows are visible" is a measurement of the fallback font.
 
 ## 8. Visual Sandbox & Interactive Testing
 
