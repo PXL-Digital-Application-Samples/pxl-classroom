@@ -18,6 +18,7 @@ import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
+import { emptyFromCommits } from "../lib/existing-repo.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
 import { submissionBranch } from "../lib/submission-marker.mjs";
@@ -503,7 +504,32 @@ async function main() {
 
   // 3. Idempotency: existing repo?
   const existing = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
-  const alreadyExists = existing.status === 200;
+  let alreadyExists = existing.status === 200;
+
+  // AN EMPTY ONE IS NOT A REUSE. A `generate` that fails after GitHub created
+  // the repository leaves it behind with no commit in it, and reusing that
+  // handed the student a repository with no starter code, reported `reused`
+  // (lib/existing-repo.mjs `emptyFromCommits`). Nobody can have work in a
+  // repository with no commit, so it is removed and generated again. Only on
+  // GitHub's own "Git Repository is empty": an unreadable answer is not
+  // evidence, and that repository is reused exactly as before.
+  if (alreadyExists) {
+    const empty = emptyFromCommits(await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?per_page=1`));
+    if (empty === true && cfg.dryRun) {
+      log("idempotency", { ok: true, note: `exists id=${existing.data.id} and is EMPTY - a real run would remove it and create it again` });
+    } else if (empty === true) {
+      const del = await gh("DELETE", `/repos/${cfg.org}/${cfg.targetRepo}`);
+      if (!del.ok && del.status !== 404) {
+        await fail(
+          "fail:create",
+          `${cfg.org}/${cfg.targetRepo} exists and is empty (an earlier attempt left it), and it could not be ` +
+            `removed (HTTP ${del.status}). Delete that repository, then retry this student.`,
+        );
+      }
+      log("idempotency", { ok: true, note: `exists id=${existing.data.id} but is EMPTY - removed, creating it again` });
+      alreadyExists = false;
+    }
+  }
   log("idempotency", { ok: existing.status === 200 || existing.status === 404, note: alreadyExists ? `exists id=${existing.data.id} - reuse` : "absent - create" });
   // Nothing is populating a repository we did not just generate, so the writers
   // below have nothing to wait for. Waiting anyway would fail a legitimate

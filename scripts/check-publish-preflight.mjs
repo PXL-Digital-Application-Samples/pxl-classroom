@@ -52,7 +52,8 @@ import {
   submissionBranchProvisioned,
   templateHasCommits,
 } from "../lib/template-source.mjs";
-import { assignmentFreezePlanFinding, FREE_PLAN } from "../lib/audit.mjs";
+import { assignmentFreezePlanFinding, checkRepositoryAccess, FREE_PLAN } from "../lib/audit.mjs";
+import { HUB_OWNER } from "../lib/deployment.mjs";
 import { GITHUB_API_VERSION } from "../lib/github-api-version.mjs";
 
 const API = process.env.GITHUB_API_URL || "https://api.github.com";
@@ -91,6 +92,29 @@ async function main() {
     fail(`${path} has no organization/template.owner/template.repository to check`);
   }
   const full = `${owner}/${repo}`;
+
+  // --- 0. can the App see every repository in this organization? -----------
+  //
+  // FIRST, because everything below reads through the same installation and a
+  // narrowed one makes the template read a misleading 404. On "Only select
+  // repositories" GitHub creates each student's repository and then refuses to
+  // copy the template into it - `422 Could not clone: Cloning user does not
+  // have permission to view the clone repository` - so EVERY acceptance fails
+  // and each leaves an empty repository behind. Measured 2026-09-30 on
+  // PXL-Java-Essentials: 25 students over two days, on an assignment that had
+  // published green, with System Health the only surface that knew.
+  //
+  // This token is minted for every repository (lib/app-token-scopes.mjs), so
+  // what it reports is the installation's own setting. `checkRepositoryAccess`
+  // is the judge System Health asks. A failed read warns rather than refuses:
+  // it is not evidence of a narrowed installation.
+  const access = await gh(token, "/installation/repositories?per_page=1");
+  if (access.ok) {
+    const verdict = checkRepositoryAccess({ repository_selection: (await access.json())?.repository_selection }, org, HUB_OWNER);
+    if (verdict.severity === "fail") fail(`PXL Classroom cannot create student repositories in ${org}: ${verdict.message}`);
+  } else {
+    warn(`Could not check which repositories PXL Classroom can see in ${org} (HTTP ${access.status}). If acceptances fail, check that Repository access is "All repositories".`);
+  }
 
   // --- 1. the template -----------------------------------------------------
   const tpl = await gh(token, `/repos/${owner}/${repo}`);

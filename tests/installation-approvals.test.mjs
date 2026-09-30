@@ -299,6 +299,36 @@ test("script: reports success when every installation has approved", () => {
   assert.doesNotMatch(res.stdout, /::error/);
 });
 
+test("script: an installation on 'selected repositories' is an error, names the org and the setting", () => {
+  // Measured 2026-09-30 on PXL-Java-Essentials: every acceptance failed for two
+  // days and left an empty repository, and nothing but System Health said why.
+  const res = runScript({
+    pages: [[
+      { ...installation("PXL-Java-Essentials", { ...DECLARED }), repository_selection: "selected" },
+      { ...installation("OrgOk", { ...DECLARED }, 2), repository_selection: "all" },
+    ]],
+  });
+  assert.equal(res.code, 1);
+  assert.match(res.stdout, /::error title=App cannot see all repositories on PXL-Java-Essentials::/);
+  assert.match(res.stdout, /organizations\/PXL-Java-Essentials\/settings\/installations/);
+  assert.doesNotMatch(res.stdout, /App cannot see all repositories on OrgOk/);
+  assert.match(res.stdout, /1 can see only selected repositories/);
+});
+
+test("script: the hub's own installation is scoped on purpose, and a stranger's is not ours to fail on", () => {
+  const res = runScript({
+    pages: [[
+      { ...installation("PXL-Digital-Application-Samples", { ...DECLARED }), repository_selection: "selected" },
+      { ...installation("SomeStranger", { ...DECLARED }, 2), repository_selection: "selected" },
+      { ...installation("OrgOk", { ...DECLARED }, 3), repository_selection: "all" },
+    ]],
+    participating: ["PXL-Digital-Application-Samples", "OrgOk"],
+  });
+  assert.equal(res.code, 0, res.stdout);
+  assert.doesNotMatch(res.stdout, /App cannot see all repositories/);
+  assert.match(res.stdout, /installed on all repositories and have approved/);
+});
+
 test("script: a lagging installation is an error, names the org and the fix", () => {
   const res = runScript({
     pages: [[installation("PXL-2TIN-NetAdv-26-27", { contents: "write" })]],

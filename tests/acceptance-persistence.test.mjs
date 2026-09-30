@@ -120,3 +120,17 @@ test("the accepted path commits student state too", () => {
     "the binding written on a successful claim has to be staged",
   );
 });
+
+test("every acceptance push is patient enough for a class accepting in one minute", () => {
+  // Five tries lost one student in fifteen on 2026-09-28: their repository
+  // existed and its record was never written. Every push an acceptance or a
+  // retry makes to the control repo asks for at least fifteen.
+  const retry = parse(readFileSync(join(root, ".github", "workflows", "retry-acceptance.yml"), "utf8"));
+  const retryRuns = Object.values(retry.jobs).flatMap((j) => j.steps ?? []).map((s) => String(s?.run ?? "")).join("\n");
+  const pushes = [...(allRun + "\n" + retryRuns).matchAll(/^(.*)scripts\/git-push-with-retry\.sh control/gm)].map((m) => m[1]);
+  assert.ok(pushes.length >= 3, `found the pushes: ${pushes.length}`);
+  for (const prefix of pushes) {
+    const n = Number(/MAX_RETRIES=(\d+)/.exec(prefix)?.[1] ?? 0);
+    assert.ok(n >= 15, `a push with "${prefix.trim()}" retries ${n || "the default 5"} times`);
+  }
+});

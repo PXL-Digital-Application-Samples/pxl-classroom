@@ -29,7 +29,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { generateAppJwt } from "../lib/app-jwt.mjs";
-import { installationApprovalGaps } from "../lib/audit.mjs";
+import { checkRepositoryAccess, installationApprovalGaps } from "../lib/audit.mjs";
+import { HUB_OWNER } from "../lib/deployment.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
 import { GITHUB_API_VERSION } from "../lib/github-api-version.mjs";
 
@@ -182,6 +183,23 @@ for (const org of notInstalled) {
   );
 }
 
+// WHICH REPOSITORIES the installation can see. On "Only select repositories"
+// GitHub creates a student's repository and then refuses to copy the template
+// into it, because the App cannot see a repository outside its selection:
+// every acceptance fails and each one leaves an empty repository behind.
+// Measured 2026-09-30 on PXL-Java-Essentials - 25 students over two days, with
+// System Health the only thing that would have said so and nobody looking.
+// `checkRepositoryAccess` is the judge System Health asks, the hub's own
+// deliberately scoped installation included.
+const narrow = installations
+  .filter((i) => ours(i?.account?.login))
+  .map((i) => ({ account: String(i?.account?.login ?? ""), verdict: checkRepositoryAccess(i, String(i?.account?.login ?? ""), HUB_OWNER) }))
+  .filter((r) => r.account && r.verdict.severity === "fail")
+  .sort((a, b) => a.account.localeCompare(b.account));
+for (const r of narrow) {
+  console.log(`::error title=App cannot see all repositories on ${r.account}::${r.account}: ${r.verdict.message}`);
+}
+
 // Named, never silent - an installation we do not recognise is worth a look
 // even though it grants its owner nothing of ours - but it does not fail the
 // run, because we cannot make a stranger approve anything.
@@ -199,15 +217,16 @@ if (participating) {
   }
 }
 
-const failures = blocking.length + notInstalled.length;
+const failures = blocking.length + notInstalled.length + narrow.length;
 if (failures === 0) {
   const scope = participating ? `${participating.size} participating org(s)` : `all ${installations.length} installation(s)`;
-  console.log(`${scope} have "${slug}" installed and have approved its current permissions (${declaredLabel}).`);
+  console.log(`${scope} have "${slug}" installed on all repositories and have approved its current permissions (${declaredLabel}).`);
   process.exit(0);
 }
 
 console.log(
   `${blocking.length} participating org(s) have not approved the current permissions, ` +
-    `and ${notInstalled.length} have no installation at all.`,
+    `${notInstalled.length} have no installation at all, ` +
+    `and ${narrow.length} can see only selected repositories.`,
 );
 process.exit(1);

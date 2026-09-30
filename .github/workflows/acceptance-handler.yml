@@ -253,7 +253,7 @@ jobs:
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control commit -m "Record ${OUTCOME} for ${LOGIN}"
-          scripts/git-push-with-retry.sh control
+          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
 
       - name: Write repository record into control checkout, push
         if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
@@ -344,7 +344,7 @@ jobs:
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control diff --cached --quiet || git -C control commit -m "Provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-          scripts/git-push-with-retry.sh control
+          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
           
       # The trigger issue's title carried the assignment's signed invitation and
       # the broker is PUBLIC, so closing it hides nothing: a closed, locked issue

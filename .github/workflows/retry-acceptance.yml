@@ -317,7 +317,9 @@ jobs:
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control diff --cached --quiet || git -C control commit -m "Retry-provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-          scripts/git-push-with-retry.sh control
+          # As acceptance-handler.yml: a lecturer retrying a whole class races
+          # the same branch.
+          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')
