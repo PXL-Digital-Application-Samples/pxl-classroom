@@ -137,6 +137,53 @@ jobs:
           git -C control commit -m "Collect activity"
           scripts/git-push-with-retry.sh control
 
+      # STUDENT REPOSITORIES WITH NO RECORD. An acceptance creates the
+      # repository first and records it last; when that record is lost the
+      # student can work and is on no list, so nothing here collects, locks,
+      # archives or grades them (lib/unrecorded-repos.mjs - measured on
+      # PXL-SNB-Security-Expert2627, one student, two days). The acceptance
+      # notifies when its own push fails; this asks from the other side, in the
+      # job that already has the org's records checked out, for one repository
+      # listing a night.
+      #
+      # REPORT ONLY, and advisory: `continue-on-error` on all three, so it can
+      # never fail the collect leg or skip another organization's work. Its own
+      # token, metadata only: it lists the organization's repositories, which
+      # the control-repo token above cannot (lib/app-token-scopes.mjs).
+      - name: Token for listing the organization's repositories
+        id: unrecorded_token
+        if: always()
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+          permission-metadata: read
+
+      - name: Find student repositories with no record
+        id: unrecorded
+        if: always() && steps.unrecorded_token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.unrecorded_token.outputs.token }}
+          ORG: ${{ matrix.org }}
+        run: node scripts/find-unrecorded-repos.mjs control "$ORG"
+
+      - name: Tell the lecturer about repositories with no record
+        if: always() && steps.unrecorded.outputs.count != '' && steps.unrecorded.outputs.count != '0'
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: provisioning-failed
+          assignment-id: unrecorded-repositories
+          details: ${{ steps.unrecorded.outputs.details }}
+          dedup-key: ${{ steps.unrecorded.outputs.dedup }}
+
       # Reported from INSIDE the job that knows which organization it is.
       #
       # The first version of this was a separate job gated on `failure()`, which

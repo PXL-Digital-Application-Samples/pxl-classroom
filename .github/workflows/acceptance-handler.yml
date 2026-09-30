@@ -256,6 +256,7 @@ jobs:
           MAX_RETRIES=15 scripts/git-push-with-retry.sh control
 
       - name: Write repository record into control checkout, push
+        id: record
         if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
         env:
           ASSIGNMENT_ID: ${{ steps.accept.outputs.assignment_id }}
@@ -345,7 +346,39 @@ jobs:
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           git -C control diff --cached --quiet || git -C control commit -m "Provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
           MAX_RETRIES=15 scripts/git-push-with-retry.sh control
-          
+
+      # A REPOSITORY NOBODY RECORDED IS A STUDENT NOBODY LOCKS, ARCHIVES OR
+      # GRADES - and the student cannot tell, because their side worked.
+      #
+      # When the push above fails the repository exists, the invitation is sent
+      # and the control repo has no acceptance and no repository record. The
+      # only notice in this job fired on a PROVISIONING failure, so this one
+      # went red in the hub's Actions tab and reached nobody: TimoHubner444 sat
+      # outside PXL-SNB-Security-Expert2627's student list for two days
+      # (2026-09-28, thirteen acceptances in one minute, five lost pushes)
+      # until somebody read the hub's runs. The fix the lecturer needs is one
+      # click, so the notice names the student and the click. The nightly also
+      # looks for the same state from the other side
+      # (scripts/find-unrecorded-repos.mjs).
+      - name: Notify the lecturer of a repository that was not recorded
+        if: failure() && steps.record.outcome == 'failure'
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ github.event.client_payload.org }}
+          control-repo: pxl-classroom-control
+          event-type: provisioning-failed
+          assignment-id: ${{ steps.accept.outputs.assignment_id }}
+          details: |
+            `${{ steps.accept.outputs.github_login }}` accepted and their repository exists, but it could not be recorded, so they are missing from the student list and would be left out at the deadline.
+
+            Press **Retry** for them on the assignment page. It keeps their repository and their work.
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          dedup-key: record-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
+
       # The trigger issue's title carried the assignment's signed invitation and
       # the broker is PUBLIC, so closing it hides nothing: a closed, locked issue
       # is still readable, still listed and still returned by GitHub's issue

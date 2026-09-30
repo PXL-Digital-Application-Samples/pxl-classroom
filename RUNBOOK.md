@@ -192,7 +192,7 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 
 | Event | Meaning |
 |---|---|
-| `provisioning-failed` | A student accepted but the repo wasn't created. Most often: GitHub rate limit during a burst. The student retries by opening their invitation link again. |
+| `provisioning-failed` | A student accepted but the repo wasn't created. Most often: GitHub rate limit during a burst. The student retries by opening their invitation link again. **The same event also reports a repository that exists but was not recorded** - the comment says so and names the student: they can work, but are missing from your student list and would be left out at the deadline. Press **Retry** for them on the assignment page; it keeps their repository and their work. It is posted when an acceptance could not write its record, and again by the nightly run for any student repository it finds with no record. |
 | `acceptance-rejected` | A student was turned away - not on the roster, not in this assignment, outside the window, or the cap is full. **You do not have to come here to see these:** the assignment's own page counts them and names the reasons in plain language, which is where to look first. Deduped per assignment+login+reason, so a student retrying the same closed door updates one comment rather than adding another. |
 | `collection-failed` | The nightly collect step couldn't reach a student's repo. Usually transient. |
 | `deadline-gap` | An observation gap straddles a deadline. Reduces evidence quality; mention in grading. |

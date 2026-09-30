@@ -736,6 +736,8 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 
 An **empty** repository at the student's name is not a reuse: a `generate` that fails after GitHub created the repository leaves one with no commit, and provisioning removes it and generates again (`emptyFromCommits`, on GitHub's own 409 "Git Repository is empty", never on size; unreadable is reused as before). Every push an acceptance makes to the control repo retries fifteen times, because a class accepts in the same minute.
 
+**The repository is created first and recorded last, so a lost record is a student on no list.** Collection, the deadline lock, the archive and the report all work from `repositories/<id>/` and `acceptances/<id>/`; a repository with neither is never touched by any of them, and the student cannot tell because their side worked. Two things answer it. The acceptance posts a `provisioning-failed` notice naming the student when its own record push fails. And the nightly's collect job runs `scripts/find-unrecorded-repos.mjs` per org: repositories an assignment's name pattern produces (`collidingRepoNames`, so a more specific assignment keeps its own) that no repository record or team manifest names, **kept only where GitHub's `template_repository` says they were generated from that assignment's template** - a hand-made repository with a matching name is not ours to report, and an unreadable one is not reported. It is report-only on purpose: writing the record itself would have the nightly create acceptances nobody made. The lecturer presses Retry, which runs every gate and reuses the repository. Advisory throughout (`continue-on-error`, its own metadata-only token), so it can never fail the collect leg; a listing that could not be read says the check did not run, never that nothing was found.
+
 Idempotency: opening a second acceptance issue re-fires the broker; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
 
 Failure modes:
@@ -751,6 +753,7 @@ find-orgs (reads participating-orgs branch)
    v
 For each org (max 4 parallel):
    collect - snapshot observations for accepted students
+           - report student repositories no record names (find-unrecorded-repos)
    v
 find-finalizable - assignments whose deadline_at just passed
    v
