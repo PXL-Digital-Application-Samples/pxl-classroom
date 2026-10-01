@@ -832,7 +832,7 @@
                       type="email"
                       v-model="inlineClaimValue"
                       class="inline-claim-input"
-                      placeholder="firstname.lastname@student.pxl.be"
+                      :placeholder="claimInputPlaceholder"
                       :disabled="savingInlineClaim"
                       @keydown.enter.prevent="saveInlineClaim(s)"
                       @keydown.esc.prevent="cancelInlineClaim"
@@ -1603,6 +1603,8 @@ import {
   domainAllowed,
   resolveClaimDomains,
 } from '../lib/claim.js'
+import { BINDING_STATES as _BINDING_STATES } from '../lib/claim-bindings.js'
+import { CLAIM_DOMAINS, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
 import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
@@ -2576,6 +2578,7 @@ const editingClaimLogin = ref(null)
 const inlineClaimValue = ref('')
 const savingInlineClaim = ref(false)
 const inlineClaimInputRef = ref(null)
+const claimInputPlaceholder = computed(() => CLAIM_ADDRESS_FORMAT?.example || `firstname.lastname@${CLAIM_DOMAINS[0] || 'example.edu'}`)
 
 function startInlineClaim(student) {
   editingClaimLogin.value = student.github_login
@@ -2595,7 +2598,11 @@ function cancelInlineClaim() {
 
 async function saveInlineClaim(student) {
   const raw = inlineClaimValue.value.trim()
-  const email = normalizeEmail(raw)
+  const atIdx = raw.lastIndexOf('@')
+  const emailCandidate = atIdx > 0
+    ? `${raw.slice(0, atIdx)}@${raw.slice(atIdx + 1).toLowerCase()}`
+    : raw
+  const email = normalizeEmail(emailCandidate)
   if (!email || !email.includes('@')) {
     toast.error('Please enter a valid email address')
     return
@@ -2629,8 +2636,8 @@ async function saveInlineClaim(student) {
     }
 
     const now = new Date().toISOString()
-    const domains = resolveClaimDomains(assignment.value)
-    const format = resolveAddressFormat(assignment.value)
+    const domains = resolveClaimDomains(assignment.value, CLAIM_DOMAINS)
+    const format = resolveAddressFormat(assignment.value, CLAIM_ADDRESS_FORMAT)
     const isDomainOk = domainAllowed(email, domains)
     const isFormatOk = addressFormatAllowed(email, format)
 
