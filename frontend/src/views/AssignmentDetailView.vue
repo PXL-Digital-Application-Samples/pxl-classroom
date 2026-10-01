@@ -824,15 +824,71 @@
                      side the two made this the widest column in the table
                      (378px), and most rows are two lines tall already because
                      Last commit is. -->
-                <td v-if="hasClaimedEmails">
-                  <template v-if="s.claimed_email">
-                    <span class="text-sm claimed-address" :title="s.claimed_email">{{ s.claimed_email }}</span>
-                    <div class="status-indicator" :title="claimNote(s).title">
-                      <span class="status-dot" :class="claimNote(s).dot"></span>
-                      <span class="text-xs">{{ claimNote(s).label }}</span>
+                <td v-if="hasClaimedEmails" class="col-claimed-email">
+                  <!-- Inline edit mode -->
+                  <div v-if="editingClaimLogin === s.github_login" class="inline-claim-edit">
+                    <input
+                      ref="inlineClaimInputRef"
+                      type="email"
+                      v-model="inlineClaimValue"
+                      class="inline-claim-input"
+                      placeholder="firstname.lastname@student.pxl.be"
+                      :disabled="savingInlineClaim"
+                      @keydown.enter.prevent="saveInlineClaim(s)"
+                      @keydown.esc.prevent="cancelInlineClaim"
+                    />
+                    <button
+                      type="button"
+                      class="btn-inline-save"
+                      title="Save address (Enter)"
+                      :disabled="savingInlineClaim || !inlineClaimValue.trim()"
+                      @click="saveInlineClaim(s)"
+                    >
+                      <Icon :name="savingInlineClaim ? 'refresh-cw' : 'check'" :size="12" :class="{ 'spin-icon': savingInlineClaim }" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-inline-cancel"
+                      title="Cancel (Esc)"
+                      :disabled="savingInlineClaim"
+                      @click="cancelInlineClaim"
+                    >
+                      <Icon name="x" :size="12" />
+                    </button>
+                  </div>
+
+                  <!-- Normal display mode -->
+                  <div v-else class="claimed-email-cell">
+                    <template v-if="s.claimed_email">
+                      <div class="claimed-address-row">
+                        <span class="text-sm claimed-address" :title="s.claimed_email">{{ s.claimed_email }}</span>
+                        <button
+                          v-if="claimNote(s).dot !== 'dot-success'"
+                          type="button"
+                          class="btn-pencil-claim"
+                          title="Override or edit confirmed address"
+                          @click="startInlineClaim(s)"
+                        >
+                          <Icon name="edit" :size="11" />
+                        </button>
+                      </div>
+                      <div class="status-indicator" :title="claimNote(s).title">
+                        <span class="status-dot" :class="claimNote(s).dot"></span>
+                        <span class="text-xs">{{ claimNote(s).label }}</span>
+                      </div>
+                    </template>
+                    <div v-else class="claimed-address-row">
+                      <span class="text-muted text-xs">-</span>
+                      <button
+                        type="button"
+                        class="btn-pencil-claim"
+                        title="Set confirmed address"
+                        @click="startInlineClaim(s)"
+                      >
+                        <Icon name="edit" :size="11" />
+                      </button>
                     </div>
-                  </template>
-                  <span v-else class="text-muted text-xs">-</span>
+                  </div>
                 </td>
                 <td>
                   <span class="status-indicator">
@@ -1138,8 +1194,9 @@
               an address without their name in it.
             </strong>
             <p class="text-muted text-sm">
-              Send them the <strong>Confirm-email link</strong> (under <strong>Invite link</strong>): they will be asked
-              for the address with their name, and this clears once they confirm it.
+              These students confirmed an address with their student number instead of their name.
+              Click the pencil icon beside their address below to set their named address directly,
+              or send them the <strong>Confirm-email link</strong> (under <strong>Invite link</strong>) to let them re-confirm.
             </p>
             <p class="text-sm">
               <span class="rejections-who text-muted">{{ unnamedAddresses.map((l) => '@' + l).join(', ') }}</span>
@@ -1474,7 +1531,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
@@ -1537,6 +1594,15 @@ import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
+import {
+  claimPath,
+  buildClaimRecord,
+  normalizeEmail,
+  addressFormatAllowed,
+  resolveAddressFormat,
+  domainAllowed,
+  resolveClaimDomains,
+} from '../lib/claim.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
 import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
@@ -2485,6 +2551,13 @@ function claimNote(s) {
       title: 'This address does not say who the student is. Send them the confirm-email link: they will be asked for the address with their name in it, and this flag clears once they confirm it.',
     }
   }
+  if (s.claimed_by_lecturer) {
+    return {
+      dot: 'dot-success',
+      label: 'Lecturer-verified',
+      title: 'Confirmed directly by the lecturer.',
+    }
+  }
   if (s.claim_verified === true) {
     return {
       dot: 'dot-success',
@@ -2494,10 +2567,135 @@ function claimNote(s) {
   }
   return {
     dot: 'dot-neutral',
-    // "Not corroborated" was precise and not a phrase anybody reaches for. This
-    // says what happened, which is what the tooltip spent a sentence on anyway.
     label: 'Typed by the student',
     title: 'Typed rather than picked from an address GitHub had already verified. The ordinary state for an account with no institutional address on GitHub, and not a problem in itself.',
+  }
+}
+
+const editingClaimLogin = ref(null)
+const inlineClaimValue = ref('')
+const savingInlineClaim = ref(false)
+const inlineClaimInputRef = ref(null)
+
+function startInlineClaim(student) {
+  editingClaimLogin.value = student.github_login
+  inlineClaimValue.value = student.claimed_email || ''
+  nextTick(() => {
+    if (inlineClaimInputRef.value) {
+      inlineClaimInputRef.value.focus()
+      inlineClaimInputRef.value.select()
+    }
+  })
+}
+
+function cancelInlineClaim() {
+  editingClaimLogin.value = null
+  inlineClaimValue.value = ''
+}
+
+async function saveInlineClaim(student) {
+  const raw = inlineClaimValue.value.trim()
+  const email = normalizeEmail(raw)
+  if (!email || !email.includes('@')) {
+    toast.error('Please enter a valid email address')
+    return
+  }
+  const token = getToken()
+  if (!token) {
+    toast.error('Not authenticated')
+    return
+  }
+
+  savingInlineClaim.value = true
+  try {
+    let githubId = Number.isInteger(student.github_id) ? student.github_id : null
+    if (!githubId) {
+      const userRes = await ghApi(token, 'GET', `/users/${encodeURIComponent(student.github_login)}`)
+      if (userRes.ok && userRes.data?.id) {
+        githubId = userRes.data.id
+      }
+    }
+    if (!githubId) {
+      throw new Error(`Could not resolve GitHub ID for @${student.github_login}`)
+    }
+
+    const path = claimPath(githubId)
+    let prevRecord = null
+    try {
+      const existingStr = await getRepoContent(token, props.org, config.controlRepo, path)
+      if (existingStr) prevRecord = JSON.parse(existingStr)
+    } catch {
+      // 404 is normal for first binding
+    }
+
+    const now = new Date().toISOString()
+    const domains = resolveClaimDomains(assignment.value)
+    const format = resolveAddressFormat(assignment.value)
+    const isDomainOk = domainAllowed(email, domains)
+    const isFormatOk = addressFormatAllowed(email, format)
+
+    const claimRecord = buildClaimRecord({
+      githubLogin: student.github_login,
+      githubId,
+      email,
+      claimVerified: true,
+      studentNumber: student.student_number || prevRecord?.student_number || null,
+      assignmentId: props.assignmentId,
+      now,
+      domainAllowed: isDomainOk,
+      previous: prevRecord,
+      replaces: prevRecord?.email && prevRecord?.claimed_at
+        ? { email: prevRecord.email, claimed_at: prevRecord.claimed_at }
+        : null,
+      through: 'claim',
+    })
+
+    const changes = [
+      { path, content: JSON.stringify(claimRecord, null, 2) + '\n' }
+    ]
+
+    student.claimed_email = email
+    student.claim_verified = true
+    student.claim_format_allowed = isFormatOk
+    student.claim_domain_allowed = isDomainOk
+    student.claimed_by_lecturer = true
+
+    const sm = studentMap.value.get(student.github_login?.toLowerCase())
+    if (sm) {
+      sm.claimed_email = email
+      sm.claim_verified = true
+      sm.claim_format_allowed = isFormatOk
+      sm.claim_domain_allowed = isDomainOk
+      sm.claimed_by_lecturer = true
+    }
+
+    if (report.value) {
+      const storableReport = structuredClone(toRaw(report.value))
+      changes.push({
+        path: reportPath(props.assignmentId),
+        content: JSON.stringify(storableReport, null, 2) + '\n',
+      })
+    }
+
+    const res = await commitFiles(
+      token,
+      props.org,
+      config.controlRepo,
+      changes,
+      `Override confirmed email for @${student.github_login}: ${email}`
+    )
+    if (!res.ok) {
+      throw new Error(res.error || 'Failed to save changes to control repository')
+    }
+
+    toast.success(`Updated address for @${student.github_login}`)
+    editingClaimLogin.value = null
+    inlineClaimValue.value = ''
+  } catch (e) {
+    console.error('Failed to override address:', e)
+    toast.error(`Could not save address: ${e.message || String(e)}`)
+  } finally {
+    savingInlineClaim.value = false
   }
 }
 
@@ -5842,5 +6040,97 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge-clickable {
   cursor: pointer;
   border: none;
+}
+
+.col-claimed-email {
+  vertical-align: middle;
+}
+
+.claimed-address-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.btn-pencil-claim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  opacity: 0.75;
+  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.btn-pencil-claim:hover {
+  opacity: 1;
+  color: var(--text-primary);
+  background-color: var(--bg-surface-hover);
+}
+
+.inline-claim-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 14rem;
+}
+
+.inline-claim-input {
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  height: 26px;
+  flex: 1;
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.inline-claim-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.btn-inline-save,
+.btn-inline-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+  padding: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-inline-save {
+  color: var(--accent-green);
+}
+.btn-inline-save:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+}
+.btn-inline-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-inline-cancel {
+  color: var(--text-muted);
+}
+.btn-inline-cancel:hover:not(:disabled) {
+  color: var(--accent-red);
+  background-color: var(--bg-surface-hover);
+}
+
+.claimed-email-cell {
+  display: flex;
+  flex-direction: column;
 }
 </style>

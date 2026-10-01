@@ -17,6 +17,8 @@ export {
   hasWebCrypto,
   normalizeEmail,
   resolveClaimDomains,
+  claimPath,
+  buildClaimRecord,
 } from '../../../lib/claim.mjs'
 
 import claimKeys from '../../../acceptance/claim-keys.json'
