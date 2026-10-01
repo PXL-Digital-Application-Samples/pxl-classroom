@@ -229,15 +229,15 @@ async function setup(page, options = {}) {
 }
 
 test.describe('90 - Grade exports and autograder features', () => {
-  test('Autograder table dedicated columns: Confirmed address & Last commit with links', async ({ page }) => {
+  test('Autograder table dedicated columns: Confirmed address & Graded submission with links', async ({ page }) => {
     await setup(page);
     const autogradeTable = page.locator('.autograde-section table');
     await expect(autogradeTable).toBeVisible();
 
-    // Headers must include Confirmed address and Last commit
+    // Headers must include Confirmed address and Graded submission
     const ths = autogradeTable.locator('th');
     await expect(ths.locator('text=Confirmed address')).toBeVisible();
-    await expect(ths.locator('text=Last commit')).toBeVisible();
+    await expect(ths.locator('text=Graded submission')).toBeVisible();
 
     // Alice confirmed email and last commit date
     const aliceRow = autogradeTable.locator('tr', { hasText: 'student-alice' });

@@ -1247,8 +1247,8 @@
                   <th v-if="autogradeHasClaimedEmails" @click="sortAutogradeBy('claimed_email')" @keydown.enter="sortAutogradeBy('claimed_email')" @keydown.space.prevent="sortAutogradeBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('claimed_email')">
                     <span class="th-label">Confirmed address<SortIcon :dir="sortAutogradeDir('claimed_email')" /></span>
                   </th>
-                  <th @click="sortAutogradeBy('last_commit')" @keydown.enter="sortAutogradeBy('last_commit')" @keydown.space.prevent="sortAutogradeBy('last_commit')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('last_commit')" title="Last commit before deadline">
-                    <span class="th-label">Last commit<SortIcon :dir="sortAutogradeDir('last_commit')" /></span>
+                  <th @click="sortAutogradeBy('graded_submission')" @keydown.enter="sortAutogradeBy('graded_submission')" @keydown.space.prevent="sortAutogradeBy('graded_submission')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_submission')" title="Last graded submission before deadline within limit">
+                    <span class="th-label">Graded submission<SortIcon :dir="sortAutogradeDir('graded_submission')" /></span>
                   </th>
                   <th @click="sortAutogradeBy('earned_points')" @keydown.enter="sortAutogradeBy('earned_points')" @keydown.space.prevent="sortAutogradeBy('earned_points')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('earned_points')">
                     <span class="th-label">Earned<SortIcon :dir="sortAutogradeDir('earned_points')" /></span>
@@ -1286,19 +1286,19 @@
                     <span v-else class="text-muted text-xs">-</span>
                   </td>
                   <td>
-                    <template v-if="lastCommitBeforeDeadline(row).href">
+                    <template v-if="lastGradedSubmission(row).href">
                       <a
-                        :href="lastCommitBeforeDeadline(row).href"
+                        :href="lastGradedSubmission(row).href"
                         target="_blank"
                         rel="noopener"
                         class="mono text-xs sha"
-                        :title="lastCommitBeforeDeadline(row).sha ? `SHA: ${lastCommitBeforeDeadline(row).sha}` : null"
+                        :title="lastGradedSubmission(row).sha ? `SHA: ${lastGradedSubmission(row).sha}` : null"
                       >
-                        {{ lastCommitBeforeDeadline(row).time ? fmt(lastCommitBeforeDeadline(row).time) : (lastCommitBeforeDeadline(row).sha ? lastCommitBeforeDeadline(row).sha.slice(0, 7) : 'commit') }}
+                        {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
                       </a>
                     </template>
-                    <span v-else-if="lastCommitBeforeDeadline(row).time" class="text-xs">
-                      {{ fmt(lastCommitBeforeDeadline(row).time) }}
+                    <span v-else-if="lastGradedSubmission(row).sha" class="mono text-xs sha">
+                      {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
                     </span>
                     <span v-else class="text-muted text-xs">-</span>
                   </td>
@@ -4332,10 +4332,13 @@ const autogradeHasClaimedEmails = computed(() =>
   hasClaimedEmails.value || (autogradeSummary.value?.students || []).some((r) => studentMap.value.get(r.login?.toLowerCase())?.claimed_email)
 )
 
-function lastCommitBeforeDeadline(row) {
+function lastGradedSubmission(row) {
   const s = studentMap.value.get(row.login?.toLowerCase())
-  const sha = s?.last_on_time_sha || row.graded_sha || (s?.submission_status === 'on-time' ? latestSha(s) : null)
-  const time = s?.commit_date || s?.latest_commit_date || null
+  // The last graded submission on or before the deadline within the given submission limit
+  const sha = row.graded_sha || row.hand_ins?.graded_sha || s?.graded_sha || null
+  const time = (sha && (sha === s?.last_on_time_sha || sha === s?.latest_observed_sha || sha === s?.graded_sha))
+    ? (s?.commit_date || s?.latest_commit_date || null)
+    : null
   const repoUrl = s?.repo_url || (s?.repo_name ? (s.repo_name.startsWith('http') ? s.repo_name : `https://github.com/${s.repo_name.includes('/') ? s.repo_name : props.org + '/' + s.repo_name}`) : null)
   const href = repoUrl && sha ? `${repoUrl}/commit/${sha}` : null
   return { sha, time, href, repoUrl }
@@ -4367,9 +4370,9 @@ const sortedAutogradeStudents = computed(() => {
     if (autogradeSortKey.value === 'claimed_email') {
       av = studentMap.value.get(a.login?.toLowerCase())?.claimed_email || null
       bv = studentMap.value.get(b.login?.toLowerCase())?.claimed_email || null
-    } else if (autogradeSortKey.value === 'last_commit') {
-      av = lastCommitBeforeDeadline(a)?.time || null
-      bv = lastCommitBeforeDeadline(b)?.time || null
+    } else if (autogradeSortKey.value === 'graded_submission' || autogradeSortKey.value === 'last_commit') {
+      av = lastGradedSubmission(a)?.time || lastGradedSubmission(a)?.sha || null
+      bv = lastGradedSubmission(b)?.time || lastGradedSubmission(b)?.sha || null
     } else if (autogradeSortKey.value === 'hand_ins') {
       av = a.hand_ins?.used ?? null
       bv = b.hand_ins?.used ?? null
@@ -4377,7 +4380,7 @@ const sortedAutogradeStudents = computed(() => {
     if (av == null && bv == null) return 0
     if (av == null) return 1
     if (bv == null) return -1
-    if (autogradeSortKey.value === 'last_commit' && av && bv) {
+    if ((autogradeSortKey.value === 'graded_submission' || autogradeSortKey.value === 'last_commit') && av && bv) {
       const at = new Date(av).getTime()
       const bt = new Date(bv).getTime()
       if (!Number.isNaN(at) && !Number.isNaN(bt)) {
