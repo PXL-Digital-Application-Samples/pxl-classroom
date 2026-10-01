@@ -69,7 +69,7 @@
             <span class="dropdown-item-title">{{ confirmCopied ? 'Copied' : 'Copy confirm-email link' }}</span>
             <span class="dropdown-item-sub">
               Asks a student to link their {{ INSTITUTION_SHORT }} address to their GitHub account.
-              No repository is created, and it stops working when this assignment finishes.
+              No repository is created. This link expires when the assignment closes.
             </span>
           </span>
         </button>
@@ -144,7 +144,7 @@
       >{{ confirmCopied ? 'Copied' : 'Copy' }}</button>
       <span class="invitation-share-note">
         Asks a student to link their {{ INSTITUTION_SHORT }} address to their GitHub account.
-        No repository is created, and it stops working when this assignment finishes.
+        No repository is created. This link expires when the assignment closes.
       </span>
     </div>
   </div>
