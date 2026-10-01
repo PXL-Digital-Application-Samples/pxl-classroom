@@ -169,62 +169,6 @@ const bobLocalGrading = {
   ],
 };
 
-function splitCSVLine(line) {
-  const out = [];
-  let cur = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (quoted && ch === '"' && line[i + 1] === '"') {
-      cur += '"';
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      quoted = !quoted;
-      continue;
-    }
-    if (ch === ',' && !quoted) {
-      out.push(cur);
-      cur = '';
-      continue;
-    }
-    cur += ch;
-  }
-  out.push(cur);
-  return out;
-}
-
-function parseCSV(content) {
-  const clean = content.replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '');
-  const lines = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < clean.length; i++) {
-    const ch = clean[i];
-    if (inQuotes && ch === '"' && clean[i + 1] === '"') {
-      cur += '""';
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-      cur += ch;
-      continue;
-    }
-    if (!inQuotes && (ch === '\n' || (ch === '\r' && clean[i + 1] === '\n'))) {
-      if (ch === '\r') i++;
-      lines.push(cur);
-      cur = '';
-      continue;
-    }
-    cur += ch;
-  }
-  if (cur) lines.push(cur);
-  const header = splitCSVLine(lines[0]);
-  const rows = lines.slice(1).map(splitCSVLine);
-  return { header, rows };
-}
 
 async function setup(page) {
   const contentWrites = [];
@@ -380,79 +324,39 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(progressPanel).not.toBeVisible();
   });
 
-  test('Export Grades (CSV) exports confirmed_email, login, name, and authentic commit date', async ({ page }) => {
+  test('Export Grades (Excel XLSX) exports confirmed_email, login, name, and authentic commit date in .xlsx format', async ({ page }) => {
     await setup(page);
     const exportBtn = page.getByRole('button', { name: /Export/ }).first();
     await exportBtn.click();
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.export-dropdown-item', { hasText: 'Export Grades (CSV)' }).click(),
+      page.locator('.export-dropdown-item', { hasText: 'Export Grades (Excel XLSX)' }).click(),
     ]);
 
-    expect(download.suggestedFilename()).toBe(`${ID}-grades.csv`);
-    const csvContent = readFileSync(await download.path(), 'utf8');
-    expect(csvContent.charCodeAt(0)).toBe(0xfeff); // UTF-8 BOM
+    expect(download.suggestedFilename()).toBe(`${ID}-grades.xlsx`);
+    const path = await download.path();
+    const fileBytes = readFileSync(path);
+    // Verify PK zip header
+    expect(fileBytes[0]).toBe(0x50);
+    expect(fileBytes[1]).toBe(0x4b);
+    expect(fileBytes[2]).toBe(0x03);
+    expect(fileBytes[3]).toBe(0x04);
 
-    const { header, rows } = parseCSV(csvContent);
-    expect(header[0]).toBe('confirmed_email');
-    expect(header[1]).toBe('github_login');
-    expect(header[2]).toBe('full_name');
-    expect(header).toContain('last_commit_before_deadline_time');
-    expect(header).toContain('earned_points');
-
-    const alice = rows.find((r) => r[1] === 'student-alice');
-    expect(alice[0]).toBe('alice.alison@student.pxl.be');
-    expect(alice[2]).toBe('Alice Alison');
-    const commitTimeIdx = header.indexOf('last_commit_before_deadline_time');
-    expect(alice[commitTimeIdx]).toBe('2026-10-01T10:15:00.000Z');
+    const text = fileBytes.toString('utf8');
+    expect(text).toContain('confirmed_email');
+    expect(text).toContain('github_login');
+    expect(text).toContain('full_name');
+    expect(text).toContain('last_commit_before_deadline_time');
+    expect(text).toContain('alice.alison@student.pxl.be');
+    expect(text).toContain('student-alice');
+    expect(text).toContain('2026-10-01T10:15:00.000Z');
   });
 
-  test('Export Detailed Breakdown (CSV) contains per-test results snippet in feedback_breakdown', async ({ page }) => {
+  test('Export Breakdown (Excel) skips detailed log for max points and includes breakdown for partial points', async ({ page }) => {
     await setup(page);
 
     // Click Export Breakdown from the autograder banner
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export Breakdown (CSV)' }).click(),
-    ]);
-
-    expect(download.suggestedFilename()).toBe(`${ID}-breakdown.csv`);
-    const csvContent = readFileSync(await download.path(), 'utf8');
-    expect(csvContent.charCodeAt(0)).toBe(0xfeff);
-
-    const { header, rows } = parseCSV(csvContent);
-    expect(header[0]).toBe('confirmed_email');
-    expect(header[1]).toBe('github_login');
-    expect(header[2]).toBe('full_name');
-    expect(header).toContain('feedback_breakdown');
-
-    const breakdownIdx = header.indexOf('feedback_breakdown');
-
-    // Alice: Check run annotations
-    const alice = rows.find((r) => r[1] === 'student-alice');
-    expect(alice[breakdownIdx]).toContain('Alpha Check: Points 10/10');
-    expect(alice[breakdownIdx]).toContain('Beta Check: Points 10/10');
-
-    // Bob: Local JSON records
-    const bob = rows.find((r) => r[1] === 'student-bob');
-    expect(bob[breakdownIdx]).toContain('test_alpha: PASS (10/10)');
-    expect(bob[breakdownIdx]).toContain('test_beta: FAIL (0/10)');
-    expect(bob[breakdownIdx]).toContain('Total: 10/20');
-
-    // Charlie: Manual override note
-    const charlie = rows.find((r) => r[1] === 'student-charlie');
-    expect(charlie[breakdownIdx]).toContain('Manual score set by @lecturer1');
-    expect(charlie[breakdownIdx]).toContain('Oral exam override');
-
-    // David: No submission
-    const david = rows.find((r) => r[1] === 'student-david');
-    expect(david[breakdownIdx]).toBe('No submission');
-  });
-
-  test('Export Breakdown (Excel) produces valid .xlsx spreadsheet with PK header', async ({ page }) => {
-    await setup(page);
-
     const [download] = await Promise.all([
       page.waitForEvent('download'),
       page.getByRole('button', { name: 'Export Breakdown (Excel)' }).click(),
@@ -461,7 +365,41 @@ test.describe('90 - Grade exports and autograder features', () => {
     expect(download.suggestedFilename()).toBe(`${ID}-breakdown.xlsx`);
     const path = await download.path();
     const fileBytes = readFileSync(path);
-    // Verify PK zip header (0x50, 0x4b, 0x03, 0x04)
+    // Verify PK zip header
+    expect(fileBytes[0]).toBe(0x50);
+    expect(fileBytes[1]).toBe(0x4b);
+    expect(fileBytes[2]).toBe(0x03);
+    expect(fileBytes[3]).toBe(0x04);
+
+    const text = fileBytes.toString('utf8');
+    // Alice has maximum points (20/20) -> detailed breakdown is skipped for optimization
+    expect(text).toContain('Full score (20/20)');
+
+    // Bob has partial points (10/20) -> breakdown from local JSON is included
+    expect(text).toContain('test_alpha: PASS (10/10)');
+    expect(text).toContain('test_beta: FAIL (0/10)');
+
+    // Charlie has manual override
+    expect(text).toContain('Manual score set by @lecturer1');
+
+    // David has no submission
+    expect(text).toContain('No submission');
+  });
+
+  test('Top choice in Export dropdown is Export Excel (.xlsx)', async ({ page }) => {
+    await setup(page);
+
+    const exportBtn = page.getByRole('button', { name: /Export/ }).first();
+    await exportBtn.click();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('.export-dropdown-item', { hasText: 'Export Excel (.xlsx)' }).click(),
+    ]);
+
+    expect(download.suggestedFilename()).toBe(`${ID}.xlsx`);
+    const path = await download.path();
+    const fileBytes = readFileSync(path);
     expect(fileBytes[0]).toBe(0x50);
     expect(fileBytes[1]).toBe(0x4b);
     expect(fileBytes[2]).toBe(0x03);

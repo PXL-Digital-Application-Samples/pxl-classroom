@@ -426,20 +426,22 @@
                 class="btn btn-secondary btn-sm btn-with-icon"
                 type="button"
                 @click.stop="toggleExportDropdown"
+                :disabled="exporting"
                 :aria-expanded="exportDropdownOpen"
                 aria-haspopup="true"
                 title="Export data and CLI commands"
               >
-                <Icon name="download" :size="13" />
-                <span>Export</span>
-                <Icon :name="exportDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+                <Icon :name="exporting ? 'refresh-cw' : 'download'" :size="13" :class="{ 'spin-icon': exporting }" />
+                <span v-if="exporting">{{ exportStatusText }}</span>
+                <span v-else>Export</span>
+                <Icon v-if="!exporting" :name="exportDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
               </button>
 
               <div v-if="exportDropdownOpen" class="export-dropdown-menu fade-in" role="menu">
-                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleExportCSV">
+                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleExportXLSX">
                   <Icon name="download" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Export CSV</span>
+                    <span class="dropdown-item-title">Export Excel (.xlsx)</span>
                     <span class="dropdown-item-sub">Full spreadsheet with submissions, status &amp; scores</span>
                   </div>
                 </button>
@@ -454,7 +456,7 @@
                   <Icon name="check-circle" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Export Grades (Excel XLSX)</span>
-                    <span class="dropdown-item-sub">Formatted workbook with clickable links &amp; auto column width</span>
+                    <span class="dropdown-item-sub">Confirmed email, login, name &amp; scores for grading systems</span>
                   </div>
                 </button>
 
@@ -472,31 +474,11 @@
                   </div>
                 </button>
 
-                <button
-                  v-if="hasGrades || autogradeSummary?.students?.length"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleExportGradesCSV"
-                >
-                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
+                <button class="export-dropdown-item" type="button" role="menuitem" @click="handleExportCSV">
+                  <Icon name="download" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Export Grades (CSV)</span>
-                    <span class="dropdown-item-sub">Confirmed email, login, name &amp; scores for grading systems</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="hasGrades || autogradeSummary?.students?.length"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleExportBreakdownCSV"
-                >
-                  <Icon name="file-text" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Export Detailed Breakdown (CSV)</span>
-                    <span class="dropdown-item-sub">Grades with per-test results snippet for feedback</span>
+                    <span class="dropdown-item-title">Export CSV</span>
+                    <span class="dropdown-item-sub">Comma-separated values spreadsheet (legacy)</span>
                   </div>
                 </button>
 
@@ -1237,6 +1219,7 @@
               class="btn btn-secondary btn-sm"
               type="button"
               @click="exportGradesXLSX"
+              :disabled="exporting"
               title="Export confirmed emails, logins, names and scores as Excel XLSX"
             >
               <Icon name="download" :size="13" />
@@ -1247,22 +1230,11 @@
               class="btn btn-secondary btn-sm"
               type="button"
               @click="exportBreakdownXLSX"
-              :disabled="exportingBreakdown"
+              :disabled="exporting"
               title="Export grades with per-test feedback breakdown as Excel XLSX"
             >
-              <Icon name="file-text" :size="13" />
-              <span>{{ exportingBreakdown ? 'Exporting…' : 'Export Breakdown (Excel)' }}</span>
-            </button>
-            <button
-              v-if="autogradeSummary?.students?.length"
-              class="btn btn-ghost btn-sm"
-              type="button"
-              @click="exportBreakdownCSV"
-              :disabled="exportingBreakdown"
-              title="Export grades with per-test feedback breakdown as CSV"
-            >
-              <Icon name="file-text" :size="13" />
-              <span>Export Breakdown (CSV)</span>
+              <Icon :name="exporting ? 'refresh-cw' : 'file-text'" :size="13" :class="{ 'spin-icon': exporting }" />
+              <span>{{ exporting ? exportStatusText : 'Export Breakdown (Excel)' }}</span>
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -2774,6 +2746,11 @@ function toggleExportDropdown() {
   if (exportDropdownOpen.value) keepMenuInView(exportDropdownRef)
 }
 
+function handleExportXLSX() {
+  exportDropdownOpen.value = false
+  exportMainTableXLSX()
+}
+
 function handleExportCSV() {
   exportDropdownOpen.value = false
   exportCSV()
@@ -2787,16 +2764,6 @@ function handleExportGradesXLSX() {
 function handleExportBreakdownXLSX() {
   exportDropdownOpen.value = false
   exportBreakdownXLSX()
-}
-
-function handleExportGradesCSV() {
-  exportDropdownOpen.value = false
-  exportGradesCSV()
-}
-
-function handleExportBreakdownCSV() {
-  exportDropdownOpen.value = false
-  exportBreakdownCSV()
 }
 
 function handleDownloadManifest() {
@@ -3542,16 +3509,37 @@ function buildGradesDataset(includeBreakdown = false, breakdownsMap = null) {
   return { headers, rows }
 }
 
-function exportGradesCSV() {
+const exporting = ref(false)
+const exportCount = ref(0)
+const totalToExport = ref(0)
+const exportStatusText = computed(() => {
+  if (totalToExport.value > 0) {
+    return `Exporting (${exportCount.value}/${totalToExport.value})`
+  }
+  return 'Exporting…'
+})
+
+function exportMainTableXLSX() {
   const students = report.value?.students || []
   if (students.length === 0) {
     toast.info('No students in the report to export.')
     return
   }
-  const { headers, rows } = buildGradesDataset(false)
-  const csvRows = [headers.join(','), ...rows.map((r) => r.map((c) => csvCell(c)).join(','))]
-  const blob = new Blob(['\ufeff' + csvRows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
-  downloadBlob(blob, `${props.assignmentId}-grades.csv`)
+  exporting.value = true
+  exportCount.value = 0
+  totalToExport.value = 0
+  try {
+    mergeGradesIntoReport()
+    const rows = students.map((s) => CSV_HEADERS.map((h) => s[h] ?? ''))
+    const blob = generateXlsxBlob({ headers: CSV_HEADERS, rows })
+    downloadBlob(blob, `${props.assignmentId}.xlsx`)
+    toast.success('Assignment data exported as Excel XLSX.')
+  } catch (e) {
+    console.error('Failed to export assignment data Excel:', e)
+    toast.error(`Export failed: ${e.message}`)
+  } finally {
+    exporting.value = false
+  }
 }
 
 function exportGradesXLSX() {
@@ -3560,14 +3548,23 @@ function exportGradesXLSX() {
     toast.info('No students in the report to export.')
     return
   }
-  const { headers, rows } = buildGradesDataset(false)
-  const blob = generateXlsxBlob({ headers, rows })
-  downloadBlob(blob, `${props.assignmentId}-grades.xlsx`)
-  toast.success('Grades exported as Excel XLSX.')
+  exporting.value = true
+  exportCount.value = 0
+  totalToExport.value = 0
+  try {
+    const { headers, rows } = buildGradesDataset(false)
+    const blob = generateXlsxBlob({ headers, rows })
+    downloadBlob(blob, `${props.assignmentId}-grades.xlsx`)
+    toast.success('Grades exported as Excel XLSX.')
+  } catch (e) {
+    console.error('Failed to export grades Excel:', e)
+    toast.error(`Export failed: ${e.message}`)
+  } finally {
+    exporting.value = false
+  }
 }
 
 const breakdownCache = new Map()
-const exportingBreakdown = ref(false)
 
 async function fetchBreakdownForStudent(token, s) {
   const login = s.github_login
@@ -3580,6 +3577,19 @@ async function fetchBreakdownForStudent(token, s) {
     lines.push(`Points: ${s.earned_points ?? '-'}/${s.total_points ?? '-'}`)
     if (dec.reason) lines.push(`Reason: ${dec.reason}`)
     return lines.join('\n')
+  }
+
+  // 1. Optimization: check if student has submitted anything yet
+  if (!s.repo_name || s.submission_status === 'no-submission' || s.commit_count === 0) {
+    return 'No submission'
+  }
+  if (assignment.value?.submission_marker && s.earned_points == null && !s.last_on_time_sha && !s.graded_sha) {
+    return 'No final submission handed in'
+  }
+
+  // 2. Optimization: if student earned maximum points, skip querying detailed logs
+  if (s.earned_points != null && s.total_points != null && Number(s.earned_points) >= Number(s.total_points) && Number(s.total_points) > 0) {
+    return `Full score (${s.earned_points}/${s.total_points})`
   }
 
   const sha = s.last_on_time_sha || s.graded_sha || latestSha(s)
@@ -3736,22 +3746,27 @@ async function fetchBreakdownForStudent(token, s) {
   return breakdown
 }
 
-async function collectBreakdowns() {
+async function collectBreakdowns(onProgress) {
   const token = getToken()
   if (!token) throw new Error('Authentication required')
   const students = report.value?.students || []
   const breakdowns = new Map()
   const pool = 6
   let cursor = 0
+  let completed = 0
 
   async function worker() {
     while (cursor < students.length) {
-      const s = students[cursor++]
+      const idx = cursor++
+      const s = students[idx]
       try {
         const text = await fetchBreakdownForStudent(token, s)
         breakdowns.set(s.github_login?.toLowerCase(), text)
       } catch {
         breakdowns.set(s.github_login?.toLowerCase(), '-')
+      } finally {
+        completed++
+        if (onProgress) onProgress(completed, students.length)
       }
     }
   }
@@ -3760,28 +3775,6 @@ async function collectBreakdowns() {
   return breakdowns
 }
 
-async function exportBreakdownCSV() {
-  const students = report.value?.students || []
-  if (students.length === 0) {
-    toast.info('No students in the report to export.')
-    return
-  }
-  exportingBreakdown.value = true
-  toast.info(`Fetching grading breakdown for ${students.length} student(s)...`)
-  try {
-    const breakdowns = await collectBreakdowns()
-    const { headers, rows } = buildGradesDataset(true, breakdowns)
-    const csvRows = [headers.join(','), ...rows.map((r) => r.map((c) => csvCell(c)).join(','))]
-    const blob = new Blob(['\ufeff' + csvRows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
-    downloadBlob(blob, `${props.assignmentId}-breakdown.csv`)
-    toast.success('Detailed breakdown exported as CSV.')
-  } catch (e) {
-    console.error('Failed to export breakdown CSV:', e)
-    toast.error(`Export failed: ${e.message}`)
-  } finally {
-    exportingBreakdown.value = false
-  }
-}
 
 async function exportBreakdownXLSX() {
   const students = report.value?.students || []
@@ -3789,10 +3782,15 @@ async function exportBreakdownXLSX() {
     toast.info('No students in the report to export.')
     return
   }
-  exportingBreakdown.value = true
+  exporting.value = true
+  exportCount.value = 0
+  totalToExport.value = students.length
   toast.info(`Fetching grading breakdown for ${students.length} student(s)...`)
   try {
-    const breakdowns = await collectBreakdowns()
+    const breakdowns = await collectBreakdowns((current, total) => {
+      exportCount.value = current
+      totalToExport.value = total
+    })
     const { headers, rows } = buildGradesDataset(true, breakdowns)
     const blob = generateXlsxBlob({ headers, rows })
     downloadBlob(blob, `${props.assignmentId}-breakdown.xlsx`)
@@ -3801,7 +3799,9 @@ async function exportBreakdownXLSX() {
     console.error('Failed to export breakdown Excel:', e)
     toast.error(`Export failed: ${e.message}`)
   } finally {
-    exportingBreakdown.value = false
+    exporting.value = false
+    exportCount.value = 0
+    totalToExport.value = 0
   }
 }
 
