@@ -1108,6 +1108,41 @@ select:focus {
   align-items: flex-start;
 }
 
+.regrade-progress-panel {
+  margin-bottom: var(--space-md);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.regrade-running {
+  background: var(--tint-accent-subtle);
+  border-left: 4px solid var(--accent-blue);
+}
+.regrade-success {
+  background: var(--tint-success-subtle);
+  border-left: 4px solid var(--accent-green);
+}
+.regrade-error {
+  background: var(--tint-danger-subtle);
+  border-left: 4px solid var(--accent-red);
+}
+.regrade-track-wrap {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-surface-hover);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.regrade-track-fill {
+  height: 100%;
+  background: var(--accent-blue);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
 /* Field-level validation text. AdminView and AutogradeModal both render it, so
    it is shared vocabulary (DESIGN.md §7) rather than a scoped rule that would
    leave every message in the modal invisible. */

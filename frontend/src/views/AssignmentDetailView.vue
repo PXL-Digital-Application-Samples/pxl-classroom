@@ -254,6 +254,77 @@
           @follow="followSyncRun = $event; showStarterSyncModal = true"
         />
 
+        <!-- Regrade Run Progress & Outcome Panel -->
+        <section
+          v-if="regradePanel.visible"
+          class="regrade-progress-panel diag-banner fade-in"
+          :class="{
+            'regrade-running': regradePanel.status === 'running',
+            'regrade-success': regradePanel.status === 'success',
+            'regrade-error': regradePanel.status === 'error',
+          }"
+          aria-live="polite"
+        >
+          <div class="flex items-center justify-between gap-md flex-wrap w-full">
+            <div class="flex items-center gap-sm">
+              <span
+                class="status-dot"
+                :class="{
+                  'dot-info': regradePanel.status === 'running',
+                  'dot-success': regradePanel.status === 'success',
+                  'dot-danger': regradePanel.status === 'error',
+                }"
+              ></span>
+              <div>
+                <strong v-if="regradePanel.status === 'running'">
+                  Reading scores from GitHub Actions: {{ regradePanel.synced }} / {{ regradePanel.total }} students
+                  ({{ regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0 }}%)
+                </strong>
+                <strong v-else-if="regradePanel.status === 'success'">
+                  Scores updated: successfully read and recorded grades for all {{ regradePanel.total }} students.
+                </strong>
+                <strong v-else-if="regradePanel.status === 'error'" class="text-danger">
+                  Regrading halted: {{ regradePanel.error }}
+                </strong>
+                <p v-if="regradePanel.status === 'running'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                  Querying test check runs, calculating point totals, and synchronizing autograding summaries...
+                </p>
+                <p v-else-if="regradePanel.status === 'success'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                  New scores committed to <code>grading/{{ assignmentId }}/summary.json</code>.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-xs">
+              <button
+                v-if="regradePanel.status === 'error'"
+                type="button"
+                class="btn btn-xs btn-secondary"
+                @click="syncGradesFromGitHub"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-icon btn-xs"
+                @click="dismissRegradePanel"
+                aria-label="Dismiss progress panel"
+                title="Dismiss"
+              >
+                <Icon name="x" :size="14" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress track bar while running -->
+          <div v-if="regradePanel.status === 'running'" class="regrade-track-wrap">
+            <div
+              class="regrade-track-fill"
+              :style="{ width: `${regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0}%` }"
+            ></div>
+          </div>
+        </section>
+
         <!-- Actions bar -->
         <div class="actions-bar flex items-center justify-between flex-wrap gap-sm">
           <div class="flex items-center gap-md flex-wrap">
@@ -369,7 +440,21 @@
                   <Icon name="download" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Export CSV</span>
-                    <span class="dropdown-item-sub">Spreadsheet with student submissions &amp; links</span>
+                    <span class="dropdown-item-sub">Full spreadsheet with submissions, status &amp; scores</span>
+                  </div>
+                </button>
+
+                <button
+                  v-if="hasGrades || autogradeSummary?.students?.length"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleExportGradesCSV"
+                >
+                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Export Grades (CSV)</span>
+                    <span class="dropdown-item-sub">Confirmed email, login, name &amp; scores for grading systems</span>
                   </div>
                 </button>
 
@@ -640,7 +725,9 @@
                 <th @click="sortBy('github_login')" @keydown.enter="sortBy('github_login')" @keydown.space.prevent="sortBy('github_login')" tabindex="0" class="sortable" :aria-sort="ariaSort('github_login')">
                   <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
                 </th>
-                <th v-if="isGroupAssignment">Team</th>
+                <th v-if="isGroupAssignment" @click="sortBy('team')" @keydown.enter="sortBy('team')" @keydown.space.prevent="sortBy('team')" tabindex="0" class="sortable" :aria-sort="ariaSort('team')">
+                  <span class="th-label">Team<SortIcon :dir="sortDir('team')" /></span>
+                </th>
                 <!-- Under `open` the claim is RECORDED rather than enforced, so
                      this column is the whole of the "detection" half - and it
                      existed everywhere except on screen: report/report.mjs
@@ -655,7 +742,9 @@
                 <th @click="sortBy('submission_status')" @keydown.enter="sortBy('submission_status')" @keydown.space.prevent="sortBy('submission_status')" tabindex="0" class="sortable" :aria-sort="ariaSort('submission_status')">
                   <span class="th-label">Status<SortIcon :dir="sortDir('submission_status')" /></span>
                 </th>
-                <th>Repo</th>
+                <th @click="sortBy('repo_name')" @keydown.enter="sortBy('repo_name')" @keydown.space.prevent="sortBy('repo_name')" tabindex="0" class="sortable" :aria-sort="ariaSort('repo_name')">
+                  <span class="th-label">Repo<SortIcon :dir="sortDir('repo_name')" /></span>
+                </th>
                 <th @click="sortBy('latest_observed_at')" @keydown.enter="sortBy('latest_observed_at')" @keydown.space.prevent="sortBy('latest_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('latest_observed_at')">
                   <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
                 </th>
@@ -666,9 +755,15 @@
                 <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')" title="Commits">
                   <span class="th-label"><span aria-hidden="true">#</span><span class="sr-only">Commits</span><SortIcon :dir="sortDir('commit_count')" /></span>
                 </th>
-                <th v-if="ciStatusColumn" class="col-ci">CI Status</th>
-                <th v-if="hasGrades" class="col-score">Score</th>
-                <th v-if="feedbackPrEnabled" class="col-feedback-pr">Feedback PR</th>
+                <th v-if="ciStatusColumn" @click="sortBy('ci_status')" @keydown.enter="sortBy('ci_status')" @keydown.space.prevent="sortBy('ci_status')" tabindex="0" class="sortable col-ci" :aria-sort="ariaSort('ci_status')">
+                  <span class="th-label">CI Status<SortIcon :dir="sortDir('ci_status')" /></span>
+                </th>
+                <th v-if="hasGrades" @click="sortBy('score')" @keydown.enter="sortBy('score')" @keydown.space.prevent="sortBy('score')" tabindex="0" class="sortable col-score" :aria-sort="ariaSort('score')">
+                  <span class="th-label">Score<SortIcon :dir="sortDir('score')" /></span>
+                </th>
+                <th v-if="feedbackPrEnabled" @click="sortBy('feedback_pr')" @keydown.enter="sortBy('feedback_pr')" @keydown.space.prevent="sortBy('feedback_pr')" tabindex="0" class="sortable col-feedback-pr" :aria-sort="ariaSort('feedback_pr')">
+                  <span class="th-label">Feedback PR<SortIcon :dir="sortDir('feedback_pr')" /></span>
+                </th>
                 <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
                   <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
                 </th>
@@ -1095,23 +1190,51 @@
             <button v-else class="btn btn-secondary btn-sm" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
               {{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}
             </button>
+            <button
+              v-if="autogradeSummary?.students?.length"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="exportGradesCSV"
+              title="Export confirmed emails, logins, names and scores as CSV"
+            >
+              <Icon name="download" :size="13" />
+              <span>Export Grades (CSV)</span>
+            </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>Login</th>
-                  <th class="num">Earned</th>
-                  <th class="num">Total</th>
+                  <th @click="sortAutogradeBy('login')" @keydown.enter="sortAutogradeBy('login')" @keydown.space.prevent="sortAutogradeBy('login')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('login')">
+                    <span class="th-label">Login<SortIcon :dir="sortAutogradeDir('login')" /></span>
+                  </th>
+                  <th v-if="autogradeHasClaimedEmails" @click="sortAutogradeBy('claimed_email')" @keydown.enter="sortAutogradeBy('claimed_email')" @keydown.space.prevent="sortAutogradeBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('claimed_email')">
+                    <span class="th-label">Confirmed address<SortIcon :dir="sortAutogradeDir('claimed_email')" /></span>
+                  </th>
+                  <th @click="sortAutogradeBy('last_commit')" @keydown.enter="sortAutogradeBy('last_commit')" @keydown.space.prevent="sortAutogradeBy('last_commit')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('last_commit')" title="Last commit before deadline">
+                    <span class="th-label">Last commit<SortIcon :dir="sortAutogradeDir('last_commit')" /></span>
+                  </th>
+                  <th @click="sortAutogradeBy('earned_points')" @keydown.enter="sortAutogradeBy('earned_points')" @keydown.space.prevent="sortAutogradeBy('earned_points')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('earned_points')">
+                    <span class="th-label">Earned<SortIcon :dir="sortAutogradeDir('earned_points')" /></span>
+                  </th>
+                  <th @click="sortAutogradeBy('total_points')" @keydown.enter="sortAutogradeBy('total_points')" @keydown.space.prevent="sortAutogradeBy('total_points')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('total_points')">
+                    <span class="th-label">Total<SortIcon :dir="sortAutogradeDir('total_points')" /></span>
+                  </th>
                   <!-- Only under a hand-in cap: the column is a count against
                        a limit, and with no limit there is nothing to count. -->
-                  <th v-if="handInsShown" class="num" title="Hand-ins made on or before the deadline, of how many count">Hand-ins</th>
-                  <th v-if="summaryIsCiBased">CI status</th>
-                  <th>Last graded</th>
+                  <th v-if="handInsShown" @click="sortAutogradeBy('hand_ins')" @keydown.enter="sortAutogradeBy('hand_ins')" @keydown.space.prevent="sortAutogradeBy('hand_ins')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('hand_ins')" title="Hand-ins made on or before the deadline, of how many count">
+                    <span class="th-label">Hand-ins<SortIcon :dir="sortAutogradeDir('hand_ins')" /></span>
+                  </th>
+                  <th v-if="summaryIsCiBased" @click="sortAutogradeBy('ci_status')" @keydown.enter="sortAutogradeBy('ci_status')" @keydown.space.prevent="sortAutogradeBy('ci_status')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('ci_status')">
+                    <span class="th-label">CI status<SortIcon :dir="sortAutogradeDir('ci_status')" /></span>
+                  </th>
+                  <th @click="sortAutogradeBy('graded_at')" @keydown.enter="sortAutogradeBy('graded_at')" @keydown.space.prevent="sortAutogradeBy('graded_at')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_at')">
+                    <span class="th-label">Last graded<SortIcon :dir="sortAutogradeDir('graded_at')" /></span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in autogradeSummary.students" :key="row.login">
+                <tr v-for="row in sortedAutogradeStudents" :key="row.login">
                   <td>
                     <a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a>
                     <span
@@ -1119,6 +1242,30 @@
                       class="text-xs text-muted"
                       :title="`${row.decided_by.kind === 'score' ? 'Set by hand' : `Graded on ${String(row.graded_sha || '').slice(0, 7)}`} by @${row.decided_by.by} on ${fmt(row.decided_by.at)}: ${row.decided_by.reason}`"
                     > · {{ row.decided_by.kind === 'score' ? 'by hand' : `chosen ${String(row.graded_sha || '').slice(0, 7)}` }}</span>
+                  </td>
+                  <td v-if="autogradeHasClaimedEmails">
+                    <span v-if="studentMap.get(row.login?.toLowerCase())?.claimed_email" class="text-sm claimed-address" :title="studentMap.get(row.login?.toLowerCase()).claimed_email">
+                      {{ studentMap.get(row.login?.toLowerCase()).claimed_email }}
+                    </span>
+                    <span v-else class="text-muted text-xs">-</span>
+                  </td>
+                  <td>
+                    <template v-if="lastCommitBeforeDeadline(row).href">
+                      <a
+                        :href="lastCommitBeforeDeadline(row).href"
+                        target="_blank"
+                        rel="noopener"
+                        class="mono text-xs"
+                        :title="lastCommitBeforeDeadline(row).sha ? `SHA: ${lastCommitBeforeDeadline(row).sha}` : null"
+                        style="color: var(--accent-blue); text-decoration: underline;"
+                      >
+                        {{ lastCommitBeforeDeadline(row).time ? fmt(lastCommitBeforeDeadline(row).time) : (lastCommitBeforeDeadline(row).sha ? lastCommitBeforeDeadline(row).sha.slice(0, 7) : 'commit') }}
+                      </a>
+                    </template>
+                    <span v-else-if="lastCommitBeforeDeadline(row).time" class="text-xs">
+                      {{ fmt(lastCommitBeforeDeadline(row).time) }}
+                    </span>
+                    <span v-else class="text-muted text-xs">-</span>
                   </td>
                   <td class="num">{{ row.earned_points }}</td>
                   <td class="num">{{ row.total_points }}</td>
@@ -2519,6 +2666,21 @@ const filteredStudents = computed(() => {
     if (sortKey.value === 'latest_observed_at') {
       av = a.commit_date || a.latest_commit_date || a.latest_observed_at
       bv = b.commit_date || b.latest_commit_date || b.latest_observed_at
+    } else if (sortKey.value === 'team') {
+      av = a.team_name || a.team_slug || null
+      bv = b.team_name || b.team_slug || null
+    } else if (sortKey.value === 'repo_name') {
+      av = a.repo_name ? shortRepo(a.repo_name) : null
+      bv = b.repo_name ? shortRepo(b.repo_name) : null
+    } else if (sortKey.value === 'ci_status') {
+      av = a.ci_status || null
+      bv = b.ci_status || null
+    } else if (sortKey.value === 'score') {
+      av = a.earned_points != null ? a.earned_points : null
+      bv = b.earned_points != null ? b.earned_points : null
+    } else if (sortKey.value === 'feedback_pr') {
+      av = a.feedback_pr_number ?? null
+      bv = b.feedback_pr_number ?? null
     }
     // Nulls last regardless of direction
     if (av == null && bv == null) return 0
@@ -2544,6 +2706,11 @@ function toggleExportDropdown() {
 function handleExportCSV() {
   exportDropdownOpen.value = false
   exportCSV()
+}
+
+function handleExportGradesCSV() {
+  exportDropdownOpen.value = false
+  exportGradesCSV()
 }
 
 function handleDownloadManifest() {
@@ -3207,6 +3374,88 @@ function exportCSV() {
   URL.revokeObjectURL(url)
 }
 
+function exportGradesCSV() {
+  const students = report.value?.students || []
+  if (students.length === 0) {
+    toast.info('No students in the report to export.')
+    return
+  }
+  mergeGradesIntoReport()
+
+  const headers = [
+    'confirmed_email',
+    'github_login',
+    'full_name',
+    'student_number',
+    'class_group',
+    ...(isGroupAssignment.value ? ['team_name'] : []),
+    'earned_points',
+    'total_points',
+    'grade_percentage',
+    'ci_status',
+    'submission_status',
+    'last_commit_before_deadline_time',
+    'last_commit_before_deadline_sha',
+    'score_source',
+    'grade_decided_by',
+    'repo_name',
+    'repo_url',
+    'graded_at',
+  ]
+
+  const rows = [headers.join(',')]
+  for (const s of students) {
+    const roster = rosterByLogin.value?.get(s.github_login?.toLowerCase())
+    const profile = userProfilesByLogin.value?.get(s.github_login?.toLowerCase())
+    const fullName = s.full_name || roster?.full_name || profile?.name || (!isBotAuthorName(s.author_name) ? s.author_name : '') || ''
+    const email = s.claimed_email || s.email || roster?.email || ''
+    const studentNr = s.student_number || roster?.student_number || ''
+    const classGrp = s.class_group || roster?.class_group || ''
+    const earned = s.earned_points != null ? s.earned_points : ''
+    const total = s.total_points != null ? s.total_points : ''
+    let pct = ''
+    if (s.earned_points != null && s.total_points != null && s.total_points > 0) {
+      pct = `${Math.round((s.earned_points / s.total_points) * 100)}%`
+    }
+    const decidedBy = s.grade_decided_by
+      ? (s.grade_decided_by.kind === 'score' ? `by hand (${s.grade_decided_by.by})` : `chosen ${s.grade_decided_by.sha?.slice(0, 7) || ''} (${s.grade_decided_by.by})`)
+      : ''
+    const commitTimeVal = s.last_on_time_observed_at || (s.submission_status === 'on-time' ? commitTime(s) : null) || ''
+    const commitShaVal = s.last_on_time_sha || (s.submission_status === 'on-time' ? latestSha(s) : null) || ''
+
+    const rowData = [
+      email,
+      s.github_login,
+      fullName,
+      studentNr,
+      classGrp,
+      ...(isGroupAssignment.value ? [s.team_name || s.team_slug || ''] : []),
+      earned,
+      total,
+      pct,
+      s.ci_status || '',
+      s.submission_status || '',
+      commitTimeVal,
+      commitShaVal,
+      s.score_source || '',
+      decidedBy,
+      s.repo_name || '',
+      s.repo_url || '',
+      s.graded_at || '',
+    ]
+    rows.push(rowData.map((v) => csvCell(v)).join(','))
+  }
+
+  // UTF-8 BOM so Excel decodes accented names correctly.
+  const blob = new Blob(['\ufeff' + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${props.assignmentId}-grades.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // Copying the link, and the control-repo read behind it, live in
 // InvitationShare.vue. Both used to exist here as well, and the read was
 // silently broken for months on one of the two copies - `getRepoContent`
@@ -3697,6 +3946,94 @@ function capAllowancesReadable() {
   return false
 }
 
+const regradePanel = ref({
+  visible: false,
+  status: 'idle', // 'running' | 'success' | 'error'
+  synced: 0,
+  total: 0,
+  error: null,
+})
+let regradeDismissTimer = null
+
+function dismissRegradePanel() {
+  if (regradeDismissTimer) {
+    clearTimeout(regradeDismissTimer)
+    regradeDismissTimer = null
+  }
+  regradePanel.value.visible = false
+}
+
+const studentMap = computed(() => {
+  const map = new Map()
+  for (const s of (report.value?.students || [])) {
+    if (s.github_login) map.set(s.github_login.toLowerCase(), s)
+  }
+  return map
+})
+
+const autogradeHasClaimedEmails = computed(() =>
+  hasClaimedEmails.value || (autogradeSummary.value?.students || []).some((r) => studentMap.value.get(r.login?.toLowerCase())?.claimed_email)
+)
+
+function lastCommitBeforeDeadline(row) {
+  const s = studentMap.value.get(row.login?.toLowerCase())
+  const sha = s?.last_on_time_sha || row.graded_sha || (s?.submission_status === 'on-time' ? latestSha(s) : null)
+  const time = s?.last_on_time_observed_at || (s?.submission_status === 'on-time' ? commitTime(s) : null) || row.graded_at
+  const repoUrl = s?.repo_url
+  const href = repoUrl && sha ? `${repoUrl}/commit/${sha}` : null
+  return { sha, time, href, repoUrl }
+}
+
+const autogradeSortKey = ref('login')
+const autogradeSortAsc = ref(true)
+
+function sortAutogradeBy(key) {
+  if (autogradeSortKey.value === key) autogradeSortAsc.value = !autogradeSortAsc.value
+  else { autogradeSortKey.value = key; autogradeSortAsc.value = true }
+}
+
+function sortAutogradeDir(key) {
+  if (autogradeSortKey.value !== key) return null
+  return autogradeSortAsc.value ? 'asc' : 'desc'
+}
+
+function ariaSortAutograde(key) {
+  if (autogradeSortKey.value !== key) return 'none'
+  return autogradeSortAsc.value ? 'ascending' : 'descending'
+}
+
+const sortedAutogradeStudents = computed(() => {
+  const students = autogradeSummary.value?.students || []
+  return [...students].sort((a, b) => {
+    let av = a[autogradeSortKey.value]
+    let bv = b[autogradeSortKey.value]
+    if (autogradeSortKey.value === 'claimed_email') {
+      av = studentMap.value.get(a.login?.toLowerCase())?.claimed_email || null
+      bv = studentMap.value.get(b.login?.toLowerCase())?.claimed_email || null
+    } else if (autogradeSortKey.value === 'last_commit') {
+      av = lastCommitBeforeDeadline(a)?.time || null
+      bv = lastCommitBeforeDeadline(b)?.time || null
+    } else if (autogradeSortKey.value === 'hand_ins') {
+      av = a.hand_ins?.used ?? null
+      bv = b.hand_ins?.used ?? null
+    }
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    if (autogradeSortKey.value === 'last_commit' && av && bv) {
+      const at = new Date(av).getTime()
+      const bt = new Date(bv).getTime()
+      if (!Number.isNaN(at) && !Number.isNaN(bt)) {
+        return autogradeSortAsc.value ? at - bt : bt - at
+      }
+    }
+    const cmp = typeof av === 'number' && typeof bv === 'number'
+      ? av - bv
+      : String(av).localeCompare(String(bv))
+    return autogradeSortAsc.value ? cmp : -cmp
+  })
+})
+
 async function syncGradesFromGitHub() {
   const token = getToken()
   if (!token || !report.value || !assignment.value) return
@@ -3716,6 +4053,18 @@ async function syncGradesFromGitHub() {
   syncedGradesCount.value = 0
   syncingGrades.value = true
 
+  if (regradeDismissTimer) {
+    clearTimeout(regradeDismissTimer)
+    regradeDismissTimer = null
+  }
+  regradePanel.value = {
+    visible: true,
+    status: 'running',
+    synced: 0,
+    total: totalGradesToSync.value,
+    error: null,
+  }
+
   try {
     // ONE IMPLEMENTATION. Which commit to read, what a hand-in message changes,
     // and the three refusals below all live in lib/grade-cohort.mjs, because
@@ -3727,28 +4076,33 @@ async function syncGradesFromGitHub() {
       marker: readSubmissionMarker(assignment.value),
       markerBranch: submissionBranch(assignment.value),
       fallbackTotal: autogradeTotalPoints.value,
-      onProgress: () => { syncedGradesCount.value++ },
+      onProgress: () => {
+        syncedGradesCount.value++
+        regradePanel.value.synced = syncedGradesCount.value
+      },
       // Per-student hand-in allowances, read only under a cap.
       overrides: overridesByLogin.value,
     })
 
     if (!res.ok) {
-      toast.error(
-        {
-          // A 403 here is not transient, and "try again later" is advice that
-          // can never come true: both check-run endpoints are gated by the
-          // App's Checks permission.
-          // Checks (every score), or Actions (a hand-in cap, or a commit graded
-          // on request) - the refusal says which reads, and for whom.
-          permission:
-            `GitHub refused a read (HTTP 403)${(res.unreadable || []).length ? ` for ${res.unreadable.slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}` : ''}: ` +
-            'the PXL Classroom App needs the "Checks" permission (read), and "Actions" (read) for a hand-in limit or a commit graded on request. ' +
-            'An owner of this organization approves it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
-          'api-errors': `CI results could not be read for ${res.apiFailedCount} student(s): ${(res.unreadable || []).slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}${res.apiFailedCount > 3 ? '; …' : ''}. Nothing was saved.`,
-          'nothing-graded':
-            'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
-        }[res.refusal],
-      )
+      const refusalMsg = {
+        // A 403 here is not transient, and "try again later" is advice that
+        // can never come true: both check-run endpoints are gated by the
+        // App's Checks permission.
+        // Checks (every score), or Actions (a hand-in cap, or a commit graded
+        // on request) - the refusal says which reads, and for whom.
+        permission:
+          `GitHub refused a read (HTTP 403)${(res.unreadable || []).length ? ` for ${res.unreadable.slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}` : ''}: ` +
+          'the PXL Classroom App needs the "Checks" permission (read), and "Actions" (read) for a hand-in limit or a commit graded on request. ' +
+          'An owner of this organization approves it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
+        'api-errors': `CI results could not be read for ${res.apiFailedCount} student(s): ${(res.unreadable || []).slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}${res.apiFailedCount > 3 ? '; …' : ''}. Nothing was saved.`,
+        'nothing-graded':
+          'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
+      }[res.refusal] || 'Grading sync failed.'
+
+      regradePanel.value.status = 'error'
+      regradePanel.value.error = refusalMsg
+      toast.error(refusalMsg)
       return
     }
 
@@ -3765,19 +4119,34 @@ async function syncGradesFromGitHub() {
     const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
     if (!valid) {
       console.error('grading summary failed schema', errors)
-      toast.error('The grade summary came out malformed and was not saved. Nothing was overwritten.')
+      const valErr = 'The grade summary came out malformed and was not saved. Nothing was overwritten.'
+      regradePanel.value.status = 'error'
+      regradePanel.value.error = valErr
+      toast.error(valErr)
       return
     }
 
     const saved = await saveGradingSummary(token, summaryDoc, `Sync grades for ${props.assignmentId}`)
     if (!saved.ok) {
-      toast.error(`Save failed: ${saved.data?.message}`)
+      const saveErr = `Save failed: ${saved.data?.message || 'Could not commit to control repository'}`
+      regradePanel.value.status = 'error'
+      regradePanel.value.error = saveErr
+      toast.error(saveErr)
       return
     }
     const partial = res.failed.length ? ` ${res.failed.length} could not be read.` : ''
+    regradePanel.value.status = 'success'
+    regradePanel.value.synced = res.graded.length
+    regradePanel.value.total = totalGradesToSync.value
+    regradeDismissTimer = setTimeout(() => {
+      regradePanel.value.visible = false
+    }, 6000)
+
     toast.success(`Read ${res.graded.length} score(s) from GitHub Actions.${partial}`)
   } catch (e) {
     console.error('Failed to sync grades', e)
+    regradePanel.value.status = 'error'
+    regradePanel.value.error = e.message || 'Failed to sync grades from GitHub.'
     toast.error(`Failed to sync grades: ${e.message}`)
   } finally {
     syncingGrades.value = false
