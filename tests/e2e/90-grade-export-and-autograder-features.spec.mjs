@@ -170,7 +170,7 @@ const bobLocalGrading = {
 };
 
 
-async function setup(page) {
+async function setup(page, options = {}) {
   const contentWrites = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -178,7 +178,7 @@ async function setup(page) {
     contentWrites,
     assignments: { [ID]: assignment },
     reports: { [ID]: report },
-    gradingSummaries: { [ID]: initialSummary },
+    gradingSummaries: { [ID]: options.summary || initialSummary },
   });
 
   // Mock student-bob local grading record
@@ -404,6 +404,33 @@ test.describe('90 - Grade exports and autograder features', () => {
     expect(fileBytes[1]).toBe(0x4b);
     expect(fileBytes[2]).toBe(0x03);
     expect(fileBytes[3]).toBe(0x04);
+  });
+
+  test('Grading failures disclosure is collapsible and expands on click', async ({ page }) => {
+    const summaryWithFailed = {
+      ...initialSummary,
+      failed: [{ login: 'student-david', reason: 'no commit says "final submission", so nothing was handed in' }],
+    };
+    await setup(page, { summary: summaryWithFailed });
+    const failureDetails = page.locator('details.autograde-failed').first();
+    await expect(failureDetails).toBeVisible();
+    await expect(failureDetails).not.toHaveAttribute('open', '');
+
+    const summary = failureDetails.locator('summary');
+    await expect(summary).toContainText('grading failure(s)');
+
+    // List items are hidden when collapsed
+    await expect(failureDetails.locator('li', { hasText: 'student-david' })).not.toBeVisible();
+
+    // Click to open
+    await summary.click();
+    await expect(failureDetails).toHaveAttribute('open', '');
+    await expect(failureDetails.locator('li', { hasText: 'student-david' })).toBeVisible();
+
+    // Click to collapse again
+    await summary.click();
+    await expect(failureDetails).not.toHaveAttribute('open', '');
+    await expect(failureDetails.locator('li', { hasText: 'student-david' })).not.toBeVisible();
   });
 });
 

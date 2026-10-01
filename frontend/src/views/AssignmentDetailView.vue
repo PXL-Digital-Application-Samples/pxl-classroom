@@ -1330,22 +1330,30 @@
               </tbody>
             </table>
           </div>
-          <div v-if="autogradeSummary?.failed?.length" class="autograde-failed">
-            <strong>{{ autogradeSummary.failed.length }} grading failure(s):</strong>
+          <details v-if="autogradeSummary?.failed?.length" class="autograde-failed">
+            <summary class="autograde-failed-summary">
+              <Icon name="chevron-down" :size="13" class="autograde-failed-caret" />
+              <strong>{{ autogradeSummary.failed.length }} grading failure(s)</strong>
+              <span class="text-secondary text-xs" style="margin-left: auto;">click to view</span>
+            </summary>
             <ul>
               <li v-for="f in autogradeSummary.failed" :key="f.login"><code>{{ f.login }}</code>: {{ f.reason }}</li>
             </ul>
-          </div>
+          </details>
           <!-- EVERY hand-in the limit or the deadline left out, by name and
                with why - never dropped silently. The sentence is
                lib/submission-marker.mjs `describeIgnoredHandIn`, the same one
                the nightly log and the CLI print. -->
-          <div v-if="ignoredHandIns.length" class="autograde-failed autograde-ignored">
-            <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded:</strong>
+          <details v-if="ignoredHandIns.length" class="autograde-failed autograde-ignored">
+            <summary class="autograde-failed-summary">
+              <Icon name="chevron-down" :size="13" class="autograde-failed-caret" />
+              <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded</strong>
+              <span class="text-secondary text-xs" style="margin-left: auto;">click to view</span>
+            </summary>
             <ul>
               <li v-for="i in ignoredHandIns" :key="`${i.login}-${i.sha}`"><code>{{ i.login }}</code>: {{ i.text }}</li>
             </ul>
-          </div>
+          </details>
         </section>
       </div>
 
@@ -5531,6 +5539,30 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
   border-left: 3px solid var(--accent-red);
   border-radius: 4px;
   font-size: 0.85rem;
+}
+.autograde-failed-summary {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  list-style: none;
+}
+.autograde-failed-summary::-webkit-details-marker {
+  display: none;
+}
+.autograde-failed-summary:hover {
+  opacity: 0.85;
+}
+.autograde-failed-caret {
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.autograde-failed:not([open]) .autograde-failed-caret {
+  transform: rotate(-90deg);
+}
+.autograde-failed[open] .autograde-failed-summary {
+  margin-bottom: var(--space-xs);
 }
 .autograde-failed ul { margin: var(--space-xs) 0 0 var(--space-md); padding: 0; }
 .badge-with-icon { display: inline-flex; align-items: center; gap: 4px; }
