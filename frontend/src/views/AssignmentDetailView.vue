@@ -449,6 +449,34 @@
                   class="export-dropdown-item"
                   type="button"
                   role="menuitem"
+                  @click="handleExportGradesXLSX"
+                >
+                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Export Grades (Excel XLSX)</span>
+                    <span class="dropdown-item-sub">Formatted workbook with clickable links &amp; auto column width</span>
+                  </div>
+                </button>
+
+                <button
+                  v-if="hasGrades || autogradeSummary?.students?.length"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
+                  @click="handleExportBreakdownXLSX"
+                >
+                  <Icon name="file-text" :size="14" class="dropdown-icon" />
+                  <div class="dropdown-item-text">
+                    <span class="dropdown-item-title">Export Detailed Breakdown (Excel XLSX)</span>
+                    <span class="dropdown-item-sub">Per-test status check logs &amp; scores in Excel workbook</span>
+                  </div>
+                </button>
+
+                <button
+                  v-if="hasGrades || autogradeSummary?.students?.length"
+                  class="export-dropdown-item"
+                  type="button"
+                  role="menuitem"
                   @click="handleExportGradesCSV"
                 >
                   <Icon name="check-circle" :size="14" class="dropdown-icon" />
@@ -1208,22 +1236,33 @@
               v-if="autogradeSummary?.students?.length"
               class="btn btn-secondary btn-sm"
               type="button"
-              @click="exportGradesCSV"
-              title="Export confirmed emails, logins, names and scores as CSV"
+              @click="exportGradesXLSX"
+              title="Export confirmed emails, logins, names and scores as Excel XLSX"
             >
               <Icon name="download" :size="13" />
-              <span>Export Grades (CSV)</span>
+              <span>Export Grades (Excel)</span>
             </button>
             <button
               v-if="autogradeSummary?.students?.length"
               class="btn btn-secondary btn-sm"
+              type="button"
+              @click="exportBreakdownXLSX"
+              :disabled="exportingBreakdown"
+              title="Export grades with per-test feedback breakdown as Excel XLSX"
+            >
+              <Icon name="file-text" :size="13" />
+              <span>{{ exportingBreakdown ? 'Exporting…' : 'Export Breakdown (Excel)' }}</span>
+            </button>
+            <button
+              v-if="autogradeSummary?.students?.length"
+              class="btn btn-ghost btn-sm"
               type="button"
               @click="exportBreakdownCSV"
               :disabled="exportingBreakdown"
               title="Export grades with per-test feedback breakdown as CSV"
             >
               <Icon name="file-text" :size="13" />
-              <span>{{ exportingBreakdown ? 'Exporting…' : 'Export Breakdown (CSV)' }}</span>
+              <span>Export Breakdown (CSV)</span>
             </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
@@ -1487,6 +1526,7 @@ import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
 // beside a second sortable table is the fork this project has a rule against.
 import SortIcon from '../components/SortIcon.vue'
 import { config } from '../lib/config.js'
+import { generateXlsxBlob } from '../lib/xlsx.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
 // RosterTab.vue and report.mjs, and none of the three had an inverse.
 import { csvCell } from '../../../lib/csv-cell.mjs'
@@ -2739,6 +2779,16 @@ function handleExportCSV() {
   exportCSV()
 }
 
+function handleExportGradesXLSX() {
+  exportDropdownOpen.value = false
+  exportGradesXLSX()
+}
+
+function handleExportBreakdownXLSX() {
+  exportDropdownOpen.value = false
+  exportBreakdownXLSX()
+}
+
 function handleExportGradesCSV() {
   exportDropdownOpen.value = false
   exportGradesCSV()
@@ -3410,12 +3460,17 @@ function exportCSV() {
   URL.revokeObjectURL(url)
 }
 
-function exportGradesCSV() {
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function buildGradesDataset(includeBreakdown = false, breakdownsMap = null) {
   const students = report.value?.students || []
-  if (students.length === 0) {
-    toast.info('No students in the report to export.')
-    return
-  }
   mergeGradesIntoReport()
 
   const headers = [
@@ -3434,12 +3489,13 @@ function exportGradesCSV() {
     'last_commit_before_deadline_sha',
     'score_source',
     'grade_decided_by',
+    ...(includeBreakdown ? ['feedback_breakdown'] : []),
     'repo_name',
     'repo_url',
     'graded_at',
   ]
 
-  const rows = [headers.join(',')]
+  const rows = []
   for (const s of students) {
     const roster = rosterByLogin.value?.get(s.github_login?.toLowerCase())
     const profile = userProfilesByLogin.value?.get(s.github_login?.toLowerCase())
@@ -3447,8 +3503,8 @@ function exportGradesCSV() {
     const email = s.claimed_email || s.email || roster?.email || ''
     const studentNr = s.student_number || roster?.student_number || ''
     const classGrp = s.class_group || roster?.class_group || ''
-    const earned = s.earned_points != null ? s.earned_points : ''
-    const total = s.total_points != null ? s.total_points : ''
+    const earned = s.earned_points != null ? Number(s.earned_points) : ''
+    const total = s.total_points != null ? Number(s.total_points) : ''
     let pct = ''
     if (s.earned_points != null && s.total_points != null && s.total_points > 0) {
       pct = `${Math.round((s.earned_points / s.total_points) * 100)}%`
@@ -3458,8 +3514,9 @@ function exportGradesCSV() {
       : ''
     const commitShaVal = s.last_on_time_sha || (s.submission_status === 'on-time' ? latestSha(s) : null) || ''
     const commitTimeVal = s.commit_date || s.latest_commit_date || ''
+    const breakdownText = includeBreakdown ? (breakdownsMap?.get(s.github_login?.toLowerCase()) || '') : null
 
-    const rowData = [
+    const row = [
       email,
       s.github_login,
       fullName,
@@ -3475,21 +3532,38 @@ function exportGradesCSV() {
       commitShaVal,
       s.score_source || '',
       decidedBy,
+      ...(includeBreakdown ? [breakdownText] : []),
       s.repo_name || '',
       s.repo_url || '',
       s.graded_at || '',
     ]
-    rows.push(rowData.map((v) => csvCell(v)).join(','))
+    rows.push(row)
   }
+  return { headers, rows }
+}
 
-  // UTF-8 BOM so Excel decodes accented names correctly.
-  const blob = new Blob(['\ufeff' + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${props.assignmentId}-grades.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+function exportGradesCSV() {
+  const students = report.value?.students || []
+  if (students.length === 0) {
+    toast.info('No students in the report to export.')
+    return
+  }
+  const { headers, rows } = buildGradesDataset(false)
+  const csvRows = [headers.join(','), ...rows.map((r) => r.map((c) => csvCell(c)).join(','))]
+  const blob = new Blob(['\ufeff' + csvRows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+  downloadBlob(blob, `${props.assignmentId}-grades.csv`)
+}
+
+function exportGradesXLSX() {
+  const students = report.value?.students || []
+  if (students.length === 0) {
+    toast.info('No students in the report to export.')
+    return
+  }
+  const { headers, rows } = buildGradesDataset(false)
+  const blob = generateXlsxBlob({ headers, rows })
+  downloadBlob(blob, `${props.assignmentId}-grades.xlsx`)
+  toast.success('Grades exported as Excel XLSX.')
 }
 
 const breakdownCache = new Map()
@@ -3538,7 +3612,7 @@ async function fetchBreakdownForStudent(token, s) {
     // No local record found or parse error
   }
 
-  // 2. Try reading check-run and annotations from student repository (GitHub Actions autograding)
+  // 2. Try reading check-run and job logs / steps from student repository (GitHub Actions autograding)
   if (s.repo_name && sha) {
     try {
       const repoFullName = s.repo_name.includes('/') ? s.repo_name : `${props.org}/${s.repo_name}`
@@ -3546,33 +3620,98 @@ async function fetchBreakdownForStudent(token, s) {
       if (checkRes.ok && Array.isArray(checkRes.data?.check_runs)) {
         const run = pickAutogradeCheckRun(checkRes.data.check_runs)
         if (run) {
-          let annotations = []
-          if (run.output?.annotations_count) {
-            const annRes = await ghApi(token, 'GET', `/repos/${repoFullName}/check-runs/${run.id}/annotations?per_page=100`)
-            if (annRes.ok && Array.isArray(annRes.data)) {
-              annotations = annRes.data
+          // A. Try reading the job logs to extract status check output or summary transcript
+          try {
+            const logRes = await ghApi(token, 'GET', `/repos/${repoFullName}/actions/jobs/${run.id}/logs`)
+            const logText = logRes.data?.raw || (typeof logRes.data === 'string' ? logRes.data : '')
+            if (logText) {
+              const esc = String.fromCharCode(27)
+              const noAnsi = logText.replace(new RegExp(esc + '\\[[0-9;]*[a-zA-Z]', 'g'), '')
+              const clean = noAnsi.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/gm, '')
+
+              const startMatch = clean.match(/(?:[A-Z0-9_-]+\s+status check\s+-|==\s+Minimum:)/i)
+              const endMatch = clean.match(/\d+\s+OK,\s+\d+\s+FAIL(?:,\s+\d+\s+SKIP)?/)
+              if (startMatch && endMatch && endMatch.index > startMatch.index) {
+                breakdown = clean.slice(startMatch.index, endMatch.index + endMatch[0].length).trim()
+              } else {
+                const summaryIdx = clean.indexOf('== Summary')
+                if (summaryIdx !== -1) {
+                  const endSummary = clean.indexOf('\n\n', summaryIdx)
+                  breakdown = clean.slice(summaryIdx, endSummary !== -1 ? endSummary : summaryIdx + 800).trim()
+                }
+              }
+            }
+          } catch {
+            // Logs read failed or unavailable
+          }
+
+          // B. If not extracted from logs, check job steps for individual test execution conclusions
+          if (!breakdown) {
+            try {
+              const jobRes = await ghApi(token, 'GET', `/repos/${repoFullName}/actions/jobs/${run.id}`)
+              if (jobRes.ok && Array.isArray(jobRes.data?.steps)) {
+                const skipSteps = new Set([
+                  'Set up job', 'Checkout code', 'Post Checkout code', 'Complete job',
+                  'terraform destroy', 'Set up Terraform', 'Set up the AWS profile',
+                  'Download the status check', 'Results in the run summary', 'Keep the results',
+                  'Autograding Reporter', 'Deploy failed', 'Keep the Terraform state', 'Check the lab session',
+                  'terraform apply', 'PE1 status check',
+                ])
+                const testSteps = jobRes.data.steps.filter((st) => !skipSteps.has(st.name) && !st.name.startsWith('Post '))
+                if (testSteps.length > 0) {
+                  const lines = testSteps.map((st) => {
+                    const outcome = st.conclusion === 'success' ? 'PASS' : (st.conclusion === 'skipped' ? 'SKIPPED' : 'FAIL')
+                    return `${st.name}: ${outcome}`
+                  })
+                  if (s.earned_points != null && s.total_points != null) {
+                    lines.push(`Total: ${s.earned_points}/${s.total_points}`)
+                  }
+                  breakdown = lines.join('\n')
+                }
+              }
+            } catch {
+              // Job steps read failed
             }
           }
 
-          const notices = annotations.filter(
-            (a) => a?.annotation_level !== 'warning' && a?.title !== 'Autograding report',
-          )
-
-          if (notices.length > 0) {
-            const lines = notices.map((a) => {
-              const titlePart = a.title ? `${a.title}: ` : ''
-              return `${titlePart}${a.message || ''}`.trim()
-            }).filter(Boolean)
-            if (lines.length > 0) {
-              if (!lines.some((l) => l.toLowerCase().includes('total') || l.toLowerCase().includes('points') || l.toLowerCase().includes('earned'))) {
-                lines.push(`Total: ${s.earned_points ?? '-'}/${s.total_points ?? '-'}`)
+          // C. If still not found, check annotations but strictly filter out runner infrastructure notices
+          if (!breakdown) {
+            let annotations = []
+            if (run.output?.annotations_count) {
+              const annRes = await ghApi(token, 'GET', `/repos/${repoFullName}/check-runs/${run.id}/annotations?per_page=100`)
+              if (annRes.ok && Array.isArray(annRes.data)) {
+                annotations = annRes.data
               }
-              breakdown = lines.join('\n')
             }
-          } else if (run.output?.summary || run.output?.text) {
-            breakdown = (run.output.summary || run.output.text).trim()
-          } else if (run.conclusion || run.status) {
-            breakdown = `CI Status: ${run.conclusion || run.status} (${s.earned_points ?? '-'}/${s.total_points ?? '-'})`
+
+            const isRunnerNotice = (a) => {
+              const text = `${a.title || ''} ${a.message || ''}`.toLowerCase()
+              return text.includes('runner-images') ||
+                     text.includes('migrate to ubuntu') ||
+                     text.includes('ubuntu-latest label') ||
+                     text.includes('node.js 20 is deprecated') ||
+                     text.includes('node-20') ||
+                     !a.title
+            }
+
+            const notices = annotations.filter(
+              (a) => a?.annotation_level !== 'warning' && a?.title !== 'Autograding report' && !isRunnerNotice(a),
+            )
+
+            if (notices.length > 0) {
+              const lines = notices.map((a) => {
+                const titlePart = a.title ? `${a.title}: ` : ''
+                return `${titlePart}${a.message || ''}`.trim()
+              }).filter(Boolean)
+              if (lines.length > 0) {
+                if (!lines.some((l) => l.toLowerCase().includes('total') || l.toLowerCase().includes('points') || l.toLowerCase().includes('earned'))) {
+                  lines.push(`Total: ${s.earned_points ?? '-'}/${s.total_points ?? '-'}`)
+                }
+                breakdown = lines.join('\n')
+              }
+            } else if (run.output?.summary || run.output?.text) {
+              breakdown = (run.output.summary || run.output.text).trim()
+            }
           }
         }
       }
@@ -3584,8 +3723,10 @@ async function fetchBreakdownForStudent(token, s) {
   if (!breakdown) {
     if (s.earned_points != null && s.total_points != null) {
       breakdown = `Total: ${s.earned_points}/${s.total_points} (${s.score_source || s.ci_status || 'graded'})`
-    } else if (s.submission_status === 'no-submission') {
+    } else if (s.submission_status === 'no-submission' || s.commit_count === 0) {
       breakdown = 'No submission'
+    } else if (s.earned_points == null) {
+      breakdown = 'No final submission handed in'
     } else {
       breakdown = '-'
     }
@@ -3595,117 +3736,69 @@ async function fetchBreakdownForStudent(token, s) {
   return breakdown
 }
 
-async function exportBreakdownCSV() {
+async function collectBreakdowns() {
   const token = getToken()
-  if (!token) {
-    toast.error('Authentication required to export breakdown.')
-    return
+  if (!token) throw new Error('Authentication required')
+  const students = report.value?.students || []
+  const breakdowns = new Map()
+  const pool = 6
+  let cursor = 0
+
+  async function worker() {
+    while (cursor < students.length) {
+      const s = students[cursor++]
+      try {
+        const text = await fetchBreakdownForStudent(token, s)
+        breakdowns.set(s.github_login?.toLowerCase(), text)
+      } catch {
+        breakdowns.set(s.github_login?.toLowerCase(), '-')
+      }
+    }
   }
+
+  await Promise.all(Array.from({ length: Math.min(pool, students.length) }, () => worker()))
+  return breakdowns
+}
+
+async function exportBreakdownCSV() {
   const students = report.value?.students || []
   if (students.length === 0) {
     toast.info('No students in the report to export.')
     return
   }
-  mergeGradesIntoReport()
   exportingBreakdown.value = true
   toast.info(`Fetching grading breakdown for ${students.length} student(s)...`)
-
   try {
-    const breakdowns = new Map()
-    const pool = 6
-    let cursor = 0
-
-    async function worker() {
-      while (cursor < students.length) {
-        const s = students[cursor++]
-        try {
-          const text = await fetchBreakdownForStudent(token, s)
-          breakdowns.set(s.github_login?.toLowerCase(), text)
-        } catch {
-          breakdowns.set(s.github_login?.toLowerCase(), '-')
-        }
-      }
-    }
-
-    await Promise.all(Array.from({ length: Math.min(pool, students.length) }, () => worker()))
-
-    const headers = [
-      'confirmed_email',
-      'github_login',
-      'full_name',
-      'student_number',
-      'class_group',
-      ...(isGroupAssignment.value ? ['team_name'] : []),
-      'earned_points',
-      'total_points',
-      'grade_percentage',
-      'ci_status',
-      'submission_status',
-      'last_commit_before_deadline_time',
-      'last_commit_before_deadline_sha',
-      'score_source',
-      'grade_decided_by',
-      'feedback_breakdown',
-      'repo_name',
-      'repo_url',
-      'graded_at',
-    ]
-
-    const rows = [headers.join(',')]
-    for (const s of students) {
-      const roster = rosterByLogin.value?.get(s.github_login?.toLowerCase())
-      const profile = userProfilesByLogin.value?.get(s.github_login?.toLowerCase())
-      const fullName = s.full_name || roster?.full_name || profile?.name || (!isBotAuthorName(s.author_name) ? s.author_name : '') || ''
-      const email = s.claimed_email || s.email || roster?.email || ''
-      const studentNr = s.student_number || roster?.student_number || ''
-      const classGrp = s.class_group || roster?.class_group || ''
-      const earned = s.earned_points != null ? s.earned_points : ''
-      const total = s.total_points != null ? s.total_points : ''
-      let pct = ''
-      if (s.earned_points != null && s.total_points != null && s.total_points > 0) {
-        pct = `${Math.round((s.earned_points / s.total_points) * 100)}%`
-      }
-      const decidedBy = s.grade_decided_by
-        ? (s.grade_decided_by.kind === 'score' ? `by hand (${s.grade_decided_by.by})` : `chosen ${s.grade_decided_by.sha?.slice(0, 7) || ''} (${s.grade_decided_by.by})`)
-        : ''
-      const commitShaVal = s.last_on_time_sha || (s.submission_status === 'on-time' ? latestSha(s) : null) || ''
-      const commitTimeVal = s.commit_date || s.latest_commit_date || ''
-      const breakdownText = breakdowns.get(s.github_login?.toLowerCase()) || ''
-
-      const rowData = [
-        email,
-        s.github_login,
-        fullName,
-        studentNr,
-        classGrp,
-        ...(isGroupAssignment.value ? [s.team_name || s.team_slug || ''] : []),
-        earned,
-        total,
-        pct,
-        s.ci_status || '',
-        s.submission_status || '',
-        commitTimeVal,
-        commitShaVal,
-        s.score_source || '',
-        decidedBy,
-        breakdownText,
-        s.repo_name || '',
-        s.repo_url || '',
-        s.graded_at || '',
-      ]
-      rows.push(rowData.map((v) => csvCell(v)).join(','))
-    }
-
-    const blob = new Blob(['\ufeff' + rows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${props.assignmentId}-breakdown.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Detailed breakdown exported.')
+    const breakdowns = await collectBreakdowns()
+    const { headers, rows } = buildGradesDataset(true, breakdowns)
+    const csvRows = [headers.join(','), ...rows.map((r) => r.map((c) => csvCell(c)).join(','))]
+    const blob = new Blob(['\ufeff' + csvRows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
+    downloadBlob(blob, `${props.assignmentId}-breakdown.csv`)
+    toast.success('Detailed breakdown exported as CSV.')
   } catch (e) {
     console.error('Failed to export breakdown CSV:', e)
+    toast.error(`Export failed: ${e.message}`)
+  } finally {
+    exportingBreakdown.value = false
+  }
+}
+
+async function exportBreakdownXLSX() {
+  const students = report.value?.students || []
+  if (students.length === 0) {
+    toast.info('No students in the report to export.')
+    return
+  }
+  exportingBreakdown.value = true
+  toast.info(`Fetching grading breakdown for ${students.length} student(s)...`)
+  try {
+    const breakdowns = await collectBreakdowns()
+    const { headers, rows } = buildGradesDataset(true, breakdowns)
+    const blob = generateXlsxBlob({ headers, rows })
+    downloadBlob(blob, `${props.assignmentId}-breakdown.xlsx`)
+    toast.success('Detailed breakdown exported as Excel XLSX.')
+  } catch (e) {
+    console.error('Failed to export breakdown Excel:', e)
     toast.error(`Export failed: ${e.message}`)
   } finally {
     exportingBreakdown.value = false

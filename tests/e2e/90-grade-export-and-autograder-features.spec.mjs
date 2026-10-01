@@ -449,5 +449,24 @@ test.describe('90 - Grade exports and autograder features', () => {
     const david = rows.find((r) => r[1] === 'student-david');
     expect(david[breakdownIdx]).toBe('No submission');
   });
+
+  test('Export Breakdown (Excel) produces valid .xlsx spreadsheet with PK header', async ({ page }) => {
+    await setup(page);
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export Breakdown (Excel)' }).click(),
+    ]);
+
+    expect(download.suggestedFilename()).toBe(`${ID}-breakdown.xlsx`);
+    const path = await download.path();
+    const fileBytes = readFileSync(path);
+    // Verify PK zip header (0x50, 0x4b, 0x03, 0x04)
+    expect(fileBytes[0]).toBe(0x50);
+    expect(fileBytes[1]).toBe(0x4b);
+    expect(fileBytes[2]).toBe(0x03);
+    expect(fileBytes[3]).toBe(0x04);
+  });
 });
+
 
