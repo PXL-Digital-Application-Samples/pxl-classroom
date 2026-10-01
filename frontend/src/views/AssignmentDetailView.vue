@@ -1255,9 +1255,8 @@
                         :href="lastCommitBeforeDeadline(row).href"
                         target="_blank"
                         rel="noopener"
-                        class="mono text-xs"
+                        class="mono text-xs sha"
                         :title="lastCommitBeforeDeadline(row).sha ? `SHA: ${lastCommitBeforeDeadline(row).sha}` : null"
-                        style="color: var(--accent-blue); text-decoration: underline;"
                       >
                         {{ lastCommitBeforeDeadline(row).time ? fmt(lastCommitBeforeDeadline(row).time) : (lastCommitBeforeDeadline(row).sha ? lastCommitBeforeDeadline(row).sha.slice(0, 7) : 'commit') }}
                       </a>
@@ -3420,8 +3419,8 @@ function exportGradesCSV() {
     const decidedBy = s.grade_decided_by
       ? (s.grade_decided_by.kind === 'score' ? `by hand (${s.grade_decided_by.by})` : `chosen ${s.grade_decided_by.sha?.slice(0, 7) || ''} (${s.grade_decided_by.by})`)
       : ''
-    const commitTimeVal = s.last_on_time_observed_at || (s.submission_status === 'on-time' ? commitTime(s) : null) || ''
     const commitShaVal = s.last_on_time_sha || (s.submission_status === 'on-time' ? latestSha(s) : null) || ''
+    const commitTimeVal = s.commit_date || s.latest_commit_date || ''
 
     const rowData = [
       email,
@@ -3978,7 +3977,7 @@ const autogradeHasClaimedEmails = computed(() =>
 function lastCommitBeforeDeadline(row) {
   const s = studentMap.value.get(row.login?.toLowerCase())
   const sha = s?.last_on_time_sha || row.graded_sha || (s?.submission_status === 'on-time' ? latestSha(s) : null)
-  const time = s?.last_on_time_observed_at || (s?.submission_status === 'on-time' ? commitTime(s) : null) || row.graded_at
+  const time = s?.commit_date || s?.latest_commit_date || null
   const repoUrl = s?.repo_url
   const href = repoUrl && sha ? `${repoUrl}/commit/${sha}` : null
   return { sha, time, href, repoUrl }
