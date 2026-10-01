@@ -2674,3 +2674,18 @@ The same look found one student in another org whose repository existed with no 
 He was never stuck, which is what made it dangerous: a student who is blocked complains within the hour, and a student who is fine says nothing. Nothing would have healed it except his opening that assignment's link again, and he had no reason to.
 
 Three things now. The push is patient enough for a class (fifteen tries). When it still fails, a notice names the student and the one click that fixes it. And the nightly asks the question from the other side, because a notice covers only the failure somebody thought of: it lists the organization and reports any repository generated from an assignment's template that no record names. Generated from the template, on GitHub's own `template_repository`, because a name matching a pattern is not evidence - `{github_login}` matches anything. It reports and does not repair: writing the record itself would have the nightly create acceptances nobody made.
+
+### A workflow queue with cancel-in-progress: false turns a transient environment stall into an indefinite multi-course blackout.
+
+2026-10-01. A lecturer setting up `PXL-1TIN-WebEss-2627` was stuck for over 15 minutes on "Student Web Portal Deploying (~1 min)...", while another course's nightly activity check for `Automation2 PE1` in `PXL-Automation-II` failed to publish to GitHub Pages, requiring manual intervention.
+
+Investigation revealed that `deploy-frontend.yml` and `regenerate-dashboard.yml` matrix legs used `concurrency: ... cancel-in-progress: false`. When a previous run entered `status: waiting` (deadlocked on environment protection or queue gates), GitHub Actions held subsequent runs in a waiting queue. Because `timeout-minutes` applies only to active runners and never to queued or waiting jobs, the stuck run held the concurrency lock for over 18 hours.
+
+In `regenerate-dashboard.yml`, the job `deploy-pages` has `needs: [find-orgs, generate]`. Because a single organization leg (`PXL-SNE-AutomationAndScripting2627`) in the 30+ organization matrix was blocked by an earlier concurrency lock, the entire `generate` job hung for 12 hours 41 minutes. Consequently, `deploy-pages` was never reached at midnight, and no new data or reports were published to GitHub Pages for any course organization.
+
+Four fixes resolved this:
+1. `cancel-in-progress: true` is set on both `pages` and `dashboard-${{ matrix.org }}` concurrency groups so newer runs supersede and clear stale or stuck runs.
+2. The diagnostic engine (`lib/diagnostics.mjs`) checks central hub Actions runs for stuck waiting (over 15m) or running (over 45m) states and provides a 1-click cancel repair action.
+3. The dashboard and System Health modal expose stuck pipeline warnings to hub administrators with 1-click cancellation and alert preference picklists.
+4. A scheduled sentinel (`.github/workflows/pipeline-watchdog.yml` running `scripts/pipeline-watchdog.mjs`) monitors runs every 30 minutes, auto-cancels deadlocked zombie runs, re-dispatches blocked deploys, and alerts administrators via issue comments with `@mention` emails.
+

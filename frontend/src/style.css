@@ -1120,6 +1120,72 @@ select:focus {
 /* InvitationShare.vue - used by AdminView, DashboardView and
    AssignmentDetailView, so per DESIGN.md §7 its vocabulary lives here. A
    scoped block in the component would not reach any of them. */
+/* A menu row: an icon, a bold title and a grey line saying what it does. The
+   assignment page's Export, More and Invite link menus are built from these,
+   and the Invite link one is drawn by InvitationShare - two components, so the
+   rules live here (DESIGN.md §7). They were scoped inside AssignmentDetailView
+   while it drew every row itself. */
+.export-dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+/* --bg-surface-hover, DESIGN.md §2's token for exactly this. It was
+   --bg-tertiary, an alias of --bg-surface-elevated, which is #ffffff in light
+   like the menu behind it: hovering a row changed nothing at all in light. */
+.export-dropdown-item:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+/* A row can be a link (Open invite link). `a:hover` above outranks a single
+   class, and would turn it blue and underline it like running text. */
+a.export-dropdown-item:hover {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.export-dropdown-item.disabled-item,
+.export-dropdown-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dropdown-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--accent-blue);
+}
+.dropdown-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dropdown-item-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dropdown-item-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 0;
+}
+
 .invitation-share {
   display: flex;
   flex-direction: column;
@@ -1165,17 +1231,46 @@ select:focus {
 .invitation-share-banner .invitation-link {
   background: var(--bg-surface);
 }
-/* Inside the detail view's Invite link popover. The popover already provides
-   the padding and the tonal step, so this variant adds no box of its own -
-   nesting one here would be the prison (DESIGN.md §1.1). */
+/* The detail view's Invite link menu, built like its Export and More menus:
+   the link box and the status on top, then rows (.export-dropdown-item). The
+   menu already provides the box, so nothing in here draws another - nesting one
+   would be the prison (DESIGN.md §1.1). */
 .invitation-share-popover {
-  gap: var(--space-sm);
+  gap: 2px;
+}
+/* Padded like a row, so the link box and the status line up with the row
+   icons below them rather than with the menu's edge. */
+.invitation-popover-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: 8px 10px 6px;
+}
+/* The box's `flex: 1 1 18ch` is for a ROW of box and buttons. In this column
+   the basis would be a height. */
+.invitation-popover-head .invitation-link {
+  flex: none;
 }
 /* In a 320px popover the status and its note are on one flex line, so they run
    together as "Live - students can accept now Anyone with this link can accept
    until ..." and wrap raggedly. The note takes its own row here. */
 .invitation-share-popover .invitation-share-note {
   flex-basis: 100%;
+}
+/* The confirm-email row is a menu row with its help button beside it, never
+   inside it: a button in a button is not a thing HTML allows. So the block
+   drops the divider and the text styling it carries on the publish banner. */
+.invitation-share-popover .invitation-share-confirm {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.invitation-share-popover .invitation-share-confirm .help-button {
+  flex-shrink: 0;
+  margin: 8px 6px 0 0;
 }
 .invitation-share-status {
   display: flex;

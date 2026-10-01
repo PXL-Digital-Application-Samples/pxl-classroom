@@ -421,7 +421,9 @@ test.describe('64 - where a lecturer finds the link', () => {
     await detail(page);
     const row = confirmRow(page).first();
     await expect(row).toBeVisible({ timeout: 15000 });
-    await expect(row).toContainText('Confirm-email link');
+    // "Copy confirm-email link" since the menu became rows like Export's, each
+    // titled by what it does (spec 34); the name of the link is the same.
+    await expect(row).toContainText(/confirm-email link/i);
     // What it does and does not do, beside the control rather than in a manual.
     await expect(row).toContainText(/no repository/i);
   });

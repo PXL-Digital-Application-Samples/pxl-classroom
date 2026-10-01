@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
     concurrency:
       group: dashboard-${{ matrix.org }}
-      cancel-in-progress: false
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

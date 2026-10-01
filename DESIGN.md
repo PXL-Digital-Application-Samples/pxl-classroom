@@ -505,6 +505,7 @@ Global vocabulary now includes:
 | Stat colours | `.stat-green`, `.stat-yellow`, `.stat-red`, `.stat-blue` |
 | Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |
 | Components | `.repo-link`, `.repo-link-card`, `.progress-bar` (+ `-fill`), `.diag-banner` |
+| Menu rows | `.export-dropdown-item` (+ `.dropdown-icon`, `.dropdown-item-text`, `.dropdown-item-title`, `.dropdown-item-sub`), `.dropdown-divider`. The assignment page's Export, More and Invite link menus. Scoped inside `AssignmentDetailView` while it drew every row itself; shared since 2026-09-30, when the Invite link menu, drawn by `InvitationShare`, was rebuilt from the same rows. A row that is a link needs `a.export-dropdown-item:hover` too, or the global `a:hover` turns it blue and underlines it. |
 
 ### Contextual help
 

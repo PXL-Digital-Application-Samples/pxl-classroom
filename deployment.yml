@@ -133,3 +133,13 @@ archive_repo_prefix: pxl-classroom-archive-
 # READ, never derived: a submission preserved before that change still lives
 # there and must keep resolving. A fork with no history may set this to null.
 legacy_archive_repo: pxl-classroom-archive
+
+# Pipeline watchdog and notification configuration.
+# The watchdog monitors central hub Actions runs for stuck waiting or running states
+# and alerts admins via email notifications on GitHub tracking issues.
+pipeline_alerts:
+  # Notification level picklist: all | stuck_and_failures | critical_only | off
+  level: stuck_and_failures
+  # GitHub logins to mention in tracking issues to trigger email alerts
+  notify_logins:
+    - tomcoolpxl

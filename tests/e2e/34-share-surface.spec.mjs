@@ -339,3 +339,106 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
     await expect(inviteTrigger(page)).toBeVisible();
   });
 });
+
+// ============================================ §4.4 one toolbar, one kind of menu
+
+test.describe('34 - §4.4 The Invite link menu is built like Export and More', () => {
+  // Reported 2026-09-30: Export and More beside it were rows with an icon, a
+  // title and a line saying what each does, and the Invite link menu was a
+  // small form - a heading, a paragraph, two buttons and a text link. Asked for
+  // "in the same style". The rows are now the SAME rules (style.css), so this
+  // compares what the browser computed rather than which classes are present:
+  // a class can be on an element and styled by nothing (DESIGN.md §7).
+  const ROW_LOOK = ['font-size', 'font-weight', 'padding-left', 'padding-top', 'gap', 'color'];
+
+  async function detail(page) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: assignment() }, reports: {} });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(inviteTrigger(page)).toBeVisible({ timeout: 15000 });
+  }
+
+  /** The computed look of a menu's first row: the row, its title, its icon. */
+  const lookOf = (menu) => menu.locator('.export-dropdown-item').first().evaluate((row, props) => {
+    const pick = (el) => Object.fromEntries(props.map((p) => [p, getComputedStyle(el).getPropertyValue(p)]));
+    return {
+      row: pick(row),
+      title: pick(row.querySelector('.dropdown-item-title')),
+      icon: getComputedStyle(row.querySelector('.dropdown-icon')).color,
+    };
+  }, ROW_LOOK);
+
+  test('its rows look exactly like the Export menu\'s', async ({ page }) => {
+    await detail(page);
+    await openInvitePopover(page);
+    const invite = page.locator('.invite-menu');
+    // Three rows, each with its icon: copy, open, copy the confirm-email link.
+    await expect(invite.locator('.export-dropdown-item')).toHaveCount(3);
+    await expect(invite.locator('.export-dropdown-item .dropdown-icon')).toHaveCount(3);
+    const inviteLook = await lookOf(invite);
+
+    await page.getByRole('button', { name: /Export/i }).click();
+    const exportLook = await lookOf(page.locator('.export-dropdown-menu[role="menu"]'));
+    expect(inviteLook).toEqual(exportLook);
+  });
+
+  test('it keeps the link box and the status, and none of it is a button face', async ({ page }) => {
+    await detail(page);
+    await openInvitePopover(page);
+    const invite = page.locator('.invite-menu');
+    await expect(invite.locator('.invitation-link')).toContainText(`/${ORG}/i/`);
+    await expect(invite).toContainText('Live - students can accept now');
+    // The trigger is the view's one primary (DESIGN.md §1.2), and the rows are
+    // rows: no .btn of any kind inside, the help button aside.
+    await expect(invite.locator('.btn')).toHaveCount(0);
+    // A row that is a link must not turn into running text on hover.
+    const open = invite.getByRole('link', { name: /Open invite link/ });
+    await expect(open).toHaveAttribute('href', new RegExp(`/${ORG}/i/`));
+    await open.hover();
+    await expect(open).toHaveCSS('text-decoration-line', 'none');
+  });
+
+  test('hovering a row shows, in light too - in every menu', async ({ page }) => {
+    // The hover was --bg-tertiary, an alias of --bg-surface-elevated, which is
+    // #ffffff in light exactly like the menu under it: hovering a row in Export
+    // or More changed nothing, for as long as those menus had existed.
+    await page.emulateMedia({ colorScheme: 'light' });
+    await detail(page);
+    const hovered = async (menu) => {
+      const row = menu.locator('.export-dropdown-item').first();
+      await row.hover();
+      // The row's background TRANSITIONS, and a colour read mid-fade differs
+      // from the menu's whatever the rule says - which is how this passed over
+      // the defect it names, the first time it was run against the old code.
+      await row.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      return Promise.all([
+        row.evaluate((el) => getComputedStyle(el).backgroundColor),
+        menu.evaluate((el) => getComputedStyle(el).backgroundColor),
+      ]);
+    };
+
+    await page.getByRole('button', { name: /Export/i }).click();
+    const [exportRow, exportMenu] = await hovered(page.locator('.export-dropdown-menu[role="menu"]'));
+    expect(exportRow, 'Export: the hovered row must differ from the menu').not.toBe(exportMenu);
+    await page.getByRole('button', { name: /Export/i }).click();
+
+    await openInvitePopover(page);
+    const [inviteRow, inviteMenu] = await hovered(page.locator('.invite-menu'));
+    expect(inviteRow, 'Invite link: the hovered row must differ from the menu').not.toBe(inviteMenu);
+  });
+
+  test('the link box is cut, not the menu stretched: the real address is far longer', async ({ page }) => {
+    // The box is one unbreakable line. As a min-width the menu grew to fit it -
+    // 430px on localhost, about 650 on the real site, whose address carries the
+    // Pages path and the organization.
+    await detail(page);
+    await openInvitePopover(page);
+    const invite = page.locator('.invite-menu');
+    const box = invite.locator('.invitation-link');
+    // As long as the real one, and not the real one: the deployed origin is not
+    // a test input (tests/e2e-hermetic.test.mjs).
+    await box.evaluate((el, org) => { el.textContent = `https://an-institution.example/a-pages-project-path/pxl-classroom/${org}/i/…`; }, ORG);
+    expect((await invite.boundingBox()).width).toBeLessThanOrEqual(342);
+    expect(await box.evaluate((el) => el.scrollWidth > el.clientWidth), 'the box ellipsises').toBe(true);
+  });
+});

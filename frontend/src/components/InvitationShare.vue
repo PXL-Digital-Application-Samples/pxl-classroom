@@ -14,6 +14,70 @@
     <Icon :name="copied ? 'check-circle' : 'copy'" :size="14" />
   </button>
 
+  <!-- popover: the detail view's Invite link menu, which sits beside Export and
+       More and is built the way they are - rows with an icon, a title and a
+       line saying what each does - rather than as a small form. The link box
+       and the status stay on top: the status is what says whether sending the
+       link makes sense at all, and it is a fact, not something to click.
+       No row is btn-primary: the menu's TRIGGER is this view's one primary
+       (DESIGN.md §1.2), and the conformity test counts visible ones. -->
+  <div v-else-if="variant === 'popover'" class="invitation-share invitation-share-popover">
+    <div class="invitation-popover-head">
+      <code class="invitation-link" :title="display">{{ display }}</code>
+      <div class="invitation-share-status">
+        <span class="status-indicator">
+          <span class="status-dot" :class="status.dot"></span>
+          <span>{{ status.label }}</span>
+        </span>
+        <span class="invitation-share-note">{{ status.note }}</span>
+      </div>
+    </div>
+
+    <div class="dropdown-divider" role="separator"></div>
+
+    <button type="button" class="export-dropdown-item" :disabled="busy" @click="copy">
+      <Icon :name="copied ? 'check-circle' : 'copy'" :size="14" class="dropdown-icon" />
+      <span class="dropdown-item-text">
+        <span class="dropdown-item-title">{{ copied ? 'Copied' : 'Copy invite link' }}</span>
+        <span class="dropdown-item-sub">Send it to students so they can join this assignment</span>
+      </span>
+    </button>
+    <!-- The only way a lecturer can see what a student sees. -->
+    <a
+      v-if="link"
+      class="export-dropdown-item"
+      :href="link"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <Icon name="external-link" :size="14" class="dropdown-icon" />
+      <span class="dropdown-item-text">
+        <span class="dropdown-item-title">Open invite link</span>
+        <span class="dropdown-item-sub">See the page a student gets</span>
+      </span>
+    </a>
+
+    <!-- The confirm-email link: see the banner's copy of this block below for
+         why it lives beside the invitation. Its help button sits BESIDE the row,
+         because a button inside a button is not valid HTML. -->
+    <template v-if="link">
+      <div class="dropdown-divider" role="separator"></div>
+      <div class="invitation-share-confirm">
+        <button type="button" class="export-dropdown-item" :disabled="busy" @click="copyConfirm">
+          <Icon :name="confirmCopied ? 'check-circle' : 'mail'" :size="14" class="dropdown-icon" />
+          <span class="dropdown-item-text">
+            <span class="dropdown-item-title">{{ confirmCopied ? 'Copied' : 'Copy confirm-email link' }}</span>
+            <span class="dropdown-item-sub">
+              Asks a student to link their {{ INSTITUTION_SHORT }} address to their GitHub account.
+              No repository is created, and it stops working when this assignment finishes.
+            </span>
+          </span>
+        </button>
+        <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
+      </div>
+    </template>
+  </div>
+
   <div v-else :class="['invitation-share', `invitation-share-${variant}`]">
     <h4 v-if="variant === 'banner'" class="invitation-share-title">Share with students</h4>
 
@@ -62,14 +126,14 @@
          Deliberately quiet - the invitation is what a lecturer comes here for,
          and this is the answer to a problem they meet later, on the Roster tab,
          when rows carry a login and nothing else.
-         In the BANNER (just published) and the POPOVER (the detail view, where
-         a lecturer comes back a week later for the link) - which is when they
-         will actually want it - and not in `compact`, a single icon button with
-         no room, nor `inline`, whose Copy is already the primary action.
+         In the BANNER (just published) and the POPOVER above (the detail view,
+         where a lecturer comes back a week later for the link) - which is when
+         they will actually want it - and not in `compact`, a single icon button
+         with no room, nor `inline`, whose Copy is already the primary action.
          `btn-link` rather than a second solid button: DESIGN.md §1.2 is one
          primary per view, and this row is a secondary route out of the same
          block. -->
-    <div v-if="(variant === 'banner' || variant === 'popover') && link" class="invitation-share-confirm">
+    <div v-if="variant === 'banner' && link" class="invitation-share-confirm">
       <span class="invitation-share-confirm-label">Confirm-email link</span>
       <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
       <button
@@ -116,11 +180,11 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'inline',
-    // `popover` renders exactly what `inline` does, with one difference that is
-    // the whole reason it exists: its Copy is SECONDARY. On the detail view the
-    // popover's trigger carries btn-primary (DESIGN.md §1.2 names this view's
-    // one CTA), and the conformity test counts VISIBLE primaries - so an open
-    // popover containing inline's primary Copy would put two on screen.
+    // `popover` is the detail view's Invite link menu: the same link box and
+    // status as `inline`, then menu rows like the Export and More menus beside
+    // it. None of them is primary: that view's trigger carries btn-primary
+    // (DESIGN.md §1.2 names its one CTA), and the conformity test counts
+    // VISIBLE primaries - so inline's primary Copy would put two on screen.
     validator: (v) => ['banner', 'inline', 'compact', 'popover'].includes(v),
   },
   // Whether an absent `invite_token` may be read from the control repo.

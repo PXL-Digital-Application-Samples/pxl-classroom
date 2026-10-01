@@ -174,11 +174,11 @@ The student-facing URL is the invitation link: `https://<pages-host>/pxl-classro
 | Where | What you get |
 |---|---|
 | The banner after publishing, in the Admin Panel | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
-| The assignment's detail page, under the header | The same block, with the live accepted count feeding its status |
+| The assignment's detail page, behind the **Invite link** button | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link** and **Copy confirm-email link** |
 | Each published row in the Admin Panel's assignment list | A copy button |
 | Each published card on the dashboard | A copy button |
 
-The link is shown truncated - hover it for the whole thing, and Copy always puts the full URL on the clipboard. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
+The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
 
 That's the only URL students need. They open it, sign in, click Accept, wait ~30 seconds, get a repo link.
 
@@ -1166,6 +1166,7 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
    - **Pages deployment propagating:** Click **[Deploy to GitHub Pages]** to trigger `deploy-frontend.yml`.
    - **Enforced roster missing:** Click **[Open Roster Editor]** to navigate directly to the roster editor tab.
    - **Dashboard data stale:** Click **[Regenerate Dashboard]** to dispatch `regenerate-dashboard.yml`.
+   - **Central Hub pipeline run stuck:** Click **[Cancel Stuck Run #...]** to immediately cancel deadlocked Actions runs (`status=waiting` over 15m or `status=in_progress` over 45m) on the hub.
    - **Organization not enrolled:** Click **[Run Setup Organization]** - an administrator's action ([ADMIN.md §1.2](ADMIN.md#12-run-setup-organization)), offered here because this is where the gap shows up.
 
 #### Option B: CLI Audit Companion
@@ -1215,3 +1216,25 @@ It appears only once the deadline has actually frozen something, and only for a 
 **On a group assignment there is one repository and one lock on it,** so reopening for one member reopens it for the team. The record notes the team slug.
 
 **If it fails with "your account cannot change that repository's settings":** editing a repository ruleset needs admin on that repository. An organization owner has it; a lecturer with write access to the control repo does not necessarily. Ask an owner to run it - from this same screen, so the record still gets written.
+
+### 6.16 Central Pipeline Watchdog & Stuck Run Deadlock Prevention
+
+Central deployment and regeneration workflows (`deploy-frontend.yml`, `regenerate-dashboard.yml`) rely on GitHub Actions concurrency locks.
+
+1. **Deadlock Prevention (cancel-in-progress: true):**
+   - Concurrency groups `pages` and `dashboard-${{ matrix.org }}` both declare `cancel-in-progress: true`.
+   - When a newer run or dispatch starts, any older or queued run is superseded and cancelled immediately, preventing runs waiting in environment protection queues from deadlocking subsequent deploys.
+
+2. **Automated Pipeline Watchdog (pipeline-watchdog.yml):**
+   - A scheduled sentinel runs every 30 minutes (`*/30 * * * *`) on the hub repository.
+   - Inspects hub Actions runs for zombie runs: waiting over 15 minutes or running over 45 minutes.
+   - Automatically cancels zombie waiting runs over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked.
+   - Posts deduplicated alert comments with `@<login>` mentions on open tracking issues (`[NOTICE] PXL Classroom - Pipeline Watchdog Alerts`), triggering immediate email notifications through GitHub.
+
+3. **Alert Level Preferences & Picklists:**
+   - Configurable in `deployment.yml` (`pipeline_alerts.level`), the System Health modal, or via `workflow_dispatch` choice picklist:
+     - `stuck_and_failures` (Default): Alerts on stuck runs and workflow failures.
+     - `all`: Alerts on all stuck runs, workflow failures, and warning events.
+     - `critical_only`: Alerts only on critical deployment and publish pipeline blockers.
+     - `off`: Mutes automated email notifications.
+

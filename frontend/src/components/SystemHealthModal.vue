@@ -28,6 +28,29 @@
           </div>
         </div>
 
+        <!-- PIPELINE ALERT SETTINGS -->
+        <div v-if="report" class="alert-settings-bar flex items-center justify-between">
+          <div class="flex items-center gap-xs text-xs">
+            <Icon name="bell" :size="14" class="text-blue" />
+            <span class="font-semibold">Pipeline Alerts:</span>
+            <span class="text-muted">Email alerts for stuck runs and failures</span>
+          </div>
+          <div class="flex items-center gap-xs">
+            <label for="alert-picklist" class="sr-only">Alert level</label>
+            <select
+              id="alert-picklist"
+              v-model="alertLevel"
+              class="input-select-sm"
+              @change="updateAlertLevel"
+            >
+              <option value="stuck_and_failures">Stuck runs and failures (Default)</option>
+              <option value="all">All events (stuck, failures, warnings)</option>
+              <option value="critical_only">Critical blockers only</option>
+              <option value="off">Disabled (no alerts)</option>
+            </select>
+          </div>
+        </div>
+
         <div v-if="running && !report" class="loading-state">
           <div class="spinner"></div>
           <p>Running ordered diagnostic tests against organization, templates, and broker infrastructure…</p>
@@ -123,6 +146,12 @@ const running = ref(false)
 const report = ref(null)
 const fixingId = ref(null)
 const expandedTiers = reactive({})
+const alertLevel = ref(localStorage.getItem('pxl_alert_level') || 'stuck_and_failures')
+
+function updateAlertLevel() {
+  localStorage.setItem('pxl_alert_level', alertLevel.value)
+  toast.success(`Pipeline alert preference updated: ${alertLevel.value.replace(/_/g, ' ')}`)
+}
 
 // A diagnostic pass is a fan-out of GitHub REST calls, not a workflow dispatch -
 // nothing server-side to cancel. Two passes in flight at once therefore cost
@@ -335,6 +364,15 @@ async function executeFix(c) {
         scheduleRecheck(4000)
       } else {
         toast.error(`Dashboard workflow dispatch failed (HTTP ${res.status}).`)
+      }
+    } else if (fix.type === 'cancel_run') {
+      const res = await ghApi(token, 'POST', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs/${fix.runId}/cancel`)
+      if (res.ok || res.status === 202) {
+        toast.success(`Workflow run #${fix.runId} cancellation requested!`)
+        emit('fixed', { type: fix.type })
+        scheduleRecheck(2000)
+      } else {
+        toast.error(`Failed to cancel run #${fix.runId}: ${res.data?.message || 'unknown error'}`)
       }
     } else if (fix.type === 'navigate_roster') {
       emit('navigate-tab', 'roster')
@@ -615,5 +653,21 @@ function overallSummary(sev) {
   font-size: 0.8rem;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+.alert-settings-bar {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.input-select-sm {
+  font-size: 0.8rem;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }
 </style>

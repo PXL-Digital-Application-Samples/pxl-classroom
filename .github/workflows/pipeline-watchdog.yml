@@ -1,0 +1,43 @@
+name: Pipeline Watchdog & Sentinel
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      alert_level:
+        description: 'Alert Notification Level'
+        type: choice
+        options:
+          - stuck_and_failures
+          - all
+          - critical_only
+          - off
+        default: stuck_and_failures
+      auto_cancel:
+        description: 'Auto-cancel zombie runs waiting over 20 minutes'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: npm ci --omit=dev
+      - name: Run Pipeline Watchdog
+        run: node scripts/pipeline-watchdog.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUB_OWNER: ${{ github.repository_owner }}
+          HUB_REPO: ${{ github.event.repository.name }}
+          ALERT_LEVEL: ${{ inputs.alert_level || 'stuck_and_failures' }}
+          AUTO_CANCEL: ${{ inputs.auto_cancel != false }}

@@ -333,11 +333,11 @@
                 <Icon :name="inviteMenuOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
               </button>
 
-              <!-- Not role="menu": this is a labelled group holding a link and
-                   two controls, not a list of menu items. -->
+              <!-- Not role="menu": besides its rows it holds the link box, a
+                   status line and a help button, none of which is a menu item.
+                   It LOOKS like Export and More beside it; the heading and help
+                   line it had are the Copy row's title and subtitle now. -->
               <div v-if="inviteMenuOpen" class="export-dropdown-menu invite-menu fade-in" aria-label="Invite link for students">
-                <p class="invite-menu-title">Invite link for students</p>
-                <p class="invite-menu-help">Send this to students so they can join this assignment.</p>
                 <InvitationShare :org="org" :assignment="shareAssignment" variant="popover" />
               </div>
             </div>
@@ -4861,32 +4861,20 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.8rem;
   margin-top: var(--space-sm);
 }
-/* The Invite link popover. Wider than the action menus because it holds a URL
-   chip and two controls rather than a column of menu items, and it lays its
-   contents out as a block - the dropdown menus are flex columns of full-width
-   rows, which would stretch the Copy and Open buttons across the whole width. */
-/* Compounded with .export-dropdown-menu ON PURPOSE. Both are single-class
-   selectors and .export-dropdown-menu is declared further down this stylesheet,
-   so a bare `.invite-menu` lost every property they share - the popover was
-   silently taking the menu's `padding: 4px` and `display: flex`, which put the
-   text hard against its left edge. Two classes outrank one, whatever the
-   order. */
+/* The Invite link menu. Its padding, border and shadow are Export's and
+   More's; InvitationShare pads the link box and the status like a row, so all
+   three menus line up the same way. Compounded with .export-dropdown-menu so
+   it wins whatever the order in this stylesheet, where a bare `.invite-menu`
+   would lose to a rule declared further down.
+   A WIDTH, not a min-width: the link box is one unbreakable line, and as a
+   min-width the menu grew to fit the whole URL - about 650px on the real
+   site, whose address carries the Pages path and the organization. The box
+   cuts it off with an ellipsis instead; Copy and Open are how the link is
+   used. The cap keeps the 8px keepMenuInView() leaves on a 320px phone. */
 .export-dropdown-menu.invite-menu {
-  min-width: 320px;
+  width: 340px;
+  max-width: calc(100vw - 16px);
   display: block;
-  padding: var(--space-md);
-}
-
-.invite-menu-title {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.invite-menu-help {
-  margin: 2px 0 var(--space-sm);
-  font-size: 0.8rem;
-  color: var(--text-secondary);
 }
 
 .ext-note {
@@ -4999,63 +4987,9 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* ...and `keepMenuInView()` shifts it back when that would put it off screen -
    see the note there for why this cannot be a media query. */
 
-.export-dropdown-item {
-  width: 100%;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 10px;
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm, 4px);
-  color: var(--text-primary);
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background-color 0.15s ease;
-}
-
-.export-dropdown-item:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-}
-
-.export-dropdown-item.disabled-item,
-.export-dropdown-item:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.dropdown-icon {
-  margin-top: 2px;
-  flex-shrink: 0;
-  color: var(--accent-blue);
-}
-
-.dropdown-item-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dropdown-item-title {
-  font-size: 0.84rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dropdown-item-sub {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  line-height: 1.25;
-}
-
-.dropdown-divider {
-  height: 1px;
-  background: var(--border-default);
-  margin: 4px 0;
-}
+/* The menu ROWS (.export-dropdown-item, .dropdown-icon, .dropdown-item-*,
+   .dropdown-divider) are in style.css: the Invite link menu's rows are drawn by
+   InvitationShare, which no rule scoped here can reach (DESIGN.md §7). */
 
 .badge-count {
   font-size: 0.7rem;

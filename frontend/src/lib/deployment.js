@@ -86,3 +86,9 @@ export const ARCHIVE_REPO_PREFIX = config.archive_repo_prefix
 
 /** The per-organization archive used before archives became per-assignment. */
 export const LEGACY_ARCHIVE_REPO = config.legacy_archive_repo ?? null
+
+/** Pipeline watchdog and alert configuration for central hub monitoring. */
+export const PIPELINE_ALERTS = Object.freeze({
+  level: config.pipeline_alerts?.level || 'stuck_and_failures',
+  notify_logins: Object.freeze([...(config.pipeline_alerts?.notify_logins || ['tomcoolpxl'])]),
+})

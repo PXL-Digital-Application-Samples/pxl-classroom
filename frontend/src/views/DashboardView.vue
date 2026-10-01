@@ -100,17 +100,37 @@
         <button
           v-if="selectedOrg"
           type="button"
-          class="btn btn-ghost btn-icon"
+          class="btn btn-ghost btn-icon health-btn"
           @click="showHealthModal = true"
           title="System health check"
           aria-label="System health check"
         >
           <Icon name="activity" :size="16" />
+          <span v-if="hubStuckRun" class="alert-dot" title="Pipeline warning detected"></span>
         </button>
       </template>
     </AppHeader>
 
     <main class="container">
+      <!-- Stuck Hub Pipeline Alert Banner (Visible to Hub Staff) -->
+      <div v-if="user && hubWritable && hubStuckRun" class="pipeline-stuck-banner card flex items-center justify-between gap-md" role="alert">
+        <div class="flex items-center gap-sm">
+          <Icon name="alert-triangle" :size="16" class="text-warning" />
+          <div class="text-sm">
+            <strong>Pipeline Warning:</strong> Workflow <code>{{ hubStuckRun.name }}</code> (#{{ hubStuckRun.id }}) has been {{ hubStuckRun.status }} for {{ hubStuckRun.durationMin }}m.
+          </div>
+        </div>
+        <div class="flex items-center gap-sm">
+          <button class="btn btn-danger-outline btn-sm btn-with-icon" type="button" @click="cancelStuckRun(hubStuckRun.id)" :disabled="cancellingRun">
+            <Icon name="x-circle" :size="13" />
+            <span>{{ cancellingRun ? 'Cancelling…' : 'Cancel Run' }}</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="showHealthModal = true">
+            <span>Diagnostics</span>
+          </button>
+        </div>
+      </div>
+
       <!-- GitHub's installation page has no route back here, so returning
            lecturers were left guessing. This stays until an org appears. -->
       <div v-if="connectPending && user" class="connect-pending card flex items-center justify-between gap-md">
@@ -709,6 +729,69 @@ const DASH_STATE_FOR_VERDICT = Object.freeze({
 const CANNOT_READ_ORG = new Set(['no-access', 'no-org-access', 'registry-unknown'])
 const staffHere = computed(() => !CANNOT_READ_ORG.has(dashState.value))
 const hubWritable = ref(false)
+const hubStuckRun = ref(null)
+const cancellingRun = ref(false)
+
+async function checkHubPipelines() {
+  if (!hubWritable.value) {
+    hubStuckRun.value = null
+    return
+  }
+  const token = getToken()
+  if (!token) return
+  try {
+    const [waitingRes, progressRes] = await Promise.all([
+      ghApi(token, 'GET', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs?status=waiting`),
+      ghApi(token, 'GET', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs?status=in_progress`),
+    ])
+    const now = Date.now()
+    const candidates = []
+    if (waitingRes.ok && Array.isArray(waitingRes.data?.workflow_runs)) {
+      for (const r of waitingRes.data.workflow_runs) {
+        const ageMs = now - new Date(r.created_at).getTime()
+        if (ageMs > 15 * 60 * 1000) {
+          candidates.push({ id: r.id, name: r.name || 'Workflow', status: r.status, durationMin: Math.max(1, Math.round(ageMs / 60000)) })
+        }
+      }
+    }
+    if (progressRes.ok && Array.isArray(progressRes.data?.workflow_runs)) {
+      for (const r of progressRes.data.workflow_runs) {
+        const ageMs = now - new Date(r.created_at).getTime()
+        if (ageMs > 45 * 60 * 1000) {
+          candidates.push({ id: r.id, name: r.name || 'Workflow', status: r.status, durationMin: Math.max(1, Math.round(ageMs / 60000)) })
+        }
+      }
+    }
+    hubStuckRun.value = candidates[0] || null
+  } catch {
+    // Non-blocking
+  }
+}
+
+async function cancelStuckRun(runId) {
+  const token = getToken()
+  if (!token) return
+  cancellingRun.value = true
+  try {
+    const res = await ghApi(token, 'POST', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs/${runId}/cancel`)
+    if (res.ok || res.status === 202) {
+      toast.success(`Workflow run #${runId} cancellation requested!`)
+      hubStuckRun.value = null
+      setTimeout(checkHubPipelines, 3000)
+    } else {
+      toast.error(`Failed to cancel run #${runId}: ${res.data?.message || 'unknown error'}`)
+    }
+  } catch (err) {
+    toast.error(`Cancellation error: ${err.message}`)
+  } finally {
+    cancellingRun.value = false
+  }
+}
+
+watch(hubWritable, (writable) => {
+  if (writable) checkHubPipelines()
+  else hubStuckRun.value = null
+})
 // Set with the verdict. Only an owner can watch for the control repository
 // after Setup Organization - anyone else is watching for a repository they will
 // never be able to see - and the registry's budget owner is the one name this
@@ -1680,6 +1763,25 @@ main {
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
+}
+
+.health-btn {
+  position: relative;
+}
+.alert-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent-red);
+}
+.pipeline-stuck-banner {
+  background: var(--tint-attention-subtle);
+  border: 1px solid var(--tint-attention-emphasis);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
 }
 
 @media (max-width: 640px) {
