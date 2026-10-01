@@ -2710,6 +2710,13 @@ const filteredStudents = computed(() => {
     if (av == null && bv == null) return 0
     if (av == null) return 1
     if (bv == null) return -1
+    if (sortKey.value === 'latest_observed_at' && av && bv) {
+      const at = new Date(av).getTime()
+      const bt = new Date(bv).getTime()
+      if (!Number.isNaN(at) && !Number.isNaN(bt)) {
+        return sortAsc.value ? at - bt : bt - at
+      }
+    }
     const cmp = typeof av === 'number' && typeof bv === 'number'
       ? av - bv
       : String(av).localeCompare(String(bv))
@@ -3534,13 +3541,14 @@ async function fetchBreakdownForStudent(token, s) {
   // 2. Try reading check-run and annotations from student repository (GitHub Actions autograding)
   if (s.repo_name && sha) {
     try {
-      const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
+      const repoFullName = s.repo_name.includes('/') ? s.repo_name : `${props.org}/${s.repo_name}`
+      const checkRes = await ghApi(token, 'GET', `/repos/${repoFullName}/commits/${sha}/check-runs`)
       if (checkRes.ok && Array.isArray(checkRes.data?.check_runs)) {
         const run = pickAutogradeCheckRun(checkRes.data.check_runs)
         if (run) {
           let annotations = []
           if (run.output?.annotations_count) {
-            const annRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/check-runs/${run.id}/annotations?per_page=100`)
+            const annRes = await ghApi(token, 'GET', `/repos/${repoFullName}/check-runs/${run.id}/annotations?per_page=100`)
             if (annRes.ok && Array.isArray(annRes.data)) {
               annotations = annRes.data
             }
@@ -4227,7 +4235,7 @@ function lastCommitBeforeDeadline(row) {
   const s = studentMap.value.get(row.login?.toLowerCase())
   const sha = s?.last_on_time_sha || row.graded_sha || (s?.submission_status === 'on-time' ? latestSha(s) : null)
   const time = s?.commit_date || s?.latest_commit_date || null
-  const repoUrl = s?.repo_url
+  const repoUrl = s?.repo_url || (s?.repo_name ? (s.repo_name.startsWith('http') ? s.repo_name : `https://github.com/${s.repo_name.includes('/') ? s.repo_name : props.org + '/' + s.repo_name}`) : null)
   const href = repoUrl && sha ? `${repoUrl}/commit/${sha}` : null
   return { sha, time, href, repoUrl }
 }
