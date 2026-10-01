@@ -18,6 +18,7 @@
                 :aria-expanded="orgDropdownOpen"
                 aria-haspopup="listbox"
                 aria-label="Select organization"
+                :title="selectedOrg || 'Select organization…'"
               >
                 <span class="flex items-center gap-sm">
                   <span
@@ -25,7 +26,7 @@
                     :class="`lamp-${getOrgStatus(selectedOrg)}`"
                     :title="getOrgStatusTitle(selectedOrg)"
                   ></span>
-                  <span class="org-label">{{ selectedOrg || 'Select organization…' }}</span>
+                  <span class="org-label" :title="selectedOrg">{{ selectedOrg || 'Select organization…' }}</span>
                 </span>
                 <Icon :name="orgDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="12" class="dropdown-chevron" />
               </button>
@@ -49,6 +50,7 @@
                   :class="{ 'is-selected': orgOption.login === selectedOrg }"
                   role="option"
                   :aria-selected="orgOption.login === selectedOrg"
+                  :title="orgOption.login"
                   @click="selectOrg(orgOption.login)"
                   @keydown.enter.prevent="selectOrg(orgOption.login)"
                   @keydown.space.prevent="selectOrg(orgOption.login)"
@@ -1464,9 +1466,10 @@ function handleLogout() {
 .org-dropdown-container {
   position: relative;
   /* No hard floor: this sits in the header, so a fixed min-width forces the
-     whole bar wider than a narrow viewport. The org name truncates instead. */
+     whole bar wider than a narrow viewport. The org name truncates instead.
+     Accommodates up to GitHub's 39-character max org name on desktop. */
   min-width: 0;
-  max-width: 240px;
+  max-width: min(390px, calc(100vw - 320px));
 }
 
 .org-label {
@@ -1493,6 +1496,11 @@ function handleLogout() {
   transition: border-color 0.12s, background-color 0.12s;
 }
 
+.org-dropdown-btn > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .org-dropdown-btn:hover {
   border-color: var(--text-muted);
   background: var(--bg-surface-hover);
@@ -1507,8 +1515,9 @@ function handleLogout() {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  right: 0;
-  min-width: 230px;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
@@ -1528,6 +1537,7 @@ function handleLogout() {
   font-size: 0.85rem;
   color: var(--text-primary);
   cursor: pointer;
+  white-space: nowrap;
   transition: background-color 0.1s;
 }
 
@@ -1791,11 +1801,16 @@ main {
   .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
   .health-btn { justify-content: center; }
   .onboarding-actions { flex-direction: column; align-items: stretch; }
+  .org-dropdown-container { max-width: 240px; }
 }
 
 @media (max-width: 520px) {
   .header-titles .app-header-title,
   .header-titles .app-header-sep { display: none; }
   .section-toolbar { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
+}
+
+@media (max-width: 420px) {
+  .org-dropdown-container { max-width: 170px; }
 }
 </style>
