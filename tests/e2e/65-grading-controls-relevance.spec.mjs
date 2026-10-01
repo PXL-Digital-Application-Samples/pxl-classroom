@@ -246,7 +246,7 @@ test.describe('65 - the per-student re-grade actually writes', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/${ID}`);
-    await expect(page.getByRole('button', { name: /Export/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /Actions for student-one/i }).click();
     await page.getByRole('button', { name: 'Read score again' }).click();
 

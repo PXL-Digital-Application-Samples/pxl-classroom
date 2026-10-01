@@ -860,8 +860,10 @@
                   <!-- Normal display mode -->
                   <div v-else class="claimed-email-cell">
                     <template v-if="s.claimed_email">
-                      <div class="claimed-address-row">
-                        <span class="text-sm claimed-address" :title="s.claimed_email">{{ s.claimed_email }}</span>
+                      <span class="text-sm claimed-address" :title="s.claimed_email">{{ s.claimed_email }}</span>
+                      <div class="status-indicator" :title="claimNote(s).title">
+                        <span class="status-dot" :class="claimNote(s).dot"></span>
+                        <span class="text-xs">{{ claimNote(s).label }}</span>
                         <button
                           v-if="claimNote(s).dot !== 'dot-success'"
                           type="button"
@@ -871,10 +873,6 @@
                         >
                           <Icon name="edit" :size="11" />
                         </button>
-                      </div>
-                      <div class="status-indicator" :title="claimNote(s).title">
-                        <span class="status-dot" :class="claimNote(s).dot"></span>
-                        <span class="text-xs">{{ claimNote(s).label }}</span>
                       </div>
                     </template>
                     <div v-else class="claimed-address-row">
@@ -1404,7 +1402,7 @@
           <details v-if="ignoredHandIns.length" class="autograde-failed autograde-ignored">
             <summary class="autograde-failed-summary">
               <Icon name="chevron-down" :size="13" class="autograde-failed-caret" />
-              <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded</strong>
+              <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded:</strong>
               <span class="text-secondary text-xs" style="margin-left: auto;">click to view</span>
             </summary>
             <ul>
