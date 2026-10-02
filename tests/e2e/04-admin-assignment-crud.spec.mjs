@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, addCheck, CHECK_PYTHON } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, addCheck, CHECK_PYTHON, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => {
   test('Happy Path: Lecturer fills out assignment form, searches template, and previews pattern', async ({ page }) => {
@@ -94,19 +94,18 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     // `open` since 2026-08-24: signed invitations gate the broker, so the
     // roster is no longer what stands between a stranger and a repository -
     // and requiring a CSV import before anyone could accept bought nothing.
-    const rosterSelect = page.locator('select').filter({ hasText: 'only students on the roster' });
-    await expect(rosterSelect).toHaveValue('open');
+    await expect(page.getByLabel('Anyone with the link')).toBeChecked();
     // No roster status, because no gate to report on - it says what open
     // enrolment means instead.
     await expect(page.locator('.roster-status')).toHaveCount(0);
     // "Students need the link, and nothing else" came out on 2026-09-04: it
     // restated the dropdown a lecturer had just read. The warning below it is
     // the sentence that says something they did not already know.
-    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
+    await expect(page.locator('text=Anyone with the link can accept')).toBeVisible();
 
     // And the gate is one dropdown away, with its own answer to "can anyone
     // accept?" (ARCHITECTURE §10.4, covered in depth by 32-first-run-wall).
-    await rosterSelect.selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await expect(page.locator('.roster-status')).toContainText('nobody can accept');
 
     // One enum value is not a decision, so there is no control for it.

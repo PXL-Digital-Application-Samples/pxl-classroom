@@ -434,6 +434,21 @@ export function personaId(login) {
   return 800000 + h;
 }
 
+/**
+ * Set the assignment form's roster mode the way a lecturer does: two questions
+ * since 2026-10-02 (AdminView `whoMayAccept` / `acceptIdentity`), where it was
+ * one select. `open` answers only the first and leaves the address question as
+ * it was, which is what selecting `open` in the old select did.
+ */
+export async function chooseRosterMode(page, mode) {
+  if (mode === 'open') {
+    await page.getByLabel('Anyone with the link').check();
+    return;
+  }
+  await page.getByLabel('Only students on the roster').check();
+  await page.getByRole('radio', { name: mode === 'claim' ? /confirm their .* email address/ : 'just click Accept' }).check();
+}
+
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,

@@ -20,7 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { parse as yamlParse } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 // Two sections and one student nobody grouped - who used to be refused by the
 // rule and is now just another row you can tick.
@@ -40,7 +40,7 @@ const UNGROUPED = ROSTER.map((s) => {
 });
 
 const guardrails = (page) =>
-  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Students' }) });
 
 const row = (page, name) => page.locator('.cohort-row', { hasText: name });
 
@@ -54,7 +54,7 @@ async function newAssignment(page, { roster = ROSTER } = {}) {
 
 /** Put the roster back in charge of who may accept. */
 async function gateOnRoster(page) {
-  await guardrails(page).locator('select').first().selectOption('enforced');
+  await chooseRosterMode(page, 'enforced');
 }
 
 test.describe('49 - picking who an assignment is for', () => {
@@ -568,10 +568,10 @@ test.describe('49 - edges the happy path hides', () => {
     await editing(page, published({ state: 'draft', cohort: ['num:0001', 'num:0002'] }));
     await expect(guardrails(page)).toContainText('2 of 5 selected');
 
-    await guardrails(page).locator('select').first().selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(page.locator('.cohort-list')).toHaveCount(0);
 
-    await guardrails(page).locator('select').first().selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await expect(guardrails(page)).toContainText('2 of 5 selected');
   });
 

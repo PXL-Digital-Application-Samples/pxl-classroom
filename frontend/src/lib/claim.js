@@ -25,18 +25,19 @@ import claimKeys from '../../../acceptance/claim-keys.json'
 import { INSTITUTION_SHORT } from './deployment.js'
 
 /**
- * The `require_claim` checkbox's label, in one place.
+ * The answer that asks for an address, in one place: "When accepting,
+ * students: <this>" on the assignment form (since 2026-10-02 a radio answer,
+ * before that a checkbox).
  *
- * `PromoteRosterModal` tells a lecturer to "Tick <em>…</em>" and quoted the
- * label verbatim, so the two had to agree and nothing made them: the option
- * two fields above it started naming the institution while both of these still
- * said "institutional", and an instruction that quotes a control by a name the
- * control does not have sends someone looking for a checkbox that is not there.
- *
- * Short form deliberately - it sits inside a `<select>` option and a sentence
- * in a modal, where the long name is a mouthful.
+ * `PromoteRosterModal` quotes it to tell a lecturer where to change it, and it
+ * used to spell the label out - so when the form started naming the
+ * institution, the modal still said "institutional", and an instruction that
+ * quotes a control by a name the control does not have sends someone looking
+ * for a control that is not there.
  */
-export const REQUIRE_CLAIM_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`
+export const REQUIRE_CLAIM_LABEL = `confirm their ${INSTITUTION_SHORT} email address`
+/** The question that answer belongs to, quoted the same way. */
+export const ACCEPT_IDENTITY_QUESTION = 'When accepting, students'
 
 /**
  * The hub public key new claims are sealed to, or null when none is configured.

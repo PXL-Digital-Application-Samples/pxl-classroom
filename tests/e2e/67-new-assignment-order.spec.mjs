@@ -67,9 +67,10 @@ test.describe('67 - one block, in the order the data flows', () => {
   test('Template and Basics are ONE fieldset now', async ({ page }) => {
     await openNew(page);
     const legends = await page.locator('fieldset legend').allTextContents();
-    // Schedule sits ABOVE Assignment Type: the collaboration model is set once
-    // and almost never changed, the dates change on every assignment.
-    expect(legends).toEqual(['Basics', 'Schedule', 'Assignment Type', 'Guardrails']);
+    // Grouped by the questions a lecturer asks (2026-10-02): what, when, who,
+    // grading. Schedule sits ABOVE Students: who works on it and who may
+    // accept are set once, the dates change on every assignment.
+    expect(legends).toEqual(['Basics', 'Schedule', 'Students', 'Grading']);
     // A border around each half of one question is the box prison DESIGN.md 1.1
     // names, and "what is this assignment called" and "what does it copy" are
     // one question.
