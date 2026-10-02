@@ -27,19 +27,27 @@ import { parse } from "yaml";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const steps = parse(readFileSync(join(root, ".github", "workflows", "retry-acceptance.yml"), "utf8")).jobs.retry.steps;
 
-// Anything that can put a commit on the control repository's remote.
-const WRITES_REMOTE = /git-push-with-retry|git\s+(-C\s+\S+\s+)?push\b|git\s+(-C\s+\S+\s+)?commit\b/;
+// Anything that can put a commit on the control repository's remote. The record
+// script commits and pushes, so running it counts.
+const WRITES_REMOTE = /git-push-with-retry|record-acceptance\.sh|git\s+(-C\s+\S+\s+)?push\b|git\s+(-C\s+\S+\s+)?commit\b/;
 const ADMITTED = /steps\.accept\.outputs\.outcome\s*==\s*'accepted'/;
 
-test("the step that removes the acceptance record does not commit or push it", () => {
-  const removers = steps.filter((s) => typeof s.run === "string" && /(rm -f|mv) "control\/\$ACCEPT_FILE"/.test(s.run));
-  assert.equal(removers.length, 1, "exactly one step removes the record from the checkout");
-  // Set aside OUTSIDE the checkout, so `git add -A` anywhere later cannot
-  // commit the copy, and handed to accept.mjs for the original accepted_at.
-  assert.match(removers[0].run, /mv "control\/\$ACCEPT_FILE" "\$\{RUNNER_TEMP\}\/prior-acceptance\.json"/);
+test("the record is removed only inside the decision, and never committed on a refusal", async () => {
+  // No step touches the record before the decision: a copy or a removal made
+  // once, up front, goes stale the moment the student's own attempt saves and
+  // the decision has to be made again from the remote (acceptance/reserve.mjs).
+  const touchers = steps.filter((s) => typeof s.run === "string" && /ACCEPT_FILE|acceptances\//.test(s.run));
+  assert.deepEqual(touchers.map((s) => s.name), [], "a step handles the record outside the decision");
+
+  // The decision copies it OUTSIDE the checkout and removes it, before EVERY
+  // attempt, and a refused Retry commits nothing at all.
   const accept = steps.find((s) => s.id === "accept");
   assert.equal(accept.with["prior-acceptance-file"], "${{ runner.temp }}/prior-acceptance.json");
-  assert.doesNotMatch(removers[0].run, WRITES_REMOTE, "the removal stays in the checkout until the student is admitted");
+  assert.equal(String(accept.with["set-aside"]), "true");
+  assert.equal(String(accept.with["persist-refusals"]), "false");
+  const { pathsToCommit } = await import("../lib/acceptance-reservation.mjs");
+  assert.deepEqual([...pathsToCommit("rejected:repo-frozen", { persistRefusals: false })], []);
+  assert.ok(!pathsToCommit("rejected:repo-frozen").includes("acceptances"), "a refusal never commits the record, whoever runs it");
 });
 
 test("every step that writes the control repository runs only after an admitted acceptance", () => {

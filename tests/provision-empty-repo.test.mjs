@@ -20,7 +20,7 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { emptyFromCommits, leftoverOfOwnAttempt } from "../lib/existing-repo.mjs";
+import { STILL_FILLING_MS, emptyFromCommits, leftoverOfOwnAttempt, mayStillBeFilling } from "../lib/existing-repo.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "provisioning", "provision.mjs");
@@ -28,8 +28,11 @@ const script = join(root, "provisioning", "provision.mjs");
 /**
  * `target`: "absent" | "empty" | "has-commits" | "unreadable" - what is at the
  * student's repository name before the run. `deleteStatus`: what DELETE answers.
+ * `createdAt`: the existing repository's `created_at` - an hour ago by default,
+ * so it is past the window in which another run may still be filling it
+ * (lib/existing-repo.mjs `mayStillBeFilling`); `null` leaves it out.
  */
-async function withApi(fn, { target = "absent", deleteStatus = 204 } = {}) {
+async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = new Date(Date.now() - 3600_000).toISOString() } = {}) {
   const calls = [];
   let state = target;
   const server = createServer((req, res) => {
@@ -49,7 +52,14 @@ async function withApi(fn, { target = "absent", deleteStatus = 204 } = {}) {
       return send(201, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann" });
     }
     if (url === "/repos/Org/lab-ann" && req.method === "GET") {
-      return state === "absent" ? send(404, { message: "Not Found" }) : send(200, { id: 9, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann" });
+      return state === "absent"
+        ? send(404, { message: "Not Found" })
+        : send(200, {
+            id: 9,
+            full_name: "Org/lab-ann",
+            html_url: "https://github.com/Org/lab-ann",
+            ...(createdAt ? { created_at: createdAt } : {}),
+          });
     }
     if (url === "/repos/Org/lab-ann/commits") {
       if (state === "empty") return send(409, { message: "Git Repository is empty." });
@@ -184,6 +194,38 @@ test("a repository whose commits could not be read is not treated as empty", asy
     assert.match(res.outputs, /^outcome=reused$/m);
     assert.ok(!calls.some((c) => c.startsWith("DELETE ")), "unreadable is not evidence of empty");
   }, { target: "unreadable" });
+});
+
+// NOTHING QUEUES ACCEPTANCES ANY MORE (lib/acceptance-reservation.mjs), so a
+// teammate's run, or the same student's second attempt, can meet a repository
+// the first run generated seconds ago - empty, because GitHub is still copying
+// the template in. Removing it there deletes a repository another run is about
+// to hand out.
+test("an empty repository created minutes ago is kept - another run may still be filling it", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.outputs, /^outcome=reused$/m);
+    assert.ok(!calls.some((c) => c.startsWith("DELETE ")), `a young repository was removed: ${calls.join(" | ")}`);
+    assert.match(res.log, /another run may still be filling it/);
+  }, { target: "empty", createdAt: new Date(Date.now() - 60_000).toISOString() });
+});
+
+test("an empty repository whose age cannot be read is kept, not removed on a guess", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.equal(res.status, 0, res.log);
+    assert.ok(!calls.some((c) => c.startsWith("DELETE ")), "unknown age is not evidence of an old leftover");
+  }, { target: "empty", createdAt: null });
+});
+
+test("mayStillBeFilling: young is true, old is false, unreadable is unknown", () => {
+  const now = new Date("2026-10-02T12:00:00Z");
+  assert.equal(mayStillBeFilling("2026-10-02T11:58:00Z", now), true);
+  assert.equal(mayStillBeFilling("2026-10-02T11:49:00Z", now), false);
+  assert.equal(mayStillBeFilling(new Date(now.getTime() - STILL_FILLING_MS).toISOString(), now), false);
+  assert.equal(mayStillBeFilling("not a date", now), null);
+  assert.equal(mayStillBeFilling(undefined, now), null);
 });
 
 test("an empty repository that cannot be removed fails, naming it - never reused", async () => {

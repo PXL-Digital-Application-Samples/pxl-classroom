@@ -184,6 +184,45 @@ jobs:
           details: ${{ steps.unrecorded.outputs.details }}
           dedup-key: ${{ steps.unrecorded.outputs.dedup }}
 
+      # ACCEPTANCE ATTEMPTS THAT GOT NO ANSWER. When GitHub drops the event, a
+      # run never starts, or one dies before it records anything, nothing is
+      # written anywhere and the only trace is the student's issue on the
+      # public broker (lib/unanswered-attempts.mjs). Report only, advisory, its
+      # own token: it reads issues, which neither token above can.
+      - name: Token for reading acceptance attempts
+        id: unanswered_token
+        if: always()
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ matrix.org }}
+          permission-issues: read
+
+      - name: Find acceptance attempts that got no answer
+        id: unanswered
+        if: always() && steps.unanswered_token.outputs.token != ''
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.unanswered_token.outputs.token }}
+          ORG: ${{ matrix.org }}
+        run: node scripts/find-unanswered-attempts.mjs control "$ORG"
+
+      - name: Tell the lecturer about attempts that got no answer
+        if: always() && steps.unanswered.outputs.count != '' && steps.unanswered.outputs.count != '0'
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: provisioning-failed
+          assignment-id: unanswered-attempts
+          details: ${{ steps.unanswered.outputs.details }}
+          dedup-key: ${{ steps.unanswered.outputs.dedup }}
+
       # Reported from INSIDE the job that knows which organization it is.
       #
       # The first version of this was a separate job gated on `failure()`, which

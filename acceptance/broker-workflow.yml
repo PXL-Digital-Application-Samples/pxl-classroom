@@ -72,11 +72,12 @@ permissions:
   contents: read
   issues: write
 
-concurrency:
-  # Serialised per accepting account, and keyed on the same field the signature
-  # and the dispatch use. `github.actor` is a third reading of the same fact.
-  group: accept-${{ github.event.issue.user.login }}
-  cancel-in-progress: false
+# NO CONCURRENCY GROUP. One per accepting account used to live here. GitHub
+# keeps ONE pending run per group and cancels it for the next arrival, and a run
+# that never gets a runner holds the group for up to a day - so a student whose
+# first attempt was stuck could not get a second one past this point. Nothing
+# here needs serialising: every step acts on its own issue, and the hub orders a
+# student's attempts by issue number (lib/acceptance-reservation.mjs).
 
 jobs:
   dispatch:
@@ -225,6 +226,7 @@ jobs:
           permission-contents: write
 
       - name: Dispatch to central pxl-classroom
+        id: dispatch
         if: steps.verify.outputs.valid == 'true'
         shell: bash
         env:
@@ -265,7 +267,23 @@ jobs:
           if [ -n "$KIND" ]; then
             ARGS+=(-f "client_payload[kind]=$KIND")
           fi
-          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "${ARGS[@]}"
+          # RETRIED, because a GitHub error here is the whole attempt lost: the
+          # issue would be retitled and the student's page would wait for an
+          # answer that is not coming. Five tries over about a minute and a
+          # quarter rides out a short incident; past that the next step titles
+          # the issue "(not delivered)" so the page can say so at once.
+          # Delivering twice is harmless - the hub decides a student's attempt
+          # idempotently.
+          for WAIT in 5 10 20 40 0; do
+            if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST "${ARGS[@]}"; then
+              exit 0
+            fi
+            [ "$WAIT" -gt 0 ] || break
+            echo "Dispatch failed; trying again in ${WAIT}s."
+            sleep "$WAIT"
+          done
+          echo "::error::Could not hand this acceptance to the hub."
+          exit 1
 
       # The trigger issue's TITLE carries the assignment's signed invitation, and
       # this repository is public. Closing and locking hide nothing - a locked,
@@ -293,6 +311,8 @@ jobs:
           # Only to name what happened. The redaction itself does not depend on
           # it, so an empty kind still rewrites the title.
           KIND: ${{ steps.verify.outputs.kind }}
+          # `success`, `failure` or `skipped` (the token could not be minted).
+          DELIVERED: ${{ steps.dispatch.outcome }}
           # lib/github-api-version.mjs, which YAML cannot import; the test
           # tests/github-api-version.test.mjs holds this equal to it.
           GITHUB_API_VERSION: "2026-03-10"
@@ -316,7 +336,18 @@ jobs:
           # from being used as a conversation. Closed vs open changes nothing
           # else - the hub reads the issue by number, and the page's
           # "acceptance in flight" check reads `state=all`.
+          #
+          # "(processed)" only when the hub actually has it. A dispatch that
+          # failed every try (or a token that could not be minted) is titled
+          # "(not delivered)", which the student's page reads as "nothing is
+          # coming, try again" instead of waiting minutes for an answer
+          # (frontend/src/lib/acceptance-progress.js). Both spellings are in
+          # lib/broker-issue-titles.mjs, which the tests derive from this file.
           LABEL="Acceptance"
           if [ "$KIND" = "confirm" ]; then LABEL="Email confirmation"; fi
-          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (processed)" >/dev/null || true
+          if [ "$DELIVERED" = "success" ]; then
+            gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (processed)" >/dev/null || true
+          else
+            gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PATCH "$ISSUE" -f title="$LABEL (not delivered)" >/dev/null || true
+          fi
           gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method PUT "$ISSUE/lock" -f lock_reason=resolved >/dev/null || true

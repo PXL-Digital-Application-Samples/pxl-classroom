@@ -1,8 +1,8 @@
-// Every outcome accept.mjs can emit is handled by a step that COMMITS.
+// Every outcome accept.mjs can emit is one whose writes are COMMITTED.
 //
 // The bug this exists for has now happened twice, the same way both times. The
-// hub's only commit step is gated on an ACCEPTED outcome, so a run that writes
-// something into the control checkout and then does not provision has its work
+// hub's only commit step was gated on an ACCEPTED outcome, so a run that wrote
+// something into the control checkout and then did not provision had its work
 // discarded - the checkout is a runner temp directory, and nothing says so.
 //
 //   `rejected:*` wrote the failed-attempt counter behind MAX_CLAIM_ATTEMPTS.
@@ -18,13 +18,14 @@
 // NEITHER WAS REACHABLE BY ANY OTHER TEST, and that is the point. accept.mjs
 // writes the file correctly - tests/confirm-accept.test.mjs proves it against a
 // temp dir. The browser posts correctly - tests/e2e/64 proves that. The loss
-// happens in the seam between them, in YAML, which no unit test imports and no
-// e2e test runs.
+// happened in the seam between them.
 //
-// This is the "two places that must agree, with no mechanism making them agree"
-// rule applied to that seam: the outcomes are DERIVED from accept.mjs rather
-// than listed here, so a new one fails this test until somebody decides which
-// step persists it.
+// Since 2026-10-02 the seam is one table: acceptance/reserve.mjs saves every
+// decision before the action returns, committing the directories
+// lib/acceptance-reservation.mjs `pathsToCommit` names for its outcome. The
+// outcomes are DERIVED from accept.mjs rather than listed here, so a new one
+// fails this test until somebody classifies it - and an outcome the table does
+// not know makes reserve.mjs fail the run rather than save nothing quietly.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -32,13 +33,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { EXISTING_REPO_REJECTIONS } from "../lib/existing-repo.mjs";
+import { pathsToCommit } from "../lib/acceptance-reservation.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const acceptSrc = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
-const handlerSrc = readFileSync(
-  join(root, ".github", "workflows", "acceptance-handler.yml"),
-  "utf8",
-);
+const actionSrc = readFileSync(join(root, "acceptance", "action.yml"), "utf8");
+const handlerSrc = readFileSync(join(root, ".github", "workflows", "acceptance-handler.yml"), "utf8");
 
 /**
  * Every literal outcome accept.mjs sets.
@@ -50,78 +50,44 @@ const handlerSrc = readFileSync(
 function declaredOutcomes() {
   const out = new Set();
   for (const m of acceptSrc.matchAll(/setOutput\(\s*"outcome"\s*,\s*"([^"]+)"/g)) out.add(m[1]);
-  // The ternary form: setOutput("outcome", x ? "a" : "b")
   for (const m of acceptSrc.matchAll(/setOutput\(\s*"outcome"\s*,[^)]*?\?\s*"([^"]+)"\s*:\s*"([^"]+)"/g)) {
     out.add(m[1]);
     out.add(m[2]);
   }
   for (const m of acceptSrc.matchAll(/\b(?:await\s+)?(?:reject|fail)\(\s*"([^"]+)"/g)) out.add(m[1]);
-  // AND THE ONES REACHED THROUGH A VARIABLE. Step 7 calls
-  // `reject(verdict.reject, …)`, where the outcome comes back from
-  // lib/existing-repo.mjs - so the regexes above cannot see it, and an
-  // extractor that silently sees less than it did is the failure this file's
-  // second test exists to catch one level up. Read from the module that owns
-  // the names rather than spelled again here.
-  //
-  // ITERATED, not named. This listed two of them by hand and a third was added
-  // without joining the list - the same silent gap this whole block exists to
-  // close, one level up. They happen to be `rejected:*`, which the persist step
-  // covers as a family, so nothing was at risk; the point is that the next
-  // indirect outcome may not be, and it would arrive invisible.
   for (const o of EXISTING_REPO_REJECTIONS) out.add(o);
   return out;
 }
 
 test("the indirect outcomes are genuinely reachable from accept.mjs", () => {
-  // Otherwise the two added above are a claim, not a derivation: this file
-  // would be asserting coverage for outcomes the script can no longer emit.
   assert.match(acceptSrc, /reject\(\s*verdict\.reject/, "step 7 no longer rejects through the verdict");
   assert.match(acceptSrc, /existingRepoVerdict/, "accept.mjs no longer asks lib/existing-repo.mjs");
 });
-
-// Outcomes whose work is committed by the provisioning path's own step, which
-// stages repositories/, teams/, acceptances/ AND students/.
-const PROVISIONING = new Set(["accepted", "already-accepted"]);
 
 /**
  * Outcomes a `fail:*` run reaches.
  *
  * A `fail:` exits 1 before anything is written, or because a deployment fault
  * means nothing CAN be written - there is no record to persist, and a commit
- * step firing on one would push a half-built state. Excluded deliberately
- * rather than forgotten, which is the distinction this file exists to force.
+ * firing on one would push a half-built state. pathsToCommit says null for
+ * them on purpose.
  */
 const isFailure = (o) => o.startsWith("fail:");
 
-test("every outcome that writes and does not provision has a commit step", () => {
-  const persistStep = handlerSrc.slice(
-    handlerSrc.indexOf("Persist records written without provisioning"),
-  );
-  assert.ok(
-    persistStep,
-    "the persist step was renamed - this guard reads it by name, and an absent " +
-      "anchor makes an absence assertion pass vacuously",
-  );
-  // Just its `if:`, not the rest of the workflow.
-  const condition = persistStep.slice(0, persistStep.indexOf("run: |"));
-
-  const unhandled = [];
+test("every outcome accept.mjs can produce is classified by what it commits", () => {
+  const unclassified = [];
   for (const outcome of declaredOutcomes()) {
-    if (PROVISIONING.has(outcome) || isFailure(outcome)) continue;
-    // `rejected:` is matched as a family by startsWith, everything else by name.
-    const covered = outcome.startsWith("rejected:")
-      ? condition.includes("startsWith(steps.accept.outputs.outcome, 'rejected:')")
-      : condition.includes(`steps.accept.outputs.outcome == '${outcome}'`);
-    if (!covered) unhandled.push(outcome);
+    if (isFailure(outcome)) {
+      assert.equal(pathsToCommit(outcome), null, `${outcome} must commit nothing`);
+      continue;
+    }
+    if (pathsToCommit(outcome) === null) unclassified.push(outcome);
   }
-
   assert.deepEqual(
-    unhandled,
+    unclassified,
     [],
-    "These outcomes write into the control checkout and no step commits it, so " +
-      "the work is discarded when the runner is torn down - green run, no record. " +
-      "Add them to the persist step's `if:`, or to PROVISIONING here if the " +
-      "provisioning step already commits for them.",
+    "These outcomes are not in lib/acceptance-reservation.mjs OUTCOME_PATHS, so " +
+      "acceptance/reserve.mjs would refuse to save them. Decide what each one commits.",
   );
 });
 
@@ -129,20 +95,22 @@ test("the guard can actually fail - the outcomes are read, not assumed", () => {
   // A regex that matched nothing would make the test above pass over an empty
   // set forever. This is the mutation check on the extractor itself.
   const found = declaredOutcomes();
-  for (const expected of ["accepted", "already-accepted", "confirmed", "already-confirmed"]) {
+  for (const expected of ["accepted", "already-accepted", "confirmed", "already-confirmed", "superseded"]) {
     assert.ok(found.has(expected), `expected to extract ${expected} from accept.mjs`);
   }
   assert.ok([...found].some((o) => o.startsWith("rejected:")), "no rejected:* extracted");
   assert.ok([...found].some((o) => o.startsWith("fail:")), "no fail:* extracted");
+  assert.equal(pathsToCommit("made-up-outcome"), null, "an unknown outcome must not be guessed at");
 });
 
-test("the provisioning step really does commit students/, which is why accept is exempt", () => {
-  // PROVISIONING claims those two outcomes are covered elsewhere. If that stops
-  // being true, this file would be exempting them from the only guard there is.
-  const step = handlerSrc.slice(handlerSrc.indexOf("Write repository record into control checkout"));
-  assert.ok(step.includes('git -C control add "students/"'), "students/ is no longer staged there");
-  assert.ok(
-    step.includes("outcome == 'accepted'") && step.includes("outcome == 'already-accepted'"),
-    "the provisioning commit step no longer fires for the outcomes exempted here",
-  );
+test("the acceptance action saves through reserve.mjs, and nothing else commits a decision", () => {
+  // The table above only matters if it is what saves. accept.mjs run on its
+  // own commits nothing; reserve.mjs is what commits and pushes.
+  assert.match(actionSrc, /run: node "\$GITHUB_ACTION_PATH\/reserve\.mjs"/, "./acceptance no longer runs reserve.mjs");
+  // A separate persist step, gated on a list of outcomes, was the seam that
+  // lost two features. Nothing in the workflow commits to the control checkout
+  // any more: the decision is reserve.mjs's, the record is
+  // scripts/record-acceptance.sh's.
+  assert.doesNotMatch(handlerSrc, /git -C control (add|commit)\b/, "a step in acceptance-handler.yml commits to the control checkout again");
+  assert.match(handlerSrc, /run: scripts\/record-acceptance\.sh/, "the record step no longer runs the shared script");
 });

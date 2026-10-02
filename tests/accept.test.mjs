@@ -1592,27 +1592,38 @@ template:
   const absent = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" }, { assignmentYaml: base });
   assert.equal(absent.outputs.student_permission, "admin", "absent is what every older assignment was given");
 
+  // Both workflows write the record through one script; each must hand it the
+  // setting, and the script must pass it on.
+  const record = readFileSync(join(here, "..", "scripts", "record-acceptance.sh"), "utf8");
+  assert.match(record, /--student-permission "\$STUDENT_PERMISSION"/, "the record does not say what was granted");
   for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
     const src = readFileSync(join(here, "..", ".github", "workflows", wf), "utf8");
     const prov = src.slice(src.indexOf("uses: ./provisioning"), src.indexOf("name: Notify on failure"));
     assert.match(prov, /student-permission: \$\{\{ steps\.accept\.outputs\.student_permission \}\}/, `${wf}: provisioning is not given the setting`);
-    assert.match(src, /--student-permission "\$STUDENT_PERMISSION"/, `${wf}: the record does not say what was granted`);
+    const step = src.slice(src.indexOf("name: Write repository record"), src.indexOf("name: Trigger dashboard regeneration"));
+    assert.match(step, /STUDENT_PERMISSION: \$\{\{ steps\.accept\.outputs\.student_permission \}\}/, `${wf}: the record step is not given the setting`);
+    assert.match(step, /run: scripts\/record-acceptance\.sh/, `${wf}: the record step no longer runs the shared script`);
   }
 });
 
 test("both acceptance workflows save the team file whatever provisioning did", () => {
   // `teams/` was staged only inside the created|reused branch, so a failed
-  // provisioning discarded the membership accept.mjs had already decided.
+  // provisioning discarded the membership accept.mjs had already decided. The
+  // decision itself is saved earlier now (acceptance/reserve.mjs); the record
+  // script still stamps the team with its repository on every outcome.
+  const script = readFileSync(join(here, "..", "scripts", "record-acceptance.sh"), "utf8");
+  const body = script.slice(script.indexOf("apply() {"));
+  const fi = body.indexOf("\n  fi\n");
+  assert.ok(fi > 0, "the created|reused branch is where this test expects it");
+  const branch = body.slice(0, fi);
+  const after = body.slice(fi);
+  assert.doesNotMatch(branch, /add "teams\/"/, "teams/ is still staged only on success");
+  assert.match(after, /mkdir -p "\$DIR\/teams" \|\| return 2\n\s*git -C "\$DIR" add "teams\/"/, "teams/ must be staged on every outcome");
+  assert.match(branch, /--team-only/, "a failure after the repo existed must stamp the team");
   for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
     const src = readFileSync(join(here, "..", ".github", "workflows", wf), "utf8");
     const step = src.slice(src.indexOf("name: Write repository record"), src.indexOf("name: Trigger dashboard regeneration"));
-    const fi = step.indexOf("\n          fi\n");
-    assert.ok(fi > 0, `${wf}: the created|reused branch is where this test expects it`);
-    const branch = step.slice(0, fi);
-    const after = step.slice(fi);
-    assert.doesNotMatch(branch, /git -C control add "teams\/"/, `${wf}: teams/ is still staged only on success`);
-    assert.match(after, /mkdir -p control\/teams\n\s*git -C control add "teams\/"/, `${wf}: teams/ must be staged on every outcome`);
-    assert.match(branch, /--team-only/, `${wf}: a failure after the repo existed must stamp the team`);
+    assert.match(step, /run: scripts\/record-acceptance\.sh/, `${wf}: the record step no longer runs the shared script`);
   }
 });
 

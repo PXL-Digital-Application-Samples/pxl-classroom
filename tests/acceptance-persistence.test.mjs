@@ -65,71 +65,68 @@ function directoriesWritten() {
 // stages a control-repo directory that might not exist"), because six other
 // workflows had the same shape. This file answers the narrower question: does
 // the workflow commit everything accept.mjs writes.
-test("every directory the acceptance writes is staged by the workflow", () => {
+// THE DECISION IS SAVED BY acceptance/reserve.mjs, which commits the
+// directories lib/acceptance-reservation.mjs `pathsToCommit` names for the
+// outcome. So "does the workflow commit everything accept.mjs writes" is now a
+// question about that table - asked of the directories accept.mjs really
+// creates, never of a list copied here.
+test("every directory the acceptance writes is committed when it is admitted", async () => {
+  const { pathsToCommit } = await import("../lib/acceptance-reservation.mjs");
   const written = directoriesWritten();
   assert.ok(written.length >= 3, `expected several written directories, found ${written.join(", ")}`);
   assert.ok(written.includes("students"), "students/ is where the claim binding and counter live");
 
-  // Two spellings reach the index, and both count. A raw `git add` can carry
-  // several paths (`add "repositories/" "teams/"`), and the stage() helper
-  // takes bare directory names (`stage repositories teams`) so it can skip the
-  // ones that do not exist - see the fatal-pathspec test below.
-  const staged = new Set();
-  for (const m of allRun.matchAll(/git -C control add((?:\s+"[^"]+")+)/g)) {
-    for (const p of m[1].matchAll(/"([^"]+)"/g)) staged.add(p[1].replace(/\/$/, ""));
+  for (const outcome of ["accepted", "already-accepted", "confirmed", "already-confirmed"]) {
+    const committed = new Set(pathsToCommit(outcome) ?? []);
+    const missing = written.filter((d) => !committed.has(d));
+    assert.deepEqual(
+      missing,
+      [],
+      `accept.mjs writes these and a "${outcome}" decision does not commit them - they are discarded with the runner:\n` +
+        missing.map((d) => `  ${d}/`).join("\n"),
+    );
   }
-  for (const m of allRun.matchAll(/^\s*stage ([a-z ]+)$/gm)) {
-    for (const d of m[1].trim().split(/\s+/)) staged.add(d);
-  }
-  const unstaged = written.filter((d) => !staged.has(d));
-  assert.deepEqual(
-    unstaged,
-    [],
-    "accept.mjs writes these, and no step commits them - they are discarded with the runner:\n" +
-      unstaged.map((d) => `  ${d}/`).join("\n"),
-  );
 });
 
-test("a REJECTED acceptance still commits what it wrote", () => {
-  // The counter only matters on failure, so a commit step gated on success is
-  // a rate limit that can never count.
-  const persists = steps.filter((s) => {
-    const cond = String(s?.if ?? "");
-    return /rejected:/.test(cond) && String(s?.run ?? "").includes('git -C control add "students/"');
-  });
+test("a REJECTED acceptance still commits what it wrote", async () => {
+  // The counter only matters on failure, so a commit gated on success is a
+  // rate limit that can never count.
+  const { pathsToCommit } = await import("../lib/acceptance-reservation.mjs");
+  assert.ok(pathsToCommit("rejected:claim-domain").includes("students"), "a refusal must commit the attempt counter");
+  assert.ok(!pathsToCommit("rejected:claim-domain").includes("acceptances"), "a refusal must never commit an acceptance record");
 
-  assert.equal(
-    persists.length,
-    1,
-    "exactly one step must persist student state on a rejected outcome",
-  );
-  const step = persists[0];
-  assert.match(String(step.run), /git-push-with-retry/, "it has to actually push");
+  // The ordinary acceptance persists refusals; only a lecturer's Retry opts out.
+  const handlerAccept = steps.find((s) => s?.uses === "./acceptance");
+  assert.ok(handlerAccept, "acceptance-handler.yml no longer runs ./acceptance");
+  assert.notEqual(String(handlerAccept.with?.["persist-refusals"] ?? "true"), "false", "an ordinary acceptance must count refusals");
+
+  const reserve = readFileSync(join(root, "acceptance", "reserve.mjs"), "utf8");
+  assert.match(reserve, /"push"/, "it has to actually push");
   // A rejection exits 0 on purpose - a red run for a student who is not on the
-  // roster teaches people to ignore red runs. A failed push ABOUT a rejection
-  // must not undo that.
-  assert.equal(step["continue-on-error"], true, "must not turn a rejection into a failure");
+  // roster teaches people to ignore red runs. reserve.mjs forwards accept.mjs's
+  // own exit status, so a refusal stays 0.
+  assert.match(reserve, /finish\(decided\.status\)/, "the decision's own exit status is what the step reports");
 });
 
-test("the accepted path commits student state too", () => {
-  const accepted = steps.find((s) => s?.name === "Write repository record into control checkout, push");
-  assert.ok(accepted, "the accepted-path commit step must still exist");
-  assert.match(
-    String(accepted.run),
-    /^\s*stage students$|git -C control add "students\/"/m,
-    "the binding written on a successful claim has to be staged",
-  );
+test("the accepted path commits student state too", async () => {
+  const { pathsToCommit } = await import("../lib/acceptance-reservation.mjs");
+  assert.ok(pathsToCommit("accepted").includes("students"), "the binding written on a successful claim has to be committed");
 });
 
 test("every acceptance push is patient enough for a class accepting in one minute", () => {
   // Five tries lost one student in fifteen on 2026-09-28: their repository
   // existed and its record was never written. Every push an acceptance or a
   // retry makes to the control repo asks for at least fifteen.
+  const reserve = readFileSync(join(root, "acceptance", "reserve.mjs"), "utf8");
+  const reserveTries = Number(/MAX_ATTEMPTS \|\| (\d+)/.exec(reserve)?.[1] ?? 0);
+  assert.ok(reserveTries >= 15, `saving a decision tries ${reserveTries} times`);
+  const record = readFileSync(join(root, "scripts", "record-acceptance.sh"), "utf8");
+  const recordTries = Number(/MAX_RETRIES:-(\d+)/.exec(record)?.[1] ?? 0);
+  assert.ok(recordTries >= 15, `writing the record tries ${recordTries} times`);
+
   const retry = parse(readFileSync(join(root, ".github", "workflows", "retry-acceptance.yml"), "utf8"));
   const retryRuns = Object.values(retry.jobs).flatMap((j) => j.steps ?? []).map((s) => String(s?.run ?? "")).join("\n");
-  const pushes = [...(allRun + "\n" + retryRuns).matchAll(/^(.*)scripts\/git-push-with-retry\.sh control/gm)].map((m) => m[1]);
-  assert.ok(pushes.length >= 3, `found the pushes: ${pushes.length}`);
-  for (const prefix of pushes) {
+  for (const prefix of [...(allRun + "\n" + retryRuns).matchAll(/^(.*)scripts\/git-push-with-retry\.sh control/gm)].map((m) => m[1])) {
     const n = Number(/MAX_RETRIES=(\d+)/.exec(prefix)?.[1] ?? 0);
     assert.ok(n >= 15, `a push with "${prefix.trim()}" retries ${n || "the default 5"} times`);
   }

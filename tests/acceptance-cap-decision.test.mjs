@@ -2,17 +2,21 @@
 // this file exists so a future pass cannot quietly reverse it.
 //
 // The race is real and easy to spot: accept.mjs counts acceptances/<id>/*.json,
-// compares against the cap, then writes - check-then-act - while the acceptance
-// concurrency group is keyed on `team_hint || github_login`, so acceptances by
-// DIFFERENT students are not serialized against each other. Two students
-// arriving together both read 49, both see 49 < 50, and both write.
+// compares against the cap, then writes - check-then-act. A decision is saved by
+// a push that fails when another run pushed first, and is made again only when
+// that run changed one of ITS inputs (lib/acceptance-reservation.mjs
+// `decisionInputsChanged`) - and other students' acceptance records are
+// deliberately not inputs. Two students arriving together both read 49, both
+// see 49 < 50, and both write.
 //
 // Anyone auditing this code will find that, correctly identify it as a race,
-// and be tempted to key the concurrency group on the assignment instead. That
-// closes it - and serializes every acceptance for the assignment. A
-// 200-student cohort accepting in the first minutes of a lecture would then run
-// one at a time at roughly 30s each, on a system whose design goal is billing
-// zero minutes when idle.
+// and be tempted to make every acceptance record an input. That closes it - and
+// makes every acceptance for the assignment decide again against every other.
+// A 200-student cohort accepting in the first minutes of a lecture would then
+// effectively run one at a time at roughly 30s each, on a system whose design
+// goal is billing zero minutes when idle. (Until 2026-10-02 the same decision
+// was a concurrency group keyed per student rather than per assignment; the
+// group is gone, the decision is not.)
 //
 // Raised and explicitly rejected on 2026-08-24. The cap's job is to stop an
 // unbounded link being farmed, and it does that; it is not a seat allocator.
@@ -30,23 +34,25 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (...p) => readFileSync(join(root, ...p), "utf8");
 
-test("the acceptance concurrency group is still keyed per student, not per assignment", () => {
+test("another student's acceptance record is still not an input to a decision", async () => {
   // The exact change that would close the race. If this goes red, somebody is
-  // trading a lecture-hall's worth of queued runners for a cap that is exact -
+  // trading a lecture-hall's worth of re-decisions for a cap that is exact -
   // read the decision above before deciding that is what you want.
-  const wf = read(".github", "workflows", "acceptance-handler.yml");
-  const group = wf.match(/^\s*group:\s*(.+)$/m)?.[1] ?? "";
+  const { decisionInputsChanged } = await import("../lib/acceptance-reservation.mjs");
+  const who = { assignmentId: "lab-1", login: "alice" };
+  assert.equal(
+    decisionInputsChanged(["acceptances/lab-1/bob.json", "repositories/lab-1/bob.json"], who),
+    false,
+    "another student accepting must not make this one decide again",
+  );
+  // ...while the student's OWN record, and every team manifest, still is.
+  assert.equal(decisionInputsChanged(["acceptances/lab-1/alice.json"], who), true);
+  assert.equal(decisionInputsChanged(["teams/lab-1/fullhouse.json"], who), true);
 
-  assert.match(
-    group,
-    /team_hint \|\| github\.event\.client_payload\.github_login/,
-    "the group must stay keyed on the team hint or the student - keying it on the " +
-      "assignment alone serializes every acceptance in the cohort",
-  );
-  assert.ok(
-    group.includes("client_payload.assignment_id"),
-    "it is still scoped to the assignment; what must not happen is that being the WHOLE key",
-  );
+  // And nothing went back to GitHub's concurrency group, which is what this
+  // decision used to be spelled as.
+  const wf = read(".github", "workflows", "acceptance-handler.yml");
+  assert.doesNotMatch(wf, /^concurrency:/m, "acceptance-handler.yml has a concurrency group again");
 });
 
 test("the decision is recorded where the race is, not only in a commit message", () => {
@@ -60,7 +66,7 @@ test("the decision is recorded where the race is, not only in a commit message",
   assert.match(preamble, /GUARDRAIL, NOT A HARD LIMIT/i, "say what it is");
   assert.match(preamble, /check-then-act|read, compared, and then written/i, "name the race plainly");
   assert.match(preamble, /2026-08-24/, "date the decision");
-  assert.match(preamble, /concurrency group/i, "name the mechanism that would close it");
+  assert.match(preamble, /decisionInputsChanged/, "name the mechanism that would close it");
 });
 
 test("no surface calls the cap exact", () => {
