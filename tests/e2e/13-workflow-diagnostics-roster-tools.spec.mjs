@@ -86,7 +86,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await page.goto(`/dashboard/${ORG}/admin`);
 
     // Switch to Roster tab
-    await page.getByRole('link', { name: 'Open the roster' }).click();
+    await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }).click();
 
     // Verify filter chips
     await expect(page.getByRole('button', { name: 'All (3)' })).toBeVisible();

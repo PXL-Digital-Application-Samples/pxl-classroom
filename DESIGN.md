@@ -314,8 +314,10 @@ Every route renders exactly one `<AppHeader>`. Two shapes:
   separators and an `.app-header-heading`. Intermediate segments that navigate are
   `.crumb-link` - the org name sat between two links as plain text, which reads as broken.
   A trail may end in an `.app-header-switch`: underline `.primer-tab`s (§1.4) for the *views
-  of the thing the trail names*, which is how one assignment's Overview and Admin pages reach
-  each other. It is a `nav` in `#left` rather than a button in `#actions` deliberately - it
+  of the thing the trail names*. Inside an organization that is `OrgSwitch`, the same three
+  on every page - **Assignments**, **Roster**, **Admin** - and the assignment on screen travels
+  between Assignments and Admin, so one assignment's overview and its editor reach each other in
+  one click. It is a `nav` in `#left` rather than a button in `#actions` deliberately - it
   switches between views of the current page's subject, it does not act on it - and it takes
   its own row under 640px so the trail cannot push the page sideways.
 

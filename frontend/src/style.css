@@ -871,10 +871,9 @@ a:hover {
   color: var(--accent-blue);
   text-decoration: none;
 }
-/* The two views of one assignment - Overview and Admin - switched from inside
-   the breadcrumb trail rather than from a second tab row. AdminView already
-   carries page-level `.primer-tabs` (Assignments / Roster), and a second
-   full-width row above them would read as competing navigation.
+/* An organization's three views - Assignments, Roster, Admin (OrgSwitch.vue) -
+   switched from inside the breadcrumb trail rather than from a second tab row,
+   which would read as competing navigation.
    The ITEMS are `.primer-tab`, because DESIGN.md §1.4 asks for underline tabs
    with an active bottom border and this is section switching; only the
    container differs, since `.primer-tabs` carries a full-width bottom border

@@ -23,18 +23,19 @@
           <span class="app-header-sep">/</span>
           <h1 class="app-header-heading" :title="headerTitle">{{ headerTitle }}</h1>
 
-          <!-- THE TWO VIEWS OF THIS ASSIGNMENT. Only for one that exists: a new
-               assignment has nothing to track until it is saved.
+          <!-- The org's three views. With a saved assignment open, Assignments
+               goes back to ITS overview (OrgSwitch); a new one has nothing to
+               track until it is saved, so it goes to the list. Not over a
+               control repository this account cannot read.
                Unsaved edits are safe without any handling here - the view's
                `onBeforeRouteLeave` guard already runs confirmDiscard() on ANY
                navigation away, so a plain router-link inherits the prompt. -->
-          <nav v-if="switchAssignmentId" class="app-header-switch" aria-label="Assignment views">
-            <router-link
-              :to="{ name: 'assignment-detail', params: { org, assignmentId: switchAssignmentId } }"
-              class="primer-tab"
-            >Overview</router-link>
-            <span class="primer-tab active" aria-current="page">Admin</span>
-          </nav>
+          <OrgSwitch
+            v-if="user && !controlRepoUnreadable"
+            :org="org"
+            current="admin"
+            :assignment-id="switchAssignmentId || ''"
+          />
         </div>
       </template>
     </AppHeader>
@@ -53,9 +54,9 @@
     <!-- THE ROSTER IS THE ORGANIZATION'S, not this page's. It sat here as a tab
          beside the assignments, which read as though it belonged to them; it
          is one file per org and every assignment admits all of it or a
-         selection from it (lib/cohort.mjs). It has its own page now, and this
-         strip is the editor's way there, with the two numbers the form below
-         judges acceptance by. -->
+         selection from it (lib/cohort.mjs). It has its own page now, the
+         header's Roster tab; this strip keeps the two numbers the form below
+         judges acceptance by in sight. -->
     <div v-if="!controlRepoUnreadable" class="org-roster-bar">
       <Icon name="users" :size="14" />
       <span>
@@ -66,7 +67,6 @@
         >, {{ rosterLinked }} with a GitHub account</template></template>
       </span>
       <span class="text-secondary">Shared by every assignment in {{ org }}.</span>
-      <router-link :to="{ name: 'roster', params: { org } }" class="btn btn-sm org-roster-link">Open the roster</router-link>
     </div>
 
     <div class="admin-layout">
@@ -1842,6 +1842,7 @@ function stateDot(state) {
 }
 import { countdownParts } from '../lib/countdown.js'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
+import OrgSwitch from '../components/OrgSwitch.vue'
 import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -2401,8 +2402,8 @@ function onBeforeUnload(e) {
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
-// The trail NAMES the assignment being edited, and the switch beside it offers
-// that assignment's other view. With nothing open - or with a new assignment,
+// The trail NAMES the assignment being edited, and the switch beside it takes
+// Assignments back to that assignment's overview. With nothing open - or with a new assignment,
 // which has nothing to track until it is saved - it falls back to naming the
 // console itself.
 const switchAssignmentId = computed(() =>
@@ -5247,7 +5248,6 @@ watch(
   border-bottom: 1px solid var(--border-muted);
   font-size: 0.9rem;
 }
-.org-roster-link { margin-left: auto; }
 
 .admin-layout {
   display: grid;

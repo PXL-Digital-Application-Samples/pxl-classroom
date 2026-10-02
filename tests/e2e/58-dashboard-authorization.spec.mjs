@@ -208,7 +208,7 @@ test.describe('58 - The dashboard refuses an account with no staff access', () =
     await expect(page.getByRole('button', { name: /New assignment/i })).toBeDisabled();
     await expect(page.locator('.editor-pane'), 'and nothing points at the disabled button')
       .not.toContainText(/click \+ New assignment/i);
-    await expect(page.getByRole('link', { name: 'Open the roster' }), 'no way to a roster it cannot read')
+    await expect(page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }), 'no way to a roster it cannot read')
       .toHaveCount(0);
   });
 

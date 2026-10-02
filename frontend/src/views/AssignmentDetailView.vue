@@ -19,18 +19,11 @@
             <span class="text-xs text-secondary">{{ assignmentStateLabel(assignment.state) }}</span>
           </span>
 
-          <!-- THE TWO VIEWS OF THIS ASSIGNMENT, in the trail that names it.
-               This replaces an `Edit` button that sat in the header actions
-               while the route back from the Admin Console was a button buried
-               in the page body - so the pair was asymmetric and neither said
-               the other existed. -->
-          <nav class="app-header-switch" aria-label="Assignment views">
-            <span class="primer-tab active" aria-current="page">Overview</span>
-            <router-link
-              :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }"
-              class="primer-tab"
-            >Admin</router-link>
-          </nav>
+          <!-- The org's three views, in the trail that names this assignment.
+               Admin opens THIS assignment in the editor (OrgSwitch). It
+               replaces an Overview / Admin pair, which replaced an `Edit`
+               button whose way back was buried in the page body. -->
+          <OrgSwitch :org="org" current="assignments" :assignment-id="assignmentId" />
         </div>
       </template>
     </AppHeader>
@@ -1532,6 +1525,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
+import OrgSwitch from '../components/OrgSwitch.vue'
 import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,

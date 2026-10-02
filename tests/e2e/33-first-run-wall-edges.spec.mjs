@@ -338,7 +338,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
 
     // The gate change is an unsaved edit, so leaving asks; this test leaves.
     page.on('dialog', (d) => d.accept());
-    await page.getByRole('link', { name: 'Open the roster' }).click();
+    await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await page.locator('textarea').first().fill(
       'student_number,full_name,email,github_login\n' +
