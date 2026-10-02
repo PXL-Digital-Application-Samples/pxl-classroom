@@ -41,7 +41,7 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
 
     // A draft opens on its settings, where a draft's work is.
     await draftItem.click();
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${draftAssignmentId}/settings$`));
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${draftAssignmentId}\\?tab=settings$`));
 
     // Publish is the state button's first entry for a draft.
     await expect(page.locator('[data-state-menu]')).toContainText('Draft');

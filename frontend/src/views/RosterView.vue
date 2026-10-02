@@ -1,22 +1,8 @@
 <template>
   <!-- NO `fade-in` here, for the reason AdminView gives: it leaves a transform
        on the element, and the roster's dialogs are position: fixed. -->
+  <!-- The top bar is the organization's (OrgShell.vue), drawn once for all its pages. -->
   <div>
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <div class="app-header-crumbs flex items-center gap-sm">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
-            <Icon name="arrow-left" :size="14" />
-            <span>Dashboard</span>
-          </router-link>
-          <span class="app-header-sep">/</span>
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
-          <span class="app-header-sep">/</span>
-          <h1 class="app-header-heading">Roster</h1>
-          <OrgSwitch v-if="user && access === null && !loading" :org="org" current="roster" />
-        </div>
-      </template>
-    </AppHeader>
 
     <div class="roster-page container">
       <AuthCard v-if="!user" title="Sign in to open the roster" @authenticated="onAuthenticated">
@@ -58,13 +44,11 @@
 
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
-import Icon from '../components/Icon.vue'
-import OrgSwitch from '../components/OrgSwitch.vue'
 import RosterTab from '../components/RosterTab.vue'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
-import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { markStaff } from '../lib/org-session.js'
 import { getRepo, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
@@ -104,11 +88,14 @@ async function load() {
         )
         if (mine !== generation) return
         access.value = verdict
+        markStaff(props.org, false)
       } else {
         loadError.value = `Couldn't read ${props.org}'s control repository (HTTP ${repoRes.status}).`
       }
       return
     }
+    // Read the control repository: staff here, and the org's tabs can show.
+    markStaff(props.org, true)
     const docs = await loadAssignmentDocs(token, props.org)
     if (mine !== generation) return
     assignments.value = docs
@@ -124,12 +111,6 @@ async function load() {
 function onAuthenticated(authedUser) {
   user.value = authedUser
   load()
-}
-
-function handleLogout() {
-  clearAuth()
-  user.value = null
-  assignments.value = []
 }
 
 // A parsed CSV import with an uncommitted diff is unsaved work.

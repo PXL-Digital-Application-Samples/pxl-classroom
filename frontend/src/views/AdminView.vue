@@ -10,36 +10,11 @@
        why "Set up" looked like it opened an empty screen (2026-09-02).
        tests/e2e/47-modal-in-viewport.spec.mjs holds this. -->
   <div class="admin-view">
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <div class="app-header-crumbs flex items-center gap-sm">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
-            <Icon name="arrow-left" :size="14" />
-            <span>Dashboard</span>
-          </router-link>
-          <span class="app-header-sep">/</span>
-          <!-- Clickable, to that org's dashboard - see the note in style.css. -->
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
-          <span class="app-header-sep">/</span>
-          <h1 class="app-header-heading" :title="headerTitle">{{ headerTitle }}</h1>
-
-          <!-- The org's three views; an assignment's settings are under
-               Assignments, like the rest of the assignment. Not over a
-               control repository this account cannot read.
-               Unsaved edits are safe without any handling here - the view's
-               `onBeforeRouteLeave` guard already runs confirmDiscard() on ANY
-               navigation away, so a plain router-link inherits the prompt. -->
-          <OrgSwitch
-            v-if="user && !controlRepoUnreadable"
-            :org="org"
-            current="assignments"
-            :assignment-id="assignmentId || 'new'"
-          />
-        </div>
-      </template>
-    </AppHeader>
-
-    <div class="admin-page container">
+    <!-- No top bar of its own: a new assignment sits under the organization's
+         (OrgShell.vue), and an assignment's settings sit inside the
+         assignment page as its Settings tab (`embedded`), under that page's
+         header and tabs, at its width. -->
+    <div :class="embedded ? 'admin-embedded' : 'admin-page container'">
 
     <!-- Not authenticated - never render the editor with data-shaped empty
          states signed out ("No assignments yet" on a full course reads as
@@ -50,41 +25,14 @@
     </AuthCard>
 
     <template v-else>
-    <!-- THE ROSTER IS THE ORGANIZATION'S, not this page's. It sat here as a tab
-         beside the assignments, which read as though it belonged to them; it
-         is one file per org and every assignment admits all of it or a
-         selection from it (lib/cohort.mjs). It has its own page now, the
-         header's Roster tab; this strip keeps the two numbers the form below
-         judges acceptance by in sight. -->
-    <div v-if="!controlRepoUnreadable" class="org-roster-bar">
-      <Icon name="users" :size="14" />
-      <span>
-        <strong>Course roster</strong><template v-if="rosterReadFailed">: couldn't be read</template><template
-          v-else-if="rosterCount !== null"
-        >: {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }}<template
-          v-if="rosterCount > 0"
-        >, {{ rosterLinked }} with a GitHub account</template></template>
-      </span>
-      <span class="text-secondary">Shared by every assignment in {{ org }}.</span>
-    </div>
-
+    <!-- No "Course roster" line and no assignment header here (BETA-UX.md,
+         2026-10-03). The roster's numbers are the organization's and are on
+         the Roster tab, and the form's own "Who may accept" says how many can
+         accept. The header - state button, deadline, Invite link, tabs - is
+         the assignment page's, which this editor sits inside as its Settings
+         tab (`embedded`); a new assignment has nothing for it to say yet. -->
     <div class="admin-layout">
       <main class="editor-pane">
-        <!-- The assignment's header and tabs, Settings active: the same header
-             as its Progress, Teams and Grading tabs. Its state button runs the
-             lifecycle here (runStateAction). -->
-        <AssignmentHeader
-          v-if="mode === 'single' && storedDoc"
-          :org="org"
-          :assignment-id="assignmentId"
-          :assignment="storedDoc"
-          current="settings"
-          :is-group="storedDoc.assignment_type === 'group'"
-          :accepted-count="cohortAcceptedCount"
-          :busy="saving || publishing || deleting"
-          :primary-invite="false"
-          @state-action="runStateAction"
-        />
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
         <ControlRepoUnreadable
@@ -106,48 +54,17 @@
           <p><router-link :to="{ name: 'dashboard', params: { org } }">Back to the assignments</router-link></p>
         </div>
 
-        <form v-else-if="editing" class="editor-form" @submit.prevent>
-          <div class="editor-header-bar">
-            <!-- The state is the header's button above; the title says what
-                 this page is. -->
-            <div class="editor-title">
-              <h3 v-if="isNew">New assignment</h3>
-              <h3 v-else>Settings</h3>
-            </div>
-            <div class="editor-header-actions">
-              <button
-                v-if="!isNew"
-                class="btn btn-with-icon"
-                type="button"
-                @click="showDiagnosticModal = true"
-                title="Run deep pre-flight diagnostic tests and 1-click auto-fixes on this assignment"
-              >
-                <Icon name="activity" :size="14" />
-                <span>Troubleshoot</span>
-              </button>
-              <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
-              <button
-                v-if="isNew || form.state === 'draft'"
-                class="btn"
-                type="button"
-                @click="saveAssignment('draft')"
-                :disabled="saving || !canSave"
-              >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
-              <button
-                class="btn btn-primary"
-                type="button"
-                @click="saveAndPublish"
-                :disabled="saving || !canSave"
-              >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
-            </div>
-          </div>
-          <!-- WHY SAVE IS GREY. Both buttons were disabled on a fresh form with
-               nothing saying why, and the field errors that would explain it
-               wait until a field is touched, so as not to nag a form still
-               being filled in. This line names the fields, not the errors. -->
-          <p v-if="saveBlockers.length && !saving" class="save-blockers">
-            Still needed: {{ saveBlockers.join(', ') }}
-          </p>
+        <!-- `data-broker`: whether the broker check has answered. Saving a
+             live assignment does different things by it (publishedSaveWorkflow),
+             and since the "Published & Verified" panel went nothing on screen
+             says when it has - tests wait on this rather than on a guess. -->
+        <form
+          v-else-if="editing"
+          class="editor-form"
+          :data-broker="brokerExists === null ? 'unknown' : (brokerExists ? 'present' : 'missing')"
+          @submit.prevent
+        >
+
 
           <!-- The template changed under students who already accepted: their
                repositories keep the old files until a starter sync, and
@@ -240,176 +157,62 @@
             </template>
           </div>
 
-          <!-- PUBLISHED ASSIGNMENT INFO BANNER -->
-          <div v-if="!isNew && form.state === 'published'" class="fade-in">
-            <!-- 1. LIVE & VERIFIED -->
-            <div v-if="publishWatch === 'ready' || (brokerExists === true && pagesLive === true)" class="published-info-card is-success">
-              <div class="published-header">
-                <Icon name="check-circle" :size="16" class="text-green" />
-                <h4>Assignment is Published &amp; Verified Live</h4>
-                <span class="badge badge-success" style="margin-left: auto; font-size: 0.75rem;">Ready to Share</span>
-              </div>
-              <p class="published-desc">
-                Verified on GitHub and Pages. You can safely share the student invitation link below on Blackboard, Canvas, Toledo, or email. Students who open it will be prompted to accept the assignment and will automatically receive their provisioned repository.
-              </p>
-              <!-- :resolve="false" - the form is the authority here. Rotating
-                   clears form.invite_token on purpose, and re-reading the YAML
-                   the workflow has not rewritten yet would hand the retired
-                   link straight back. -->
-              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
-              <!-- No "Track roster & progress" here: the cohort card below
-                   carries it, and it was the same link twice (ARCHITECTURE §10.1.1). -->
-            </div>
+          <!-- PUBLISHING, in one line, while it is going on (BETA-UX.md,
+               2026-10-03). The "Published & Verified Live" panel that sat here
+               repeated the Invite link button at the top of the page, and its
+               Regenerate link is in that button's menu now. What it said while
+               a publish was still going live is all that stays. -->
+          <div v-if="!isNew && publishWatch === 'watching'" class="publish-watch" role="status">
+            <div class="spinner sm"></div>
+            <span class="text-secondary">Publishing: the student page goes live in a minute or two. (checked {{ publishPollCount }}×)</span>
+          </div>
+          <div v-else-if="!isNew && publishWatch === 'ready'" class="publish-watch publish-ready" role="status">
+            <Icon name="check-circle" :size="15" />
+            <span>Live. The Invite link at the top of the page works now.</span>
+          </div>
+          <div v-else-if="!isNew && publishWatch === 'timeout'" class="publish-watch" role="status">
+            <span class="text-warning">
+              Not live after 8 minutes. Check the
+              <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
+            </span>
+          </div>
 
-            <!-- 2. PUBLISHING / DEPLOYING IN PROGRESS -->
-            <div v-else-if="publishWatch === 'watching' || (brokerExists === true && pagesLive === false)" class="published-info-card is-warning">
-              <div class="published-header">
-                <div class="spinner sm"></div>
-                <h4 style="color: var(--accent-yellow);">Publishing &amp; Deploying in Progress</h4>
-                <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Propagating (~1-2 min)</span>
-              </div>
-              <p class="published-desc">
-                GitHub Actions is setting up the student acceptance broker and publishing the web portal. You can safely stay on this page or navigate away — setup will finish automatically in the background.
-              </p>
-              <div class="deploy-steps-row">
-                <div style="display: flex; align-items: center; gap: 4px; color: var(--accent-green);">
-                  <Icon name="check-circle" :size="14" />
-                  <span>1. Setup Workflow Launched</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: brokerExists ? 'var(--accent-green)' : 'var(--accent-yellow)' }">
-                  <Icon :name="brokerExists ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !brokerExists }" />
-                  <span>2. Acceptance Broker (<code>broker-{{ form.id }}</code>) {{ brokerExists ? 'Created' : 'Creating…' }}</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 4px;" :style="{ color: pagesLive ? 'var(--accent-green)' : 'var(--accent-yellow)' }">
-                  <Icon :name="pagesLive ? 'check-circle' : 'refresh-cw'" :size="14" :class="{ 'spin-animation': !pagesLive }" />
-                  <span>3. Student Web Portal {{ pagesLive ? 'Live' : 'Deploying (~1 min)…' }}</span>
-                </div>
-              </div>
-              <!-- :resolve="false" - the form is the authority here. Rotating
-                   clears form.invite_token on purpose, and re-reading the YAML
-                   the workflow has not rewritten yet would hand the retired
-                   link straight back. -->
-              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
-              <div class="link-share-row">
-                <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
-                  <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
-                  <span>Check status</span>
-                </button>
-              </div>
+          <!-- A published assignment with no broker: a fault with a fix, not a
+               repeat of anything else on the page, so it stays. -->
+          <div v-if="!isNew && form.state === 'published' && brokerExists === false && publishWatch !== 'watching'" class="published-info-card is-error">
+            <div class="published-header">
+              <Icon name="alert-triangle" :size="16" class="text-danger" />
+              <h4 style="color: var(--accent-red);">Publish Incomplete: Student Acceptance Broker Missing</h4>
+              <span class="badge badge-danger">Action Required</span>
             </div>
-
-            <!-- 3. TIMEOUT / TAKING LONGER THAN USUAL -->
-            <div v-else-if="publishWatch === 'timeout'" class="published-info-card is-warning">
-              <div class="published-header">
-                <Icon name="clock" :size="16" class="text-yellow" />
-                <h4 style="color: var(--accent-yellow);">Publishing Taking Longer than Usual</h4>
-                <span class="badge badge-warning" style="margin-left: auto; font-size: 0.75rem;">Queue Delay</span>
-              </div>
-              <p class="published-desc">
-                GitHub Actions is taking longer than usual to complete deployment. The student link will activate automatically as soon as the background workflow finishes.
-              </p>
-              <!-- :resolve="false" - the form is the authority here. Rotating
-                   clears form.invite_token on purpose, and re-reading the YAML
-                   the workflow has not rewritten yet would hand the retired
-                   link straight back. -->
-              <InvitationShare :org="org" :assignment="shareAssignment" variant="banner" :resolve="false" @regenerate="openRegenerate" />
-              <div class="link-share-row">
-                <div style="display: flex; gap: var(--space-xs);">
-                  <button class="btn btn-sm btn-secondary btn-with-icon" type="button" @click="verifyLiveInfrastructure(form.id)" :disabled="liveCheckLoading">
-                    <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': liveCheckLoading }" />
-                    <span>Check Status Now</span>
-                  </button>
-                  <button class="btn btn-sm btn-with-icon" type="button" @click="showDiagnosticModal = true">
-                    <Icon name="activity" :size="12" />
-                    <span>Troubleshoot</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 4. BROKER MISSING / INCOMPLETE PUBLISH -->
-            <div v-else-if="brokerExists === false" class="published-info-card is-error">
-              <div class="published-header">
-                <Icon name="alert-triangle" :size="16" class="text-danger" />
-                <h4 style="color: var(--accent-red);">Publish Incomplete: Student Acceptance Broker Missing</h4>
-                <span class="badge badge-danger">Action Required</span>
-              </div>
-              <p class="published-desc text-danger">
-                This assignment is set to published, but its student acceptance broker (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students cannot accept until the broker is created.
-              </p>
-              <div style="display: flex; gap: var(--space-sm); align-items: center; margin-top: var(--space-xs); flex-wrap: wrap;">
-                <button class="btn btn-secondary btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
-                  <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': publishing }" />
-                  <span>{{ publishing ? 'Setting up…' : 'Complete Setup / Create Broker Now' }}</span>
-                </button>
-                <button class="btn btn-with-icon" type="button" @click="showDiagnosticModal = true">
-                  <Icon name="activity" :size="14" />
-                  <span>Troubleshoot</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 5. CHECKING / LOADING STATE -->
-            <div v-else class="published-info-card">
-              <div class="published-header">
-                <div class="spinner sm"></div>
-                <h4>Checking Live Status…</h4>
-              </div>
-              <p class="published-desc">Checking student acceptance broker repository and Pages deployment status.</p>
+            <p class="published-desc text-danger">
+              This assignment is set to published, but its student acceptance broker (<code>broker-{{ form.id }}</code>) does not exist on GitHub. Students cannot accept until the broker is created.
+            </p>
+            <div style="display: flex; gap: var(--space-sm); align-items: center; margin-top: var(--space-xs); flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-with-icon" type="button" @click="handlePublishClick" :disabled="publishing">
+                <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': publishing }" />
+                <span>{{ publishing ? 'Setting up…' : 'Complete Setup / Create Broker Now' }}</span>
+              </button>
+              <button class="btn btn-with-icon" type="button" @click="showDiagnosticModal = true">
+                <Icon name="activity" :size="14" />
+                <span>Troubleshoot</span>
+              </button>
             </div>
           </div>
 
-          <!-- COHORT SUMMARY (ARCHITECTURE §10.1.1)
-               Once an assignment is out, the job is running a cohort, not
-               defining one - so a published or closed assignment leads with
-               where it stands and how long is left, and the settings go behind
-               the disclosure below. A draft opens on the form, because
-               defining it IS the job. -->
-          <section v-if="cohortFirst" class="cohort-card">
-            <div class="cohort-figures">
-              <div class="cohort-stat">
-                <template v-if="cohort">
-                  <span class="cohort-value">{{ cohort.accepted }}<span v-if="cohort.cap" class="cohort-of"> / {{ cohort.cap }}</span></span>
-                  <span class="cohort-label">accepted</span>
-                </template>
-                <template v-else>
-                  <!-- Never "0 accepted": a report that has not run and a
-                       cohort where nobody has accepted are different facts,
-                       and only one of them is a number. -->
-                  <span class="cohort-value cohort-unknown">—</span>
-                  <span class="cohort-label">{{ cohortUnknownReason }}</span>
-                </template>
-              </div>
-              <div class="cohort-stat">
-                <span class="cohort-value">{{ deadlineSummary.value }}</span>
-                <span class="cohort-label" :title="formatDate(shareAssignment.deadline_at, form.timezone)">{{ deadlineSummary.label }}</span>
-              </div>
-            </div>
-            <div class="cohort-actions">
-              <!-- THE COHORT IS A SNAPSHOT, so a student imported next week is
-                   not in an assignment made today. The picker that fixes that
-                   sits inside a disclosure which is SHUT on a published
-                   assignment, so the capability existed and nothing pointed at
-                   it - the same shape as the class-groups control that had
-                   never rendered. A named action, where the cohort already is. -->
-              <button
-                v-if="showAddStudents"
-                type="button"
-                class="btn btn-secondary btn-with-icon"
-                @click="openAddStudents"
-              >
-                <Icon name="users" :size="13" />
-                <span>Add students</span>
-              </button>
-              <router-link
-                :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }"
-                class="btn btn-secondary btn-with-icon"
-              >
-                <span>Track roster &amp; progress</span>
-                <Icon name="arrow-right" :size="14" />
-              </router-link>
-            </div>
-          </section>
+          <!-- The accepted / time-left card and its "Track roster & progress"
+               went with the move into the assignment page (BETA-UX.md,
+               2026-10-03): the header and the Progress tab say both. ADD
+               STUDENTS STAYS. The cohort is a snapshot, so a student imported
+               next week is not in an assignment made today, and the picker that
+               fixes that is inside the settings fold, which is shut on a
+               published assignment - without this nothing points at it. -->
+          <div v-if="cohortFirst && showAddStudents" class="settings-quick-actions">
+            <button type="button" class="btn btn-secondary btn-sm btn-with-icon" @click="openAddStudents">
+              <Icon name="users" :size="13" />
+              <span>Add students</span>
+            </button>
+          </div>
 
           <!-- The six fieldsets, collapsed once the assignment is out. The
                summary carries the field-error count so a validation problem is
@@ -1492,7 +1295,7 @@
                runStateAction), the one place it is offered on every tab; what
                is left here is repairing a published assignment's broker and
                watching a publish go live. -->
-          <div v-if="!isNew && (form.state === 'published' || publishWatch)" id="settings-lifecycle" class="lifecycle">
+          <div v-if="!isNew && form.state === 'published'" id="settings-lifecycle" class="lifecycle">
             <h4>Broker</h4>
 
             <!-- Repair above the rule, state transitions below it
@@ -1529,21 +1332,48 @@
               <small v-else class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
             </div>
 
-            <div v-if="publishWatch === 'watching'" class="publish-watch">
-              <div class="spinner sm"></div>
-              <span class="text-secondary">Publish triggered. Waiting for the assignment to go live on the Pages site… (checked {{ publishPollCount }}×)</span>
-            </div>
-            <div v-else-if="publishWatch === 'ready'" class="publish-watch publish-ready">
-              <Icon name="check-circle" :size="15" />
-              <span>Assignment is live. The invitation link above works now.</span>
-            </div>
-            <div v-else-if="publishWatch === 'timeout'" class="publish-watch">
-              <span class="text-warning">
-                Assignment not live on Pages site after 8 minutes. Check the
-                <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
-              </span>
-            </div>
 
+          </div>
+
+          <!-- THE FORM'S ACTIONS, ONCE, IN A BAR STUCK TO THE BOTTOM of the
+               window (BETA-UX.md, 2026-10-03). They sat in a row at the top of
+               the form, so a lecturer who changed the grading section scrolled
+               back up to save, and the row competed with the assignment's own
+               header above it. DESIGN.md §1.2: one action row, never two. -->
+          <div class="editor-action-bar">
+            <button
+              v-if="!isNew"
+              class="btn btn-with-icon"
+              type="button"
+              @click="showDiagnosticModal = true"
+              title="Run deep pre-flight diagnostic tests and 1-click auto-fixes on this assignment"
+            >
+              <Icon name="activity" :size="14" />
+              <span>Troubleshoot</span>
+            </button>
+            <!-- WHY SAVE IS GREY. Both buttons were disabled on a fresh form with
+                 nothing saying why, and the field errors that would explain it
+                 wait until a field is touched, so as not to nag a form still
+                 being filled in. This line names the fields, not the errors. -->
+            <p v-if="saveBlockers.length && !saving" class="save-blockers">
+              Still needed: {{ saveBlockers.join(', ') }}
+            </p>
+            <div class="editor-action-buttons">
+              <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
+              <button
+                v-if="isNew || form.state === 'draft'"
+                class="btn"
+                type="button"
+                @click="saveAssignment('draft')"
+                :disabled="saving || !canSave"
+              >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="saveAndPublish"
+                :disabled="saving || !canSave"
+              >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
+            </div>
           </div>
         </form>
       </main>
@@ -1645,7 +1475,8 @@ import { config } from '../lib/config.js'
 // the value buildDoc() writes are one fact rather than three literals.
 import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
 import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
-import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { markStaff } from '../lib/org-session.js'
 import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -1724,17 +1555,11 @@ import {
   FOREIGN_PRIVATE,
   EMPTY_TEMPLATE,
 } from '../../../lib/template-source.mjs'
-import { formatDate } from '../lib/format.js'
-import { countdownParts } from '../lib/countdown.js'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
-import OrgSwitch from '../components/OrgSwitch.vue'
-import AssignmentHeader from '../components/AssignmentHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
-import AppHeader from '../components/AppHeader.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import SeedTeamsModal from '../components/SeedTeamsModal.vue'
-import InvitationShare from '../components/InvitationShare.vue'
 import AutogradeModal from '../components/AutogradeModal.vue'
 import DeleteAssignmentModal from '../components/DeleteAssignmentModal.vue'
 import ExistingReposModal from '../components/ExistingReposModal.vue'
@@ -1758,7 +1583,14 @@ const props = defineProps({
   org: { type: String, required: true },
   assignmentId: { type: String, default: '' },
   mode: { type: String, default: 'single', validator: (v) => ['single', 'new'].includes(v) },
+  /** Inside the assignment page as its Settings tab (BETA-UX.md, 2026-10-03). */
+  embedded: { type: Boolean, default: false },
 })
+// `changed`: the stored document is different now (saved, state changed,
+// published), so the page around the editor reads it again for its header.
+// `regenerated`: the invitation secret passed with it was just retired; the
+// page's Invite link must stop offering it until the new one is written.
+const emit = defineEmits(['changed', 'regenerated'])
 const route = useRoute()
 const router = useRouter()
 
@@ -1768,16 +1600,9 @@ const router = useRouter()
 // render inside the auth card (authError), never a misleading empty state.
 const user = ref(getUser())
 
-function handleLogout() {
-  clearAuth()
-  user.value = null
-  assignments.value = []
-  templates.value = []
-}
-
 async function onAuthenticated(authedUser) {
   user.value = authedUser
-  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary(), loadRoster()])
+  await Promise.all([loadAssignments(), loadTemplates(), loadRoster()])
 }
 
 
@@ -1850,10 +1675,6 @@ const deleting = ref(false)
 
 // '' | 'watching' | 'ready' | 'timeout' - post-publish broker watch
 
-// Drives the cohort card's countdown. A minute is the smallest unit it ever
-// prints, so it ticks at a minute.
-const now = ref(new Date())
-let clockTimer = null
 
 // Live infrastructure check state for published assignments
 
@@ -1915,6 +1736,12 @@ const {
   snapshotForm,
   onReady: (msg) => toast.success(msg),
 })
+
+// The page around the editor reads the assignment for its header (state,
+// deadline, Invite link). A publish going live, and an invitation the watch
+// picked up, change what that header should say - so it reads again.
+watch(publishWatch, (state) => { if (state === 'ready') emit('changed') })
+watch(() => form.value.invite_key, (key, before) => { if (key && key !== before) emit('changed') })
 
 // The org's real class groups, and what restricting to some of them would cost.
 //
@@ -2290,9 +2117,14 @@ const rosterLinked = computed(() =>
 // In-page navigation is guarded via confirmDiscard(); guard the two exits
 // that used to lose edits silently - leaving the route (e.g. the Dashboard
 // back button) and closing/refreshing the tab.
-onBeforeRouteLeave(() => confirmDiscard())
-// One assignment's settings to another's is the same route with a new id.
-onBeforeRouteUpdate((to, from) => to.params.assignmentId === from.params.assignmentId || confirmDiscard())
+// Embedded, the assignment page asks on the way out (it owns the route, and
+// switching its tabs keeps this editor and its edits); a new assignment asks
+// for itself.
+if (!props.embedded) {
+  onBeforeRouteLeave(() => confirmDiscard())
+  onBeforeRouteUpdate((to, from) => to.params.assignmentId === from.params.assignmentId || confirmDiscard())
+}
+defineExpose({ hasUnsavedEdits: () => hasUnsavedEdits() })
 function onBeforeUnload(e) {
   if (hasUnsavedEdits()) {
     e.preventDefault()
@@ -2302,22 +2134,15 @@ function onBeforeUnload(e) {
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
-// The trail names the assignment, as it does on the assignment's other tabs.
-const headerTitle = computed(() =>
-  props.mode === 'new' ? 'New assignment' : (props.assignmentId || 'Assignment'))
-
-// The assignment AS STORED, for the header: its state button and deadline say
-// what the assignment is, never what the form would make it.
-const storedDoc = computed(() =>
-  props.mode === 'single' ? assignments.value.find((a) => a.id === props.assignmentId) || null : null)
-const cohortAcceptedCount = computed(() => (cohort.value ? cohort.value.accepted : 0))
-
-// The header's state button (lib/state-actions.js). Every one of these was a
-// button in this editor's Lifecycle section and still runs the same function,
-// with its own confirmation. "Lock everyone out now" is the Progress tab's:
-// its confirmation dialog lives there, so it is opened there.
+// The assignment page's state button (lib/state-actions.js), arriving as
+// `?action=` (applyRouteIntent). Every one of these was a button in this
+// editor's Lifecycle section and still runs the same function, with its own
+// confirmation. "Lock everyone out now" is the Progress tab's own dialog and
+// never comes here. `regenerate` is the Invite link menu's Regenerate link.
 function runStateAction(key) {
   switch (key) {
+    case 'regenerate':
+      return openRegenerate()
     case 'publish':
     case 'reopen':
       return handlePublishClick()
@@ -2334,8 +2159,6 @@ function runStateAction(key) {
       return
     case 'edit-deadline':
       return scrollToSection('settings-schedule')
-    case 'freeze':
-      return router.push({ name: 'assignment-detail', params: { org: props.org, assignmentId: props.assignmentId }, query: { action: 'freeze' } })
   }
 }
 
@@ -2346,13 +2169,24 @@ async function scrollToSection(id) {
   document.getElementById(id)?.scrollIntoView({ block: 'start' })
 }
 
-// Where Cancel and a delete leave: the assignment, or the list when there is
-// no assignment to go back to.
-function leaveEditor({ deleted = false } = {}) {
-  if (props.mode === 'single' && !deleted) {
-    return router.push({ name: 'assignment-detail', params: { org: props.org, assignmentId: props.assignmentId } })
-  }
+// Where a delete, and Cancel on a new assignment, leave: the list.
+function leaveEditor() {
   return router.push({ name: 'dashboard', params: { org: props.org } })
+}
+
+// A saved new assignment has an address: its page, on the Settings tab. Not
+// while a Save & publish is still running - the new-assignment page goes away
+// when this navigates, and a publish cut off half way is the wreck
+// revertAfterFailedPublish exists for. That flow navigates when it is done,
+// and says so (`publishing=1`), so the Settings tab picks the watch up.
+let inPublishFlow = false
+function goToSavedAssignment({ publishing = false } = {}) {
+  if (props.mode !== 'new' || !editing.value || isNew.value) return
+  return router.replace({
+    name: 'assignment-detail',
+    params: { org: props.org, assignmentId: editing.value.id },
+    query: { tab: 'settings', ...(publishing ? { publishing: '1' } : {}) },
+  })
 }
 
 // A published or closed assignment leads with the cohort; a draft leads with
@@ -2372,30 +2206,6 @@ const settingsOpen = ref(true)
 // assignment reverted to draft from rendering a collapsed, uncloseable form.
 const settingsExpanded = computed(() => settingsOpen.value || !cohortFirst.value)
 
-// What InvitationShare needs from the form. Built here rather than passed as
-// `form` so the component sees an assignment-shaped object on every surface -
-// the list rows and the dashboard cards pass real assignment records.
-const shareAssignment = computed(() => ({
-  id: form.value.id,
-  state: form.value.state,
-  timezone: form.value.timezone,
-  // Both, and InvitationShare decides which is the link via linkSecretFrom.
-  // This object is built field by field, so a field omitted here is invisible
-  // to the share block - which is how a migrated assignment would show
-  // "no invitation link yet" over a perfectly good one.
-  invite_token: form.value.invite_token || null,
-  invite_key: form.value.invite_key || null,
-  invite_expires_at: form.value.invite_expires_at || null,
-  opens_at: form.value.opens_at_local ? localToUtc(form.value.opens_at_local) : null,
-  deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : null,
-  max_acceptances: form.value.max_acceptances || null,
-  // Without this the share block cannot evaluate its own cap check, so it read
-  // "Live - students can accept now" over a full cohort. `cohort` is null when
-  // the report could not be read, and null here means UNKNOWN rather than zero -
-  // the same distinction the cohort card above makes between "nobody has
-  // accepted" and "we could not tell".
-  accepted_count: cohort.value ? cohort.value.accepted : null,
-}))
 
 // The one republish that CANNOT keep the links alive, and it is not optional.
 //
@@ -2944,54 +2754,6 @@ watch(() => form.value.id, (newId) => {
   }
 })
 
-// ---------------------------------------------------------------- cohort summary
-
-// reports/dashboard.json, read ONCE per page load and shared by every
-// assignment in the list. ARCHITECTURE §10.1.1 assumed the list already had it - it
-// does not (that is DashboardView), so this is one extra Contents API call for
-// the whole pane rather than one per assignment opened.
-const dashboardEntries = ref(null)   // null until read; {} when there is none
-const dashboardError = ref(false)
-
-async function loadCohortSummary() {
-  dashboardEntries.value = null
-  dashboardError.value = false
-  const token = getToken()
-  if (!token) return
-  try {
-    const text = await getRepoContent(token, props.org, config.controlRepo, 'reports/dashboard.json')
-    // A missing file is an answer ("no report has run"); an unreadable one is
-    // not an answer at all, and the card says which.
-    dashboardEntries.value = text ? (JSON.parse(text)?.assignments || {}) : {}
-  } catch {
-    dashboardError.value = true
-    dashboardEntries.value = {}
-  }
-}
-
-// null whenever there is no reported figure, so the card can say so instead of
-// rendering a zero nobody counted.
-const cohort = computed(() => {
-  const entry = dashboardEntries.value?.[form.value.id]
-  if (!entry || typeof entry.accepted !== 'number') return null
-  // An assignment with no cap has no cap - never substitute a number here.
-  const cap = Number(form.value.max_acceptances) || null
-  return { accepted: entry.accepted, cap, total: entry.total_students ?? null }
-})
-
-const cohortUnknownReason = computed(() => {
-  if (dashboardEntries.value === null) return 'reading the report…'
-  if (dashboardError.value) return "couldn't read the cohort report"
-  return 'no cohort report yet'
-})
-
-const deadlineSummary = computed(() => {
-  const parts = countdownParts(shareAssignment.value.deadline_at, now.value)
-  if (!parts) return { value: '—', label: 'no deadline set' }
-  return parts.passed
-    ? { value: parts.duration, label: 'past the deadline' }
-    : { value: parts.duration, label: 'until the deadline' }
-})
 
 // ---------------------------------------------------------------- defaults / helpers
 
@@ -3222,12 +2984,16 @@ async function loadAssignments() {
           { org: props.org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
         )
         assignmentsError.value = 'no-control-repo'
+        markStaff(props.org, false)
       } else {
         assignmentsError.value = `Failed to load control repository (HTTP ${repoRes.status})`
       }
       loadingList.value = false
       return
     }
+    // Read the control repository: staff here, so the org's tabs in the
+    // shared top bar can show (lib/org-session.js).
+    markStaff(props.org, true)
 
     let files = []
     try {
@@ -3539,8 +3305,14 @@ function editAssignment(a, { confirmed = false } = {}) {
 }
 
 // Leaving asks about unsaved edits on the way out (onBeforeRouteLeave).
+// A new assignment: back to the list (leaving asks about what was typed).
+// Settings: undo the edits and stay, because this tab IS the assignment's
+// settings - there is nowhere to go back to.
 function cancelEdit() {
-  leaveEditor()
+  if (!props.embedded) return leaveEditor()
+  const stored = assignments.value.find((a) => a.id === props.assignmentId)
+  if (!stored || !confirmDiscard()) return
+  editAssignment(stored, { confirmed: true })
 }
 
 // ---------------------------------------------------------------- automated checks
@@ -4343,11 +4115,10 @@ async function saveAssignment(stateOverride = null) {
       // Stay on the edited assignment
       const stillExists = assignments.value.find((a) => a.id === form.value.id)
       if (stillExists) editing.value = { id: stillExists.id }
-      // A new assignment has an address now: its Settings tab. The same
-      // component stays mounted, so a publish that follows this save carries on.
-      if (stillExists && props.mode === 'new') {
-        await router.replace({ name: 'assignment-settings', params: { org: props.org, assignmentId: stillExists.id } })
-      }
+      emit('changed')
+      // A new assignment has an address now - unless a publish is about to
+      // follow this save, which navigates itself when it is done.
+      if (stillExists && !inPublishFlow) await goToSavedAssignment()
       if (form.value.state === 'published') {
         verifyLiveInfrastructure(form.value.id)
       }
@@ -4649,11 +4420,25 @@ async function noticeTemplateChange(id, before, after) {
 }
 
 async function saveAndPublish() {
+  inPublishFlow = true
+  let started = false
+  try {
+    started = await saveAndPublishSteps()
+  } finally {
+    inPublishFlow = false
+  }
+  // A new assignment moves to its page now that nothing is left running here.
+  await goToSavedAssignment({ publishing: started })
+  emit('changed')
+}
+
+/** @returns {Promise<boolean>} whether a publish was dispatched and is going live */
+async function saveAndPublishSteps() {
   // Save current edits first (with state=published) then trigger publish workflow.
   if (form.value.state === 'published') {
     // Gated on the save actually landing: dispatching the publish workflow for
     // a YAML the commit failed to write runs it against the OLD document.
-    if (!(await saveAssignment())) return
+    if (!(await saveAssignment())) return false
 
     // `!== true`, NOT `=== false`. brokerExists is a THREE-state flag and the
     // third state was being read as "fine": `null` means nobody has looked yet.
@@ -4679,7 +4464,7 @@ async function saveAndPublish() {
     })) {
       toast.info('Students see this change in about two minutes, once their page is rebuilt.')
     }
-    return
+    return false
   }
   // Where to go back to if the dispatch does not happen. Captured BEFORE the
   // save, because saveAssignment writes 'published' into the form.
@@ -4712,7 +4497,9 @@ async function saveAndPublish() {
       dispatched = false
     }
     if (!dispatched) await revertAfterFailedPublish(priorState)
+    return dispatched
   }
+  return false
 }
 
 /**
@@ -4791,10 +4578,14 @@ async function handlePublishClick() {
 // is now only what the dialog OPENS with - openRegenerate() sets it, and the
 // repair path clears it - so the two are deliberately different things.
 async function confirmRepublish(regenerate) {
+  // The secret being retired, taken before the form forgets it: the page
+  // around the editor must stop offering it too (`regenerated`).
+  const retiring = form.value.invite_key || form.value.invite_token || ''
   const ok = await publishExisting({ regenerate })
   if (ok) {
     showRepublishModal.value = false
     if (regenerate) {
+      emit('regenerated', retiring)
       // The old secret is still in the form until the workflow writes the new
       // one; clear it so nothing can copy a link the broker is about to reject.
       // BOTH halves: clearing only the token would leave a migrated
@@ -4803,9 +4594,10 @@ async function confirmRepublish(regenerate) {
       form.value.invite_token = ''
       form.value.invite_key = ''
       form.value.invite_pubkey = ''
-      toast.info('Regenerating - the new link appears here once the workflow finishes. The old one stops working now.')
+      toast.info('Regenerating - the new link appears in the Invite link menu once the workflow finishes. The old one stops working now.')
     }
     regenerateInvite.value = false
+    emit('changed')
   }
 }
 
@@ -5182,6 +4974,7 @@ async function setState(newState) {
         })
       }
       await loadAssignments()
+      emit('changed')
     } else {
       toast.error(`Update failed: ${res.data?.message || 'unknown error'}`)
     }
@@ -5225,10 +5018,13 @@ async function applyRouteIntent() {
     return
   }
   if (!editing.value || editing.value.id !== a.id) editAssignment(a, { confirmed: true })
-  const { action, section, ...rest } = route.query
-  if (!action && !section) return
+  // `publishing`: a new assignment's Save & publish is going live, and the
+  // page that started it is gone (goToSavedAssignment) - carry the watch on.
+  const { action, section, publishing, ...rest } = route.query
+  if (!action && !section && !publishing) return
   await router.replace({ query: rest })
   await nextTick()
+  if (publishing === '1') startPublishWatch()
   if (section === 'grading') await scrollToSection('settings-grading')
   if (typeof action === 'string') runStateAction(action)
 }
@@ -5241,7 +5037,6 @@ onMounted(async () => {
   window.pxlHasUnsavedState = () => hasUnsavedEdits()
   window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('click', handleClickOutside)
-  clockTimer = setInterval(() => { now.value = new Date() }, 60000)
   if (!isAuthenticated()) { loadingList.value = false; return }
   user.value = getUser()
   // Chained onto the LIST only, not onto all three. `?edit=<id>` needs the
@@ -5251,7 +5046,7 @@ onMounted(async () => {
   // "reading the report…" rather than guessing a number. Behind Promise.all
   // the assignment was never selected at all while that request was in flight.
   const listed = loadAssignments().then(() => applyRouteIntent())
-  await Promise.all([listed, loadTemplates(), loadCohortSummary(), loadRoster()])
+  await Promise.all([listed, loadTemplates(), loadRoster()])
 })
 
 onUnmounted(() => {
@@ -5259,10 +5054,6 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload)
   document.removeEventListener('click', handleClickOutside)
   stopPublishWatch()
-  if (clockTimer) {
-    clearInterval(clockTimer)
-    clockTimer = null
-  }
 })
 
 watch(
@@ -5296,17 +5087,26 @@ watch(
    collapsed Advanced section (lib/template-source.mjs, submissionBranchProvisioned). */
 .submission-branch-warning { display: block; margin-top: var(--space-xs); }
 
-/* Where the Assignments / Roster tab row was: the editor's way to the org's
-   roster, which is a page of its own now. */
-.org-roster-bar {
+/* Inside the assignment page as its Settings tab: that page's container and
+   header already frame it, so no page padding of its own. */
+.admin-embedded {
+  padding-bottom: var(--space-lg);
+}
+/* No card around the form there (DESIGN.md §1.1): the other tabs put their
+   content straight on the page, and a bordered box under the tabs is what made
+   Settings look like a different application (reported 2026-10-03). The column
+   width stays - it is the form's reading measure (DESIGN.md §1.8). */
+.admin-embedded .editor-pane {
+  background: transparent;
+  border: none;
+  padding: 0;
+  max-width: var(--form-measure);
+}
+
+/* What is left of the cohort card on Settings: Add students. */
+.settings-quick-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-xs) var(--space-sm);
-  margin-bottom: var(--space-lg);
-  padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--border-muted);
-  font-size: 0.9rem;
+  gap: var(--space-sm);
 }
 
 .admin-layout {
@@ -5412,32 +5212,36 @@ watch(
   .field-row { grid-template-columns: minmax(0, 1fr); }
   .field-row > .field:not(:last-child) { margin-bottom: var(--space-md); }
 }
-.editor-header-bar {
+/* THE FORM'S ONE ACTION ROW, stuck to the bottom of the window while the form
+   scrolls under it, so Save is reachable from the last section without
+   scrolling back up. A surface of its own with a single top divider - not a
+   box (DESIGN.md §1.1). `position: sticky` and no transform: an ancestor with
+   a transform would turn every modal on this page into a child of it
+   (tests/e2e/47). */
+.editor-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
+  gap: var(--space-sm);
   flex-wrap: wrap;
-  margin-bottom: var(--space-xs);
+  padding: var(--space-sm) 0;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-muted);
 }
-/* Under the action bar, right-aligned beside the buttons it explains. */
+.editor-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+/* Beside the buttons it explains. */
 .save-blockers {
-  margin: 0 0 var(--space-sm);
-  text-align: right;
+  margin: 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
-}
-.editor-header-bar .editor-title h3 {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-.editor-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
 }
 
 fieldset {
@@ -5927,44 +5731,6 @@ details .field { padding: 0 var(--space-sm); }
   flex-wrap: wrap;
 }
 
-.cohort-card {
-  background: var(--bg-inset);
-  border-radius: 8px;
-  padding: var(--space-md);
-  margin-bottom: var(--space-md);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-}
-.cohort-figures {
-  display: flex;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
-}
-.cohort-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.cohort-value {
-  font-size: 1.35rem;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--text-primary);
-}
-.cohort-of {
-  font-size: 1rem;
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-.cohort-unknown { color: var(--text-secondary); }
-.cohort-label {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
 /* Not a box: the editor pane already draws one and every fieldset inside
    draws another, so a third would be DESIGN.md §1.1's prison. A single-side
    rule is a divider, which is fine. */
@@ -6021,13 +5787,6 @@ details .field { padding: 0 var(--space-sm); }
   color: var(--text-secondary);
   line-height: 1.4;
   margin: 0;
-}
-.link-share-row {
-  display: flex;
-  gap: var(--space-md);
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: var(--space-xs);
 }
 .link-box {
   flex: 1;
@@ -6115,14 +5874,6 @@ details .field { padding: 0 var(--space-sm); }
 .badge-danger {
   margin-left: auto;
   font-size: 0.75rem;
-}
-
-.deploy-steps-row {
-  display: flex;
-  gap: var(--space-md);
-  margin: var(--space-xs) 0;
-  font-size: 0.85rem;
-  flex-wrap: wrap;
 }
 
 /* NO THIRD BOX. The card draws one edge and the fieldset another; a bordered

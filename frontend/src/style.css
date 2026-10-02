@@ -765,6 +765,33 @@ a:hover {
   min-width: 0;
 }
 
+/* A bar with a centre (OrgShell's tabs): three columns, the outer two equal,
+   so the middle one is centred on the WINDOW whatever the breadcrumb on the
+   left or the account on the right happen to measure. A flex row centres
+   nothing - the tabs started wherever the left side ended, and moved from one
+   page to the next (reported 2026-10-03). */
+.app-header-bar.has-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* A long assignment name truncates before it reaches the tabs, rather than
+     running into them. */
+  column-gap: var(--space-xl);
+}
+.app-header-bar.has-center .app-header-left { justify-self: start; }
+.app-header-bar.has-center .app-header-right { justify-self: end; }
+.app-header-center { justify-self: center; }
+/* Too narrow for three: the tabs take their own row under the other two. */
+@media (max-width: 900px) {
+  .app-header-bar.has-center {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "left right" "center center";
+    row-gap: var(--space-xs);
+  }
+  .app-header-bar.has-center .app-header-left { grid-area: left; }
+  .app-header-bar.has-center .app-header-right { grid-area: right; }
+  .app-header-bar.has-center .app-header-center { grid-area: center; justify-self: start; }
+}
+
 /* Below this the actions cannot fit beside a long org name, so the bar wraps
    onto a second row rather than forcing the page to scroll sideways. */
 @media (max-width: 560px) {
@@ -871,21 +898,16 @@ a:hover {
   color: var(--accent-blue);
   text-decoration: none;
 }
-/* An organization's three views - Assignments, Roster, Admin (OrgSwitch.vue) -
-   switched from inside the breadcrumb trail rather than from a second tab row,
-   which would read as competing navigation.
+/* An organization's three views - Assignments, Roster, Organization
+   (OrgSwitch.vue) - in the centre of the shared top bar (OrgShell.vue).
    The ITEMS are `.primer-tab`, because DESIGN.md §1.4 asks for underline tabs
    with an active bottom border and this is section switching; only the
    container differs, since `.primer-tabs` carries a full-width bottom border
-   and a 24px margin meant for a page body. The left rule is a divider, which
-   §1.1 allows. */
+   and a 24px margin meant for a page body. */
 .app-header-switch {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
-  margin-left: var(--space-sm);
-  padding-left: var(--space-sm);
-  border-left: 1px solid var(--border-muted);
 }
 .app-header-switch .primer-tab {
   padding: 4px 8px;
@@ -902,10 +924,7 @@ a:hover {
     flex-wrap: wrap;
   }
   .app-header-switch {
-    flex-basis: 100%;
-    margin-left: 0;
-    padding-left: 0;
-    border-left: none;
+    flex-wrap: wrap;
   }
 }
 .app-header-sep {

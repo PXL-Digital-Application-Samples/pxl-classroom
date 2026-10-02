@@ -60,14 +60,17 @@ test("a known, full cohort still reports Cap reached", () => {
 test("every caller passes accepted_count, or the check cannot fire", () => {
   // The three surfaces. AssignmentDetailView was always correct; the other two
   // are the regression this file guards.
+  // The editor's banner went with the Settings tab move (2026-10-03): the link
+  // is the header's Invite link on every tab, Settings included.
   const callers = [
-    ["frontend/src/views/AdminView.vue", "banner"],
     ["frontend/src/views/DashboardView.vue", "compact"],
     // The assignment's header, which every tab renders; its callers pass the
     // count in as `accepted-count`.
     ["frontend/src/components/AssignmentHeader.vue", "popover"],
   ];
-  for (const file of ["frontend/src/views/AssignmentDetailView.vue", "frontend/src/views/AdminView.vue"]) {
+  // The assignment page renders the header for every tab, Settings included
+  // (the editor sits inside it), so it is the one caller.
+  for (const file of ["frontend/src/views/AssignmentDetailView.vue"]) {
     assert.match(read(file), /<AssignmentHeader[\s\S]*?:accepted-count=/, `${file} hands the header its accepted count`);
   }
   for (const [file, variant] of callers) {

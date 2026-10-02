@@ -84,6 +84,7 @@ async function openEditor(page, a = assignment(), extra = {}) {
 test.describe('34 - §4.1 The share block says what a student would see', () => {
   test('A live assignment is Live, with the deadline it is live until', async ({ page }) => {
     await openEditor(page);
+    await openInvitePopover(page);
     await expect(share(page).first()).toContainText('Live - students can accept now');
     await expect(share(page).first()).toContainText('Anyone with this link can accept until');
     await expect(share(page).first().locator('.status-dot.dot-success')).toBeVisible();
@@ -91,6 +92,7 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
 
   test('A past deadline is Closed here too, because it is closed to the student', async ({ page }) => {
     await openEditor(page, assignment({ deadline_at: new Date(Date.now() - 3600000).toISOString() }));
+    await openInvitePopover(page);
     await expect(share(page).first()).toContainText('Closed');
     await expect(share(page).first()).toContainText('The deadline passed');
   });
@@ -100,6 +102,7 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
       opens_at: new Date(Date.now() + 86400000 * 2).toISOString(),
       deadline_at: new Date(Date.now() + 86400000 * 9).toISOString(),
     }));
+    await openInvitePopover(page);
     await expect(share(page).first()).toContainText('Opens');
     await expect(share(page).first()).toContainText('nobody can accept before then');
   });
@@ -123,6 +126,7 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
 
   test('Open sends the lecturer to the page a student sees', async ({ page }) => {
     await openEditor(page);
+    await openInvitePopover(page);
     const open = share(page).first().getByRole('link', { name: /Open/ });
     await expect(open).toHaveAttribute('href', new RegExp(`/${ORG}/i/`));
     await expect(open).toHaveAttribute('target', '_blank');
@@ -207,6 +211,7 @@ test.describe('34 - §4.2 The link is reachable without opening the editor', () 
     // It was reachable only from the Actions tab. The one place it belongs is
     // next to the link it retires.
     await openEditor(page);
+    await openInvitePopover(page);
     await share(page).first().getByRole('button', { name: /Regenerate link/ }).click();
 
     const modal = page.locator('.republish-modal');
@@ -263,7 +268,7 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
     // link itself is the Invite link button at the top of the page.
     await expect(empty.getByRole('link', { name: /check the settings/ })).toHaveAttribute(
       'href',
-      new RegExp(`/dashboard/${ORG}/${ID}/settings$`),
+      new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`),
     );
   });
 
@@ -351,9 +356,11 @@ test.describe('34 - §4.4 The Invite link menu is built like Export and More', (
     await detail(page);
     await openInvitePopover(page);
     const invite = page.locator('.invite-menu');
-    // Three rows, each with its icon: copy, open, copy the confirm-email link.
-    await expect(invite.locator('.export-dropdown-item')).toHaveCount(3);
-    await expect(invite.locator('.export-dropdown-item .dropdown-icon')).toHaveCount(3);
+    // Four rows, each with its icon: copy, open, copy the confirm-email link,
+    // and - on a published assignment - regenerate.
+    await expect(invite.locator('.export-dropdown-item')).toHaveCount(4);
+    await expect(invite.locator('.export-dropdown-item .dropdown-icon')).toHaveCount(4);
+    await expect(invite.locator('.dropdown-item-title').last()).toHaveText(/^Regenerate link/);
     const inviteLook = await lookOf(invite);
 
     // The Invite link sits in the header above the toolbar, so its open menu

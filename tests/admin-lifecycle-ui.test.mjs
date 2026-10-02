@@ -207,8 +207,8 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
   // What is left of the Lifecycle section is the broker: repairing a published
   // one, and watching a publish go live. Never on a new assignment.
   assert.ok(
-    template.includes(`<div v-if="!isNew && (form.state === 'published' || publishWatch)" id="settings-lifecycle" class="lifecycle">`),
-    "The broker block is gated on an existing, published (or publishing) assignment"
+    template.includes(`<div v-if="!isNew && form.state === 'published'" id="settings-lifecycle" class="lifecycle">`),
+    "The broker block is gated on an existing, published assignment"
   );
   assert.ok(
     /class="lifecycle-group lifecycle-repair"/.test(template),
@@ -589,9 +589,10 @@ test("the editor no longer runs per-student operations", () => {
   ]) {
     assert.ok(!src.includes(gone), `${gone} moved to AssignmentDetailView - no copy may stay here`);
   }
-  // And they are one tab away: the settings carry the assignment's own header,
-  // whose Progress tab is where each student's row is.
-  assert.match(src, /<AssignmentHeader[\s\S]*?current="settings"/, "the settings sit under the assignment's tabs");
+  // And they are one tab away: the settings are a tab of the assignment page
+  // (the editor embedded there), whose Progress tab is each student's row.
+  const detail = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
+  assert.match(detail, /<AdminView[\s\S]*?embedded/, "the settings sit under the assignment's tabs");
 });
 
 test("every state the header's button offers, the settings carry out", async () => {
@@ -606,11 +607,20 @@ test("every state the header's button offers, the settings carry out", async () 
       for (const a of stateActions({ state, deadlinePassed })) keys.add(a.key);
     }
   }
+  // `regenerate` is the Invite link menu's, through the same button event.
+  keys.add("regenerate");
   const src = adminSrc();
   const start = src.indexOf("function runStateAction(");
   assert.ok(start > 0, "runStateAction must exist");
   const body = src.slice(start, src.indexOf("\n}", start));
+  // "Lock everyone out now" is the assignment page's own dialog; everything
+  // else goes to the Settings tab, where the editor carries it out.
+  const detail = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
+  const onState = detail.slice(detail.indexOf("function onStateAction("), detail.indexOf("\n}", detail.indexOf("function onStateAction(")));
+  assert.match(onState, /if \(key === 'freeze'\) return handleFreezeNow\(\)/);
+  assert.match(onState, /router\.push\(settingsTarget\(null, key\)\)/, "and every other key reaches the editor");
   for (const key of keys) {
+    if (key === "freeze") continue;
     assert.ok(body.includes(`case '${key}':`), `the state button's "${key}" is handled in AdminView's runStateAction`);
   }
 });
@@ -630,15 +640,16 @@ test("the form's actions are not repeated top and bottom", () => {
   );
 });
 
-test("the cohort card never invents a number", () => {
-  // Two rules the WS3 wall established, one module over: an absent report is
-  // not a cohort of zero, and an assignment with no cap has no cap.
+// "The cohort card never invents a number" lived here. The card went when the
+// editor became the assignment page's Settings tab (BETA-UX.md, 2026-10-03):
+// the accepted count is that page's header and Progress tab, which read the
+// report themselves.
+
+test("the settings tab keeps a way to add students to a published cohort", () => {
+  // The cohort is a snapshot and its picker is inside the settings fold, shut
+  // on a published assignment. The card that pointed at it went; its Add
+  // students did not, or the capability is there and nothing leads to it.
   const src = adminSrc();
-  const start = src.indexOf("const cohort = computed(");
-  assert.ok(start > 0, "cohort must exist");
-  const body = src.slice(start, src.indexOf("\n})", start));
-  assert.match(body, /typeof entry\.accepted !== 'number'/, "no entry, no figure");
-  assert.match(body, /return null/, "and the card renders the reason instead");
-  assert.match(body, /Number\(form\.value\.max_acceptances\) \|\| null/, "no cap means no cap");
-  assert.ok(!/\?\? 150/.test(src) && !/\?\? 50/.test(body), "never substitute a cap the assignment does not have");
+  const template = src.slice(0, src.indexOf("<script setup>"));
+  assert.match(template, /v-if="cohortFirst && showAddStudents"[\s\S]{0,200}@click="openAddStudents"/);
 });

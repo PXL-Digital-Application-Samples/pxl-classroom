@@ -88,54 +88,47 @@ async function openEditor(page, { asgn = assignment(), extra = {} } = {}) {
 
 // ============================================================ the layout
 
-test.describe('37 - The published editor leads with the cohort', () => {
-  test('Share and cohort come first; the settings are behind a disclosure', async ({ page }) => {
+// The editor is the assignment page's Settings tab (BETA-UX.md, 2026-10-03).
+// It led with a share banner, a cohort card (accepted / cap / time left) and a
+// "Track roster & progress" link; all three repeated what the page's own
+// header and Progress tab say, one tab away, and were removed on request. What
+// a published assignment's Settings still leads with is the folded form.
+test.describe('37 - Settings is the form, under the assignment\'s own header', () => {
+  test('No banner, no cohort card, no roster line - the header carries the assignment', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
 
-    // The link is on screen without opening anything.
-    await expect(page.locator('.invitation-share-banner')).toBeVisible();
-    const cohort = page.locator('.cohort-card');
-    await expect(cohort).toBeVisible();
-    await expect(cohort).toContainText('47');
-    await expect(cohort).toContainText('/ 150');
-    await expect(cohort).toContainText('accepted');
-    await expect(cohort.getByRole('link', { name: /Track roster & progress/i })).toBeVisible();
+    await expect(page.locator('.assignment-tabs [aria-current="page"]')).toHaveText('Settings');
+    await expect(page.locator('[data-state-menu]')).toContainText('Accepting');
+    await expect(page.locator('.invitation-share-banner')).toHaveCount(0);
+    await expect(page.locator('.cohort-card')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Track roster (&|and) progress/i })).toHaveCount(0);
+    await expect(page.getByText('Course roster')).toHaveCount(0);
 
-    // And the form is not.
+    // The form is folded on a published assignment, and the fold opens.
     const details = page.locator('details.settings-disclosure');
     await expect(details).toHaveJSProperty('open', false);
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeHidden();
-
-    // Which is a disclosure, not a wall: it opens.
     await details.locator('> summary').click();
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue(TITLE);
   });
 
-  test('Only one Track link, not the same link twice', async ({ page }) => {
-    // The banner carried its own `Track Roster & Progress` before the cohort
-    // card existed. Two of them, stacked, is what "one action, one home" is
-    // supposed to prevent.
-    await openEditor(page, { extra: { reports: { dashboard: dashboard(3) } } });
-    await expect(page.locator('.published-info-card.is-success')).toBeVisible({ timeout: 15000 });
-    await expect(
-      page.getByRole('link', { name: /Track roster (&|and) progress/i }),
-    ).toHaveCount(1);
+  test('Regenerate link is in the Invite link menu, and asks with the box ticked', async ({ page }) => {
+    await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
+    await page.getByRole('button', { name: /Invite link/ }).click();
+    await page.locator('.invite-menu .dropdown-item-title', { hasText: /^Regenerate link/ }).click();
+    const modal = page.locator('.republish-modal');
+    await expect(modal).toBeVisible({ timeout: 15000 });
+    await expect(modal.locator('input[type="checkbox"]'), 'arriving to regenerate, it is ticked').toBeChecked();
   });
 
-  test('The countdown is the time left, and flips once the deadline passes', async ({ page }) => {
+  test('Save, Cancel and Troubleshoot are one bar, stuck to the bottom', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    const cohort = page.locator('.cohort-card');
-    await expect(cohort).toContainText('until the deadline');
-    await expect(cohort).toContainText('6d 23h');
-
-    const past = new Date(Date.now() - 2 * 86400_000).toISOString();
-    await openEditor(page, {
-      asgn: assignment({ deadline_at: past, opens_at: new Date(Date.now() - 9 * 86400_000).toISOString() }),
-      extra: { reports: { dashboard: { ...dashboard(47), assignments: { [ID]: { ...dashboard(47).assignments[ID], deadline_at: past } } } } },
-    });
-    await expect(page.locator('.cohort-card')).toContainText('past the deadline');
-    await expect(page.locator('.cohort-card')).toContainText('2d 0h');
+    const bar = page.locator('.editor-action-bar');
+    await expect(bar.getByRole('button', { name: /^Save$/ })).toBeVisible();
+    await expect(bar.getByRole('button', { name: /^Cancel$/ })).toBeVisible();
+    await expect(bar.getByRole('button', { name: /Troubleshoot/ })).toBeVisible();
+    expect(await bar.evaluate((el) => getComputedStyle(el).position)).toBe('sticky');
+    // Once: no second Save anywhere on the page.
+    await expect(page.getByRole('button', { name: /^Save$/ })).toHaveCount(1);
   });
 
   test('A draft still opens on the form', async ({ page }) => {
@@ -147,7 +140,6 @@ test.describe('37 - The published editor leads with the cohort', () => {
     await openEditor(page, { asgn: draft });
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
-    await expect(page.locator('.cohort-card')).toHaveCount(0);
     await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
   });
 
@@ -162,64 +154,17 @@ test.describe('37 - The published editor leads with the cohort', () => {
     page.on('dialog', (d) => d.accept());
     await chooseState(page, 'Back to draft');
 
-    await expect(page.locator('.cohort-card')).toHaveCount(0, { timeout: 15000 });
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
   });
 
-  test('A closed assignment leads with the cohort too', async ({ page }) => {
-    // The cohort is what a closed assignment still has; nobody opens one to
-    // change its repository name pattern.
+  test('A closed assignment keeps the form folded too', async ({ page }) => {
+    // Nobody opens a closed assignment to change its repository name pattern.
     await openEditor(page, {
       asgn: assignment({ state: 'closed' }),
       extra: { reports: { dashboard: { ...dashboard(47), assignments: { [ID]: { ...dashboard(47).assignments[ID], state: 'closed' } } } } },
     });
-    await expect(page.locator('.cohort-card')).toBeVisible();
     await expect(page.locator('details.settings-disclosure')).toHaveJSProperty('open', false);
-  });
-});
-
-// ================================================ the cohort card's honesty
-
-test.describe('37 - The cohort card never invents a number', () => {
-  test('No report yet is said, not rendered as zero accepted', async ({ page }) => {
-    // Same rule as WS3's roster count: "the report has not run" and "nobody
-    // has accepted" are different facts, and only one of them is a number.
-    await openEditor(page);
-    const cohort = page.locator('.cohort-card');
-    await expect(cohort).toContainText('no cohort report yet');
-    await expect(cohort).toContainText('—');
-    await expect(cohort, 'a zero here would be a claim nobody made').not.toContainText('0 / 150');
-  });
-
-  test('An unreadable report is distinguished from an absent one', async ({ page }) => {
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, {
-      currentUser: LECTURER,
-      assignments: { [ID]: assignment() },
-      userRepos: [{ name: `broker-${ID}`, full_name: `${ORG}/broker-${ID}` }],
-    });
-    await page.route('**/pxl-classroom-control/contents/reports/dashboard.json*', async (route) => {
-      await route.fulfill({ status: 500, body: JSON.stringify({ message: 'boom' }) });
-    });
-    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-
-    await expect(page.locator('.cohort-card')).toContainText("couldn't read the cohort report", {
-      timeout: 15000,
-    });
-  });
-
-  test('An assignment with no cap shows no cap', async ({ page }) => {
-    // `?? 150` published a cap the assignment did not have and told students
-    // registration was full. The card must not reintroduce it.
-    const uncapped = assignment();
-    delete uncapped.max_acceptances;
-    await openEditor(page, { asgn: uncapped, extra: { reports: { dashboard: dashboard(212) } } });
-
-    const cohort = page.locator('.cohort-card');
-    await expect(cohort).toContainText('212');
-    await expect(cohort).toContainText('accepted');
-    await expect(cohort, 'no cap means no denominator').not.toContainText('/');
   });
 });
 

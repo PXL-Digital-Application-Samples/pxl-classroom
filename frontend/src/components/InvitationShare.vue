@@ -76,6 +76,20 @@
         <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
       </div>
     </template>
+
+    <!-- Regenerate, here since the Settings tab stopped repeating this block
+         (BETA-UX.md, 2026-10-03). Only where the caller says a republish is a
+         repair - a published assignment; elsewhere publishing again reopens it. -->
+    <template v-if="regenerable">
+      <div class="dropdown-divider" role="separator"></div>
+      <button type="button" class="export-dropdown-item" @click="$emit('regenerate')">
+        <Icon name="refresh-cw" :size="14" class="dropdown-icon" />
+        <span class="dropdown-item-text">
+          <span class="dropdown-item-title">Regenerate link…</span>
+          <span class="dropdown-item-sub">A new link; the one students have stops working. Asks first.</span>
+        </span>
+      </button>
+    </template>
   </div>
 
   <div v-else :class="['invitation-share', `invitation-share-${variant}`]">
@@ -159,7 +173,7 @@
 // re-opening it. Used by three views, so its classes live in style.css per
 // DESIGN.md §7; a scoped block here would render unstyled everywhere it is
 // slotted into a parent.
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import HelpButton from './HelpButton.vue'
 import { config } from '../lib/config.js'
@@ -196,6 +210,9 @@ const props = defineProps({
   // back. On for callers that simply never had it - a dashboard card is built
   // from dashboard.json, which must not carry the token at all.
   resolve: { type: Boolean, default: true },
+  // The popover offers Regenerate link only where the caller says publishing
+  // again is a repair (a published assignment).
+  regenerable: { type: Boolean, default: false },
 })
 
 defineEmits(['regenerate'])
@@ -407,6 +424,13 @@ async function copyConfirm() {
     busy.value = false
   }
 }
+
+// The popover is mounted by a click on Invite link, so reading here is still
+// lazy, and it is how a link the publish workflow minted after this page loaded
+// reaches the box: the page's own copy of the assignment predates it.
+onMounted(() => {
+  if (props.variant === 'popover' && !token.value) ensureToken()
+})
 
 // A different assignment in the same slot is a different link.
 watch(() => props.assignment?.id, () => {

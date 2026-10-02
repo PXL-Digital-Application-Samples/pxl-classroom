@@ -90,7 +90,7 @@ test.describe('25 - Responsive layout', () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-      await expect(page.locator('.cohort-card')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('details.settings-disclosure')).toBeVisible({ timeout: 15000 });
       await page.waitForTimeout(500);
 
       let m = await page.evaluate(MEASURE);

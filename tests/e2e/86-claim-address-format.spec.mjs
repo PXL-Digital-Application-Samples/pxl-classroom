@@ -103,7 +103,7 @@ test.describe('86 - the lecturer\'s side', () => {
     });
     await page.route((u) => u.href.includes('/actions/workflows/') && u.href.includes('/dispatches'), (r) => r.fulfill({ status: 204, body: '' }));
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await expect(page.getByText('Assignment is Published & Verified Live')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
     await expandSettings(page);
     // The rule lives under Advanced since 2026-10-02: it is the institution's,
     // on by default, and almost nobody switches it off for one assignment.

@@ -141,9 +141,9 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 1.4 Publish
 
-In the editor -> click **Save & publish** in the header bar (on an existing draft, the **state button** at the top -> **Publish** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says when the accept link is live.
 
-Once it is published, its **Settings** tab leads with the invitation link and an accepted/deadline summary; the six fieldsets move behind **Edit settings**, and a *Broker* section below them holds **Republish broker**. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
+Once it is published, its **Settings** tab - the last tab of the assignment's page - has the six fieldsets folded behind **Edit settings**, and a *Broker* section below them holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
 
 **Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
 
@@ -167,12 +167,11 @@ Publishing days or weeks ahead is safe and is the better habit for an exam: `ope
 
 The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo (ARCHITECTURE §4.3.2).
 
-**Where to find it.** The **Share with students** block appears in three places, and you never have to open the settings to reach it:
+**Where to find it.** In two places, and you never have to open the settings to reach it:
 
 | Where | What you get |
 |---|---|
-| The **Invite link** button at the top of every tab of the assignment | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link** and **Copy confirm-email link** |
-| The banner after publishing, on the **Settings** tab | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
+| The **Invite link** button at the top of every tab of the assignment | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link**, **Copy confirm-email link** and, on a published assignment, **Regenerate link…** |
 | Each published card on the dashboard | A copy button |
 
 The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
@@ -1146,7 +1145,7 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
    - Open the **Organization** tab, unfold **System health** and click **Run the checks**. It is there whatever else on that page could or could not load, because it is the tool for exactly that.
    - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
 2. **Assignment Pre-Flight Troubleshooter (Settings tab):**
-   - On an assignment's **Settings** tab, click the **Troubleshoot** button in the header (or click any warning banner).
+   - On an assignment's **Settings** tab, click **Troubleshoot** in the bar at the bottom (or click any warning banner).
    - The troubleshooter executes a 5-tier inspection in dependency order:
      - **Tier 0:** Auth & Quota.
      - **Tier 1:** Org & GitHub App Foundation.

@@ -120,6 +120,28 @@ on its own route).
   administrator can do (App permissions, cancelling a hub run) says so, never a
   button that fails.
 
+### First look on beta (decided 2026-10-03)
+
+The lecturer tried it on a real course. The org tabs were rebuilt on every
+click and blinked out while a page loaded, and sat wherever the left side of
+the bar ended. Settings was a different page that drew the header inside the
+editor's card, reloaded on every click and still carried the old Admin layout.
+
+- **One shared top bar for the organization.** Drawn once for every page under
+  `/dashboard/<org>`, with the org picker in it, the tabs centred, and only the
+  page below it swapped. The tabs show at once when this session already knows
+  the account is staff in that org; the first load still waits for that, so a
+  student never sees them.
+- **Settings is a real tab** of the assignment page: same header, same width,
+  instant switch. Save, Cancel and Troubleshoot sit in a bar stuck to the
+  bottom of the window.
+- **Settings stops showing** the *Published & Verified* panel (its *Regenerate
+  link* moves into the Invite link menu; a one-line status stays while a publish
+  is going live), the accepted/deadline card with *Track roster & progress*,
+  and the *Course roster* line. The *Edit settings* fold stays.
+- **Teams stays group-only**, as decided: an individual assignment has no Teams
+  tab.
+
 ## Open
 
 - A roster student whose GitHub username is not known yet (they confirm their

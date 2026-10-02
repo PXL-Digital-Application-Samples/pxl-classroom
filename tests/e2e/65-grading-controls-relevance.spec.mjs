@@ -93,7 +93,7 @@ test.describe('65 - grading controls appear only where there is grading', () => 
     await expect(page.locator('.autograde-section')).toHaveCount(0);
     await expect(page.locator('.grading-empty')).toContainText('Nothing grades this assignment yet');
     await expect(page.locator('.grading-empty').getByRole('link', { name: 'Set up grading' }))
-      .toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${ID}/settings\\?section=grading$`));
+      .toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings&section=grading$`));
   });
 
   test('an assignment the template grades offers it', async ({ page }) => {

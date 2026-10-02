@@ -1,22 +1,8 @@
 <template>
   <!-- NO `fade-in` here, for the reason AdminView gives: it leaves a transform
        on the element, and the health dialog is position: fixed. -->
+  <!-- The top bar is the organization's (OrgShell.vue), drawn once for all its pages. -->
   <div>
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <div class="app-header-crumbs flex items-center gap-sm">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
-            <Icon name="arrow-left" :size="14" />
-            <span>Dashboard</span>
-          </router-link>
-          <span class="app-header-sep">/</span>
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
-          <span class="app-header-sep">/</span>
-          <h1 class="app-header-heading">Organization</h1>
-          <OrgSwitch v-if="user && access === null && !loading" :org="org" current="organization" />
-        </div>
-      </template>
-    </AppHeader>
 
     <div class="org-page container">
       <AuthCard v-if="!user" title="Sign in to open the organization" @authenticated="onAuthenticated">
@@ -175,14 +161,12 @@
 // the assignment cards and a route of its own.
 
 import { computed, ref, watch, onMounted } from 'vue'
-import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
-import Icon from '../components/Icon.vue'
-import OrgSwitch from '../components/OrgSwitch.vue'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
-import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { markStaff } from '../lib/org-session.js'
 import { getRepo, getRepoContent, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
@@ -286,11 +270,14 @@ async function load() {
           (method, path) => ghApi(token, method, path),
           { org: props.org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
         )
+        if (mine === generation) markStaff(props.org, false)
       } else {
         loadError.value = `Couldn't read ${props.org}'s control repository (HTTP ${repoRes.status}).`
       }
       return
     }
+    // Read the control repository: staff here, and the org's tabs can show.
+    markStaff(props.org, true)
     const [assignmentDocs, dash, tracking] = await Promise.all([
       loadAssignmentDocs(token, props.org),
       getRepoContent(token, props.org, config.controlRepo, DASHBOARD_PATH).catch(() => null),
@@ -334,11 +321,6 @@ function onAuthenticated(authedUser) {
   load()
 }
 
-function handleLogout() {
-  clearAuth()
-  user.value = null
-}
-
 watch(() => props.org, () => { if (user.value) load() })
 
 onMounted(() => {
@@ -349,7 +331,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.org-page { padding-top: var(--space-xl); padding-bottom: var(--space-2xl); max-width: 1100px; }
+/* The width every other page of the org has (`.container`), so moving between
+   the tabs does not move the content's edges. */
+.org-page { padding-top: var(--space-xl); padding-bottom: var(--space-2xl); }
+/* The usage panel is a component; its root takes this page's scope. */
+.org-page > .usage-panel { margin-bottom: var(--space-md); }
 .org-loading { display: flex; justify-content: center; padding: var(--space-xl); }
 .org-load-error { text-align: center; padding: var(--space-lg); }
 .org-needs { padding: var(--space-lg); margin-bottom: var(--space-md); }

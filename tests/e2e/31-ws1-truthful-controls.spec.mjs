@@ -433,7 +433,7 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await page.goto(`/dashboard/${ORG}`);
     // Only a-draft. Counting files said three; counting optimistically says two.
     await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
-    await expect(page.locator('.drafts-row .draft-chip')).toHaveAttribute('href', `/dashboard/${ORG}/a-draft/settings`);
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveAttribute('href', `/dashboard/${ORG}/a-draft?tab=settings`);
   });
 
   test('A missing state is a draft, and a file that 404s is nothing at all', async ({ page }) => {

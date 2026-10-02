@@ -1,7 +1,7 @@
 <template>
   <header class="app-header" :class="{ 'is-sticky': sticky }">
     <div :class="contained ? 'container' : 'app-header-bare'">
-      <div class="app-header-bar flex items-center justify-between gap-md">
+      <div class="app-header-bar flex items-center justify-between gap-md" :class="{ 'has-center': !!$slots.center }">
         <div class="app-header-left flex items-center gap-sm">
           <!-- Default is the brand lockup; breadcrumb views override it. -->
           <slot name="left">
@@ -10,6 +10,11 @@
             </router-link>
             <router-link to="/" class="app-header-title">PXL Classroom</router-link>
           </slot>
+        </div>
+        <!-- Centred whatever the two sides hold, so what sits here (an
+             organization's tabs) is in the same place on every page. -->
+        <div v-if="$slots.center" class="app-header-center">
+          <slot name="center" />
         </div>
 
         <div class="app-header-right flex items-center gap-sm">

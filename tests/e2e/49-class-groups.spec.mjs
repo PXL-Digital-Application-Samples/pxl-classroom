@@ -300,7 +300,7 @@ test.describe('49 - picking who an assignment is for', () => {
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
     // Positive first, so a count of zero is an absence and not an unrendered page.
-    await expect(page.getByRole('link', { name: /Track roster/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('details.settings-disclosure > summary')).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: 'Add students' })).toHaveCount(0);
   });
 

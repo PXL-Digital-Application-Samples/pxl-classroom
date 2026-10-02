@@ -69,20 +69,6 @@ const dashboardDoc = (assignments) => ({
   assignments,
 });
 
-/** Serve reports/dashboard.json with a body and status of our choosing. */
-async function routeDashboard(page, handler) {
-  await page.route('**/pxl-classroom-control/contents/reports/dashboard.json*', handler);
-}
-
-/** A base64 Contents API envelope, as GitHub returns one. */
-const contents = (text) => ({
-  status: 200,
-  body: JSON.stringify({
-    content: Buffer.from(text).toString('base64'),
-    encoding: 'base64',
-  }),
-});
-
 async function open(page, { assignments, edit = A, extra = {} } = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -97,205 +83,13 @@ async function open(page, { assignments, edit = A, extra = {} } = {}) {
   if (edit) await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 }
 
-const cohort = (page) => page.locator('.cohort-card');
 const details = (page) => page.locator('details.settings-disclosure');
 
-// ============================================ the card's arithmetic and refusals
-
-test.describe('38 - What the cohort card will and will not claim', () => {
-  test('Zero accepted is a number and is shown as one', async ({ page }) => {
-    // The mirror of 37's "no report yet". A report that HAS run and found
-    // nobody is a real answer - collapsing it into the same "—" as a missing
-    // report would throw away the only fact that distinguishes "nobody has
-    // accepted" from "nobody has looked".
-    await open(page, {
-      assignments: { [A]: assignment(A) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: 0 }) }) } },
-    });
-    await expect(cohort(page)).toContainText('0');
-    await expect(cohort(page)).toContainText('/ 150');
-    await expect(cohort(page)).not.toContainText('no cohort report yet');
-  });
-
-  test('A report for other assignments is not a report for this one', async ({ page }) => {
-    // dashboard.json is org-wide. Reading it as "we have data" rather than
-    // "we have data about THIS id" is how a lecturer gets shown a sibling
-    // assignment's numbers.
-    await open(page, {
-      assignments: { [A]: assignment(A) },
-      extra: { reports: { dashboard: dashboardDoc({ 'some-other-lab': entry({ accepted: 99 }) }) } },
-    });
-    await expect(cohort(page)).toContainText('no cohort report yet');
-    await expect(cohort(page)).not.toContainText('99');
-  });
-
-  test('A non-numeric accepted count is refused rather than rendered', async ({ page }) => {
-    await open(page, {
-      assignments: { [A]: assignment(A) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: null }) }) } },
-    });
-    await expect(cohort(page)).toContainText('no cohort report yet');
-    await expect(cohort(page)).not.toContainText('null');
-    await expect(cohort(page)).not.toContainText('NaN');
-  });
-
-  test('More accepted than the cap is reported, not clamped', async ({ page }) => {
-    // Lowering max_acceptances after the fact does not un-accept anybody. The
-    // card is a report; 151/150 is the thing the lecturer needs to see.
-    await open(page, {
-      assignments: { [A]: assignment(A, { max_acceptances: 150 }) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: 151 }) }) } },
-    });
-    await expect(cohort(page)).toContainText('151');
-    await expect(cohort(page)).toContainText('/ 150');
-  });
-
-  test('A dashboard.json too big for the Contents API is not read as absent', async ({ page }) => {
-    // Above 1 MB GitHub answers 200 with `encoding: "none"` and an empty
-    // body. That read as "file not found" for every caller once (F19), and
-    // the cohort card is a new caller on the same path - a big cohort is
-    // exactly when this file gets large.
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, {
-      currentUser: LECTURER,
-      assignments: { [A]: assignment(A) },
-    });
-    const body = JSON.stringify(dashboardDoc({ [A]: entry({ accepted: 1234 }) }));
-    await routeDashboard(page, async (route) => {
-      if (route.request().headers()['accept'] === 'application/vnd.github.raw') {
-        await route.fulfill({ status: 200, contentType: 'application/json', body });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        body: JSON.stringify({ content: '', encoding: 'none', size: 2_000_000 }),
-      });
-    });
-    await page.goto(`/dashboard/${ORG}/admin?edit=${A}`);
-
-    await expect(cohort(page)).toContainText('1234', { timeout: 15000 });
-    await expect(cohort(page)).not.toContainText('no cohort report yet');
-  });
-
-  test('A dashboard.json that is not JSON reads as unreadable, not as empty', async ({ page }) => {
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [A]: assignment(A) } });
-    await routeDashboard(page, (route) => route.fulfill(contents('<!doctype html><h1>502</h1>')));
-    await page.goto(`/dashboard/${ORG}/admin?edit=${A}`);
-
-    await expect(cohort(page)).toContainText("couldn't read the cohort report", { timeout: 15000 });
-  });
-
-  test('A 404 is an answer; a 500 is not', async ({ page }) => {
-    // The distinction the whole card rests on. Same rule as WS3's roster
-    // count one module over: "there is no report" and "the report could not
-    // be read" are different facts and only one of them means zero.
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [A]: assignment(A) } });
-    await routeDashboard(page, (route) =>
-      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
-    await page.goto(`/dashboard/${ORG}/admin?edit=${A}`);
-    await expect(cohort(page)).toContainText('no cohort report yet', { timeout: 15000 });
-  });
-
-  test('The card waits rather than guessing while the report is in flight', async ({ page }) => {
-    // Held open explicitly, not delayed by a timer - a timer the assertion
-    // outlives proves nothing.
-    let release;
-    const held = new Promise((r) => { release = r; });
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [A]: assignment(A) } });
-    await routeDashboard(page, async (route) => {
-      await held;
-      await route.fulfill(contents(JSON.stringify(dashboardDoc({ [A]: entry({ accepted: 12 }) }))));
-    });
-    await page.goto(`/dashboard/${ORG}/admin?edit=${A}`);
-
-    await expect(cohort(page)).toContainText('reading the report…', { timeout: 15000 });
-    await expect(cohort(page), 'never a zero it has not been told').not.toContainText('0 / 150');
-
-    release();
-    await expect(cohort(page)).toContainText('12');
-    await expect(cohort(page)).not.toContainText('reading the report…');
-  });
-
-  test('An assignment named after an Object prototype key gets the honest answer', async ({ page }) => {
-    // `dashboardEntries[form.id]` on a JSON.parse'd object walks the
-    // prototype, and the slug rule allows `constructor`. The lookup must
-    // produce "no report", not a stray function or a crash.
-    const id = 'constructor';
-    await open(page, {
-      assignments: { [id]: assignment(id, { title: 'Constructor Lab' }) },
-      edit: id,
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    await expect(cohort(page)).toContainText('no cohort report yet');
-    await expect(page.locator('.editor-form')).toBeVisible();
-  });
-});
-
-// ================================================ the deadline half of the card
-
-test.describe('38 - The countdown at its edges', () => {
-  test('An assignment with no deadline says so instead of counting nothing', async ({ page }) => {
-    const noDeadline = assignment(A);
-    delete noDeadline.deadline_at;
-    await open(page, {
-      assignments: { [A]: noDeadline },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    await expect(cohort(page)).toContainText('no deadline set');
-    await expect(cohort(page)).not.toContainText('until the deadline');
-  });
-
-  test('A deadline the browser cannot parse does not take the editor down', async ({ page }) => {
-    // `toISOString()` throws RangeError on an invalid Date, and it ran inside
-    // a computed - so the pane failed to render at all, with the field that
-    // would fix it inside the pane. The cohort card now says there is no
-    // deadline, the settings open because there is a problem, and the field
-    // itself says which.
-    await open(page, {
-      assignments: { [A]: assignment(A, { deadline_at: 'soon' }) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-
-    await expect(page.locator('.editor-form')).toBeVisible();
-    await expect(cohort(page)).toContainText('no deadline set');
-    await expect(details(page)).toHaveJSProperty('open', true);
-    await expect(page.locator('.field-error-msg', { hasText: /not a date the panel can read/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Save$/ })).toBeDisabled();
-  });
-
-  test('A deadline under an hour counts in minutes, with no hours component', async ({ page }) => {
-    // The number itself is a moving target between fixture and render, so the
-    // assertion is the UNIT: under an hour there must be no `Xh` at all, or
-    // the lecturer reads "0h 42m" for something due before lunch.
-    await open(page, {
-      assignments: { [A]: assignment(A, { deadline_at: new Date(Date.now() + 42.5 * 60_000).toISOString() }) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    await expect(cohort(page)).toContainText('until the deadline');
-    const text = await cohort(page).innerText();
-    expect(text).toMatch(/\b4[12]m\b/);
-    expect(text, 'no hours and no days below the hour').not.toMatch(/\d+\s*[hd]\b/);
-  });
-
-  test('The countdown moves on its own, without a reload', async ({ page }) => {
-    // A minute ref that never ticks is a countdown frozen at page-load time,
-    // which is worse than no countdown - it is confidently wrong by however
-    // long the tab has been open.
-    await page.clock.install();
-    await open(page, {
-      assignments: { [A]: assignment(A, { deadline_at: new Date(Date.now() + 3 * 3600_000).toISOString() }) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    await expect(cohort(page)).toContainText('2h 59m');
-
-    await page.clock.runFor('30:00');
-    await expect(cohort(page)).toContainText('2h 29m');
-  });
-});
-
+// "What the cohort card will and will not claim" and "The countdown at its
+// edges" lived here. The editor's cohort card (accepted / cap / time left)
+// went when the editor became the assignment page's Settings tab
+// (BETA-UX.md, 2026-10-03): the page's own header and Progress tab say both,
+// from the report they read themselves, one tab away.
 // ==================================== leaving an assignment's settings
 
 // "Nothing leaks from one assignment to the next" lived here: the editor sat
@@ -306,8 +100,29 @@ test.describe('38 - The countdown at its edges', () => {
 // list beside it: reaching another assignment's settings leaves this page, so
 // nothing on it survives to leak. What still matters on the way out is an
 // edit the lecturer has not saved.
-test.describe('38 - Leaving the settings asks about unsaved edits', () => {
-  test('A dismissed unsaved-changes prompt leaves the edit and the disclosure alone', async ({ page }) => {
+test.describe('38 - Unsaved settings: kept across tabs, asked about on the way out', () => {
+  test('Looking at another tab keeps the edit, and asks nothing', async ({ page }) => {
+    // Settings is a tab of the assignment page (BETA-UX.md, 2026-10-03); the
+    // editor stays mounted while the lecturer glances at Progress.
+    await open(page, {
+      assignments: { [A]: assignment(A) },
+      extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: 47 }) }) } },
+    });
+    await expandSettings(page);
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Edited but not saved');
+
+    const asked = []
+    page.on('dialog', (d) => { asked.push(d.message()); d.dismiss(); });
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}$`));
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+
+    expect(asked, 'switching tabs is not leaving').toEqual([]);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
+    await expect(details(page), 'the disclosure the edit is inside must not shut').toHaveJSProperty('open', true);
+  });
+
+  test('Leaving the assignment asks, and a dismissed prompt keeps the edit', async ({ page }) => {
     await open(page, {
       assignments: { [A]: assignment(A) },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: 47 }) }) } },
@@ -316,18 +131,17 @@ test.describe('38 - Leaving the settings asks about unsaved edits', () => {
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Edited but not saved');
 
     page.on('dialog', (d) => d.dismiss());
-    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
+    await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster', exact: true }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}/settings`));
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}\\?tab=settings$`));
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
-    await expect(details(page), 'the disclosure the edit is inside must not shut').toHaveJSProperty('open', true);
   });
 });
 
 // ============================================ transitions change which layout applies
 
 test.describe('38 - A state transition changes the layout under the lecturer', () => {
-  test('Stopping acceptance keeps the cohort card - closed is still a cohort', async ({ page }) => {
+  test('Stopping acceptance keeps the folded layout - closed is still a cohort', async ({ page }) => {
     const contentWrites = [];
     await open(page, {
       assignments: { [A]: assignment(A) },
@@ -337,7 +151,6 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
     await chooseState(page, 'Stop accepting');
 
     await expect(page.locator('[data-state-menu]')).toContainText('Closed', { timeout: 15000 });
-    await expect(cohort(page), 'a closed assignment still has a cohort to look at').toBeVisible();
     await expect(details(page)).toHaveJSProperty('open', false);
     await page.locator('[data-state-menu]').click();
     await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Stop accepting');
@@ -355,13 +168,12 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
     await chooseState(page, 'Archive');
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
-    await expect(cohort(page)).toHaveCount(0);
     await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
     await page.locator('[data-state-menu]').click();
     await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Archive');
   });
 
-  test('Publishing a draft flips to the cohort layout without yanking the form away', async ({ page }) => {
+  test('Publishing a draft flips to the folded layout without yanking the form away', async ({ page }) => {
     // The lecturer was mid-form a second ago. Collapsing the settings out
     // from under the click that published would be the opposite of helpful,
     // so `settingsOpen` is the lecturer's and survives the transition.
@@ -373,7 +185,7 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
 
     await page.getByRole('button', { name: /^Save & publish$/ }).click();
 
-    await expect(cohort(page)).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('details.settings-disclosure > summary'), 'published: the folded layout').toBeVisible({ timeout: 15000 });
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026'), 'the form the lecturer was in stays open')
       .toBeVisible();
     await expect(details(page)).toHaveJSProperty('open', true);
@@ -578,7 +390,6 @@ test.describe('38 - Save without ever opening the settings', () => {
       assignments: { [A]: uncapped },
       extra: { contentWrites, reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(cohort(page)).not.toContainText('/');
 
     await page.getByRole('button', { name: /^Save$/ }).click();
     await expect.poll(
@@ -632,7 +443,7 @@ test.describe('38 - The disclosure is a control, and behaves like one', () => {
       assignments: { [A]: assignment(A) },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(cohort(page)).toBeVisible();
+    await expect(details(page)).toBeVisible();
     const overflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, 'the cohort card must wrap, not push the page wide').toBeLessThanOrEqual(1);

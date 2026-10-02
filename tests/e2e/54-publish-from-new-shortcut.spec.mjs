@@ -91,12 +91,14 @@ test.describe('54 - the + Assignment shortcut', () => {
       publish.inputs.assignment_id,
       'the publish must be for the assignment that was just saved, not the one ?edit= points at',
     ).toBe('brand-new-thing');
-    // Saved, a new assignment has an address: its Settings tab. The page moves
-    // there without remounting, which is what lets the publish above carry on.
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/brand-new-thing/settings$`));
+    // Saved, a new assignment has an address: its page, on Settings - and only
+    // once the publish above has been dispatched, because moving there leaves
+    // the new-assignment page. The publish that is going live is carried over.
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/brand-new-thing\\?tab=settings$`));
+    await expect(page.locator('.publish-watch')).toBeVisible();
   });
 
-  test('Cancel on a new assignment goes back to the list, and on a saved one to the assignment', async ({ page }) => {
+  test('Cancel on a new assignment goes back to the list; on Settings it undoes the edit and stays', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -107,10 +109,16 @@ test.describe('54 - the + Assignment shortcut', () => {
     await page.getByRole('button', { name: /^Cancel$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
 
-    await page.goto(`/dashboard/${ORG}/other-one/settings`);
+    await page.goto(`/dashboard/${ORG}/other-one?tab=settings`);
     await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
+    const title = page.getByPlaceholder('e.g. Linux Processes 2026');
+    if (!(await title.isVisible())) await page.locator('details.settings-disclosure > summary').click();
+    await title.fill('Changed my mind');
+    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /^Cancel$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/other-one$`));
+    // Settings IS the assignment's settings: there is nowhere to go back to.
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/other-one\\?tab=settings$`));
+    await expect(title).toHaveValue('Other One');
   });
 
   // TWO other tests were written for this file and deleted, both for the same

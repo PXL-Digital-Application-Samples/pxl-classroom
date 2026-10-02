@@ -230,7 +230,7 @@ const lecturerDashboardTarget = computed(() => {
       return { name: 'dashboard', params: { org: lastOrg } }
     }
   } catch { /* ignore */ }
-  return { name: 'dashboard' }
+  return { name: 'dashboard-home' }
 })
 
 // Student Assignments State

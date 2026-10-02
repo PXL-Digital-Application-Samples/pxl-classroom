@@ -63,7 +63,14 @@
         <!-- Not role="menu": besides its rows it holds the link box, a status
              line and a help button, none of which is a menu item. -->
         <div v-if="inviteMenuOpen" class="export-dropdown-menu invite-menu fade-in" aria-label="Invite link for students">
-          <InvitationShare :org="org" :assignment="shareAssignment" variant="popover" />
+          <InvitationShare
+            :org="org"
+            :assignment="shareAssignment"
+            variant="popover"
+            :resolve="!linkRetired"
+            :regenerable="state === 'published'"
+            @regenerate="choose('regenerate')"
+          />
         </div>
       </div>
     </div>
@@ -71,9 +78,15 @@
     <!-- The tab is in the address: Progress has none, Teams and Grading are
          `?tab=`, Settings is its own page (the editor). -->
     <nav class="primer-tabs assignment-tabs" aria-label="Assignment sections">
+      <!-- `custom`: the tabs are one route told apart by `?tab=`, and the
+           router ignores the query when it decides a link is the current page,
+           so every tab was marked `aria-current="page"` at once. Which tab is
+           current is this component's to say, from `current`. -->
       <template v-for="t in tabs" :key="t.key">
         <span v-if="t.key === current" class="primer-tab active" aria-current="page">{{ t.label }}</span>
-        <router-link v-else :to="t.to" class="primer-tab">{{ t.label }}</router-link>
+        <router-link v-else :to="t.to" custom v-slot="{ href, navigate }">
+          <a :href="href" class="primer-tab" @click="navigate($event)">{{ t.label }}</a>
+        </router-link>
       </template>
     </nav>
   </div>
@@ -97,11 +110,14 @@ const props = defineProps({
   current: { type: String, required: true },
   isGroup: { type: Boolean, default: false },
   /** Accepted so far, for the invitation's status line. */
-  acceptedCount: { type: Number, default: 0 },
+  // null when the report could not be read: unknown, never zero (DESIGN.md §1.5).
+  acceptedCount: { type: Number, default: null },
   /** A state change is in flight. */
   busy: { type: Boolean, default: false },
   /** Whether Invite link is the view's one solid button (not under the editor). */
   primaryInvite: { type: Boolean, default: true },
+  /** An invitation secret just regenerated away, not to be offered again. */
+  retiredInviteKey: { type: String, default: '' },
 })
 const emit = defineEmits(['state-action'])
 
@@ -112,8 +128,17 @@ const deadlineRelative = computed(() => (deadline.value ? formatRelative(deadlin
 const deadlineAbs = computed(() => (deadline.value ? formatDate(deadline.value, props.assignment?.timezone) : ''))
 const actions = computed(() => stateActions({ state: state.value, deadlinePassed: deadlinePassed.value }))
 
+// A link just regenerated is retired at once, while the stored assignment still
+// holds it until the workflow writes the new one. Offering it would hand out a
+// link the broker now refuses, so it is withheld - here and in the read the
+// popover would otherwise make for itself (`resolve`).
+const linkRetired = computed(() => {
+  const held = props.assignment?.invite_key || props.assignment?.invite_token || ''
+  return !!props.retiredInviteKey && held === props.retiredInviteKey
+})
 const shareAssignment = computed(() => ({
   ...(props.assignment || {}),
+  ...(linkRetired.value ? { invite_key: null, invite_token: null } : {}),
   id: props.assignmentId,
   accepted_count: props.acceptedCount,
 }))
@@ -124,7 +149,7 @@ const tabs = computed(() => {
     { key: 'progress', label: 'Progress', to: at },
     ...(props.isGroup ? [{ key: 'teams', label: 'Teams', to: { ...at, query: { tab: 'teams' } } }] : []),
     { key: 'grading', label: 'Grading', to: { ...at, query: { tab: 'grading' } } },
-    { key: 'settings', label: 'Settings', to: { name: 'assignment-settings', params: { org: props.org, assignmentId: props.assignmentId } } },
+    { key: 'settings', label: 'Settings', to: { ...at, query: { tab: 'settings' } } },
   ]
 })
 
@@ -145,6 +170,7 @@ function toggleInviteMenu() {
 }
 function choose(key) {
   stateMenuOpen.value = false
+  inviteMenuOpen.value = false
   emit('state-action', key)
 }
 function onDocumentClick(e) {

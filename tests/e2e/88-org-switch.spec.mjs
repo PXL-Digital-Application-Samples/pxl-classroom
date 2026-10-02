@@ -41,7 +41,7 @@ test.describe('88 - Assignments, Roster, Organization', () => {
     await expect(assignmentTabs(page)).toHaveText(['Progress', 'Grading', 'Settings']);
 
     await assignmentTabs(page).filter({ hasText: /^Settings$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}/settings$`));
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`));
     await expect(page.locator('.app-header-heading')).toHaveText(ID);
     await expect(page.locator('.assignment-tabs [aria-current="page"]')).toHaveText('Settings');
 
@@ -51,7 +51,7 @@ test.describe('88 - Assignments, Roster, Organization', () => {
 
   test('inside an assignment Assignments stays lit, and leads back to the list', async ({ page }) => {
     await setup(page);
-    for (const path of [`/${ID}`, `/${ID}/settings`, '/new']) {
+    for (const path of [`/${ID}`, `/${ID}?tab=settings`, '/new']) {
       await page.goto(`/dashboard/${ORG}${path}`);
       const assignments = tab(page, 'Assignments');
       await expect(assignments).toHaveClass(/active/);
@@ -62,7 +62,10 @@ test.describe('88 - Assignments, Roster, Organization', () => {
   test('old Admin links land where their page went', async ({ page }) => {
     await setup(page);
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}/settings$`));
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`));
+    // Settings was its own address for a day; those links land too.
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`));
     await page.goto(`/dashboard/${ORG}/admin?new=1`);
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/new$`));
     await page.goto(`/dashboard/${ORG}/admin`);
@@ -79,7 +82,7 @@ test.describe('88 - Assignments, Roster, Organization', () => {
 
   test('the three tabs are the same three on every page, in the same order', async ({ page }) => {
     await setup(page);
-    for (const path of ['', `/${ID}`, `/${ID}/settings`, '/roster', '/organization']) {
+    for (const path of ['', `/${ID}`, `/${ID}?tab=settings`, '/roster', '/organization']) {
       await page.goto(`/dashboard/${ORG}${path}`);
       await expect(views(page).locator('.primer-tab')).toHaveText(['Assignments', 'Roster', 'Organization']);
     }

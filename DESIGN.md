@@ -18,7 +18,7 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Standard toolbar actions (`Refresh`, `Export`, `Sync`) must use neutral secondary styling (`.btn-secondary`).
    * Destructive actions (`Stop accepting`, `Lock everyone out now`, `Delete`) live in a menu, never as a bare button: an assignment's lifecycle is its **state button** (`AssignmentHeader.vue`, the menu under the state at the top of every tab), with the destructive entries last and marked, each confirmed in a dialog. Elsewhere a `··· More` overflow dropdown or a subtle danger outline.
    * A **modal counts as its own view**. An action repeated per row or per card is never primary - one card per assignment meant one primary button per assignment before this was caught.
-   * **A form does not repeat its actions.** `AdminView`'s editor rendered `Cancel / Save as draft / Save & publish` in its header bar *and* again below the fieldsets - two solid buttons on screen at once, which is why the conformity test was scoped away from that view for two workstreams. The header bar is the form's action bar; there is no second row.
+   * **A form does not repeat its actions.** `AdminView`'s editor rendered `Cancel / Save as draft / Save & publish` in its header bar *and* again below the fieldsets - two solid buttons on screen at once, which is why the conformity test was scoped away from that view for two workstreams. There is one action row, and since 2026-10-03 it is a bar stuck to the bottom of the window (`.editor-action-bar`), so Save is reachable from the last section without scrolling back up and does not compete with the assignment's header above the form.
    * **A shared header yields to the view it sits on.** The assignment header's `Invite link` is solid on Progress, Teams and Grading, and plain on Settings (`primaryInvite`), where `Save` is the one thing to do - so the count is exactly one on every tab rather than one per component.
 
 3. **Status Dots over Bulky Pill Capsules:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
@@ -315,13 +315,31 @@ Every route renders exactly one `<AppHeader>`. Two shapes:
 * **Breadcrumb** (`#left` slot): `.app-header-crumbs` with a `.back-link`, `.app-header-sep`
   separators and an `.app-header-heading`. Intermediate segments that navigate are
   `.crumb-link` - the org name sat between two links as plain text, which reads as broken.
-  A trail may end in an `.app-header-switch`: underline `.primer-tab`s (§1.4) for the *views
-  of the thing the trail names*. Inside an organization that is `OrgSwitch`, the same three
-  on every page - **Assignments**, **Roster**, **Organization**. An assignment's own views
-  (Progress, Teams, Grading, Settings) are not here: they are the tabs under its header
-  (`AssignmentHeader.vue`), and Assignments stays lit on all of them. It is a `nav` in `#left` rather than a button in `#actions` deliberately - it
-  switches between views of the current page's subject, it does not act on it - and it takes
-  its own row under 640px so the trail cannot push the page sideways.
+
+**Every page of an organization shares ONE bar** (`OrgShell.vue`, the route those pages are
+children of): logo, the org picker (`OrgPicker.vue`) and, below the org, where you are
+(an assignment's name, *New assignment*) on the left; the org's tabs in the **`#center`**
+slot; the account on the right. Drawn once, so moving between the org's pages swaps only
+the page under it. It replaced a bar per page, and that is what the lecturer saw on
+2026-10-03: every click rebuilt the bar, the tabs vanished until the new page had loaded,
+and they sat wherever that page's breadcrumb ended - further right on the dashboard, whose
+org picker is wider than a crumb.
+
+* **The centre is centred on the window**, not after the left side: `.app-header-bar.has-center`
+  is a three-column grid with equal outer columns (`style.css`), so the tabs are in the same
+  place on every page. Under 900px they take their own row.
+* **The centre slot is always present**, so the bar keeps its columns and nothing moves when
+  the tabs arrive. The tabs (`OrgSwitch`: **Assignments**, **Roster**, **Organization**) show
+  once this session has seen the account read that org (`lib/org-session.js`, set by the page
+  that read it), and never before: an org reaches the picker for any student whose
+  installation touches it, and a staff surface is gated on demonstrated capability.
+* An assignment's own views (Progress, Teams, Grading, Settings) are not here: they are the
+  tabs under its header (`AssignmentHeader.vue`), and Assignments stays lit on all of them,
+  still leading back to the list.
+* **One route told apart by a query is not N current pages.** The assignment tabs are
+  `?tab=`, and the router ignores the query when it decides a link is current - so every
+  tab was announced as `aria-current="page"` at once. Those tabs render their links with
+  `custom` and say which is current themselves.
 
 Views add buttons via `#actions`; the rail then always appends `<ThemeToggle>` and, when a
 `user` prop is passed, `<UserBadge>`. Props: `user`, `contained` (wrap in `.container`),

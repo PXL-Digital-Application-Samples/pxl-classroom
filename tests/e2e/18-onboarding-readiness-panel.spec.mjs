@@ -77,7 +77,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     //    draft's work is. Nothing published yet, and the page says so.
     const draft = page.locator('.drafts-row .draft-chip', { hasText: 'Draft Lab' });
     await expect(draft).toBeVisible();
-    await expect(draft).toHaveAttribute('href', `/dashboard/${ORG_ACTIVE}/lab-draft-only/settings`);
+    await expect(draft).toHaveAttribute('href', `/dashboard/${ORG_ACTIVE}/lab-draft-only?tab=settings`);
     await expect(page.getByText('Nothing published yet')).toBeVisible();
     await expect(page.getByRole('link', { name: /^New assignment$/ })).toBeVisible();
   });

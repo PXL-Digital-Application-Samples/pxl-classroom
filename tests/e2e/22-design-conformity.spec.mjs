@@ -177,7 +177,10 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   // all five - the duplicate row is gone, the two per-student operations moved
   // to the tracking view, and `New assignment` yields while an assignment is
   // open - so the check is the whole view now, like every other route here.
-  test('Admin editor: the published banner adds no solid button of its own', async ({ page }) => {
+  // The editor is the assignment page's Settings tab now (2026-10-03) and the
+  // published banner is gone; what stays is the whole view's count: the
+  // header's Invite link steps down there, and Save is the one solid button.
+  test('Settings tab: Save is the one solid button, folded and open', async ({ page }) => {
     const base = {
       schema_version: 1,
       id: 'lab',
@@ -201,14 +204,8 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       assignments: { lab: base },
       userRepos: [{ name: 'broker-lab', full_name: `${ORG}/broker-lab` }],
     });
-    await page.goto(`/dashboard/${ORG}/admin?edit=lab`);
-    await expect(page.locator('.published-info-card.is-success')).toBeVisible({ timeout: 15000 });
-
-    const solid = page.locator('.published-info-card .btn-primary');
-    expect(
-      await solid.count(),
-      'DESIGN.md §1.2: the editor\'s one solid button is Save; the banner must not add another',
-    ).toBe(0);
+    await page.goto(`/dashboard/${ORG}/lab?tab=settings`);
+    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveText('Save', { timeout: 15000 });
 
     // And the whole view, collapsed and expanded - the duplicate action row
     // lived below the fieldsets, so counting only the collapsed state would

@@ -1,30 +1,8 @@
 <template>
   <div class="detail-page">
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <div class="app-header-crumbs flex items-center gap-sm">
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="back-link">
-            <Icon name="arrow-left" :size="14" />
-            <span>Dashboard</span>
-          </router-link>
-          <span class="app-header-sep">/</span>
-          <!-- Clickable, to that org's dashboard. As plain text between two
-               links it read as broken - every other segment of the trail
-               navigates, so a lecturer tries this one too. -->
-          <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
-          <span class="app-header-sep">/</span>
-          <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
-          <!-- No state here: it is the state button under the title bar
-               (AssignmentHeader.vue), which also changes it. -->
-
-          <!-- The org's three views, in the trail that names this assignment.
-               Admin opens THIS assignment in the editor (OrgSwitch). It
-               replaces an Overview / Admin pair, which replaced an `Edit`
-               button whose way back was buried in the page body. -->
-          <OrgSwitch :org="org" current="assignments" :assignment-id="assignmentId" />
-        </div>
-      </template>
-    </AppHeader>
+    <!-- The top bar - organization, this assignment's name, the org's tabs -
+         is the organization's (OrgShell.vue), drawn once for all its pages.
+         This page's own header, the state button and the tabs, is below. -->
 
     <main class="container">
       <!-- Not authenticated - never show data-shaped empty states signed out -->
@@ -204,12 +182,22 @@
           :assignment="assignment"
           :current="activeTab"
           :is-group="isGroupAssignment"
-          :accepted-count="acceptedStudentsCount"
+          :accepted-count="reportError ? null : acceptedStudentsCount"
           :busy="freezingNow"
+          :primary-invite="activeTab !== 'settings'"
+          :retired-invite-key="retiredInviteKey"
           @state-action="onStateAction"
         />
 
-        <template v-if="activeTab === 'progress'">
+        <!-- The report could not be read: said where the report would be, not
+             shown as a cohort of nobody. Settings still works. -->
+        <div v-if="reportError && activeTab !== 'settings'" class="center-card fade-in">
+          <h2 class="text-danger">Failed to load report</h2>
+          <p class="text-secondary">{{ reportError }}</p>
+          <button class="btn btn-secondary" type="button" @click="loadAll">Retry</button>
+        </div>
+
+        <template v-if="activeTab === 'progress' && !reportError">
         <!-- Summary cards: they filter the list below, so they live with it. -->
         <div class="summary-row">
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = ''" title="Show all students">
@@ -947,7 +935,7 @@
         </template>
 
         <!-- TEAMS: making teams and each team's progress, one table. -->
-        <template v-if="activeTab === 'teams'">
+        <template v-if="activeTab === 'teams' && !reportError">
           <TeamsTable
             :teams="report.teams || []"
             :assignment="assignment"
@@ -962,7 +950,7 @@
              It was a table under the student list, its buttons duplicated in
              the Export and More menus above it, and its scores shown twice
              more in the lists (BETA-UX.md). -->
-        <template v-if="activeTab === 'grading'">
+        <template v-if="activeTab === 'grading' && !reportError">
           <section
             v-if="regradePanel.visible"
             class="regrade-progress-panel diag-banner fade-in"
@@ -1246,6 +1234,20 @@
         </section>
           </template>
         </template>
+
+        <!-- Settings: the editor for this assignment, inside this page so the
+             header and tabs stay put. Mounted on first visit, then kept. -->
+        <div v-if="settingsOpened" v-show="activeTab === 'settings'">
+          <AdminView
+            ref="editorRef"
+            embedded
+            mode="single"
+            :org="org"
+            :assignment-id="assignmentId"
+            @changed="reloadAssignment"
+            @regenerated="(key) => { retiredInviteKey = key }"
+          />
+        </div>
       </div>
 
       <!-- Nothing loaded, and no error to show for it. Reached when a path
@@ -1365,10 +1367,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import AppHeader from '../components/AppHeader.vue'
-import OrgSwitch from '../components/OrgSwitch.vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import AdminView from './AdminView.vue'
+import { markStaff } from '../lib/org-session.js'
 import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,
@@ -1413,7 +1415,7 @@ import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 // The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
 import { buildGradingSummary, countGraded } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
-import { getToken, getUser, clearAuth, isAuthenticated } from '../lib/auth.js'
+import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
 import { writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
@@ -1471,6 +1473,9 @@ const assignment = ref(null)
 // live accepted count, which is what makes its status line ("cap reached")
 // true rather than a guess.
 const loadError = ref(null)
+// The report alone could not be read (loadAll): the header and Settings still
+// work; Progress, Teams and Grading say why they cannot.
+const reportError = ref(null)
 const isGroupAssignment = computed(() =>
   assignment.value?.assignment_type === 'group' || (report.value?.teams && report.value.teams.length > 0)
 )
@@ -1482,9 +1487,40 @@ const isGroupAssignment = computed(() =>
 const activeTab = computed(() => {
   const asked = String(route.query.tab || '')
   if (asked === 'grading') return 'grading'
+  if (asked === 'settings') return 'settings'
   if (asked === 'teams' && isGroupAssignment.value) return 'teams'
   return 'progress'
 })
+
+// SETTINGS IS A TAB OF THIS PAGE (BETA-UX.md, 2026-10-03), not a page of its
+// own: switching to it swapped the whole screen for the old editor's, header
+// and all. The editor (AdminView, `embedded`) is mounted the first time the
+// tab is opened and then KEPT while the lecturer looks at another tab, so an
+// edit in progress survives a look at Progress, and coming back is instant.
+const settingsOpened = ref(false)
+// The invitation secret Settings just regenerated away (AssignmentHeader.vue).
+const retiredInviteKey = ref('')
+watch(activeTab, (tab) => { if (tab === 'settings') settingsOpened.value = true }, { immediate: true })
+const editorRef = ref(null)
+
+// Leaving the assignment with unsaved settings asks first. Switching tabs does
+// not: the editor stays mounted and keeps the edit.
+onBeforeRouteLeave(() => {
+  if (!editorRef.value?.hasUnsavedEdits?.()) return true
+  return window.confirm('Discard unsaved changes to this assignment?')
+})
+
+// After the editor saved or changed the state, the header's state and deadline
+// read the document again - only the document, so nothing on screen is
+// replaced by a spinner while the lecturer is still on the form.
+async function reloadAssignment() {
+  try {
+    const text = await getRepoContent(getToken(), props.org, config.controlRepo, assignmentPath(props.assignmentId))
+    if (text) assignment.value = parseYaml(text)
+  } catch {
+    // The header keeps what it had; the next full load reads it again.
+  }
+}
 
 // The state button. Every state change is the editor's (one writer of `state`,
 // with its own confirmation and its dashboard and student-page updates), so it
@@ -1507,9 +1543,9 @@ const gradingOnThisTab = computed(
 // button, with the action that was asked for.
 function settingsTarget(section, action) {
   return {
-    name: 'assignment-settings',
+    name: 'assignment-detail',
     params: { org: props.org, assignmentId: props.assignmentId },
-    query: { ...(section ? { section } : {}), ...(action ? { action } : {}) },
+    query: { tab: 'settings', ...(section ? { section } : {}), ...(action ? { action } : {}) },
   }
 }
 
@@ -2868,6 +2904,15 @@ function consumeRouteAction() {
   if (assignment.value) handleFreezeNow()
 }
 
+// Settings is a tab of this page, so a link from it to an action here (the
+// template notice's Sync Starter Code) changes only the query: the page is
+// already loaded and nothing above runs again.
+watch(() => [route.query.sync, route.query.action], () => {
+  if (loading.value || !assignment.value) return
+  applySyncIntent()
+  consumeRouteAction()
+})
+
 
 // teams/<id>/<slug>.json is the authoritative membership; reports/<id>.json is a
 // snapshot the nightly or a dashboard regeneration writes. Two cases would
@@ -3046,8 +3091,18 @@ async function loadAll() {
     //
     // The two below it stay load-bearing: without the report or the assignment
     // there is no page, and failing loudly is right.
+    // THE REPORT IS NOT THE ASSIGNMENT. Settings is a tab of this page now
+    // (2026-10-03), so a report GitHub would not serve took the editor down
+    // with the cohort table - Settings had been its own page and never read
+    // the report. A failed report read is held, and only the tabs that show
+    // the report say so (`reportError`); an unreadable ASSIGNMENT still fails
+    // the page, because then there is nothing to show at all.
+    let reportReadError = null
     const [reportContent, assignmentContent, rosterContent] = await Promise.all([
-      getRepoContent(token, props.org, config.controlRepo, reportPath(props.assignmentId)),
+      getRepoContent(token, props.org, config.controlRepo, reportPath(props.assignmentId)).catch((e) => {
+        reportReadError = e
+        return null
+      }),
       getRepoContent(token, props.org, config.controlRepo, assignmentPath(props.assignmentId)),
       getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH).catch((e) => {
         console.warn('Roster unreadable, continuing without student names:', e)
@@ -3060,6 +3115,9 @@ async function loadAll() {
     }
     if (assignmentContent) {
       assignment.value = parseYaml(assignmentContent)
+      // Read out of the control repository: staff here, so the org's tabs in
+      // the shared top bar can show (lib/org-session.js).
+      markStaff(props.org, true)
     }
 
     // The assignment YAML is what everything below reads, and getRepoContent
@@ -3088,6 +3146,10 @@ async function loadAll() {
     // that dropped every action along with the table (ARCHITECTURE §10.1.1). Only done
     // once the assignment itself is known, so a genuine read failure still
     // lands in the error branch rather than looking like an empty cohort.
+    // A report that could not be READ is not an empty cohort, and must never be
+    // shown as one: the stand-in keeps the header and Settings rendering, and
+    // `reportError` replaces what the other tabs would have shown.
+    reportError.value = reportReadError ? (reportReadError.message || String(reportReadError)) : null
     if (!report.value && assignment.value) {
       report.value = emptyReport()
     }
@@ -3250,11 +3312,6 @@ async function mergeRepoRecordsIntoReport(token) {
   } catch (e) {
     console.error('Failed to merge repository records:', e)
   }
-}
-
-function handleLogout() {
-  clearAuth()
-  window.location.href = import.meta.env.BASE_URL
 }
 
 function sortBy(key) {

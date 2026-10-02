@@ -116,9 +116,7 @@ async function openLiveEditor(page, { assignment = liveAssignment(), broker = tr
   // The only answer that skips the publish is a broker positively found, so
   // wait for the panel to have looked. Clicking Save before this is the `null`
   // case, which publishes - a different test.
-  await expect(
-    page.getByText(broker ? 'Assignment is Published & Verified Live' : 'Publish Incomplete: Student Acceptance Broker Missing'),
-  ).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(`.editor-form[data-broker="${broker ? 'present' : 'missing'}"]`)).toBeVisible({ timeout: 15000 });
   await expandSettings(page);
   return { writes, dispatches };
 }
