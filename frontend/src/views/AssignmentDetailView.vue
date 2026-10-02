@@ -1588,7 +1588,7 @@ import { validateAgainst } from '../lib/validate.js'
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
 import { gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
-import { formatDate } from '../lib/format.js'
+import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
@@ -3582,25 +3582,7 @@ function commitMsg(s) {
   return null
 }
 
-// Always a duration, never a date: the result is wrapped in "in …" / "… ago",
-// so an absolute date here reads as "in 30 Aug 2026". Every caller already
-// shows the exact timestamp alongside (the deadline card's label, or a title
-// tooltip), so this only ever needs to answer "how long?".
-function formatRelative(iso) {
-  if (!iso) return ''
-  const diffMs = Date.now() - new Date(iso).getTime()
-  if (Number.isNaN(diffMs)) return ''
-  const abs = Math.abs(diffMs)
-  const future = diffMs < 0
-  const min = 60_000, hr = 3_600_000, day = 86_400_000
-  let s
-  if (abs < hr) s = `${Math.max(1, Math.round(abs / min))}m`
-  else if (abs < day) s = `${Math.round(abs / hr)}h`
-  else if (abs < 60 * day) s = `${Math.round(abs / day)}d`
-  else if (abs < 730 * day) s = `${Math.round(abs / (30 * day))}mo`
-  else s = `${Math.round(abs / (365 * day))}y`
-  return future ? `in ${s}` : `${s} ago`
-}
+
 
 // Same column set as report.mjs's nightly CSV, but generated from the report
 // currently on screen - so an export taken after a Live Status refresh can

@@ -518,7 +518,14 @@
               </span>
             </div>
             <h3 class="assignment-card-title">{{ a.title }}</h3>
-            <p class="deadline-text">Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</p>
+            <p class="deadline-text">
+              <span>Deadline: {{ formatDate(a.deadline_at, a.timezone) }}</span>
+              <span
+                v-if="a.deadline_at && formatRelative(a.deadline_at)"
+                class="font-medium"
+                :class="{ 'stat-red': isPast(a.deadline_at) }"
+              > · {{ formatRelative(a.deadline_at) }}</span>
+            </p>
             <div class="stats-row">
               <div class="stat">
                 <span class="stat-value">{{ a.accepted ?? '-' }}</span>
@@ -591,7 +598,7 @@ import { gradingSummaryPath } from '../../../lib/control-layout.mjs'
 import { countGraded } from '../../../lib/grading-summary.mjs'
 import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
 import { lampRank, orderOrgsForSwitcher } from '../lib/org-order.js'
-import { formatDate } from '../lib/format.js'
+import { formatDate, formatRelative, isPast } from '../lib/format.js'
 
 const props = defineProps({
   org: { type: String, required: false }
