@@ -1163,6 +1163,14 @@ async function main() {
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(teamSlug)) {
       await reject("rejected:invalid-team-slug", `team_slug "${teamSlug}" is not a valid slug`);
     }
+    // Named as soon as it is known, refusals included. acceptance/reserve.mjs
+    // asks which team a decision was about to tell whether another run's save
+    // touched what it read - and a refusal that never said so could not be
+    // recognised as stale: the first saver of a NEW team writes a manifest that
+    // names neither this student nor, without this, a slug anyone asked about.
+    // The last value written is the one that stands, so the accepted path's own
+    // write later changes nothing.
+    await setOutput("team_slug", teamSlug);
 
     const teamFile = join(teamsDir, `${teamSlug}.json`);
     const maxTeamSize = teamMaxSize(assignment.group_config);

@@ -94,7 +94,7 @@ function blobAt(ref, path) {
  * Asked of the version our decision read and of the one that beat it: a team
  * that listed the student before, or lists them now, concerns them either way.
  */
-function concernsUs(decided) {
+function concernsUs(decided, readRef = "HEAD~1") {
   const teamSlug = outputIn(decided.out, "team_slug") || null;
   const ownClaim = githubId ? blobAt("HEAD", claimPath(Number(githubId))) : null;
   let ownEmail = null;
@@ -104,7 +104,7 @@ function concernsUs(decided) {
     ownEmail = null;
   }
   return (path, kind) =>
-    ["HEAD~1", "FETCH_HEAD"].some((ref) => {
+    [readRef, "FETCH_HEAD"].some((ref) => {
       const text = blobAt(ref, path);
       return kind === "team" ? teamConcerns(text, { login, teamSlug, path }) : claimConcerns(text, ownEmail);
     });
@@ -191,6 +191,37 @@ async function main() {
       if (git(["diff", "--cached", "--quiet"]).ok) {
         // Nothing to save: a superseded attempt, an idempotent confirmation, a
         // refusal that counted nothing.
+        //
+        // NOTHING SAVED IS NOTHING PUSHED, so the refused push below - the one
+        // place a decision is checked against what other runs saved since this
+        // checkout - never happens for it. And a decision that writes nothing
+        // still READ the checkout: two students creating one new team at once,
+        // the second checked out before the first saved, saw the first one's
+        // repository on GitHub but not the decision that made it, and was
+        // refused as "a previous team's repository" - finally, because nothing
+        // ever looked again (tests/acceptance-race.test.mjs, 1 run in 4 under
+        // load). So ask the branch once: if it moved, and what moved is
+        // something this decision read, decide again on the newer state.
+        // A fetch GitHub fails is tried again a few times; one that never
+        // succeeds leaves the decision as it was, which is what it was before
+        // this check existed.
+        let fetched = false;
+        for (let tries = 0; tries < 3 && !fetched; tries++) {
+          if (tries) await sleep(backoff(tries));
+          fetched = git(["fetch", "-q", "origin", branch]).ok;
+        }
+        if (attempt < MAX_ATTEMPTS && fetched && !git(["merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD"]).ok) {
+          const moved = git(["diff", "--name-only", "HEAD", "FETCH_HEAD"]);
+          const stale =
+            !moved.ok ||
+            decisionInputsChanged(moved.out.split("\n"), { assignmentId, login, githubId }, { concerns: concernsUs(decided, "HEAD") });
+          if (stale) {
+            console.log(`[ok] reserve - another run saved what this decision read; deciding again (attempt ${attempt + 1})`);
+            resetTo("FETCH_HEAD");
+            decided = null;
+            continue;
+          }
+        }
         forward(decided);
         finish(0);
       }
