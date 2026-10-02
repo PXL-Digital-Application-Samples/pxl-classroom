@@ -745,9 +745,15 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
       the decision
    g. Dispatches regenerate-dashboard.yml for this org
 9. SPA polls /repos/<org>/<expected-repo-name> with the student's own token
-   plus /user/repository_invitations until the repo appears or 30 attempts pass
+   plus /user/repository_invitations until the repo appears or 30 attempts pass,
+   and reads how far the request got: its own issue's title (the broker's
+   progress) and the hub run named after that issue
+   (frontend/src/lib/acceptance-progress.js). It does not give up while that
+   run is queued or running, up to 30 minutes
 10. SPA shows the repo URL + "Open repository" button
 ```
+
+**The student sees which step the request is at.** The page reads two public things it can already find: the broker issue's title (signed until the broker runs, then *processed*, *not delivered* or *rejected*) and the hub's run list, where each acceptance run is named `acceptance <org>/<broker>#<issue>` (`lib/acceptance-run-name.mjs`). `attemptProgress` turns them into one step - starting, not started, queued, running, finishing, or a final *not delivered*, *stopped*, *finished with nothing set up* or *link refused* - and `AttemptProgress.vue` shows the three steps (*Request sent*, *Invitation checked*, *Setting up*) with a sentence, on the individual page and the team card alike. A final step ends the wait at once with **Send it again**, which opens a new attempt with the same request (the same team for a join); while GitHub is merely slow the same button is offered after three minutes of waiting, and never while the run is going. **Unreadable is not evidence**: a title or run list that could not be read concludes nothing, and the page then waits and times out exactly as before. A finished run with no repository, invitation or label after 90 seconds is *finished with nothing set up* - which is what `rejected:repo-unreadable` looks like here by design, since GitHub's error is not a refusal and carries no label.
 
 **The empty leftover of our own failed attempt is not a reuse.** A `generate` that fails after GitHub created the repository leaves one with no commit, and provisioning removes it and generates again - on GitHub's own 409 "Git Repository is empty" (`emptyFromCommits`), never on size, and an unreadable answer is reused as before. **Empty alone is never enough**: a student can create an empty repository and then accept, and "give them the existing repository" says they keep it. So provisioning removes one only when acceptance says it is this assignment's own earlier work (`own_earlier_attempt` -> `recreate-empty`, decided by `leftoverOfOwnAttempt` in `lib/existing-repo.mjs`): this student has a prior acceptance record here that did not reuse an existing repository - a failed attempt writes that record, status `failed`, before it fails - or the team's manifest already names the repository. A repository met on a student's first acceptance is kept as it is, empty or not. Every push an acceptance makes to the control repo retries fifteen times, because a class accepts in the same minute.
 
@@ -756,7 +762,7 @@ Scripts in `scripts/` extract logic that would otherwise sit as `node -e` snippe
 Idempotency: opening a second acceptance issue re-fires the broker; the acceptance script detects an existing acceptance and returns `already-accepted`; provisioning detects an existing repo and returns `reused`. The student gets the same repo URL.
 
 Failure modes:
-- Rate limit / GitHub outage -> workflow fails -> SPA polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) -> "GitHub is currently experiencing high load. Please try again in 15 minutes."
+- Rate limit / GitHub outage -> workflow fails -> the page reads the run's failure and says the request did not go through, with **Send it again**. When neither the issue nor the run list can be read, it polls 30× over ~3 min (20 × 3 s, then 10 × 10 s) and times out as it always did.
 - A hub run GitHub never starts, cancels, or starts late blocks nobody else: there is no concurrency group to hold. The student's next attempt runs; the late one is `superseded` or `already-accepted` when it finally runs.
 - An attempt nothing answered - the event was dropped, the broker could not deliver it, or the hub run died before saving - is listed for the lecturer by the nightly (`scripts/find-unanswered-attempts.mjs`, `lib/unanswered-attempts.mjs`): the newest attempt per student from the last day that carries no outcome label and that no acceptance record's `issue_number` reaches. Report only, on the instructor notifications issue.
 - Outside the open window or above `max_acceptances` -> SPA pre-computes the rejection client-side, gates acceptance, and surfaces the reason. (The acceptance script also enforces this as a server-side backup.)

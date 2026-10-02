@@ -213,7 +213,16 @@
                  invitation") on nothing but a timer, and handed over a link
                  that 404s until the repository exists - which at fifteen
                  seconds it usually does not. -->
-            <p v-if="pollCount >= 5" class="text-secondary">
+            <!-- Which step it is at, once that is known - and from three minutes
+                 of GitHub not getting to it, a way to send it again. -->
+            <AttemptProgress
+              :steps="progressStepList"
+              :message="progressText"
+              :can-retry="progress.canRetry"
+              :busy="accepting"
+              @retry="sendAgain"
+            />
+            <p v-if="!progressText && pollCount >= 5" class="text-secondary">
               Still going, and that is normal. Leave this page open - it updates by itself
               the moment the repository appears.
             </p>
@@ -435,6 +444,21 @@
             </div>
           </div>
 
+          <!-- GitHub said, in its own words, that this request will not finish:
+               the broker could not pass it on, the run was stopped, or it ended
+               with nothing set up. Not a timeout and not a refusal. -->
+          <div v-else-if="acceptState === 'not-processed'" class="timeout-state fade-in">
+            <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+            <h2>Your request did not go through</h2>
+            <AttemptProgress
+              :steps="progressStepList"
+              :message="progressText"
+              :can-retry="progress.canRetry"
+              :busy="accepting"
+              @retry="sendAgain"
+            />
+          </div>
+
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
             <Icon name="timer" :size="48" class="status-icon status-icon-warn" />
             <!-- ONE headline, because there are two situations and this page
@@ -544,6 +568,7 @@ import AuthCard from '../components/AuthCard.vue'
 import GroupAcceptanceCard from '../components/GroupAcceptanceCard.vue'
 import StudentDiagnosticsModal from '../components/StudentDiagnosticsModal.vue'
 import ClaimAddressCard from '../components/ClaimAddressCard.vue'
+import AttemptProgress from '../components/AttemptProgress.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
 import { assignmentStateLabel } from '../lib/status-labels.js'
@@ -564,6 +589,9 @@ import {
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { recentAttempt } from '../lib/broker-teams.js'
+import {
+  GIVE_UP_MS, attemptProgress, findAttemptRun, hubRunsPath, progressMessage, progressSteps,
+} from '../lib/acceptance-progress.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -595,7 +623,7 @@ const assignment = ref(null)
 // call for three different sentences.
 const superseded = ref(null)
 const user = ref(getUser())
-const acceptState = ref('ready')  // ready | pending | provisioned | invited | error
+const acceptState = ref('ready')  // ready | pending | provisioned | invited | rejected | not-processed | timeout | blocked-account | error
 const accepting = ref(false)
 const acceptError = ref(null)
 const repoUrl = ref(null)
@@ -1042,6 +1070,7 @@ async function checkExistingState() {
       // the spot, and both the rejection reason and the invitation notice were
       // invisible to them.
       acceptanceIssue.value = inFlight.number
+      attemptSentAt.value = Date.parse(inFlight.created_at || '') || null
 
       // And ask before starting a three-minute poll. The answer may already be
       // sitting there from the run that finished while the tab was closed.
@@ -1150,6 +1179,7 @@ async function acceptAssignment() {
     }
 
     acceptanceIssue.value = res.data?.number ?? null
+    attemptSentAt.value = Date.parse(res.data?.created_at || '') || Date.now()
     acceptState.value = 'pending'
     startPolling()
   } catch (e) {
@@ -1204,13 +1234,52 @@ async function readAcceptanceOutcome() {
       getToken(), 'GET',
       `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`,
     )
+    // The TITLE too, from the same read: it is how far the broker got
+    // (lib/acceptance-progress.js). Null when unreadable - never a guess.
+    attemptTitle.value = res.ok && typeof res.data?.title === 'string' ? res.data.title : null
     if (!res.ok) return null
     return outcomeFromLabels(res.data?.labels)
   } catch {
     // Unreadable is not evidence: fall through to the existing causes rather
     // than claiming a rejection that may not have happened.
+    attemptTitle.value = null
     return null
   }
+}
+
+// WHICH STEP THE REQUEST IS AT, from the student's own issue and the hub run
+// named after it (frontend/src/lib/acceptance-progress.js). The hub is public,
+// so the student's own token can read its run list. Unread, it says nothing:
+// `runsRead` is what lets "no run listed" mean "not started yet".
+const attemptTitle = ref(null)
+const attemptSentAt = ref(null)
+const progress = ref({ step: 'unknown', final: false, canRetry: false })
+const progressStepList = computed(() => progressSteps(progress.value.step))
+const progressText = computed(() => progressMessage(progress.value.step))
+
+async function readAttemptProgress() {
+  if (!acceptanceIssue.value || !attemptSentAt.value) return progress.value
+  const broker = brokerRepoName({ assignment: assignment.value, assignmentId: resolvedId.value })
+  let run = null
+  let runsRead = false
+  try {
+    const res = await ghApi(getToken(), 'GET', hubRunsPath({ owner: config.hubOwner, repo: config.hubRepo, sentAt: attemptSentAt.value }))
+    if (res.ok && Array.isArray(res.data?.workflow_runs)) {
+      runsRead = true
+      run = findAttemptRun(res.data.workflow_runs, { org: props.org, broker, issue: acceptanceIssue.value })
+    }
+  } catch {
+    // Unread: says nothing.
+  }
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt: attemptSentAt.value })
+  return progress.value
+}
+
+/** Send the request again: a new attempt. An older one that runs later does nothing. */
+async function sendAgain() {
+  if (pollTimer) clearTimeout(pollTimer)
+  progress.value = { step: 'unknown', final: false, canRetry: false }
+  await acceptAssignment()
 }
 
 // A GUESS at where the invitation would be, derived from the naming pattern.
@@ -1328,15 +1397,30 @@ function startPolling() {
         sawInvitation.value = true
         return
       }
+
+      // No repository, no invitation, no answer: ask how far it got. A final
+      // step - not passed on, stopped, finished with nothing - ends the wait
+      // with "send it again" instead of minutes of spinner.
+      if ((await readAttemptProgress()).final) {
+        acceptState.value = 'not-processed'
+        return
+      }
     }
 
     // Increase poll interval after many attempts (after ~1 minute, slow down to 10s)
     if (pollCount.value > 20) {
       pollInterval.value = 10000
     }
-    
+
+    // NOT WHILE GITHUB SAYS IT IS STILL COMING. A request waiting in GitHub's
+    // queue, or running, is not a timeout - giving up on it at three minutes
+    // sent students into a loop of new attempts on 2026-10-02. Bounded, so a
+    // run GitHub never starts still ends somewhere.
+    const stillComing = ['starting', 'not-started', 'queued', 'running', 'finishing'].includes(progress.value.step)
+    const withinPatience = Date.now() - (attemptSentAt.value || pollStartedAt) < GIVE_UP_MS
+
     // Cap polling at 30 attempts
-    if (pollCount.value > 30) {
+    if (pollCount.value > 30 && !(stillComing && withinPatience)) {
       // Before blaming GitHub load, check the acceptance issue is still there.
       // An account GitHub has restricted gets HTTP 201 on creation and then has
       // its content removed a few seconds later - the broker never sees an
