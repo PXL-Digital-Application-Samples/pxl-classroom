@@ -81,7 +81,7 @@
         <div class="card">
           <div class="assignment-meta flex items-center gap-sm">
             <span class="status-indicator">
-              <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+              <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
               <span class="text-sm font-medium">{{ assignmentStateLabel(assignment.state) }}</span>
             </span>
             <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="text-xs text-muted">({{ assignment.acceptance_mode }})</span>

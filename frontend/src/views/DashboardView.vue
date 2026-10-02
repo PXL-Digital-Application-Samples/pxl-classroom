@@ -496,11 +496,12 @@
             :key="a.id"
             :to="{ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: a.id } }"
             class="assignment-card card"
+            :class="{ 'assignment-card-closed': a.state !== 'published' }"
             style="text-decoration: none; color: inherit; display: block;"
           >
             <div class="card-header flex items-center justify-between">
               <span class="status-indicator">
-                <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : (a.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+                <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
                 <span class="status-text">{{ assignmentStateLabel(a.state) }}</span>
               </span>
               <span class="flex items-center gap-xs">
@@ -523,7 +524,7 @@
               <span
                 v-if="a.deadline_at && formatRelative(a.deadline_at)"
                 class="font-medium"
-                :class="{ 'stat-red': isPast(a.deadline_at) }"
+                :class="{ 'stat-red': a.state === 'published' && isPast(a.deadline_at) }"
               > · {{ formatRelative(a.deadline_at) }}</span>
             </p>
             <div class="stats-row">
@@ -532,15 +533,15 @@
                 <span class="stat-label">Accepted</span>
               </div>
               <div class="stat">
-                <span class="stat-value" :class="{ 'stat-green': a.on_time > 0 }">{{ a.on_time ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-green': a.state === 'published' && a.on_time > 0 }">{{ a.on_time ?? '-' }}</span>
                 <span class="stat-label">On time</span>
               </div>
               <div class="stat">
-                <span class="stat-value" :class="{ 'stat-yellow': a.late > 0 }">{{ a.late ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-yellow': a.state === 'published' && a.late > 0 }">{{ a.late ?? '-' }}</span>
                 <span class="stat-label">Late</span>
               </div>
               <div class="stat">
-                <span class="stat-value" :class="{ 'stat-red': a.no_submission > 0 }">{{ a.no_submission ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-red': a.state === 'published' && a.no_submission > 0 }">{{ a.no_submission ?? '-' }}</span>
                 <span class="stat-label">No submission</span>
               </div>
               <!-- Named for what it is. "Warnings" counted three things, two of
@@ -556,7 +557,7 @@
                 <span class="stat-label">Graded</span>
               </div>
               <div class="stat" v-if="a.with_repo_faults">
-                <span class="stat-value stat-orange">{{ a.with_repo_faults }}</span>
+                <span class="stat-value" :class="{ 'stat-orange': a.state === 'published' }">{{ a.with_repo_faults }}</span>
                 <span class="stat-label">Repo faults</span>
               </div>
             </div>
@@ -1657,6 +1658,15 @@ main {
 .assignment-card:hover {
   border-color: var(--accent-blue);
   background: var(--bg-surface-elevated);
+}
+.assignment-card-closed {
+  opacity: 0.9;
+}
+.assignment-card-closed:hover {
+  opacity: 1;
+}
+.assignment-card-closed .stat-value {
+  color: var(--text-secondary);
 }
 
 .card-header {

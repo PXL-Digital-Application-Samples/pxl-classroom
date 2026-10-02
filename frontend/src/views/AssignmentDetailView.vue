@@ -15,7 +15,7 @@
           <span class="app-header-sep">/</span>
           <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
           <span v-if="assignment" class="status-indicator">
-            <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : (assignment.state === 'closed' ? 'dot-warning' : 'dot-neutral')"></span>
+            <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
             <span class="text-xs text-secondary">{{ assignmentStateLabel(assignment.state) }}</span>
           </span>
 
