@@ -36,6 +36,7 @@ on:
       # than `scripts/**`, which would deploy on every unrelated script change.
       - 'scripts/fetch-pages-data.mjs'
       - 'pages/scan.mjs'
+      - 'pages/beta-unavailable.html'
 
   # A RELEASE IS A BUILD INPUT, and it was missing here for the same reason
   # `claim-keys.json` and `MANUAL.md` were missing above: the bundle reads
@@ -60,6 +61,10 @@ on:
   # hand" and could never have deployed: a release event runs on the TAG ref,
   # and both environments this uses admit branch `main` only (third review,
   # 2026-09-26). A release cut by hand is followed by Run workflow here.
+  #
+  # A push to the `beta` branch dispatches it too (beta-channel.yml), for the
+  # same reason: both environments admit `main` only, so the site is always
+  # deployed from here and the beta is one of the things it contains.
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -74,7 +79,110 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # THE BETA CHANNEL: the `beta` branch's SPA, published at `<site>/beta/` on
+  # the same origin as production, so a lecturer stays signed in and tests
+  # against the real organizations - the only place this app can really be
+  # tested. ARCHITECTURE.md §10.8 has the rules; the shape of this job is them.
+  #
+  # Its own job, with NO environment: `build` below is in `provisioning`, and
+  # branch code (its package.json scripts, its dependencies' install scripts)
+  # never runs in a job that can read the App key. Credentials only run from
+  # `main`, and this job holds none - `persist-credentials: false` so not even
+  # the read-only GITHUB_TOKEN sits in `.git/config` while that code runs.
+  #
+  # Its failure must not cost production its deploy, so `build` runs on
+  # `!cancelled()` and publishes a page saying no beta is available instead.
+  build-beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.find.outputs.sha }}
+    steps:
+      - name: Find the beta branch
+        id: find
+        run: |
+          set -euo pipefail
+          # Empty when there is no beta branch, which is the ordinary state.
+          SHA="$(git ls-remote --heads "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/beta | cut -f1)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "beta: ${SHA:-(no beta branch)}"
+
+      - name: Checkout beta
+        if: steps.find.outputs.sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.find.outputs.sha }}
+          persist-credentials: false
+          # origin/main, for the schema check below.
+          fetch-depth: 0
+
+      # The hub validates every control-repo document against MAIN's schemas,
+      # and the SPA validates what it writes against the schemas it was built
+      # with. A beta whose schemas differ writes documents the backend does not
+      # expect, into real courses. Identical, or there is no beta: merge main
+      # into beta to pick up a schema change.
+      - name: Refuse a beta whose schemas differ from main
+        if: steps.find.outputs.sha != ''
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet origin/main HEAD -- schemas/; then
+            echo "::error::schemas/ on beta differs from main. Merge main into beta; a schema change lands on main first."
+            git diff --stat origin/main HEAD -- schemas/
+            exit 1
+          fi
+
+      - name: Setup Node
+        if: steps.find.outputs.sha != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root dependencies
+        if: steps.find.outputs.sha != ''
+        run: npm ci --omit=dev
+
+      - name: Install dependencies
+        if: steps.find.outputs.sha != ''
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Copy schemas
+        if: steps.find.outputs.sha != ''
+        run: |
+          mkdir -p frontend/public/schemas
+          cp schemas/*.schema.json frontend/public/schemas/
+
+      - name: Build
+        if: steps.find.outputs.sha != ''
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          VITE_BASE_URL: /${{ github.event.repository.name }}/beta/
+          # Every link the beta hands out (invitations, confirm-email, the App
+          # manifest) points at production - frontend/src/lib/channel.js.
+          VITE_PUBLIC_BASE_URL: /${{ github.event.repository.name }}/
+          VITE_BUILD_CHANNEL: beta
+          VITE_BUILD_SHA: ${{ steps.find.outputs.sha }}
+          VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
+          VITE_CORS_PROXY_URL: ${{ secrets.VITE_CORS_PROXY_URL }}
+
+      - name: Upload the beta build
+        if: steps.find.outputs.sha != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beta-site
+          path: frontend/dist
+          retention-days: 1
+
   build:
+    needs: build-beta
+    if: ${{ !cancelled() }}
     environment: provisioning
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -173,6 +281,32 @@ jobs:
       # week, which is how a check stops being read.
       - name: Privacy scan the published data
         run: node pages/scan.mjs frontend/dist/data
+
+      # Static files only: nothing the beta built runs in this job.
+      - name: Download the beta build
+        if: needs.build-beta.result == 'success' && needs.build-beta.outputs.sha != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: beta-site
+          path: frontend/dist/beta
+
+      # beta/index.html ALWAYS exists - the app, or a page saying there is none.
+      # 404.html sends any deep link under beta/ to beta/?/..., and with nothing
+      # there that would 404 straight back into 404.html, for ever.
+      - name: Assemble the beta channel
+        env:
+          BETA_BUILT: ${{ needs.build-beta.result == 'success' && needs.build-beta.outputs.sha != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$BETA_BUILT" = "true" ]; then
+            # The beta reads data/ under its own base. The same bytes the scan
+            # above just passed, not a second fetch.
+            rm -rf frontend/dist/beta/data
+            cp -R frontend/dist/data frontend/dist/beta/data
+          else
+            mkdir -p frontend/dist/beta
+            cp pages/beta-unavailable.html frontend/dist/beta/index.html
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

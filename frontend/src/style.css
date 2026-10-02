@@ -718,6 +718,23 @@ a:hover {
    slot content is compiled in the PARENT's scope - a scoped rule in AppHeader
    would never reach it. This vocabulary is shared across all nine views.
    ========================================================================== */
+/* The beta channel's strip above the app bar (App.vue, lib/channel.js). */
+.channel-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-sm);
+  padding: 6px var(--gutter);
+  background: var(--tint-attention-subtle);
+  border-bottom: 1px solid var(--tint-attention-muted);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.channel-banner-sha {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
 .app-header {
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-muted);

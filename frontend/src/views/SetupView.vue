@@ -209,6 +209,7 @@ import { config } from '../lib/config.js'
 import { HUB_OWNER } from '../lib/deployment.js'
 import { startDeviceFlow, pollDeviceFlow } from '../lib/auth.js'
 import { ghApi } from '../lib/api.js'
+import { publicBaseUrl } from '../lib/channel.js'
 import {
   EXPECTED_APP_PERMISSIONS,
   MANIFEST_APP_PERMISSIONS,
@@ -235,8 +236,10 @@ let verifyAbort = null
 
 const hubFullName = `${config.hubOwner}/${config.hubRepo}`
 
-// The URL where the frontend is hosted (used for homepage and redirect)
-const hostUrl = computed(() => window.location.origin + import.meta.env.BASE_URL)
+// The URL where the frontend is hosted (used for homepage and redirect). The
+// production app's even on the beta channel: these URLs are stored in the
+// GitHub App itself and outlive any beta.
+const hostUrl = computed(() => window.location.origin + publicBaseUrl())
 
 // Personal-account manifests post to /settings/apps/new; org-owned ones to
 // /organizations/<org>/settings/apps/new. Same manifest either way.

@@ -651,7 +651,8 @@ All in `.github/workflows/` of the hub. Triggered as noted.
 | `retry-acceptance.yml` | `workflow_dispatch` | Lecturer retry for failed student acceptances (with optional window bypass). The acceptance record is removed in the checkout only; a refused retry commits nothing. |
 | `weekly-usage-report.yml` | `cron 0 22 * * SUN` + `workflow_dispatch` | Sunday 22:00 UTC. An `app-declaration` job compares the live App's declared permissions against `MANIFEST_APP_PERMISSIONS` (`scripts/check-app-declaration.mjs`). An `installation-approvals` job (`environment: provisioning`) then walks `GET /app/installations` and sorts them against `participating-orgs.yml` (`scripts/check-installation-approvals.mjs`): a participating org that has not approved the declaration fails, a participating org with no installation fails, and a third-party installation is reported as a notice - the App is publicly listed because hub-and-spoke needs it to be, so unrelated accounts can and do install it. Then a per-org matrix: fetch Enhanced Billing usage for the past 7 days, threshold per SKU, write report to control repo, @-mention budget owner if anything over, fail run on overrun. |
 | `setup-org.yml` | `workflow_dispatch` | Create `pxl-classroom-control` in target org; register org in `participating-orgs` branch. |
-| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`, `lib/**`, `schemas/**`, `acceptance/claim-keys.json`) + `workflow_dispatch` | Build SPA + copy schemas -> publish to GitHub Pages. |
+| `deploy-frontend.yml` | `push` to `main` (paths: `frontend/**`, `lib/**`, `schemas/**`, `acceptance/claim-keys.json`) + `workflow_dispatch` | Build SPA + copy schemas -> publish to GitHub Pages, with the `beta` branch's build under `beta/` (§10.8). |
+| `beta-channel.yml` | `push` to `beta` | Dispatches `deploy-frontend.yml` on `main`, which is the only place the site deploys from (§10.8). |
 | `sync-starter-code.yml` | `workflow_dispatch` | Bring each student repository from its own starting point up to a template commit: untouched files land on `main`, edited ones arrive as a PR (§11.7). |
 | `open-feedback-prs.yml` | `workflow_dispatch` | Open (or adopt) the draft Feedback PR per student, once they have commits ahead of `pxl-baseline` (§11.4). |
 | `_find-orgs.reusable.yml` | `workflow_call` | Reusable: resolve the participating-org matrix, narrowed to one org when a caller passes `org`. |
@@ -1022,6 +1023,44 @@ including that a topic's internal anchor links resolve, and that at least one
 It parses the markdown with its own reader rather than importing the build
 script, because a checker built from the transform it checks validates its own
 bugs.
+
+### 10.8 The beta channel
+
+The SPA can only really be tested in production: the orgs, the App
+installations, the rosters and the sign-in proxy exist nowhere else. So the
+site carries a second build of the SPA, from the `beta` branch, at
+`<site>/beta/` (`/pxl-classroom/beta/`). It is the only branch besides
+`participating-orgs` and Dependabot's, and it exists only while there is
+something to test; operating it is [ADMIN.md §9](ADMIN.md).
+
+- **Same origin, so same sign-in and same data.** The beta reads the stored
+  sign-in production wrote and writes to the same control repos. Nothing about it
+  is a sandbox; the banner on every page says so (`App.vue`).
+- **One Pages artifact.** `deploy-frontend.yml` always runs on `main`. Its
+  `build-beta` job builds the branch with `VITE_BASE_URL=/<repo>/beta/`, and
+  `build` places that output at `dist/beta/` beside production, with a copy of
+  the already-scanned `data/`. A push to `beta` dispatches it
+  (`beta-channel.yml`); so does every production deploy, which rebuilds the
+  beta with it.
+- **Branch code never runs beside a credential.** `build-beta` has no
+  environment and checks out with `persist-credentials: false`; `build`, which
+  is in `provisioning`, only downloads its static files.
+- **The schemas are main's.** `build-beta` fails when `schemas/` differs from
+  `main`, because the hub validates what it reads against main's. A schema
+  change lands on main first and is merged into `beta`.
+- **A failed or absent beta never costs production its deploy.** `build` runs
+  on `!cancelled()` and publishes `pages/beta-unavailable.html` as
+  `beta/index.html` instead.
+- **`beta/index.html` always exists.** `404.html` is the one fallback for the
+  whole site and keeps two path segments under `beta/`, so a deep link reaches
+  the beta app; with nothing there, it would redirect to a path that 404s back
+  into itself.
+- **What the beta hands out points at production.** Invitation and
+  confirm-email links and the App manifest URLs are built from
+  `VITE_PUBLIC_BASE_URL` (`frontend/src/lib/channel.js`), which the beta build
+  sets to the production base. A cohort is never given a beta link.
+
+`tests/beta-channel.test.mjs`.
 
 ## 11. Deadlines, evidence, lock-down, preservation
 

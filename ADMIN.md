@@ -1,6 +1,6 @@
 # PXL Classroom - Administration
 
-**Audience: a system administrator or an organization owner.** Onboarding an organization, budgets, usage thresholds, App permissions, incident response, and the hub's dependency updates.
+**Audience: a system administrator or an organization owner.** Onboarding an organization, budgets, usage thresholds, App permissions, incident response, the hub's dependency updates, and the beta channel.
 
 > [!IMPORTANT]
 > **Not what you are looking for?**
@@ -447,3 +447,24 @@ Dependabot creates its branches through its own bypass on the `Block ad-hoc bran
 
    CI runs again on the push.
 4. **Merge with Squash and merge**, keeping the title. The title becomes the commit subject, and Dependabot has already written it as a type the release reads. `fix(deps)` releases a patch; `chore` releases nothing.
+
+## 9. The beta channel
+
+A second copy of the web app, built from the `beta` branch, lives at `https://<pages-host>/pxl-classroom/beta/`. It is for trying a UI change against the real organizations before it reaches everyone. How it is built is ARCHITECTURE.md §10.8.
+
+**It is production.** Same sign-in, same courses, same students: an assignment saved in the beta is saved. Signing out in the beta signs out every tab of the live app too. Try risky changes on `pxl-classroom-testbed` first.
+
+**Start one.** Only a repository admin can create the branch (the `Block ad-hoc branch creation` ruleset). In PowerShell:
+
+```
+git switch -c beta main
+$env:GITHUB_TOKEN=""; git push origin beta
+```
+
+The push runs **Deploy beta channel**, which runs **Deploy frontend to Pages** on `main`. About two minutes later the beta is live, with a yellow **Beta** strip and its commit on every page. Every later push to `beta`, and every production deploy, republishes it.
+
+**What it refuses.** The beta build fails, and the beta path shows "No beta is published right now", when `schemas/` on `beta` differs from `main`. Make the schema change on `main`, then `git merge main` on `beta`. Production deploys either way.
+
+**What it does not do.** CI does not run on `beta`: run `npm run lint`, `npm test` and `npm run test:e2e` locally before pushing. Links the beta hands out (invitations, confirm-email) point at the live app, so students never land on the beta.
+
+**Finish one.** Merge it into `main` with a normal merge (`git switch main; git merge beta`), push `main`, then delete the branch: `$env:GITHUB_TOKEN=""; git push origin --delete beta`. The next deploy replaces the beta with the "no beta" page. Commit subjects on `beta` go into the release like any other, so they follow the same rules.

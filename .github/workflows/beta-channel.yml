@@ -1,0 +1,37 @@
+name: Deploy beta channel
+
+# A push to `beta` republishes the site, beta included (ARCHITECTURE.md §10.8).
+#
+# It cannot deploy anything itself: the Pages and `provisioning` environments
+# admit branch `main` only, and the beta's own code must never run where the
+# App key can be read. So it asks deploy-frontend.yml to run ON MAIN, which
+# builds production from main and the beta from this branch in a job holding
+# no credential. A dispatch is one of the two events GITHUB_TOKEN may start a
+# run with - regenerate-dashboard.yml relies on the same thing.
+on:
+  push:
+    branches: ["beta"]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: beta-channel
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deploy the site from main, beta included
+        run: |
+          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-frontend.yml/dispatches" \
+            -f ref=main >/dev/null
+          echo "Dispatched deploy-frontend.yml on main for beta ${GITHUB_SHA}."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"

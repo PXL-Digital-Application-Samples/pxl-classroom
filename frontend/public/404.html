@@ -9,8 +9,15 @@
   // Encodes the path into a single query string, then redirects to the
   // SPA's index.html where a matching decoder rebuilds the route.
   // Adapted from rafgraph/spa-github-pages (MIT).
-  var pathSegmentsToKeep = 1; // /pxl-classroom/
+  //
+  // GitHub Pages serves THIS file for every missing path on the site, the beta
+  // channel's included, so it has to know where the beta app lives: kept at one
+  // segment, a deep link into /pxl-classroom/beta/... was rewritten onto the
+  // production app. deploy-frontend.yml always publishes a beta/index.html (the
+  // app, or a page saying none is published), so this never redirects to a
+  // path that 404s back here.
   var l = window.location;
+  var pathSegmentsToKeep = l.pathname.split('/')[2] === 'beta' ? 2 : 1; // /pxl-classroom/[beta/]
   l.replace(
     l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
     l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +

@@ -21,6 +21,7 @@ import {
   MAX_TITLE_LENGTH,
   PURPOSE,
 } from '../../../lib/acceptance-signature.mjs'
+import { publicBaseUrl } from './channel.js'
 
 export { TOKEN_PATTERN }
 
@@ -175,8 +176,11 @@ export async function signedConfirmIssueTitle({ inviteSecret, assignmentId, gith
   })
 }
 
-/** The link a lecturer hands out. */
-export function invitationUrl(org, token, base = import.meta.env.BASE_URL) {
+/**
+ * The link a lecturer hands out. Always the production app's, even when copied
+ * from the beta channel (channel.js).
+ */
+export function invitationUrl(org, token, base = publicBaseUrl()) {
   return `${window.location.origin}${base}${org}/i/${token}`
 }
 
@@ -187,7 +191,7 @@ export function invitationUrl(org, token, base = import.meta.env.BASE_URL) {
  * questions and one of them must never offer to accept anything, and a route
  * is harder to lose than a flag.
  */
-export function confirmationUrl(org, token, base = import.meta.env.BASE_URL) {
+export function confirmationUrl(org, token, base = publicBaseUrl()) {
   return `${window.location.origin}${base}${org}/c/${token}`
 }
 
