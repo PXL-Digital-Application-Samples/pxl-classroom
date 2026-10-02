@@ -1,6 +1,6 @@
 <template>
   <div v-if="user" class="user-badge flex items-center gap-sm">
-    <img :src="user.avatar_url" :alt="user.login" class="avatar" referrerpolicy="no-referrer" />
+    <img :src="user.avatar_url" :alt="user.login" class="avatar" referrerpolicy="no-referrer" @click="handleAvatarClick" />
     <span class="login-wrap">
       <span class="login-name">{{ user.login }}</span>
       <small v-if="expiryLabel" class="expiry" :title="expiryTitle">{{ expiryLabel }}</small>
@@ -11,6 +11,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { getTokenExpiry } from '../lib/auth.js'
 
 defineProps({
@@ -18,12 +19,32 @@ defineProps({
 })
 const emit = defineEmits(['logout'])
 
+const router = useRouter()
+let avatarClicks = 0
+let avatarTimer = null
+
+function handleAvatarClick() {
+  avatarClicks++
+  clearTimeout(avatarTimer)
+  if (avatarClicks >= 4) {
+    avatarClicks = 0
+    router.push({ name: 'cave' })
+  } else {
+    avatarTimer = setTimeout(() => {
+      avatarClicks = 0
+    }, 1500)
+  }
+}
+
 // Device-flow tokens live ~8h and there is no refresh - show the remaining
 // time so expiry isn't a surprise mid-session. Ticks once a minute.
 const now = ref(Date.now())
 let timer = null
 onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 60_000) })
-onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  if (avatarTimer) clearTimeout(avatarTimer)
+})
 
 const remainingMs = computed(() => {
   const exp = getTokenExpiry()
@@ -52,6 +73,7 @@ const expiryTitle = computed(() => {
   height: 24px;
   border-radius: 50%;
   border: 1px solid var(--border-default);
+  cursor: pointer;
 }
 .login-wrap { display: flex; flex-direction: column; line-height: 1.15; }
 .login-name { font-weight: 500; color: var(--text-primary); }

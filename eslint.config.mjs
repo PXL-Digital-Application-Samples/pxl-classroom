@@ -39,6 +39,7 @@ export default [
     ignores: [
       '**/node_modules/**',
       'frontend/dist/**',
+      'frontend/public/**',
       'test-results/**',
       'playwright-report/**',
       'control-repo-template/**',

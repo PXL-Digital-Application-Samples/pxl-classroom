@@ -525,15 +525,15 @@
                 <span class="stat-label">Accepted</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-green">{{ a.on_time ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-green': a.on_time > 0 }">{{ a.on_time ?? '-' }}</span>
                 <span class="stat-label">On time</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-yellow">{{ a.late ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-yellow': a.late > 0 }">{{ a.late ?? '-' }}</span>
                 <span class="stat-label">Late</span>
               </div>
               <div class="stat">
-                <span class="stat-value stat-red">{{ a.no_submission ?? '-' }}</span>
+                <span class="stat-value" :class="{ 'stat-red': a.no_submission > 0 }">{{ a.no_submission ?? '-' }}</span>
                 <span class="stat-label">No submission</span>
               </div>
               <!-- Named for what it is. "Warnings" counted three things, two of
@@ -1671,7 +1671,9 @@ main {
 
 .stats-row {
   display: flex;
-  gap: var(--space-md);
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-xs);
   padding-top: var(--space-sm);
   border-top: 1px solid var(--border-muted);
 }
@@ -1680,18 +1682,22 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 44px;
+  text-align: center;
 }
 
 .stat-value {
   font-size: 1.15rem;
   font-weight: 600;
+  line-height: 1.2;
 }
 .stat-label {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   color: var(--text-muted);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.2;
+  margin-top: 2px;
 }
 
 .stat-green { color: var(--accent-green); }

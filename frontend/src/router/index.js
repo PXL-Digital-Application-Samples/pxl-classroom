@@ -60,6 +60,11 @@ const routes = [
     component: () => import('../views/SetupView.vue'),
   },
   {
+    path: '/cave',
+    name: 'cave',
+    component: () => import('../views/CaveView.vue'),
+  },
+  {
     // Linked from every AppHeader, so this is not a route nothing points at.
     path: '/manual',
     name: 'manual',
@@ -122,6 +127,9 @@ router.afterEach((to) => {
       break
     case 'setup':
       page = 'App setup'
+      break
+    case 'cave':
+      page = 'Terminal'
       break
     case 'sandbox':
       page = 'Component Sandbox'
