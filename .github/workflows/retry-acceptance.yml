@@ -51,7 +51,9 @@ jobs:
   retry:
     environment: provisioning
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # As acceptance-handler.yml: the decision and the record each retry for up
+    # to ~3 minutes when a class is accepting at the same moment.
+    timeout-minutes: 15
     steps:
       # A lecturer dispatches these as themselves, through the SPA or the
       # Actions tab. The only other thing that can reach workflow_dispatch here

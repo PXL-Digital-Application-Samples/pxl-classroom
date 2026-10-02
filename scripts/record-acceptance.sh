@@ -26,7 +26,12 @@
 set -euo pipefail
 
 DIR="${DATA_DIR:-control}"
-MAX_RETRIES="${MAX_RETRIES:-15}"
+# Thirty, with a backoff that grows: every acceptance now pushes twice (its
+# decision, then this record), so a class accepting in one minute collides
+# twice as often as when this step was the only push. Fifteen tries at a fixed
+# 2-6s lost one record in a five-team burst of fifteen students
+# (tests/acceptance-race.test.mjs).
+MAX_RETRIES="${MAX_RETRIES:-30}"
 ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
 BRANCH=$(git -C "$DIR" rev-parse --abbrev-ref HEAD)
 
@@ -115,7 +120,12 @@ while :; do
     echo "::error::The record for ${LOGIN} on ${ASSIGNMENT_ID} could not be pushed after ${MAX_RETRIES} attempts." >&2
     exit 1
   fi
-  SLEEP_TIME=$(awk -v min=2 -v max=6 'BEGIN{srand(); printf "%d", min + int(rand()*(max-min+1))}')
+  # RANDOM, not `awk 'BEGIN{srand()}'`: srand() seeds from the clock's SECOND,
+  # so every run refused in the same second waited exactly as long as every
+  # other and collided again - a burst in lockstep. The wait grows with the
+  # attempt, up to ten seconds.
+  CAP=$(( attempt < 8 ? attempt + 2 : 10 ))
+  SLEEP_TIME=$(( 1 + RANDOM % CAP ))
   echo "Push refused (another run pushed first). Writing the record again on the latest state in ${SLEEP_TIME}s (attempt ${attempt}/${MAX_RETRIES})..."
   sleep "$SLEEP_TIME"
   git -C "$DIR" fetch -q origin "$BRANCH" || continue
