@@ -915,20 +915,103 @@
                  boxes are in - the computer's, because that is how the browser
                  reads a datetime-local - and, when it differs, the one students
                  are shown (the assignment's timezone, under Advanced). -->
-            <small>
-              In your computer's time<template v-if="browserTimeZone"> ({{ browserTimeZone }})</template><template
-                v-if="studentTimeZone && studentTimeZone !== browserTimeZone"
-              >. Students see times in {{ studentTimeZone }}</template>.
-            </small>
-            <!-- Full width, under BOTH dates, because it is about the pair. -->
-            <small v-if="deadlineInPast" class="text-warning">
-              This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
-            </small>
+            <!-- In a `.field` of their own so they start on the fields' left
+                 edge, under BOTH dates, because they are about the pair. -->
+            <div class="field">
+              <small>
+                In your computer's time<template v-if="browserTimeZone"> ({{ browserTimeZone }})</template><template
+                  v-if="studentTimeZone && studentTimeZone !== browserTimeZone"
+                >. Students see times in {{ studentTimeZone }}</template>.
+              </small>
+              <small v-if="deadlineInPast" class="text-warning">
+                This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
+              </small>
+            </div>
+            <!-- ONE QUESTION, AND ITS ANSWERS ARE WHAT HAPPENS (2026-10-02).
+                 Two stored fields, `late_policy` and `lock_down_enabled`, were
+                 asked as two questions (DESIGN.md §1.9), and a lecturer could
+                 not tell which one decided grading and which access - because
+                 both do some of each: `block` locks the submission branch AND
+                 decides what counts. So the question is now the one a lecturer
+                 asks - what happens at the deadline - and each answer names
+                 both fields at once (`deadlineChoice`).
+
+                 The fourth combination, read-only while late work still
+                 counts, is what both 2026 exams ran on. It is not offered for a
+                 new assignment, and it is never lost: an assignment that holds
+                 it shows it as a fourth answer (`legacyDeadlineOffered`), so
+                 loading one changes nothing. -->
+            <div class="field">
+              <label>After the deadline <HelpButton topic="late-work" label="late work" /></label>
+              <!-- Alternatives as rows with a tonal step on the chosen one; no
+                   bordered card, because this fieldset is already a box
+                   (DESIGN.md §1.1). -->
+              <div class="policy-options">
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'stop-pushes' }">
+                  <input type="radio" v-model="deadlineChoice" value="stop-pushes" />
+                  <span class="policy-option-text">
+                    <strong>Pushing stops</strong>
+                    <small>
+                      The submission is the last commit before the deadline. Students keep their
+                      Actions, secrets and runners.
+                    </small>
+                  </span>
+                </label>
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'nothing' }">
+                  <input type="radio" v-model="deadlineChoice" value="nothing" />
+                  <span class="policy-option-text">
+                    <strong>Nothing is locked</strong>
+                    <small>Late commits count, and are marked late in the report.</small>
+                  </span>
+                </label>
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'read-only' }">
+                  <input type="radio" v-model="deadlineChoice" value="read-only" />
+                  <span class="policy-option-text">
+                    <strong>The repository becomes read-only</strong>
+                    <small>
+                      Pushing stops, and students also lose Actions, secrets, environments, runners
+                      and settings until you reopen it.
+                    </small>
+                  </span>
+                </label>
+                <label
+                  v-if="legacyDeadlineOffered || deadlineChoice === 'legacy'"
+                  class="policy-option"
+                  :class="{ selected: deadlineChoice === 'legacy' }"
+                >
+                  <input type="radio" v-model="deadlineChoice" value="legacy" />
+                  <span class="policy-option-text">
+                    <strong>Read-only, but late work still counts</strong>
+                    <small>
+                      What this assignment is set to. Students lose Actions, secrets and settings at
+                      the deadline, and anything they pushed before the lock landed still counts.
+                      Not offered for new assignments.
+                    </small>
+                  </span>
+                </label>
+              </div>
+              <!-- WHEN the lock lands and what the date behind it is worth -
+                   two facts, said apart. The deadline sentinel locks at the
+                   instant for every published assignment (lib/sentinel-window.mjs);
+                   the nightly run is the fallback, not the plan. This line used
+                   to say "the lock is applied by the nightly run", which stopped
+                   being true when the sentinel shipped (DESIGN.md §1.5). -->
+              <small v-if="deadlineChoice === 'stop-pushes' || deadlineChoice === 'read-only'">
+                The lock lands at the deadline, or at the nightly run if that is missed. Work pushed
+                in between does not count: the submission is the last commit <em>dated</em> before
+                the deadline. A commit's date comes from the student's own computer - fine for
+                ordinary marking, but not proof if you ever need to challenge it.
+              </small>
+            </div>
           </fieldset>
 
-          <!-- ASSIGNMENT TYPE -->
+          <!-- STUDENTS: who works on it, who may accept and how many.
+               Below Schedule because it is chosen once and rarely changed, while
+               the dates differ on every assignment (DESIGN.md §1.8). It took in
+               the old Assignment Type fieldset - one radio row was a whole box -
+               and the who controls from Guardrails, a grab-bag of nine. -->
           <fieldset>
-            <legend>Assignment Type</legend>
+            <legend>Students</legend>
             <div class="field">
               <!-- "TEAM", NOT "GROUP". This was the one place in the whole flow
                    that said Group, and it collided with the class groups on the
@@ -938,15 +1021,15 @@
                    team_slug and team_name. Canvas draws the same distinction and
                    names them the same way round: sections segment the class,
                    groups collaborate on one submission. -->
-              <label>Collaboration Model <HelpButton topic="group-assignments" label="group assignments" /></label>
+              <label>Students work <HelpButton topic="group-assignments" label="group assignments" /></label>
               <div class="radio-group">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                   <input type="radio" v-model="form.assignment_type" value="individual" @change="onAssignmentTypeChange" />
-                  <span><strong>Individual</strong> (1 student per repository)</span>
+                  <span><strong>Alone</strong> (1 student per repository)</span>
                 </label>
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                   <input type="radio" v-model="form.assignment_type" value="group" @change="onAssignmentTypeChange" />
-                  <span><strong>Team</strong> (2 or more students share 1 repository)</span>
+                  <span><strong>In teams</strong> (2 or more students share 1 repository)</span>
                 </label>
               </div>
             </div>
@@ -1036,18 +1119,31 @@
                 </small>
               </div>
             </div>
-          </fieldset>
-
-          <!-- GUARDRAILS -->
-          <fieldset>
-            <legend>Guardrails</legend>
+            <!-- WHO MAY ACCEPT, AND WHAT THEY DO WHEN THEY DO - two plain questions
+                 (2026-10-02). They were a dropdown of three modes plus a checkbox
+                 that applied to one of them, and the claim mode hid under a third
+                 name. All four combinations are valid and map onto what is stored:
+                 anyone + email = open + require_claim, anyone + click = open,
+                 roster + click = enforced, roster + email = claim (whoMayAccept /
+                 acceptIdentity). No schema change: the same two fields are written.
+                 Each answer says what the STUDENT experiences, because that is what
+                 a lecturer can predict. -->
             <div class="field">
               <label>Who may accept <HelpButton topic="who-may-accept" label="who may accept" /></label>
-              <select v-model="form.roster_mode">
-                <option value="open">Open: anyone with the invitation link</option>
-                <option value="enforced">Enforced: only students on the roster (matched by GitHub username)</option>
-                <option value="claim">Claim: students confirm their {{ INSTITUTION_SHORT }} email address, matched to the roster</option>
-              </select>
+              <div class="radio-group">
+                <label><input type="radio" v-model="whoMayAccept" value="anyone" /> Anyone with the link</label>
+                <label><input type="radio" v-model="whoMayAccept" value="roster" /> Only students on the roster</label>
+              </div>
+            </div>
+            <div class="field">
+              <label>{{ ACCEPT_IDENTITY_QUESTION }} <HelpButton topic="confirming-an-email-address" label="confirming an email address" /></label>
+              <div class="radio-group">
+                <label><input type="radio" v-model="acceptIdentity" value="email" /> {{ REQUIRE_CLAIM_LABEL }}</label>
+                <label><input type="radio" v-model="acceptIdentity" value="click" /> just click Accept</label>
+              </div>
+              <!-- One line that changes with the combination: what the two
+                   answers together mean for a student opening the link. -->
+              <small>{{ acceptanceSentence }}</small>
               <!-- A roster is still worth importing under `open`: report.mjs
                    builds the population from the union of acceptances and the
                    roster, so roster students show up before they accept and
@@ -1102,35 +1198,6 @@
                   <router-link :to="{ name: 'roster', params: { org } }">Roster page</router-link>
                   - an empty roster means nobody can accept.
                 </span>
-              </small>
-              <small v-else class="text-warning">
-                <strong>Anyone</strong> with the link can claim a repo while the assignment is open.
-                The deadline window and the max-acceptances cap are the only limits - keep the cap tight,
-                and reconcile logins to students afterward.
-              </small>
-            </div>
-
-            <!-- ASK WHO THEY ARE, under open enrolment only.
-                 `open` collects nothing by default and that is deliberate - it
-                 is the mode for a cohort nobody listed up front. Ticked, the
-                 address becomes a condition of accepting, which is what makes
-                 "reconcile logins to students afterward" possible rather than
-                 merely hoped for. Under `claim` an address is already required,
-                 and under `enforced` none is collected, so the control would
-                 mean nothing in either. -->
-            <div v-if="form.roster_mode === 'open'" class="field checkbox">
-              <div class="checkbox-with-help">
-                <label>
-                  <input type="checkbox" v-model="form.require_claim" />
-                  {{ REQUIRE_CLAIM_LABEL }}
-                </label>
-                <HelpButton topic="confirming-an-email-address" label="confirming an email address" />
-              </div>
-              <small v-if="form.require_claim">
-                Records who accepted. It does not restrict who may accept.
-              </small>
-              <small v-else>
-                You will have their GitHub username and nothing else to match against your roster.
               </small>
             </div>
 
@@ -1335,82 +1402,11 @@
               </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
-            <!-- ONE QUESTION, AND ITS ANSWERS ARE WHAT HAPPENS (2026-10-02).
-                 Two stored fields, `late_policy` and `lock_down_enabled`, were
-                 asked as two questions (DESIGN.md §1.9), and a lecturer could
-                 not tell which one decided grading and which access - because
-                 both do some of each: `block` locks the submission branch AND
-                 decides what counts. So the question is now the one a lecturer
-                 asks - what happens at the deadline - and each answer names
-                 both fields at once (`deadlineChoice`).
+          </fieldset>
 
-                 The fourth combination, read-only while late work still
-                 counts, is what both 2026 exams ran on. It is not offered for a
-                 new assignment, and it is never lost: an assignment that holds
-                 it shows it as a fourth answer (`legacyDeadlineOffered`), so
-                 loading one changes nothing. -->
-            <div class="field">
-              <label>After the deadline <HelpButton topic="late-work" label="late work" /></label>
-              <!-- Alternatives as rows with a tonal step on the chosen one; no
-                   bordered card, because this fieldset is already a box
-                   (DESIGN.md §1.1). -->
-              <div class="policy-options">
-                <label class="policy-option" :class="{ selected: deadlineChoice === 'stop-pushes' }">
-                  <input type="radio" v-model="deadlineChoice" value="stop-pushes" />
-                  <span class="policy-option-text">
-                    <strong>Pushing stops</strong>
-                    <small>
-                      The submission is the last commit before the deadline. Students keep their
-                      Actions, secrets and runners.
-                    </small>
-                  </span>
-                </label>
-                <label class="policy-option" :class="{ selected: deadlineChoice === 'nothing' }">
-                  <input type="radio" v-model="deadlineChoice" value="nothing" />
-                  <span class="policy-option-text">
-                    <strong>Nothing is locked</strong>
-                    <small>Late commits count, and are marked late in the report.</small>
-                  </span>
-                </label>
-                <label class="policy-option" :class="{ selected: deadlineChoice === 'read-only' }">
-                  <input type="radio" v-model="deadlineChoice" value="read-only" />
-                  <span class="policy-option-text">
-                    <strong>The repository becomes read-only</strong>
-                    <small>
-                      Pushing stops, and students also lose Actions, secrets, environments, runners
-                      and settings until you reopen it.
-                    </small>
-                  </span>
-                </label>
-                <label
-                  v-if="legacyDeadlineOffered || deadlineChoice === 'legacy'"
-                  class="policy-option"
-                  :class="{ selected: deadlineChoice === 'legacy' }"
-                >
-                  <input type="radio" v-model="deadlineChoice" value="legacy" />
-                  <span class="policy-option-text">
-                    <strong>Read-only, but late work still counts</strong>
-                    <small>
-                      What this assignment is set to. Students lose Actions, secrets and settings at
-                      the deadline, and anything they pushed before the lock landed still counts.
-                      Not offered for new assignments.
-                    </small>
-                  </span>
-                </label>
-              </div>
-              <!-- WHEN the lock lands and what the date behind it is worth -
-                   two facts, said apart. The deadline sentinel locks at the
-                   instant for every published assignment (lib/sentinel-window.mjs);
-                   the nightly run is the fallback, not the plan. This line used
-                   to say "the lock is applied by the nightly run", which stopped
-                   being true when the sentinel shipped (DESIGN.md §1.5). -->
-              <small v-if="deadlineChoice === 'stop-pushes' || deadlineChoice === 'read-only'">
-                The lock lands at the deadline, or at the nightly run if that is missed. Work pushed
-                in between does not count: the submission is the last commit <em>dated</em> before
-                the deadline. A commit's date comes from the student's own computer - fine for
-                ordinary marking, but not proof if you ever need to challenge it.
-              </small>
-            </div>
+          <!-- GRADING: what happens to the work, apart from the deadline. -->
+          <fieldset>
+            <legend>Grading</legend>
             <div class="field checkbox">
               <div class="checkbox-with-help">
                 <label>
@@ -1748,7 +1744,7 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
 import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
-import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
+import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
 import { clearAuth, getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
@@ -4434,6 +4430,45 @@ async function saveAssignment(stateOverride = null) {
 // when the template actually changed. lib/template-change.js decides.
 const templateNotice = ref(null)
 
+// THE TWO WHO QUESTIONS and the two stored fields they write (roster_mode,
+// require_claim). Every combination is a real mode, so each setter writes the
+// pair from both answers and neither can leave the other behind:
+//   anyone + email -> open + require_claim     anyone + click -> open
+//   roster + email -> claim                     roster + click -> enforced
+// Anything that is neither `open` nor `claim` reads as roster + click, which
+// is `enforced`: normalizeRosterMode fails closed, and so does this.
+function writeWho(who, identity) {
+  if (who === 'anyone') {
+    form.value.roster_mode = 'open'
+    form.value.require_claim = identity === 'email'
+  } else {
+    form.value.roster_mode = identity === 'email' ? 'claim' : 'enforced'
+  }
+}
+const whoMayAccept = computed({
+  get: () => (form.value.roster_mode === 'open' ? 'anyone' : 'roster'),
+  set: (who) => writeWho(who, acceptIdentity.value),
+})
+const acceptIdentity = computed({
+  get: () => {
+    if (form.value.roster_mode === 'open') return form.value.require_claim ? 'email' : 'click'
+    return form.value.roster_mode === 'claim' ? 'email' : 'click'
+  },
+  set: (identity) => writeWho(whoMayAccept.value, identity),
+})
+// What the two answers mean together for a student opening the link.
+const acceptanceSentence = computed(() => {
+  const email = acceptIdentity.value === 'email'
+  if (whoMayAccept.value === 'anyone') {
+    return email
+      ? `Anyone with the link can accept after confirming their ${INSTITUTION_SHORT} email address. The address records who they are; it turns nobody away.`
+      : 'Anyone with the link can accept. You will only know their GitHub username.'
+  }
+  return email
+    ? "Only students whose address is in the roster's Email column can accept. They confirm it when they accept."
+    : "Only students whose GitHub username is in the roster's GitHub Account column can accept, so fill that column in first."
+})
+
 // `claim_address_format` is tri-state and only its opt-out is ever written:
 // ticked leaves the field absent (the deployment's rule), unticked is false.
 const requireNamedAddress = computed({
@@ -6218,7 +6253,18 @@ details .field { padding: 0 var(--space-sm); }
 
 .radio-group {
   display: flex;
-  gap: var(--space-lg);
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
   margin-top: 4px;
+}
+/* An answer, not a field label: after `.field label` on purpose, which would
+   otherwise make each one a bold block. */
+.radio-group > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: normal;
+  color: var(--text-primary);
 }
 </style>

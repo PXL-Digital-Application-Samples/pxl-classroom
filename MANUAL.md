@@ -13,11 +13,19 @@ A class group helps you find students on the roster. A team gives students a sha
 
 ## Who may accept
 
-Who is allowed to use the invitation link.
+Two questions, under **Students** on the assignment.
 
-- **Enforced.** Only students you imported, matched by GitHub username. Anyone else is refused. Use this when you have their usernames.
-- **Claim.** Only students you imported, matched by the institutional email address they confirm. Use this when you have addresses but not usernames.
-- **Open.** Anyone with the link, until the cap is reached. You match them to students afterwards. Needs a **Max acceptances** number; the form will not save without one.
+**Who may accept**
+
+- **Anyone with the link**, until the cap is reached. Needs a **Max acceptances** number; the form will not save without one.
+- **Only students on the roster.** Anyone else is refused.
+
+**When accepting, students**
+
+- **confirm their institutional email address.** They pick an address GitHub has verified on their account before they can accept. With *Anyone with the link* it records who they are and turns nobody away. With *Only students on the roster* it must match the roster's **Email** column. This is the default.
+- **just click Accept.** Nothing extra is asked. With *Anyone with the link* you only learn their GitHub username. With *Only students on the roster* their username must be in the roster's **GitHub Account** column, so fill that column in first.
+
+Use the roster with email when you have students' addresses but not their usernames, which is the usual case.
 
 Your roster belongs to the whole course, not to one assignment. Each assignment picks who it is for.
 
@@ -26,12 +34,12 @@ After an open assignment you can [add everyone who accepted](#adding-students-wh
 ### Good to know
 
 - The check runs on GitHub after the student clicks Accept, not in their browser. A student cannot get in by editing the page.
-- Under **Claim** the address is encrypted in the student's browser. Only PXL Classroom can read it.
-- Under **Claim**, an address that is not on your roster is refused.
+- Whenever students confirm an address, it is encrypted in their browser. Only PXL Classroom can read it.
+- With *Only students on the roster*, an address that is not on your roster is refused.
 
 ## Who is this assignment for
 
-Under **Enforced** and **Claim**, the form shows your roster and you tick the students this assignment is for.
+With *Only students on the roster*, the form shows your roster and you tick the students this assignment is for.
 
 - **Tick nobody and everyone on the roster can accept.** The form says so on screen. That is the right answer for work the whole course does.
 - **A whole class is one click.** Click the class chip to show it, then tick the box at the top of the list - it reads *Select all 20 in 3A*. You never tick students one at a time to take a class.
@@ -53,7 +61,7 @@ A class group is a label on a student, and it exists to make that list quick to 
 
 ### Good to know
 
-- Under **Open** the roster does not decide who may accept, so there is nothing to pick and the list is not shown.
+- With *Anyone with the link* the roster does not decide who may accept, so there is nothing to pick and the list is not shown.
 - Picking more students than **Max acceptances** allows means the ones past the cap are refused. The form warns you before you save.
 
 ## Confirming an email address
@@ -66,11 +74,11 @@ There are two ways to ask for it.
 
 ### At acceptance
 
-**Ask students to confirm...** is ticked on a new assignment. It is available under **Open** only.
+Under **When accepting, students**, choose **confirm their institutional email address**. It is the default for a new assignment.
 
 - The student confirms an address before they can accept.
-- It does not restrict who may accept. Anyone with the link still can.
-- Left unticked, you get their GitHub username and nothing else.
+- With *Anyone with the link*, it does not restrict who may accept: anyone with the link still can.
+- With **just click Accept** instead, you get their GitHub username and nothing else.
 
 ### With a link, at any time
 

@@ -26,8 +26,8 @@
           </template>
           <template v-else>
             They will arrive as GitHub usernames only — no name, student number or email, because this
-            assignment never collected one. Tick <em>{{ REQUIRE_CLAIM_LABEL }}</em> on an open
-            assignment to change that.
+            assignment never collected one. Under <em>{{ ACCEPT_IDENTITY_QUESTION }}</em>, choose
+            <em>{{ REQUIRE_CLAIM_LABEL }}</em> on the assignment to change that.
           </template>
         </p>
 
@@ -142,7 +142,7 @@ import { formatDate } from '../lib/format.js'
 // being overwritten by the little an acceptance record knows.
 import { planPromotion, promoteCommitMessage, ROSTER_PATH } from '../../../lib/promote-roster.mjs'
 // The label is quoted, so it is read from where the checkbox reads it.
-import { REQUIRE_CLAIM_LABEL } from '../lib/claim.js'
+import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
 
 const props = defineProps({
   org: { type: String, required: true },

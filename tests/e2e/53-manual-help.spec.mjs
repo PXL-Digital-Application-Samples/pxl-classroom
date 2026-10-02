@@ -34,7 +34,7 @@ test.describe('53 - the help drawer', () => {
     const drawer = page.locator('.help-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Who may accept');
-    await expect(drawer).toContainText('Only students you imported');
+    await expect(drawer).toContainText('Only students on the roster');
   });
 
   test('the drawer is inside the viewport, not scrolled off it', async ({ page }) => {
@@ -89,7 +89,7 @@ test.describe('53 - the manual page', () => {
 
     // Same source as the drawer, so if these disagree one of the two surfaces
     // has stopped rendering the compiled manual.
-    await expect(page.locator('#who-may-accept')).toContainText('Only students you imported');
+    await expect(page.locator('#who-may-accept')).toContainText('Only students on the roster');
     await expect(page.locator('#archiving')).toContainText('cannot be changed afterwards');
     // Derived, not counted by hand: the page renders one topic per `## ` in
     // MANUAL.md, and a hand-kept number goes stale the moment one is added.

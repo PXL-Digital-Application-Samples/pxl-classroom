@@ -18,7 +18,7 @@
 
 import { test, expect } from '@playwright/test';
 import { stringify as stringifyYaml } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
 
@@ -28,7 +28,7 @@ const rosterStatus = (page) => page.locator('.roster-status');
 // these tests are about - whether the form can answer "can anyone accept?" -
 // is unchanged; reaching it now needs one dropdown.
 const gateOn = async (page) =>
-  page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
+  chooseRosterMode(page, 'enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
 
 async function openAdmin(page, opts = {}) {
@@ -233,12 +233,12 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await gateOn(page);
     await expect(rosterStatus(page)).toBeVisible();
 
-    await page.locator('select').filter({ hasText: 'only students on the roster' }).selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(rosterStatus(page)).toHaveCount(0);
     // It says what open enrolment means instead of going quiet. The sentence
     // used to be "Students need the link, and nothing else", which restated
     // the dropdown; the warning is the half that says something new.
-    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
+    await expect(page.locator('text=Anyone with the link can accept')).toBeVisible();
   });
 });
 

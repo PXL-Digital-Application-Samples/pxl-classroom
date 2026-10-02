@@ -37,7 +37,7 @@ import {
 const INSTITUTION_SHORT = parse(
   readFileSync(new URL('../../deployment.yml', import.meta.url), 'utf8'),
 ).institution_short;
-const ASK_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`;
+const ASK_LABEL = `confirm their ${INSTITUTION_SHORT} email address`;
 
 const ID = 'net-advanced-labs';
 const REGENERATE = 'regenerate-dashboard.yml';
@@ -124,7 +124,7 @@ async function openLiveEditor(page, { assignment = liveAssignment(), broker = tr
 }
 
 const guardrails = (page) =>
-  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Students' }) });
 
 const named = (dispatches, workflow) => dispatches.filter((d) => d.workflow === workflow);
 
@@ -132,7 +132,7 @@ test.describe('74 - saving a live assignment', () => {
   test('the incident: ticking require_claim on a published assignment rebuilds the student page', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page);
 
-    await guardrails(page).locator('label', { hasText: ASK_LABEL }).locator('input[type="checkbox"]').check();
+    await guardrails(page).getByRole('radio', { name: ASK_LABEL }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
@@ -176,7 +176,7 @@ test.describe('74 - saving a live assignment', () => {
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page, { refuse: REGENERATE });
 
-    await guardrails(page).locator('label', { hasText: ASK_LABEL }).locator('input[type="checkbox"]').check();
+    await guardrails(page).getByRole('radio', { name: ASK_LABEL }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);

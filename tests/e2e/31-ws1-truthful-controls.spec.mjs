@@ -21,14 +21,11 @@ import {
   openAutogradeModal,
   addCheck,
   CHECK_RUN,
-  CHECK_PYTHON,
-} from '../fixtures/e2e-fixtures.mjs';
+  CHECK_PYTHON, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 import { validateAgainst } from '../../lib/validate.mjs';
 import { buildAutogradingWorkflow } from '../../provisioning/provision.mjs';
 
 // ---------------------------------------------------------------- helpers
-
-const rosterSelect = (page) => page.locator('select').filter({ hasText: 'only students on the roster' });
 const capInput = (page) => page.locator('input[type="number"][min="1"]').first();
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
 const advanced = (page) => page.locator('details.advanced');
@@ -112,7 +109,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     const contentWrites = [];
     await openNewAssignmentForm(page, { contentWrites });
     await fillMinimum(page, 'Gated Lab');
-    await rosterSelect(page).selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await capInput(page).fill('');
     await expect(saveDraft(page)).toBeEnabled();
     await saveDraft(page).click();
@@ -130,11 +127,11 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
 
     // Clearing the cap is only legal under `enforced` - it is the roster
     // gate's absence that makes the cap the last limit standing.
-    await rosterSelect(page).selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await capInput(page).fill('');
     await expect(saveDraft(page)).toBeEnabled();
 
-    await rosterSelect(page).selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(page.locator('.field-error-msg', { hasText: 'Open enrollment requires a cap' })).toBeVisible();
     await expect(saveDraft(page)).toBeDisabled();
 
@@ -154,7 +151,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     // whose cohort is not on any roster would reject every remaining student.
     const contentWrites = [];
     await openEditorFor(page, draftAssignment({ roster_mode: 'open', max_acceptances: 40 }), { contentWrites });
-    await expect(rosterSelect(page)).toHaveValue('open');
+    await expect(page.getByLabel('Anyone with the link')).toBeChecked();
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Existing Lab renamed');
     await saveDraft(page).click();
@@ -171,7 +168,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     // not in force - and saving normalises the YAML to what is actually true.
     const contentWrites = [];
     await openEditorFor(page, draftAssignment({ roster_mode: 'Open' }), { contentWrites });
-    await expect(rosterSelect(page)).toHaveValue('enforced');
+    await expect(page.getByLabel('Only students on the roster')).toBeChecked();
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'existing-lab'), { timeout: 10000 }).toBeTruthy();

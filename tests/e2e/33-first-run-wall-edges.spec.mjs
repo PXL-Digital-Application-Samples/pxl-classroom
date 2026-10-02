@@ -19,7 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { stringify as stringifyYaml } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
 
@@ -29,7 +29,7 @@ const rosterStatus = (page) => page.locator('.roster-status');
 // these tests are about - whether the form can answer "can anyone accept?" -
 // is unchanged; reaching it now needs one dropdown.
 const gateOn = async (page) =>
-  page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
+  chooseRosterMode(page, 'enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
 // `.field-error-msg`, the error vocabulary under a field: this used to be a
 // `<small class="text-danger">`, which `.field small { color: var(--text-muted) }`
@@ -443,13 +443,12 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
 
   test('Switching to open and back restores the gate and its status', async ({ page }) => {
     await openNewForm(page);
-    const select = page.locator('select').filter({ hasText: 'only students on the roster' });
 
     await gateOn(page);
     await expect(rosterStatus(page)).toBeVisible();
-    await select.selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(rosterStatus(page)).toHaveCount(0);
-    await select.selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await expect(rosterStatus(page)).toContainText('nobody can accept');
   });
 });
@@ -684,6 +683,6 @@ test.describe('33 - Both walls at once', () => {
     await expect(rosterStatus(page)).toContainText('nobody can accept');
     // Neither is a modal or an overlay: both are answerable in place.
     await expect(page.getByPlaceholder('Type or select a template repository')).toBeVisible();
-    await expect(page.locator('select').filter({ hasText: 'only students on the roster' })).toBeVisible();
+    await expect(page.getByLabel('Only students on the roster')).toBeVisible();
   });
 });
