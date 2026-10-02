@@ -65,7 +65,11 @@ async function setup(page, { overrides = null, cancelAll = false, startSummary =
     const headSha = u.searchParams.get('head_sha');
     const all = [1, 2, 3, 4, 5, 6].map((n) => ({
       id: 100 + n, event: 'push', name: 'Grading', status: 'completed', head_sha: sha(n), head_branch: 'main',
-      created_at: new Date(Date.now() - 86400_000).toISOString(), head_commit: { message: MSG, timestamp: at(n * 10) },
+      // When GitHub recorded the push, which is what decides on time or late
+      // (lib/submission-marker.mjs). The hand-in time, never the wall clock:
+      // "a day before now" passed the fixed 2026-10-01T12:00Z deadline at
+      // noon UTC on 2026-10-02, and every hand-in turned late at once.
+      created_at: at(n * 10), head_commit: { message: MSG, timestamp: at(n * 10) },
     })).reverse();
     const first = Number(u.searchParams.get('page') || 1) === 1;
     const runs = headSha ? all.filter((r) => r.head_sha === headSha) : (first ? all : []);
