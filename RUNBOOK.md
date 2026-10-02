@@ -93,9 +93,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
 | Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** page: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§6.4). |
-| After the deadline, work a student pushes | **still counts** by default. *does not count* locks the submission branch at the deadline with a repository ruleset - students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. |
-| The student's repository | **stays as it is** by default. *becomes read-only* demotes them, taking Actions, secrets and runners too. This is a different question from the one above and all four combinations mean something; §3.4 is the whole picture. |
-| Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
+| After the deadline | **Pushing stops** by default: the submission branch is locked at the deadline and students keep their repository, Actions, secrets and runners. *Nothing is locked* lets late commits count; *The repository becomes read-only* also takes Actions, secrets and runners away. Preservation happens whichever you choose. §3.4 is the whole picture. |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
 | Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
 | Submission ref (under **Advanced**) | the branch collected, locked at the deadline and graded. Student repositories are created with the template's **default branch only**, so this must name that branch: a new assignment fills it in from the template (`refs/heads/master` for a `master` template) unless you type your own. A ref naming any other branch shows a warning under the template, and publishing refuses it. |
@@ -253,33 +251,30 @@ To see who is deferred, `lockdowns/<id>/lockdown-record.json` gives deferred stu
 
 ## 3.4 Deciding what happens to late work
 
-Two independent switches in **Guardrails**, and until August 2026 neither did anything - `late_policy: block` never refused a push and `lock_down_enabled` never decided anything, because lockdown demoted every student on every assignment.
+One question in the assignment form, **After the deadline**, with three answers. Each answer sets two stored fields, `late_policy` and `lock_down_enabled`; the table names both so a stored assignment can be read back.
 
-The form asks **two questions**, and they are two questions rather than one and a stronger version of it. *After the deadline, work a student pushes* decides what counts as the submission; *the student's repository* decides what they keep. All four combinations mean something.
+| Answer | Stored as | At the deadline |
+|---|---|---|
+| **Pushing stops** (default for new assignments) | `block`, `false` | The submission branch is locked with a ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. The submission is the last commit before the deadline. |
+| **Nothing is locked** | `report`, `false` | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
+| **The repository becomes read-only** | `block`, `true` | The branch is locked as above, and the student is also demoted, losing Actions, secrets, environments, runners and settings until you reopen the repository. |
 
-| Answer | At the deadline |
-|---|---|
-| **still counts** | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
-| **does not count** (default for new assignments) | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
-| **repository stays as it is** (default) | They keep admin, and with it Actions, secrets, environments and runners. |
-| **repository becomes read-only** | The student is demoted, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and resets to *stays as it is* when you pick "does not count" (the branch lock already stops pushes). |
-
-**The combination worth understanding is "still counts" with "becomes read-only".** It is not a mistake: the student loses the repository's tooling at the deadline, and work they pushed before the nightly run landed **still counts** toward the submission, because nothing reconstructs the branch under *still counts*. Both 2026 exams ran on it. If you mean the deadline to be final, answer *does not count* as well - the form says so where you choose it.
+**An older assignment may show a fourth answer, *Read-only, but late work still counts*** (`report`, `true`, which is also what an absent `lock_down_enabled` means). The student loses the repository's tooling at the deadline, and work they pushed before the lock landed **still counts**, because nothing reconstructs the branch under `report`. Both 2026 exams ran on it. The form shows it only on an assignment that already holds it, so opening and saving one changes nothing; it is not offered for new ones.
 
 Two things to tell students honestly:
 
-- **The lock fires on the first nightly run after the deadline, not at the deadline itself.** Anything pushed in between is filtered out - the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
+- **The lock lands at the deadline** - the deadline sentinel arms for every published assignment and locks at the instant - **or at the next nightly run if the sentinel misses.** Anything pushed in between is filtered out: the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
 - **A student who only pushed after the deadline has no submission.** That shows in the run as a no-submission, not an error, and does not fail the cohort's nightly.
 
-Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
+Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Pushing stops" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
 
-**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and a row that also says `demoted: true` (*does not count* with *becomes read-only*) gets the ruleset released and the permission restored. It records who did it, when and why. Doing it by hand records nothing.
+**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and a row that also says `demoted: true` (*The repository becomes read-only*) gets the ruleset released and the permission restored. It records who did it, when and why. Doing it by hand records nothing.
 
 **Never delete a `pxl-classroom-deadline` ruleset.** Nothing in this system does, and the reason is that a ruleset re-created later without the App in `bypass_actors` locks *this system* out of the repository along with the student. `enforcement` is a flag; releasing a lock flips it back.
 
 **A student can delete a repository ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not.
 
-An **organization** ruleset lives above the student's repository, so being its admin does not help - and since 2026-09-09 that is **what "does not count" does by default**. One ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. There is no control for it on the form: the deadline asks whether late work counts, and where it does not, the lock goes where the student cannot reach it.
+An **organization** ruleset lives above the student's repository, so being its admin does not help - and since 2026-09-09 that is **what "Pushing stops" does by default**. One ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. There is no control for it on the form: where the deadline locks the branch, the lock goes where the student cannot reach it.
 
 The run says which mechanism it used and why, so a lecturer reading it can tell the default from a choice:
 
@@ -303,8 +298,8 @@ An organization **owner** in the cohort defeats the deadline, and *how* depends 
 
 | The deadline | What an owner in the cohort does to it |
 |---|---|
-| **becomes read-only** (demotion) | The freeze never holds for them. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false` - and nothing says so until somebody reads the record afterwards. |
-| **does not count** (organization ruleset) | The block *does* hold for them - they get the same 409 as anybody else, and the record says `verified: true`. But administering the organization's rulesets is an owner's power: they can **delete the ruleset**, and that releases **every student in the cohort at once**. |
+| **The repository becomes read-only** (demotion) | The freeze never holds for them. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false` - and nothing says so until somebody reads the record afterwards. |
+| **Pushing stops** (organization ruleset) | The block *does* hold for them - they get the same 409 as anybody else, and the record says `verified: true`. But administering the organization's rulesets is an owner's power: they can **delete the ruleset**, and that releases **every student in the cohort at once**. |
 
 The second is the worse of the two, and it is the default. One account can undo the whole cohort's deadline in a single call, and the record will say it was locked.
 
@@ -444,7 +439,7 @@ Each of these takes `org` as an input, and most also take `assignment_id` for sc
 
 ### 4.1 The deadline sentinel
 
-Without it, "Late work: does not count" locks the submission branch on the **first nightly run after the deadline** and reconstructs the submission with `?until=`. With it, the branch locks at the deadline itself and the run records a five-minute `pushed_at` timeline through the critical window - GitHub's own push timestamps, which a student cannot set, and the only thing that settles an argument about when work landed.
+Without it, "Pushing stops" locks the submission branch on the **first nightly run after the deadline** and reconstructs the submission with `?until=`. With it, the branch locks at the deadline itself and the run records a five-minute `pushed_at` timeline through the critical window - GitHub's own push timestamps, which a student cannot set, and the only thing that settles an argument about when work landed.
 
 **It ships disabled.** `publish-assignment.yml` enables it the next time you publish an assignment, alongside `daily-activity.yml`. To turn it on now:
 

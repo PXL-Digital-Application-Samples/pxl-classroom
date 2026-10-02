@@ -43,6 +43,16 @@
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
+// The repository name pattern is a line with Edit until somebody asks for the
+// box (DESIGN.md §1.8); typing into it starts by asking, as a lecturer would.
+async function patternBox(page) {
+  const line = page.locator('[data-derived="pattern"]');
+  const box = page.getByPlaceholder('linux-processes-{github_login}');
+  await expect(line.or(box)).toBeVisible({ timeout: 15000 });
+  if (await line.isVisible()) await line.getByRole('button', { name: 'Edit' }).click();
+  return box;
+}
+
 const ID = 'lab-3';
 const ARCHIVE = `pxl-classroom-archive-${ID}`;
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
@@ -154,7 +164,7 @@ async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null, opens
   const slugInput = await openSlug(page);
   await slugInput.fill(slug);
   if (pattern !== null) {
-    await page.getByPlaceholder('linux-processes-{github_login}').fill(pattern);
+    await (await patternBox(page)).fill(pattern);
   }
   await slugInput.focus();
   await slugInput.blur();
@@ -169,9 +179,11 @@ async function openSlug(page) {
 }
 
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
-const slugField = (page) => page.locator('.field:has(.derived-line)');
+const slugField = (page) => page.locator('.field:has([data-derived="slug"])');
 /** Where the verdict is rendered: the pattern IS the collision key. */
-const patternField = (page) => page.locator('.field:has(label:text-matches("^Repository name pattern"))');
+// The field whether it shows the derived line or the box (DESIGN.md §1.8).
+const patternField = (page) =>
+  page.locator('.field', { has: page.locator('#assignment-pattern, [data-derived="pattern"]') });
 const refusal = (page) => patternField(page).locator('.field-error-msg');
 const note = (page) => patternField(page).locator('.collision-note');
 
@@ -449,7 +461,7 @@ test.describe('the name is taken', () => {
 
     // A different name, a different set of repositories, a question never asked
     // about them.
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill('resit-{github_login}');
     await pat.blur();
     expect(await saveAnswering(page, 'reuse'), 'it must ask again for the new pattern').toBe(true);
@@ -645,7 +657,7 @@ test.describe('the name is taken', () => {
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
     // The form only accepts a {team_slug} pattern on a group assignment.
     await page.locator('input[value="group"]').check();
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill('lab-3-{team_slug}');
     await pat.blur();
     await saveDraft(page).click();
@@ -679,7 +691,7 @@ test.describe('the name is taken', () => {
       orgRepos: [`${ID}-team-alpha`],
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill(`${ID}-v2-{team_slug}`);
     await pat.blur();
 
@@ -760,7 +772,7 @@ test.describe('the verdict follows the form it was about', () => {
     await fillNew(page);
     await expect(refusal(page)).toBeVisible();
 
-    await page.getByPlaceholder('linux-processes-{github_login}').fill('lab-3-2026-{github_login}');
+    await (await patternBox(page)).fill('lab-3-2026-{github_login}');
     await expect(refusal(page)).toHaveCount(0);
   });
 
@@ -769,7 +781,7 @@ test.describe('the verdict follows the form it was about', () => {
     await fillNew(page);
     await expect(refusal(page)).toBeVisible();
 
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     // A PREFIX, and it has to be. A placeholder expands to `[A-Za-z0-9-]+`, so
     // `lab-3-2026-{github_login}` is still inside `lab-3-{github_login}`'s
     // namespace and the clash correctly survives - which makes a suffix a
@@ -877,7 +889,7 @@ test.describe('an existing assignment', () => {
       assignments: { other: liveAssignment('other', 'other-{github_login}') },
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await page.getByPlaceholder('linux-processes-{github_login}').fill('other-{github_login}');
+    await (await patternBox(page)).fill('other-{github_login}');
 
     await saveDraft(page).click();
     await expect(refusal(page)).toContainText('"other" already uses this repository name pattern');
@@ -887,7 +899,7 @@ test.describe('an existing assignment', () => {
   test('and its OWN pattern is never a reason to refuse its own save', async ({ page }) => {
     const writes = await open(page);
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await page.getByPlaceholder('linux-processes-{github_login}').blur();
+    await (await patternBox(page)).blur();
     await expect(refusal(page)).toHaveCount(0);
     // Nor a note: an unchanged pattern asks the organization nothing at all.
     await expect(note(page)).toHaveCount(0);
@@ -903,7 +915,7 @@ test.describe('an existing assignment', () => {
     // who has just been told no, written down in RUNBOOK §5.1.
     const writes = await open(page, { orgRepos: ['portfolio-alice', 'portfolio-bob'] });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill('portfolio-{github_login}');
     await pat.blur();
 
@@ -939,7 +951,7 @@ test.describe('an existing assignment', () => {
       orgRepos: [`${ID}-alice`, 'resit-bob'],
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill('resit-{github_login}');
     await pat.blur();
 
@@ -959,7 +971,7 @@ test.describe('an existing assignment', () => {
       orgRepos: [`${ID}-2026-alice`, `${ID}-2026-bob`],
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    const pat = page.getByPlaceholder('linux-processes-{github_login}');
+    const pat = (await patternBox(page));
     await pat.fill(`${ID}-{github_login}`);
     await pat.blur();
 

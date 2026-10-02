@@ -105,6 +105,9 @@ test.describe('86 - the lecturer\'s side', () => {
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
     await expect(page.getByText('Assignment is Published & Verified Live')).toBeVisible({ timeout: 15000 });
     await expandSettings(page);
+    // The rule lives under Advanced since 2026-10-02: it is the institution's,
+    // on by default, and almost nobody switches it off for one assignment.
+    await page.locator('details.advanced > summary').click();
     return { writes };
   }
   const box = (page) => page.getByLabel(/Only accept the firstname\.lastname@ form/);

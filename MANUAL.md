@@ -87,19 +87,13 @@ They cannot change it themselves. On the **Roster** page, open that student's ac
 
 ## Late work
 
-The deadline asks you two things, and they are two different questions.
+**After the deadline** has three answers.
 
-**After the deadline, work a student pushes…**
+- **Pushing stops.** Students can no longer push to the submission branch, and the submission is the last commit before the deadline. They keep their repository, Actions, secrets and runners. The lock sits above their repository, so they cannot lift it themselves. This is the default.
+- **Nothing is locked.** Late commits count, and are marked late in the report.
+- **The repository becomes read-only.** Pushing stops, and students also lose Actions, secrets, environments, runners and settings until you reopen the repository.
 
-- **still counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
-- **does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it. The block is placed above their repository, so a student cannot lift it themselves - they keep admin, Actions and secrets, and simply cannot push.
-
-**The student's repository…**
-
-- **stays as it is.** They keep admin, and with it Actions, secrets, environments and runners. This is the default.
-- **becomes read-only.** They lose admin, and with it Actions, secrets and runners, until you reopen the repository.
-
-Choosing *still counts* together with *becomes read-only* is not a mistake: the student loses the repository's tooling at the deadline, and anything they pushed before the nightly run landed still counts. If you mean the deadline to be final, answer *does not count* as well.
+An older assignment may show a fourth answer, **Read-only, but late work still counts**: students lose their tools at the deadline, and anything they pushed before the lock landed still counts. It is kept so opening that assignment changes nothing, and it is not offered for new ones.
 
 A student with an extension is judged against their own deadline.
 
@@ -107,7 +101,7 @@ A student with an extension is judged against their own deadline.
 
 - On time or late is decided by the time on the commit, not by when PXL Classroom looked at it.
 - That time comes from the student's own computer. Good enough for marking, not proof if a student disputes it.
-- The lock can land shortly after the deadline rather than on it. Work pushed in that gap does not count.
+- The lock lands at the deadline, or at the next nightly run if that is missed. Work pushed in between does not count.
 
 ## Deadlines and extensions
 

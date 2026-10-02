@@ -186,7 +186,7 @@ test.describe('31 - Acceptance mode is not a question, and not deleted either', 
     await openNewAssignmentForm(page);
     await advanced(page).locator('summary').click();
 
-    for (const kept of ['Student permission', 'Submission ref', 'Timezone']) {
+    for (const kept of ['Student permission', 'Submission ref', 'Time zone students see']) {
       await expect(advanced(page)).toContainText(kept);
     }
     await expect(advanced(page)).not.toContainText('Acceptance mode');

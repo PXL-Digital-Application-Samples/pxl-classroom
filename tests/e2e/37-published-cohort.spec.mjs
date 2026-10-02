@@ -11,6 +11,16 @@
 // The plan numbered this spec 31; that number was taken by WS1's, so it is 37.
 
 import { test, expect } from '@playwright/test';
+
+// The repository name pattern is a line with Edit until somebody asks for the
+// box (DESIGN.md §1.8); typing into it starts by asking, as a lecturer would.
+async function patternBox(page) {
+  const line = page.locator('[data-derived="pattern"]');
+  const box = page.getByPlaceholder('linux-processes-{github_login}');
+  await expect(line.or(box)).toBeVisible({ timeout: 15000 });
+  if (await line.isVisible()) await line.getByRole('button', { name: 'Edit' }).click();
+  return box;
+}
 import {
   ORG,
   LECTURER,
@@ -240,7 +250,7 @@ test.describe('37 - A validation problem cannot hide behind the disclosure', () 
     await details.locator('> summary').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('');
     await expect(page.locator('.settings-problems')).toContainText('1 field needs fixing');
-    await page.getByPlaceholder('linux-processes-{github_login}').fill('no-placeholder-here');
+    await (await patternBox(page)).fill('no-placeholder-here');
     await expect(page.locator('.settings-problems')).toContainText('2 fields need fixing');
 
     await details.locator('> summary').click();

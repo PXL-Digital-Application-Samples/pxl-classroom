@@ -25,7 +25,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
 
     // The slug is derived and SHOWN rather than asked for, so this reads the
     // line the lecturer sees. Same assertion as before: the title reached it.
-    await expect(page.locator('.derived-line')).toContainText('security-lab-assignment-1');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('security-lab-assignment-1');
 
     // Toggle to Group Assignment
     const groupRadio = page.locator('input[value="group"]');
@@ -78,9 +78,9 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     // over nothing. Changing the slug orphans assignments/<id>.yml, so on an
     // existing assignment it is a reading with no way in - which is what this
     // test is for, stated so that it can fail.
-    await expect(page.locator('.derived-line')).toContainText('existing-asgn');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('existing-asgn');
     await expect(page.getByPlaceholder('linux-processes-2026')).toHaveCount(0);
-    await expect(page.locator('.derived-line').getByRole('button', { name: 'Edit' })).toHaveCount(0);
+    await expect(page.locator('[data-derived="slug"]').getByRole('button', { name: 'Edit' })).toHaveCount(0);
   });
 
   // ARCHITECTURE §5.4, on the rendered form rather than the source.

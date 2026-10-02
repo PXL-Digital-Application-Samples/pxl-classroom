@@ -21,6 +21,16 @@
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
 
+// The repository name pattern is a line with Edit until somebody asks for the
+// box (DESIGN.md §1.8); typing into it starts by asking, as a lecturer would.
+async function patternBox(page) {
+  const line = page.locator('[data-derived="pattern"]');
+  const box = page.getByPlaceholder('linux-processes-{github_login}');
+  await expect(line.or(box)).toBeVisible({ timeout: 15000 });
+  if (await line.isVisible()) await line.getByRole('button', { name: 'Edit' }).click();
+  return box;
+}
+
 const TEMPLATE = 'linux-processes-starter';
 
 const REPOS = [
@@ -51,7 +61,7 @@ async function pickTemplate(page) {
 }
 
 const basics = (page) => page.locator('fieldset').first();
-const slugField = (page) => page.locator('.field:has(.derived-line)');
+const slugField = (page) => page.locator('.field:has([data-derived="slug"])');
 
 test.describe('67 - one block, in the order the data flows', () => {
   test('Template and Basics are ONE fieldset now', async ({ page }) => {
@@ -116,7 +126,7 @@ test.describe('67 - one block, in the order the data flows', () => {
     expect(labels).toEqual([
       'Template repository',
       'Title',
-      'Repository name pattern',
+      'Repository name',
       'Slug',
     ]);
     await expect(basics(page).getByRole('button', { name: 'Add a description' })).toBeVisible();
@@ -139,7 +149,7 @@ test.describe('67 - one block, in the order the data flows', () => {
     await pickTemplate(page);
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Linux Processes Starter');
-    await expect(page.getByPlaceholder('linux-processes-{github_login}'))
+    await expect((await patternBox(page)))
       .toHaveValue(`${TEMPLATE}-{github_login}`);
     await expect(slugField(page)).toContainText(TEMPLATE);
   });
@@ -168,7 +178,7 @@ test.describe('67 - one block, in the order the data flows', () => {
     // And overriding it still re-derives the pattern, which is the reason
     // anybody would open it.
     await input.fill('linux-2027');
-    await expect(page.getByPlaceholder('linux-processes-{github_login}'))
+    await expect((await patternBox(page)))
       .toHaveValue('linux-2027-{github_login}');
   });
 

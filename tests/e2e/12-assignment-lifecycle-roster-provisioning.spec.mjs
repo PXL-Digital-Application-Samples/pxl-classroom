@@ -26,7 +26,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
     await titleInput.fill('Cloud Native Microservices');
 
     // Derived and shown, not asked for - so this reads the line on screen.
-    await expect(page.locator('.derived-line')).toContainText('cloud-native-microservices');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('cloud-native-microservices');
 
     // Fill Template
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);

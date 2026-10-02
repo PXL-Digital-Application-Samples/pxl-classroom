@@ -1,16 +1,24 @@
-// 29 - The late-work control (ARCHITECTURE §11.2.1)
+// 29 - What happens after the deadline (ARCHITECTURE §11.2.1, DESIGN.md §1.9)
 //
-// `late_policy: block` said "refuse late pushes" and no code read the field;
-// `lock_down_enabled` said "demote admin -> pull at the deadline" and no code
-// read that either - lockdown demoted everyone regardless. Two controls, neither
-// wired, and `block` shipped as the form's default. DESIGN.md §1.5: the UI must not
-// describe behaviour the system does not have.
+// Two stored fields: `late_policy` (block locks the submission branch and makes
+// the last commit before the deadline the submission) and `lock_down_enabled`
+// (demote the student, taking Actions, secrets, environments and runners).
+// They were asked as two questions, and a lecturer could not tell which decided
+// grading and which access - because `block` does some of each.
 //
-// Both are wired now, so these run against the real component: what the form
-// starts at, and what choosing each option actually sets.
+// Since 2026-10-02 they are ONE question whose answers say what happens, each
+// answer writing both fields. The fourth combination, read-only while late work
+// still counts, is what both 2026 exams ran on: it is not offered for a new
+// assignment, and an assignment that holds it shows it as a fourth answer, so
+// loading one changes nothing and saving it untouched keeps it.
 
 import { test, expect } from '@playwright/test';
+import { parse } from 'yaml';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+
+const field = (page) =>
+  page.locator('.field', { has: page.locator('label', { hasText: 'After the deadline' }) });
+const answer = (page, value) => field(page).locator(`input[type="radio"][value="${value}"]`);
 
 async function openNewAssignmentForm(page) {
   await injectAuth(page, LECTURER);
@@ -21,129 +29,118 @@ async function openNewAssignmentForm(page) {
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
-const counts = (page) => page.locator('input[type="radio"][value="report"]');
-const doesNotCount = (page) => page.locator('input[type="radio"][value="block"]');
-// TWO QUESTIONS, TWO RADIO GROUPS. This was a checkbox beginning "Also", which
-// made the heaviest thing this system does to a student read as a modifier of a
-// grading setting - and the two fields are a 2x2, not two rungs of one ladder:
-// `late_policy` decides what COUNTS as the submission (lockdown.mjs passes
-// `deadlineFor` to phase 2 only under `block`), `lock_down_enabled` decides
-// ACCESS, and `report` + demotion is meaningful and is what both 2026 exams ran
-// on. Same fields, same four combinations, asked as what they are.
-const repoField = (page) =>
-  page.locator('.field', { has: page.locator('label', { hasText: "The student's repository" }) });
-const staysAsIs = (page) => repoField(page).locator('input[type="radio"]').first();
-const becomesReadOnly = (page) => repoField(page).locator('input[type="radio"]').last();
+const ID = 'exam-2026';
+const draft = (over = {}) => ({
+  id: ID,
+  title: 'Exam 2026',
+  organization: ORG,
+  state: 'draft',
+  assignment_type: 'individual',
+  template: { owner: ORG, repository: 'starter-template' },
+  repository_name_pattern: `${ID}-{github_login}`,
+  opens_at: '2026-01-01T08:00:00.000Z',
+  deadline_at: '2027-01-01T16:00:00.000Z',
+  roster_mode: 'open',
+  max_acceptances: 50,
+  ...over,
+});
 
-test.describe('29 - Late work control', () => {
-  test('A new assignment\'s deadline is final by default, and leaves the toolchain alone', async ({ page }) => {
-    // `block` since 2026-10-02, the lecturer's call: late commits do not count
-    // unless somebody says they do. The repository answer stays "as it is",
-    // because the branch lock already stops late pushes.
+/** Open a stored draft in the editor; returns the list contents writes land in. */
+async function openDraft(page, over) {
+  const contentWrites = [];
+  await injectAuth(page, LECTURER);
+  await setupStandardMockRoutes(page, {
+    currentUser: LECTURER,
+    assignments: { [ID]: draft(over) },
+    contentWrites,
+  });
+  await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+  await expect(field(page)).toBeVisible({ timeout: 15000 });
+  return contentWrites;
+}
+
+async function savedDoc(page, contentWrites) {
+  await page.getByRole('button', { name: 'Save as draft' }).click();
+  await expect.poll(
+    () => contentWrites.find((w) => w.path === `assignments/${ID}.yml`),
+    { timeout: 15000 },
+  ).toBeTruthy();
+  return parse(contentWrites.findLast((w) => w.path === `assignments/${ID}.yml`).content);
+}
+
+test.describe('29 - After the deadline', () => {
+  test('a new assignment stops pushes by default and leaves the toolchain alone', async ({ page }) => {
     await openNewAssignmentForm(page);
-    await expect(doesNotCount(page)).toBeChecked();
-    await expect(counts(page)).not.toBeChecked();
-    await expect(staysAsIs(page)).toBeChecked();
+    await expect(answer(page, 'stop-pushes')).toBeChecked();
   });
 
-  test('The control lives in Guardrails, not behind the Advanced disclosure', async ({ page }) => {
+  test('a new assignment is offered three answers, and not the fourth', async ({ page }) => {
     await openNewAssignmentForm(page);
-    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
-    await expect(guardrails.locator('input[type="radio"][value="block"]')).toBeVisible();
-    // Visible without opening <details>: it is a policy decision, not a knob.
-    await expect(doesNotCount(page)).toBeVisible();
+    await expect(field(page).locator('.policy-option strong')).toHaveText([
+      'Pushing stops',
+      'Nothing is locked',
+      'The repository becomes read-only',
+    ]);
+    await expect(answer(page, 'legacy')).toHaveCount(0);
   });
 
-  test('Choosing "Does not count" explains what it actually does, including the fallback', async ({ page }) => {
+  test('it is one question, visible without opening Advanced', async ({ page }) => {
     await openNewAssignmentForm(page);
-    await doesNotCount(page).check();
-
-    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
-    // The promise: pushes stop, everything else survives.
-    await expect(guardrails).toContainText('only pushing is blocked');
-    // The caveat, in the UI rather than only in the code, and it is three
-    // separate facts: WHEN the lock lands, what happens to work pushed before
-    // it does, and how much the timestamp behind that is worth. They used to be
-    // one run-on sentence that a lecturer could not parse (2026-09-02), so the
-    // assertions are per fact rather than on one phrase.
-    await expect(guardrails).toContainText('applied by the nightly run');
-    await expect(guardrails).toContainText('Work pushed in that gap does not count');
-    await expect(guardrails).toContainText('not proof');
+    await expect(answer(page, 'stop-pushes')).toBeVisible();
+    // The two questions it replaced are gone, not hidden.
+    await expect(page.getByText('After the deadline, work a student pushes')).toHaveCount(0);
+    await expect(page.getByText("The student's repository", { exact: true })).toHaveCount(0);
   });
 
-  test('A new assignment does not take admin away by default', async ({ page }) => {
-    // Demoting to `pull` removes Actions, secrets, environments and runners -
-    // the subject being taught. It used to be the default, so every new
-    // assignment confiscated it at the deadline unless the lecturer noticed the
-    // checkbox. Preservation does not depend on it.
+  test('when the lock lands is said where a lock is chosen, and not where none is', async ({ page }) => {
     await openNewAssignmentForm(page);
-    await expect(staysAsIs(page)).toBeChecked();
-    await expect(becomesReadOnly(page)).not.toBeChecked();
+    // The deadline sentinel locks at the instant; the nightly is the fallback.
+    await expect(field(page)).toContainText('The lock lands at the deadline');
+    await expect(field(page)).toContainText('not proof');
+    await expect(field(page)).not.toContainText('applied by the nightly run');
+
+    await answer(page, 'nothing').check();
+    await expect(field(page)).not.toContainText('The lock lands at the deadline');
   });
 
-  test('The two questions are asked as two questions, not as one and a footnote', async ({ page }) => {
-    // The whole point of the reframing. `late_policy` is about what COUNTS,
-    // `lock_down_enabled` about ACCESS, and the second used to begin "Also",
-    // which read as an intensifier of the first. Both 2026 exams landed on the
-    // diagonal that wording made easy to pick by accident.
-    await openNewAssignmentForm(page);
-    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
-    await expect(guardrails).toContainText('After the deadline, work a student pushes');
-    await expect(guardrails).toContainText("The student's repository");
-    await expect(guardrails).not.toContainText('Also take admin away');
-    // Same shape for both, so neither is the other's afterthought.
-    await expect(repoField(page).locator('.policy-option')).toHaveCount(2);
+  for (const [value, late_policy, lock_down_enabled] of [
+    ['nothing', 'report', false],
+    ['stop-pushes', 'block', false],
+    ['read-only', 'block', true],
+  ]) {
+    test(`"${value}" writes both fields: ${late_policy} + ${lock_down_enabled}`, async ({ page }) => {
+      // Start from the opposite corner, so a field left behind would show.
+      const writes = await openDraft(page, { late_policy: 'report', lock_down_enabled: true });
+      await answer(page, value).check();
+      const doc = await savedDoc(page, writes);
+      expect(doc.late_policy).toBe(late_policy);
+      expect(doc.lock_down_enabled).toBe(lock_down_enabled);
+    });
+  }
+
+  test('an assignment holding the fourth combination shows it, chosen, and keeps it on save', async ({ page }) => {
+    // `lock_down_enabled` absent means true (lockdown.mjs), so this is every
+    // older `report` assignment - and both 2026 exams.
+    const writes = await openDraft(page, { late_policy: 'report' });
+    await expect(answer(page, 'legacy')).toBeChecked();
+    await expect(field(page)).toContainText('Read-only, but late work still counts');
+
+    const doc = await savedDoc(page, writes);
+    expect(doc.late_policy).toBe('report');
+    expect(doc.lock_down_enabled).toBe(true);
   });
 
-  test('Blocking pushes resets the repository answer, because it takes what the lock preserves', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    // From "still counts", since "does not count" is the default now.
-    await counts(page).check();
-    await becomesReadOnly(page).check();
-
-    await doesNotCount(page).check();
-    await expect(staysAsIs(page)).toBeChecked();
-
-    // The note belongs to the deliberate re-choice, not to the reset: once
-    // pushing is blocked, read-only takes exactly what the block preserves, so
-    // it is said at the moment somebody picks it anyway.
-    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
-    await expect(guardrails).not.toContainText('Choose this only if they should lose those too');
-    await becomesReadOnly(page).check();
-    await expect(guardrails).toContainText('Choose this only if they should lose those too');
+  test('moving off the fourth answer before saving can still come back to it', async ({ page }) => {
+    await openDraft(page, { late_policy: 'report', lock_down_enabled: true });
+    await answer(page, 'stop-pushes').check();
+    await expect(answer(page, 'legacy')).toBeVisible();
+    await answer(page, 'legacy').check();
+    await expect(answer(page, 'legacy')).toBeChecked();
   });
 
-  test('Choosing read-only again is a deliberate choice and sticks', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    await doesNotCount(page).check();
-    await becomesReadOnly(page).check();
-
-    // Editing anything else must not quietly undo it.
-    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Exam 2026');
-    await expect(becomesReadOnly(page)).toBeChecked();
-    await expect(doesNotCount(page)).toBeChecked();
-  });
-
-  test('The odd diagonal says what it actually does', async ({ page }) => {
-    // `still counts` + read-only is NOT incoherent - it means they lose the
-    // toolchain at the deadline while work pushed before the nightly ran still
-    // counts. It is what both 2026 exams ran on, and it surprised the lecturer,
-    // so the form says it where they have just chosen it.
-    await openNewAssignmentForm(page);
-    await counts(page).check();
-    await becomesReadOnly(page).check();
-    const guardrails = page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
-    await expect(guardrails).toContainText('still counts');
-    await expect(guardrails).toContainText('two different answers');
-  });
-
-  test('Going back to "still counts" leaves the repository answer where the lecturer left it', async ({ page }) => {
-    await openNewAssignmentForm(page);
-    await counts(page).check();
-    await becomesReadOnly(page).check();
-    await doesNotCount(page).check();
-    await expect(staysAsIs(page)).toBeChecked();
-    await counts(page).check();
-    await expect(staysAsIs(page)).toBeChecked();
+  test('each stored combination opens on its own answer', async ({ page }) => {
+    await openDraft(page, { late_policy: 'block', lock_down_enabled: true });
+    await expect(answer(page, 'read-only')).toBeChecked();
+    await expect(answer(page, 'legacy'), 'not an assignment that holds it').toHaveCount(0);
   });
 });

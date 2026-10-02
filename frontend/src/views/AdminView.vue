@@ -191,6 +191,13 @@
               >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
             </div>
           </div>
+          <!-- WHY SAVE IS GREY. Both buttons were disabled on a fresh form with
+               nothing saying why, and the field errors that would explain it
+               wait until a field is touched, so as not to nag a form still
+               being filled in. This line names the fields, not the errors. -->
+          <p v-if="saveBlockers.length && !saving" class="save-blockers">
+            Still needed: {{ saveBlockers.join(', ') }}
+          </p>
 
           <!-- The template changed under students who already accepted: their
                repositories keep the old files until a starter sync, and
@@ -731,16 +738,29 @@
             </div>
 
             <div class="field">
-              <label>Repository name pattern <span class="req">*</span></label>
-              <!-- This field IS the collision key (lib/seed-teams.mjs), so
-                   editing it invalidates the verdict exactly as editing the
-                   slug does, and leaving it re-runs the check. -->
-              <input
-                v-model="form.repository_name_pattern"
-                @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true; clearCollision()"
-                @blur="onSlugBlur"
-                placeholder="linux-processes-{github_login}"
-              />
+              <!-- A CONSEQUENCE, SHOWN AS ONE (DESIGN.md §1.8). The pattern is
+                   filled from the slug, and most lecturers never change it, so
+                   it reads as a line with Edit, the way the slug below does.
+                   The box comes back when somebody asks for it, or when there
+                   is something wrong with it to fix. -->
+              <div v-if="!patternEditing && !patternNeedsInput" class="derived-line" data-derived="pattern">
+                <span class="text-muted">Repository name</span>
+                <code>{{ form.repository_name_pattern || '—' }}</code>
+                <button type="button" class="btn-link" @click="patternEditing = true">Edit</button>
+              </div>
+              <template v-else>
+                <label for="assignment-pattern">Repository name pattern <span class="req">*</span></label>
+                <!-- This field IS the collision key (lib/seed-teams.mjs), so
+                     editing it invalidates the verdict exactly as editing the
+                     slug does, and leaving it re-runs the check. -->
+                <input
+                  id="assignment-pattern"
+                  v-model="form.repository_name_pattern"
+                  @input="manualRepositoryNamePattern = true; touchedFields.repository_name_pattern = true; clearCollision()"
+                  @blur="onSlugBlur"
+                  placeholder="linux-processes-{github_login}"
+                />
+              </template>
               <div v-if="(touchedFields.repository_name_pattern || !isNew) && fieldErrors.repository_name_pattern" class="field-error-msg">{{ fieldErrors.repository_name_pattern }}</div>
 
               <!-- THE COLLISION VERDICT LIVES HERE NOW. It used to sit under
@@ -799,7 +819,7 @@
                  `.field-error-msg` inside one field is two refusals about
                  different things reading as one. -->
             <div class="field">
-              <div class="derived-line">
+              <div class="derived-line" data-derived="slug">
                 <template v-if="slugEditing && isNew">
                   <label for="assignment-slug">Slug</label>
                   <input
@@ -882,15 +902,24 @@
                 <label>Opens at <span class="req">*</span></label>
                 <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
                 <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
-                <small>{{ utcHint(form.opens_at_local) }}</small>
               </div>
               <div class="field">
                 <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
                 <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
                 <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
-                <small>{{ utcHint(form.deadline_at_local) }}</small>
               </div>
             </div>
+            <!-- WHICH CLOCK, said once for the pair. Each date used to carry
+                 "Stored as: 2026-10-02T10:28:00.000Z", a UTC timestamp nobody
+                 filling in a form acts on. What a lecturer needs is the zone the
+                 boxes are in - the computer's, because that is how the browser
+                 reads a datetime-local - and, when it differs, the one students
+                 are shown (the assignment's timezone, under Advanced). -->
+            <small>
+              In your computer's time<template v-if="browserTimeZone"> ({{ browserTimeZone }})</template><template
+                v-if="studentTimeZone && studentTimeZone !== browserTimeZone"
+              >. Students see times in {{ studentTimeZone }}</template>.
+            </small>
             <!-- Full width, under BOTH dates, because it is about the pair. -->
             <small v-if="deadlineInPast" class="text-warning">
               This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
@@ -1105,22 +1134,6 @@
               </small>
             </div>
 
-            <!-- THE FORM OF THE ADDRESS, wherever one is asked for. The rule
-                 itself is deployment.yml's (firstname.lastname at PXL); this
-                 only switches it off for one assignment. Ticked is the
-                 deployment's rule, so nothing is written for it. -->
-            <div v-if="CLAIM_ADDRESS_FORMAT && (form.roster_mode === 'claim' || (form.roster_mode === 'open' && form.require_claim))" class="field checkbox">
-              <label>
-                <input type="checkbox" v-model="requireNamedAddress" />
-                Only accept the {{ CLAIM_ADDRESS_FORMAT.example }}@ form of the address
-              </label>
-              <small v-if="requireNamedAddress">
-                An address like 12345678@ does not say who the student is, so it is not accepted. A student who
-                confirmed one earlier is asked again.
-              </small>
-              <small v-else>Any address in the allowed domains is accepted.</small>
-            </div>
-
             <!-- WHICH SECTION THIS ASSIGNMENT IS FOR.
                  The roster is org-wide, so a course running two groups has one
                  gate for both unless an assignment narrows it. Nothing ticked
@@ -1322,103 +1335,80 @@
               </small>
               <small v-else class="text-warning">Empty = <strong>no cap</strong> (any number of students can accept). Set a number to keep the guardrail.</small>
             </div>
-            <!-- TWO QUESTIONS, ASKED AS TWO QUESTIONS.
-                 `late_policy` decides what COUNTS as the submission -
-                 lockdown.mjs passes `deadlineFor` to phase 2 only under
-                 `block`, so that is the flag that reconstructs the branch as of
-                 the deadline. `lock_down_enabled` decides ACCESS. They are a
-                 2x2, not two rungs of one ladder: `report` + demotion means
-                 "they lose the toolchain, but what they pushed before the
-                 nightly ran still counts", which is meaningful and is what both
-                 2026 exams ran on.
-                 It read as one question because the first was worded as a
-                 grading verdict ("Late work counts / does not count") and the
-                 second as an intensifier of it ("ALSO take admin away"). Same
-                 two fields, same four combinations - asked as what they are. -->
+            <!-- ONE QUESTION, AND ITS ANSWERS ARE WHAT HAPPENS (2026-10-02).
+                 Two stored fields, `late_policy` and `lock_down_enabled`, were
+                 asked as two questions (DESIGN.md §1.9), and a lecturer could
+                 not tell which one decided grading and which access - because
+                 both do some of each: `block` locks the submission branch AND
+                 decides what counts. So the question is now the one a lecturer
+                 asks - what happens at the deadline - and each answer names
+                 both fields at once (`deadlineChoice`).
+
+                 The fourth combination, read-only while late work still
+                 counts, is what both 2026 exams ran on. It is not offered for a
+                 new assignment, and it is never lost: an assignment that holds
+                 it shows it as a fourth answer (`legacyDeadlineOffered`), so
+                 loading one changes nothing. -->
             <div class="field">
-              <label>After the deadline, work a student pushes <HelpButton topic="late-work" label="late work" /></label>
-              <!-- Two ALTERNATIVES, so they read as two rows to choose between
-                   rather than two paragraphs of bold text running the full
-                   width. The selected one takes a tonal step and an accent
-                   edge - no bordered card, because this fieldset is already a
-                   box and a second one inside it is DESIGN.md §1.1's prison.
-                   The pixel values that used to be inline here are tokens. -->
+              <label>After the deadline <HelpButton topic="late-work" label="late work" /></label>
+              <!-- Alternatives as rows with a tonal step on the chosen one; no
+                   bordered card, because this fieldset is already a box
+                   (DESIGN.md §1.1). -->
               <div class="policy-options">
-                <label class="policy-option" :class="{ selected: form.late_policy === 'report' }">
-                  <input type="radio" v-model="form.late_policy" value="report" @change="onLatePolicyChange" />
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'stop-pushes' }">
+                  <input type="radio" v-model="deadlineChoice" value="stop-pushes" />
                   <span class="policy-option-text">
-                    <strong>still counts</strong>
+                    <strong>Pushing stops</strong>
                     <small>
-                      Late commits are part of the submission and flagged in the report.
-                      The submission branch is not locked.
+                      The submission is the last commit before the deadline. Students keep their
+                      Actions, secrets and runners.
                     </small>
                   </span>
                 </label>
-                <label class="policy-option" :class="{ selected: form.late_policy === 'block' }">
-                  <input type="radio" v-model="form.late_policy" value="block" @change="onLatePolicyChange" />
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'nothing' }">
+                  <input type="radio" v-model="deadlineChoice" value="nothing" />
                   <span class="policy-option-text">
-                    <strong>does not count</strong>
+                    <strong>Nothing is locked</strong>
+                    <small>Late commits count, and are marked late in the report.</small>
+                  </span>
+                </label>
+                <label class="policy-option" :class="{ selected: deadlineChoice === 'read-only' }">
+                  <input type="radio" v-model="deadlineChoice" value="read-only" />
+                  <span class="policy-option-text">
+                    <strong>The repository becomes read-only</strong>
                     <small>
-                      Pushing is blocked from the deadline, and the submission is the last
-                      commit dated before it. They keep the repository, and their Actions,
-                      secrets and runners keep working - only pushing is blocked.
+                      Pushing stops, and students also lose Actions, secrets, environments, runners
+                      and settings until you reopen it.
+                    </small>
+                  </span>
+                </label>
+                <label
+                  v-if="legacyDeadlineOffered || deadlineChoice === 'legacy'"
+                  class="policy-option"
+                  :class="{ selected: deadlineChoice === 'legacy' }"
+                >
+                  <input type="radio" v-model="deadlineChoice" value="legacy" />
+                  <span class="policy-option-text">
+                    <strong>Read-only, but late work still counts</strong>
+                    <small>
+                      What this assignment is set to. Students lose Actions, secrets and settings at
+                      the deadline, and anything they pushed before the lock landed still counts.
+                      Not offered for new assignments.
                     </small>
                   </span>
                 </label>
               </div>
-              <!-- Three separate facts, and they used to run together in one
-                   sentence: WHEN the lock lands, WHAT happens to work pushed
-                   before it does, and HOW MUCH the timestamp behind that is
-                   worth. A lecturer read this and could not tell what it was
-                   telling them (2026-09-02). -->
-              <small v-if="form.late_policy === 'block'">
-                The lock is applied by the nightly run, not at the moment of the deadline, so
-                there is a gap where students can still push. Work pushed in that gap does not
-                count: the submission is the last commit <em>dated</em> before the deadline.
-                Be aware that a commit's date is set by the student's own computer - reliable
-                enough for ordinary marking, but not proof if you ever need to challenge it.
-              </small>
-            </div>
-            <!-- A SECOND QUESTION, not a footnote to the first. It was a
-                 checkbox beginning "Also", which made the heaviest thing this
-                 system does to a student read as a modifier of a grading
-                 setting. Two radio rows, the same shape as the question above,
-                 so neither looks like the other's afterthought. -->
-            <div class="field">
-              <label>The student's repository <HelpButton topic="late-work" label="the repository at the deadline" /></label>
-              <div class="policy-options">
-                <label class="policy-option" :class="{ selected: !form.lock_down_enabled }">
-                  <input type="radio" :value="false" v-model="form.lock_down_enabled" />
-                  <span class="policy-option-text">
-                    <strong>stays as it is</strong>
-                    <small>
-                      They keep admin, and with it Actions, secrets, environments and runners.
-                    </small>
-                  </span>
-                </label>
-                <label class="policy-option" :class="{ selected: form.lock_down_enabled }">
-                  <input type="radio" :value="true" v-model="form.lock_down_enabled" />
-                  <span class="policy-option-text">
-                    <strong>becomes read-only</strong>
-                    <small>
-                      They lose admin, and with it Actions, secrets, environments and runners,
-                      until you reopen it.
-                    </small>
-                  </span>
-                </label>
-              </div>
-              <!-- The two answers a lecturer most often gets wrong, each said
-                   where they have just chosen it rather than in general. -->
-              <small v-if="form.lock_down_enabled && form.late_policy === 'block'">
-                Not needed to stop late pushes - the answer above already does that and leaves
-                students their Actions, secrets and runners. Choose this only if they should
-                lose those too.
-              </small>
-              <small v-else-if="form.lock_down_enabled" class="text-warning">
-                Note that these are two different answers: work they push before the nightly run
-                lands <strong>still counts</strong>, because you chose "still counts" above - they
-                simply lose the repository's tooling at the deadline. If you meant the deadline to
-                be final, choose "does not count" as well.
+              <!-- WHEN the lock lands and what the date behind it is worth -
+                   two facts, said apart. The deadline sentinel locks at the
+                   instant for every published assignment (lib/sentinel-window.mjs);
+                   the nightly run is the fallback, not the plan. This line used
+                   to say "the lock is applied by the nightly run", which stopped
+                   being true when the sentinel shipped (DESIGN.md §1.5). -->
+              <small v-if="deadlineChoice === 'stop-pushes' || deadlineChoice === 'read-only'">
+                The lock lands at the deadline, or at the nightly run if that is missed. Work pushed
+                in between does not count: the submission is the last commit <em>dated</em> before
+                the deadline. A commit's date comes from the student's own computer - fine for
+                ordinary marking, but not proof if you ever need to challenge it.
               </small>
             </div>
             <div class="field checkbox">
@@ -1507,8 +1497,27 @@
               </small>
             </div>
             <div class="field">
-              <label>Timezone (display)</label>
+              <label>Time zone students see</label>
               <input v-model="form.timezone" :placeholder="TIMEZONE" />
+              <small>Dates on the student's page are shown in this zone. The dates above are entered in your computer's time.</small>
+            </div>
+            <!-- THE FORM OF THE ADDRESS, wherever one is asked for. Under
+                 Advanced since 2026-10-02: it is the institution's rule, on by
+                 default, and almost nobody should switch it off for one
+                 assignment. The rule
+                 itself is deployment.yml's (firstname.lastname at PXL); this
+                 only switches it off for one assignment. Ticked is the
+                 deployment's rule, so nothing is written for it. -->
+            <div v-if="CLAIM_ADDRESS_FORMAT && (form.roster_mode === 'claim' || (form.roster_mode === 'open' && form.require_claim))" class="field checkbox">
+              <label>
+                <input type="checkbox" v-model="requireNamedAddress" />
+                Only accept the {{ CLAIM_ADDRESS_FORMAT.example }}@ form of the address
+              </label>
+              <small v-if="requireNamedAddress">
+                An address like 12345678@ does not say who the student is, so it is not accepted. A student who
+                confirmed one earlier is asked again.
+              </small>
+              <small v-else>Any address in the allowed domains is accepted.</small>
             </div>
             <!-- No `acceptance_mode` control: the enum has one value, so the
                  select was a decision the lecturer could not make. The field is
@@ -1931,6 +1940,9 @@ const manualSlug = ref(false)
 // repository name that would be absurdly long. It stays open once opened -
 // somebody who went looking for it is editing it.
 const slugEditing = ref(false)
+// The repository name pattern, the same way: a line until asked for, or until
+// it carries an error a lecturer has to fix in the box.
+const patternEditing = ref(false)
 // The description is optional and rarely written, so it is folded away until
 // asked for. Not a `<details>`: opening one leaves focus on the summary, and
 // the point of clicking "Add a description" is to type.
@@ -2502,6 +2514,9 @@ const filteredTemplates = computed(() => {
   return templates.value.filter(t => t.full_name.toLowerCase().includes(q))
 })
 
+// The static segments under /dashboard/<org>/ (router/index.js).
+const RESERVED_SLUGS = Object.freeze(['admin', 'usage', 'roster'])
+
 const fieldErrors = computed(() => {
   const errors = {}
 
@@ -2512,8 +2527,10 @@ const fieldErrors = computed(() => {
     const slugRegex = /^[a-z0-9][a-z0-9-]{0,99}$/
     if (!slugRegex.test(form.value.id)) {
       errors.id = 'Slug must be lowercase, start with a letter/number, and contain only lowercase letters, numbers, and hyphens (max 100 characters).'
-    } else if (['admin', 'usage'].includes(form.value.id)) {
-      errors.id = 'Slug "admin" and "usage" are reserved and cannot be used.'
+    } else if (RESERVED_SLUGS.includes(form.value.id)) {
+      // Each is a route beside /dashboard/<org>/<id>, which an assignment of
+      // that name could never be reached past (router/index.js).
+      errors.id = `Slugs ${RESERVED_SLUGS.map((s) => `"${s}"`).join(', ')} are reserved and cannot be used.`
     } else if (isNew.value && assignments.value.some(a => a.id === form.value.id)) {
       errors.id = 'Slug already exists. Choose a unique slug.'
     }
@@ -2631,6 +2648,14 @@ const fieldErrors = computed(() => {
 // The only entry point that can is loading an assignment, and
 // `editAssignment` seeds `settingsOpen` from exactly this count.
 const fieldErrorCount = computed(() => Object.keys(fieldErrors.value).length)
+
+// The pattern's box comes out when it carries an error a lecturer has to fix
+// (`patternEditing` above). Defined after fieldErrors, which a watch reads at
+// once. Once the box is out it stays out: fixing the error must not swap the
+// input back to a line under the cursor of somebody still typing.
+const patternNeedsInput = computed(() =>
+  Boolean(fieldErrors.value.repository_name_pattern) && (touchedFields.value.repository_name_pattern || !isNew.value))
+watch(patternNeedsInput, (needs) => { if (needs) patternEditing.value = true })
 
 // Combobox functions
 function selectTemplate(t) {
@@ -3177,15 +3202,14 @@ function toLocalInputValue(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function utcHint(localStr) {
-  if (!localStr) return ''
-  try {
-    const utc = new Date(localStr).toISOString()
-    return `Stored as: ${utc}`
-  } catch {
-    return ''
-  }
-}
+// The zone a datetime-local box is read in, which is the computer's, not the
+// assignment's - localToUtc goes through `new Date(local)`. '' if the engine
+// will not say, and the line under the dates then names no zone.
+const browserTimeZone = (() => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { return '' }
+})()
+// The zone students are shown dates in (Advanced, "Time zone students see").
+const studentTimeZone = computed(() => form.value.timezone || TIMEZONE)
 
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {
@@ -3202,13 +3226,36 @@ function autoSyncSlug() {
   }
 }
 
-// Choosing "Does not count" locks the submission branch with a ruleset, which
-// stops pushes and leaves Actions, secrets and runners alone. Demoting on top of
-// that takes exactly what the branch lock exists to preserve, so the checkbox
-// comes off - once, and visibly. Ticking it again is a deliberate choice and
-// sticks.
-function onLatePolicyChange() {
-  if (form.value.late_policy === 'block') form.value.lock_down_enabled = false
+// THE ONE DEADLINE QUESTION and the two fields it writes. Each answer sets
+// both, so no answer can leave the other field behind; the stored document is
+// unchanged in shape (late_policy, lock_down_enabled). `legacy` is the fourth
+// combination, offered only where it is already stored (`legacyDeadlineOffered`).
+const DEADLINE_CHOICES = Object.freeze({
+  nothing: { late_policy: 'report', lock_down_enabled: false },
+  'stop-pushes': { late_policy: 'block', lock_down_enabled: false },
+  'read-only': { late_policy: 'block', lock_down_enabled: true },
+  legacy: { late_policy: 'report', lock_down_enabled: true },
+})
+const deadlineChoice = computed({
+  get() {
+    const block = form.value.late_policy === 'block'
+    const demote = form.value.lock_down_enabled === true
+    if (block) return demote ? 'read-only' : 'stop-pushes'
+    return demote ? 'legacy' : 'nothing'
+  },
+  set(choice) {
+    const fields = DEADLINE_CHOICES[choice]
+    if (!fields) return
+    form.value.late_policy = fields.late_policy
+    form.value.lock_down_enabled = fields.lock_down_enabled
+  },
+})
+// Whether the STORED document holds the fourth combination. Read off the
+// document as loaded, not the form, so choosing another answer and coming back
+// is still possible before saving.
+const legacyDeadlineOffered = ref(false)
+function storesLegacyDeadline(doc) {
+  return (doc?.late_policy || 'report') !== 'block' && (doc?.lock_down_enabled ?? true) === true
 }
 
 function onAssignmentTypeChange() {
@@ -3355,6 +3402,7 @@ function newAssignment() {
   templateNotice.value = null
   permissionNotice.value = null
   storedStudentPermission.value = null
+  legacyDeadlineOffered.value = false
   editing.value = { __new: true, id: '' }
   // Nothing stored yet, so nothing to compare a pin against - and a stale one
   // from the previously open assignment would accuse the wrong template.
@@ -3363,6 +3411,7 @@ function newAssignment() {
   manualRepositoryNamePattern.value = false
   manualSubmissionRef.value = false
   slugEditing.value = false
+  patternEditing.value = false
   descriptionOpen.value = false
   templateSearchText.value = ''
   clearCollision()
@@ -3411,11 +3460,13 @@ function editAssignment(a) {
   storedTemplate.value = a.template || null
   // Absent is what every older assignment was provisioned with.
   storedStudentPermission.value = a.student_permission || 'admin'
+  legacyDeadlineOffered.value = storesLegacyDeadline(a)
   manualSlug.value = true // existing assignments - never auto-rewrite the slug
   manualRepositoryNamePattern.value = true
   // Never editable on an existing assignment - changing it orphans the YAML -
   // so the derived line stays a reading, and the input is not offered.
   slugEditing.value = false
+  patternEditing.value = false
   descriptionOpen.value = false
   form.value = {
     schema_version: a.schema_version || 1,
@@ -3862,6 +3913,24 @@ const canSave = computed(() => {
     !!form.value.deadline_at_local &&
     Object.keys(fieldErrors.value).length === 0
   )
+})
+
+// What stands between this form and Save, as the names on screen. Every reason
+// canSave refuses is a fieldErrors key: an empty required field has one too.
+const SAVE_BLOCKER_NAMES = Object.freeze({
+  template: 'template',
+  title: 'title',
+  id: 'slug',
+  repository_name_pattern: 'repository name',
+  opens_at: 'open date',
+  deadline_at: 'deadline',
+  max_acceptances: 'max acceptances',
+  description: 'description',
+  autograde_tests: 'autograding tests',
+})
+const saveBlockers = computed(() => {
+  if (canSave.value) return []
+  return [...new Set(Object.keys(fieldErrors.value).map((k) => SAVE_BLOCKER_NAMES[k] || k))]
 })
 
 // ---------------------------------------------------------------- save / publish
@@ -4330,6 +4399,7 @@ async function saveAssignment(stateOverride = null) {
       // What the document now says, so the next save compares against it.
       storedTemplate.value = doc.template || null
       storedStudentPermission.value = doc.student_permission || 'admin'
+      legacyDeadlineOffered.value = storesLegacyDeadline(doc)
       await noticeTemplateChange(form.value.id, templateBefore, doc.template)
       await noticePermissionChange(form.value.id, permissionBefore, doc)
       form.value.state = stateOverride || form.value.state
@@ -5422,6 +5492,13 @@ watch(
   gap: var(--space-md);
   flex-wrap: wrap;
   margin-bottom: var(--space-xs);
+}
+/* Under the action bar, right-aligned beside the buttons it explains. */
+.save-blockers {
+  margin: 0 0 var(--space-sm);
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 .editor-header-bar .editor-title h3 {
   margin: 0;
