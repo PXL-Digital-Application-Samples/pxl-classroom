@@ -299,3 +299,56 @@ test("a duplicate of an accepted attempt is stamped as the one that decided", ()
   assert.equal(record.accepted_at, "2026-09-01T10:00:00Z");
   assert.equal(record.status, "provisioned");
 });
+
+test("a refusal made on an out-of-date checkout is decided again, though it saves nothing", () => {
+  // The interleaving tests/acceptance-race.test.mjs met 1 run in 4 under load:
+  // two students create one new team at once. This run checked out before the
+  // other saved its decision, so it finds no team and creates one - and asks
+  // GitHub whether the name is free AFTER the other run made the repository.
+  // With no decision in its checkout to say whose that repository is, it is
+  // "a previous team's" and refused. A refusal writes nothing, so nothing was
+  // pushed, so the refused push that makes every other decision look again
+  // never came - and the refusal was final.
+  const remote = remoteWith({
+    "students/roster.yml": ROSTER,
+    [`assignments/${ID}.yml`]: GROUP_YAML,
+  });
+  const dir = checkout(remote);
+  pushFromElsewhere(remote, {
+    [`teams/${ID}/alpha.json`]: { ...team(["alice"]), team_slug: "alpha", team_name: "alpha", repo_name: `${ORG}/grp-alpha` },
+    [`acceptances/${ID}/alice.json`]: {
+      schema_version: 1, assignment_id: ID, github_login: "alice", github_id: 6,
+      accepted_at: "2026-10-02T10:35:00Z", status: "accepted", team_slug: "alpha", team_name: "alpha",
+    },
+  });
+  probe.setRepos({ "grp-alpha": { rulesets: [] } });
+  try {
+    const res = reserve(dir, { GITHUB_LOGIN: "bob", GITHUB_ID: "7", TEAM_SLUG: "alpha", TEAM_NAME: "alpha", TEAM_ACTION: "create" });
+    assert.equal(res.status, 0, res.log);
+    assert.equal(res.outputs.outcome, "accepted", res.log);
+    assert.match(res.log, /another run saved what this decision read; deciding again/);
+    assert.deepEqual([...remoteJson(remote, `teams/${ID}/alpha.json`).members].sort(), ["alice", "bob"]);
+  } finally {
+    probe.setRepos({});
+  }
+});
+
+test("a refusal nobody else's save could change stands without deciding again", () => {
+  // The look-again is for what this decision READ. Another student's
+  // unrelated acceptance moving the branch is not a reason to decide twice.
+  const remote = remoteWith({
+    "students/roster.yml": ROSTER,
+    [`assignments/${ID}.yml`]: INDIVIDUAL_YAML,
+  });
+  const dir = checkout(remote);
+  pushFromElsewhere(remote, {
+    [`acceptances/${ID}/alice.json`]: {
+      schema_version: 1, assignment_id: ID, github_login: "alice", github_id: 6,
+      accepted_at: "2026-10-02T10:35:00Z", status: "accepted",
+    },
+  });
+  const res = reserve(dir, { GITHUB_LOGIN: "stranger", GITHUB_ID: "99" });
+  assert.equal(res.status, 0, res.log);
+  assert.match(res.outputs.outcome, /^rejected:/, res.log);
+  assert.doesNotMatch(res.log, /deciding again/);
+});
