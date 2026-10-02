@@ -146,7 +146,10 @@ async function start() {
   const stamp = isoSeconds(now).replace(/[-:]/g, "").replace("T", "-").slice(0, 13).toLowerCase();
   const id = `drill-race-${stamp}`;
   const opensAt = new Date(now - 60_000).toISOString();
-  const deadlineAt = new Date(now + 3 * 3600_000).toISOString();
+  // Long enough for the race (about five minutes), short enough that
+  // `drill.mjs cleanup` - which deletes only a drill whose deadline has passed -
+  // can remove it the same half hour.
+  const deadlineAt = new Date(Math.ceil((now + 25 * 60_000) / 60_000) * 60_000).toISOString();
   const form = {
     id,
     title: `Acceptance race ${isoSeconds(now).slice(0, 16).replace("T", " ")} UTC`,
@@ -282,7 +285,7 @@ async function start() {
   if (unanswered.length === 0) ok("nothing to report");
   else bad(`would report: ${JSON.stringify(unanswered)}`);
 
-  note(`clean up with: node tests/live/drill.mjs cleanup ${id}`);
+  note(`clean up after ${deadlineAt} with: node tests/live/drill.mjs cleanup ${id}`);
   finish();
 }
 

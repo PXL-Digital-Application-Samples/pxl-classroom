@@ -15,8 +15,26 @@ import {
   pathsToCommit,
   supersededBy,
 } from "../lib/acceptance-reservation.mjs";
+import { teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
 
 const who = { assignmentId: "groepsindeling", login: "SabriKatogluPXL" };
+
+test("a teammate admitted into this team makes the repository at its name ours", () => {
+  const records = {
+    ThomasBasyn: { team_slug: "fullhouse" },
+    moved: { team_slug: "other" },
+  };
+  const acceptanceOf = (login) => records[login] ?? null;
+  const ask = (members) => teammateAlreadyAdmitted({ members, login: "Fars", teamSlug: "fullhouse", acceptanceOf });
+
+  assert.equal(ask(["ThomasBasyn", "Fars"]), true, "a teammate admitted into this team");
+  assert.equal(ask(["seeded", "Fars"]), false, "a seeded teammate who has not accepted proves nothing");
+  assert.equal(ask(["moved", "Fars"]), false, "a record for ANOTHER team proves nothing about this name");
+  assert.equal(ask(["Fars"]), false, "the student themselves is not a teammate");
+  assert.equal(ask(["fars", "FARS"]), false, "nor in another case");
+  assert.equal(ask("ThomasBasyn"), false, "a manifest without a member list proves nothing");
+  assert.equal(teammateAlreadyAdmitted({ members: ["ThomasBasyn"], login: "Fars", teamSlug: "", acceptanceOf }), false);
+});
 
 test("a decision is made again when another run touched anything it read", () => {
   // The case of 2026-10-02: a teammate joined the same team in between.

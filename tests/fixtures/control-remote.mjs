@@ -154,9 +154,15 @@ let runSeq = 1000;
  * One hub run, as acceptance-handler.yml makes it: decide and save, then -
  * when admitted - a provisioning stand-in, then the record script.
  *
+ * `onProvisioned(repo)` is called when the stand-in "creates" the repository,
+ * BEFORE the record step - so a GitHub stub can start answering that it exists
+ * while no record names it yet. That window is real (a minute, measured live)
+ * and the stub without it hid a defect: two students creating one team at the
+ * same moment, the second refused over the first's new repository.
+ *
  * @returns {Promise<{login, issue, runId, outcome, recorded, log}>}
  */
-export async function hubRun({ remote, org, assignmentId, login, githubId, issue, team, action = "join", env = {}, prepare }) {
+export async function hubRun({ remote, org, assignmentId, login, githubId, issue, team, action = "join", env = {}, prepare, onProvisioned }) {
   const dir = checkout(remote);
   if (prepare) prepare(dir);
   const runId = String(++runSeq);
@@ -187,6 +193,10 @@ export async function hubRun({ remote, org, assignmentId, login, githubId, issue
   // step writes - deterministic per repository name, as a real id is.
   const repo = outputs.target_repo;
   const repoId = [...repo].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1_000_000_007, 7);
+  if (onProvisioned) await onProvisioned(repo);
+  // Provisioning takes seconds on GitHub; the window between the repository
+  // existing and its record landing is what a teammate's run can fall into.
+  await new Promise((r) => setTimeout(r, 1500));
   const recorded = await run("bash", [join(root, "scripts", "record-acceptance.sh")], {
     cwd: root,
     env: {
