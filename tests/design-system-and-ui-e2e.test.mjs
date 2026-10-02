@@ -62,20 +62,16 @@ test("Design System: Status dot indicators are used for status rendering across 
   }
 });
 
-test("Design System: Navigation tabs in AdminView use Primer underline tab classes", async () => {
-  const adminViewPath = join(FRONTEND_SRC, "views", "AdminView.vue");
-  const content = await readFile(adminViewPath, "utf8");
+// The Assignments / Roster tabs were AdminView's until the roster became an
+// org-level page; the switch between an org's two views is OrgSwitch now.
+test("Design System: an org's Assignments / Roster switch uses Primer underline tab classes", async () => {
+  const orgSwitch = await readFile(join(FRONTEND_SRC, "components", "OrgSwitch.vue"), "utf8");
+  assert.ok(orgSwitch.includes("app-header-switch"), "OrgSwitch.vue must use the header switch container");
+  assert.ok(orgSwitch.includes("primer-tab"), "OrgSwitch.vue must use .primer-tab items");
 
+  const adminView = await readFile(join(FRONTEND_SRC, "views", "AdminView.vue"), "utf8");
   assert.ok(
-    content.includes("primer-tabs"),
-    "AdminView.vue must contain container class .primer-tabs",
-  );
-  assert.ok(
-    content.includes("primer-tab"),
-    "AdminView.vue must use .primer-tab button items",
-  );
-  assert.ok(
-    !content.includes("class=\"admin-tabs\""),
+    !adminView.includes("class=\"admin-tabs\""),
     "AdminView.vue should not use legacy .admin-tabs container",
   );
 });

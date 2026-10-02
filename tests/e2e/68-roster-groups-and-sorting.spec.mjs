@@ -35,8 +35,7 @@ async function openRoster(page, roster = NO_NUMBERS) {
   const contentWrites = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster, contentWrites });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }

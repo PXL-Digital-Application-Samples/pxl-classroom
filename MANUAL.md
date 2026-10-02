@@ -46,9 +46,9 @@ Under **Enforced** and **Claim**, the form shows your roster and you tick the st
 
 A class group is a label on a student, and it exists to make that list quick to filter.
 
-- Put one on each student: click the **Group** cell on the **Roster** tab and type it, a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
+- Put one on each student: click the **Group** cell on the **Roster** page and type it, a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
 - The cell offers the groups your roster already uses, so you complete an existing one rather than typing `3a` beside `3A` and splitting a section in two. A new name is still typed freely.
-- For a whole cohort at once: **Roster** tab, **Export CSV**, fill the column in, and import it back.
+- For a whole cohort at once: **Roster** page, **Export CSV**, fill the column in, and import it back.
 - Nothing is decided by a group. It narrows the list you pick from, and the assignment remembers which groups you picked from so the overview can say **3A**.
 
 ### Good to know
@@ -83,7 +83,7 @@ Every published assignment has a **Confirm-email link** beside its invitation li
 
 ### If a student confirms the wrong address
 
-They cannot change it themselves. On the **Roster** tab, open that student's actions menu and choose **Forget this account**, then ask them to confirm again. That removes only the link on their row. Nothing on GitHub changes, and their repository and work are untouched.
+They cannot change it themselves. On the **Roster** page, open that student's actions menu and choose **Forget this account**, then ask them to confirm again. That removes only the link on their row. Nothing on GitHub changes, and their repository and work are untouched.
 
 ## Late work
 
@@ -210,7 +210,7 @@ Switched on, each student gets one of these on their own repository, kept as a d
 - It only adds. A student already on the roster is left exactly as they are.
 - It copies the GitHub username and nothing else. Names and student numbers are not guessed, because a guess would end up in a graded field.
 - Safe to run twice. The second time finds nothing to add.
-- Available on the **Roster** tab, and on the assignment itself.
+- Available on the **Roster** page, and on the assignment itself.
 
 ### Good to know
 

@@ -80,8 +80,7 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       currentUser: LECTURER,
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     const csvData = `student_number,full_name,email,class_group,github_login\n0123456,Alice Enrolled,alice@student.pxl.be,2TIN,student-enrolled\n0123457,Bob Enrolled,bob@student.pxl.be,2TIN,bob-enrolled`;
     await page.locator('.roster-tab textarea').fill(csvData);

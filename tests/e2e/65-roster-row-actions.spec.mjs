@@ -42,8 +42,7 @@ async function openRoster(page, { roster = ROSTER, claims = undefined, claimAtte
   const contentWrites = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments, roster, contentWrites, claims, claimAttempts });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }
@@ -281,8 +280,7 @@ test.describe('65 - editing a student in one go', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: 'exam.json', type: 'file' }]) }));
     await page.route('**/contents/reports/exam.json*', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: b64(REPORT), encoding: 'base64' }) }));
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
     await expect(page.locator('.harvest-hint').first()).toBeVisible({ timeout: 15000 });
 
     await menuFor(page, 'rayaneW').click();

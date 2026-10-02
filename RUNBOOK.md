@@ -91,7 +91,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Slug | not a field you fill in: shown under the pattern as a derived value, with **Edit** beside it. It names `assignments/<id>.yml`, the public `broker-<id>` repository students open to accept, and your own link to this assignment - so it is worth reading, and almost never worth changing. Fixed once the assignment exists, because changing it would orphan the YAML file. It is **not** in the student's invitation link, which is a token |
 | Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
-| Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
+| Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** page: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§6.4). |
 | After the deadline, work a student pushes | **still counts** by default. *does not count* locks the submission branch at the deadline with a repository ruleset - students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. |
 | The student's repository | **stays as it is** by default. *becomes read-only* demotes them, taking Actions, secrets and runners too. This is a different question from the one above and all four combinations mean something; §3.4 is the whole picture. |
@@ -110,7 +110,7 @@ Students should not have to re-form the same teams for every group assignment. S
 2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Seed teams**.
 3. Pick a source:
    - **A previous group assignment** - the normal choice. It carries the *final* membership, including switches and dropouts, so always seed from the most recent grouping rather than from the first one.
-   - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster tab's CSV import (§6.4) first.
+   - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster page's CSV import (§6.4) first.
 4. Review the plan. It lists every team and its members before anything is written, and refuses outright if:
    - a team is larger than the new assignment's maximum team size (raise the maximum or split the team - members are never dropped silently);
    - the new assignment shares a repository name pattern with the source. **Fix this one before anything else**: both assignments would resolve to the same repository names, and provisioning would hand students the previous assignment's locked-down repository instead of a fresh one;
@@ -628,9 +628,9 @@ Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAut
 
 ### 6.4 Importing a roster
 
-The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel -> **Roster** tab or the CLI imports it from CSV.
+The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's **Roster** page (the organization's dashboard, then **Roster**) or the CLI imports it from CSV.
 
-**Putting students into a class group without a CSV.** Tick the students on the Roster tab, type the group in the bar that appears, press **Apply**. It is written in **one commit** for the whole selection, which is the point: setting the group cell by cell is one commit per student, and twenty of those seconds apart is both slow to sit through and how the Contents API comes to refuse a write with a stale sha.
+**Putting students into a class group without a CSV.** Tick the students on the Roster page, type the group in the bar that appears, press **Apply**. It is written in **one commit** for the whole selection, which is the point: setting the group cell by cell is one commit per student, and twenty of those seconds apart is both slow to sit through and how the Contents API comes to refuse a write with a stale sha.
 
 The fast route is the chips: **No group (9)** → the tick box in the table header → type the group → **Apply**. Four clicks for any number of students. The header tick box takes everything the **current filter** is showing, and there is a chip per class group, so moving a whole class from 3A to 3C is the same four clicks.
 
@@ -649,7 +649,7 @@ Class groups are a filter for finding people, never a rule about who may accept 
 | `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
 | `full_name`      | Yes | Display name. |
 | `email`          | Optional | Validated against the `email` format. |
-| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** - it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. For one student, click the **Group** cell on the Roster tab rather than re-importing. |
+| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** - it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. For one student, click the **Group** cell on the Roster page rather than re-importing. |
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
@@ -660,9 +660,9 @@ Unknown columns are rejected - the list above is `KNOWN_COLUMNS` in `lib/roster-
 
 **An import updates a student rather than replacing them.** A row is matched to a stored one on **either** identity it carries - the student number or the GitHub login - and the columns your CSV holds are written over that row while everything else stays. So importing a class list over students who were added from their acceptances keeps their GitHub logins, and a `class_group` you set in the table survives a re-import that has no such column. Before this, a CSV naming a student by number could not meet the same student stored by login: the import added one row and removed the other, and if the CSV had no `github_login` column their login was lost.
 
-A CSV **cannot clear a field** - an empty cell and an absent column are the same thing to the importer, so neither means "delete this". Removing a student entirely is what the *Removed* list in the preview is for, and both the panel and the CLI ask before committing one. To clear a single value, edit the cell on the Roster tab instead.
+A CSV **cannot clear a field** - an empty cell and an absent column are the same thing to the importer, so neither means "delete this". Removing a student entirely is what the *Removed* list in the preview is for, and both the panel and the CLI ask before committing one. To clear a single value, edit the cell on the Roster page instead.
 
-**Exporting it again.** The Roster tab's **Export CSV** writes the current roster in exactly the format above, so export → edit → import is the way to change a column across a cohort you have already imported - adding `class_group` to divide a course into sections is the usual reason. The file carries a UTF-8 BOM so Excel decodes accented names, and any value beginning `=`, `+`, `-` or `@` is written with a leading apostrophe so a spreadsheet shows it instead of running it. The importer strips that apostrophe back off, and only where the exporter would have added it - a name like `'t Hooft` is left alone (`lib/csv-cell.mjs`).
+**Exporting it again.** The Roster page's **Export CSV** writes the current roster in exactly the format above, so export → edit → import is the way to change a column across a cohort you have already imported - adding `class_group` to divide a course into sections is the usual reason. The file carries a UTF-8 BOM so Excel decodes accented names, and any value beginning `=`, `+`, `-` or `@` is written with a leading apostrophe so a spreadsheet shows it instead of running it. The importer strips that apostrophe back off, and only where the exporter would have added it - a name like `'t Hooft` is left alone (`lib/csv-cell.mjs`).
 
 **CLI flow:**
 
@@ -697,11 +697,11 @@ The student opens the invitation link, and the page shows them **their own GitHu
 | Address is not on the roster | `rejected:no-claim-match` - a typo, or you registered a different address |
 | Address already claimed by another account | `rejected:claim-taken` - first come wins; unlink it if the wrong person got there first |
 | Address outside the allowed domains | `rejected:claim-domain` |
-| Five failed attempts | `rejected:claim-blocked` - the student is told to contact you. **Clear failed attempts** in any row's actions menu on the **Roster** tab (it asks for their GitHub account), or `pxl-classroom roster reset-attempts --org <org> --login <account>`. Their binding, if any, is kept |
+| Five failed attempts | `rejected:claim-blocked` - the student is told to contact you. **Clear failed attempts** in any row's actions menu on the **Roster** page (it asks for their GitHub account), or `pxl-classroom roster reset-attempts --org <org> --login <account>`. Their binding, if any, is kept |
 
 Only a guess counts as a failed attempt. A student whose address the claim gate itself admitted is never counted for being refused on the wrong assignment's link (`rejected:not-in-cohort`); a binding the confirm-email link or open enrolment wrote was never checked against the roster, so a refusal on it is counted. A successful acceptance clears the counter.
 
-**When two accounts hold one address**, the account that has held it longest **without a break** is the one admitted, and the one the Roster tab shows. An account that confirmed another address in between gave its place up. If the wrong one is first, **Forget this account** on it.
+**When two accounts hold one address**, the account that has held it longest **without a break** is the one admitted, and the one the Roster page shows. An account that confirmed another address in between gave its place up. If the wrong one is first, **Forget this account** on it.
 
 **Prerequisites, both one-off:** the claim keypair (INSTALL.md §3.2) and the App's account permission **Email addresses: Read** (INSTALL.md §2). Without the keypair the assignment fails closed with a red run rather than rejecting students. Without the permission the page cannot list a student's verified addresses - it says so honestly and offers the typed box, and every claim is then recorded `claim_verified: false`.
 
@@ -719,7 +719,7 @@ Any GitHub account can then claim a repo while the assignment is open, so the de
 
 ### 6.4.1 Correcting an email address that assignments identify a student by
 
-Editing a student's details on the **Roster** tab sometimes opens a second dialog: *"Change the email address for … ?"*, listing one or more assignments. It appears for one situation only, and it is safe to say yes to.
+Editing a student's details on the **Roster** page sometimes opens a second dialog: *"Change the email address for … ?"*, listing one or more assignments. It appears for one situation only, and it is safe to say yes to.
 
 A roster row is identified by whichever of these it carries: a student number, a GitHub account, or an email address. Most rows have a number, and their address is just a contact detail - editing it changes nothing else, and no dialog appears. A row that has **only** an address is identified *by* that address, so correcting a typo in it makes it a different row as far as anything referring to it is concerned. Assignments that were set to run for a chosen group of students refer to exactly that.
 
@@ -733,7 +733,7 @@ To avoid the dialog entirely, give such students a student number or link their 
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
 
-**SPA flow, two entry points onto the same modal.** From the **Roster** tab → **Add students who accepted**, which asks *which* assignment first - the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add students who accepted to the roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
+**SPA flow, two entry points onto the same modal.** From the **Roster** page → **Add students who accepted**, which asks *which* assignment first - the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add students who accepted to the roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
 
 Both appear only where there is something to add: an `open` assignment somebody has accepted. Under `enforced` and `claim` every acceptor was already on the roster, so the control is absent rather than present and inert.
 
@@ -767,7 +767,7 @@ Afterwards, fill in the real identities - see §6.5.1. The `source: accepted` ma
 
 A promoted row carries a GitHub login and nothing else, and **nothing fills it in later on its own**: promotion skips a login it has already seen (that is the "only adds" rule above), and a claim is matched to a roster entry *by email* - which such a row does not have. Three routes, and they compose:
 
-**What the reports already know.** Under each unidentified row, the Roster tab shows what the collector recorded as the author of that student's commits - falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. An address appears under the **Email** column and a name under **Name**, so each sits with the column it is about. Anything that merely repeats the login is left out, since it says nothing you cannot already see, and anything that is not an address - a git `user.email` holding a name, or one at `github.com`, which is not a mailbox - is kept out of the address column.
+**What the reports already know.** Under each unidentified row, the Roster page shows what the collector recorded as the author of that student's commits - falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. An address appears under the **Email** column and a name under **Name**, so each sits with the column it is about. Anything that merely repeats the login is left out, since it says nothing you cannot already see, and anything that is not an address - a git `user.email` holding a name, or one at `github.com`, which is not a mailbox - is kept out of the address column.
 
 **Fill in the addresses.** When one or more of those addresses is on an allowed domain (`claim_domains` in `deployment.yml`), a **Fill in N emails from assignments** button appears and writes exactly those, into empty fields only, after showing you which. It is deliberately narrow:
 
@@ -793,7 +793,7 @@ What bounds it is the assignment: the link stops working the night that assignme
 
 Sharing it is not a leak in the way an invitation would be: whoever opens it can bind *their own* account to *their own* address and nothing else. The signed request says which of the two questions it is asking, so a confirm link cannot be turned into an acceptance.
 
-For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure - they appear on the Roster tab as *N need your decision*:
+For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure - they appear on the Roster page as *N need your decision*:
 
 | Held | Why |
 |---|---|
@@ -805,9 +805,9 @@ This does not reach a cohort that has already finished - they would have to acce
 
 ### 6.6 Seeing and undoing a claim binding
 
-Under `roster_mode: claim` the student binds themselves: they confirm one of their own GitHub-verified addresses, and the hub writes `students/claims/<github_id>.json`. That binding is **org-scoped** and lives outside `roster.yml`, so the roster's own `github_login` column is usually empty by design - which is why the Roster tab shows a **binding** rather than that column alone.
+Under `roster_mode: claim` the student binds themselves: they confirm one of their own GitHub-verified addresses, and the hub writes `students/claims/<github_id>.json`. That binding is **org-scoped** and lives outside `roster.yml`, so the roster's own `github_login` column is usually empty by design - which is why the Roster page shows a **binding** rather than that column alone.
 
-**Where to look:** Admin Panel → **Roster** tab. Each student's GitHub Account cell shows one of:
+**Where to look:** the **Roster** page (the organization's dashboard, then **Roster**). Each student's GitHub Account cell shows one of:
 
 | Shown | Means | What to do |
 |---|---|---|
@@ -821,7 +821,7 @@ A row whose **Email** cell is also empty can never be matched by an address, bec
 
 **CLI equivalent:** `pxl-classroom roster list` prints the same binding column plus a summary line, and names any orphan claims (an address on no roster entry - usually a student removed from the roster, or an address corrected after they claimed). Orphans are reported, never deleted automatically.
 
-**Undoing one**, from the row's actions menu on the Roster tab - **Forget this account**, which removes our record of which account they are and nothing on GitHub - or:
+**Undoing one**, from the row's actions menu on the Roster page - **Forget this account**, which removes our record of which account they are and nothing on GitHub - or:
 
 ```bash
 pxl-classroom roster unlink --org <org> --login <account> --dry-run   # preview
@@ -838,7 +838,7 @@ When a student **deletes and recreates their GitHub account**, their new `github
 
 **Folding claims into the roster happens by itself.** The nightly `collect` job folds every claim that needs no judgement, so a roster row's `github_login` fills in overnight with nobody running anything. What that buys is a self-contained roster: the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them.
 
-**Cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, one account holding two addresses, and an address it would have to write into a row that is outside the allowed domains or not the `firstname.lastname@` form. (One address held by two accounts is not among them: the account that has held it longest without a break is folded, the same one acceptance admits.) Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first - **Forget this account**, in that row's actions menu (above) - so the row says so instead of offering a button that would refuse.
+**Cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, one account holding two addresses, and an address it would have to write into a row that is outside the allowed domains or not the `firstname.lastname@` form. (One address held by two accounts is not among them: the account that has held it longest without a break is folded, the same one acceptance admits.) Those are listed at the top of the **Roster** page as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first - **Forget this account**, in that row's actions menu (above) - so the row says so instead of offering a button that would refuse.
 
 **Saying no is the other answer, and it is a button too.** **Discard** deletes that claim record, for the case where neither linking nor unlinking is what you want - a test account's address, or a typo you would rather the student simply re-entered. It clears the failed-attempt counter with it, for the same reason unlinking does, and the student may claim again with any allowed address; if they do, the box asks you again. Their repository and acceptance are untouched. There is no Discard on *one account holding two addresses*, because there is no single record to delete - forget the account instead. Without this the box could never be finished: a claim you had decided against stayed on the list for good.
 
@@ -864,9 +864,9 @@ claim_domains: []                     # deliberate opt-out: any domain passes th
 
 **The form of the address.** A student address exists as `12345678@student.pxl.be` and as `firstname.lastname@student.pxl.be`, and only the second tells you who the student is. `claim_address_format` in `deployment.yml` makes the second required: the student is offered only their name-form addresses, a typed number-form one is refused on the page, and a confirmation link refuses it too. Under `roster_mode: claim` **the roster decides instead**: an address on your roster is accepted whatever its form, so a roster that lists `12345678@` addresses still works, and a number-form address that is not on it is refused (*address does not have the required form*). A student who confirmed an address before is let in again only if that address is on your roster and in the assignment's cohort. A student who confirmed the wrong address opens the confirmation link again and confirms the right one: it replaces the old one. To accept any form on one assignment, untick **Only accept the firstname.lastname@ form of the address** under the address question in **Guardrails** (shown when the assignment asks for an address: `claim`, or `open` with an address required).
 
-**Students who confirmed the number form earlier** are flagged on the assignment page: a notice lists them (*N students confirmed an address without their name in it*, with **Copy logins**), and their Confirmed address cell reads *No name in the address*. Send them the **Confirm-email link** (under **Invite link**). They are asked again, the new address replaces the old one, the flag clears at the next report, and a roster row whose address came from their old confirmation follows them; one you typed yourself is left for you to change on the Roster tab. Their repository, acceptance and work are not touched.
+**Students who confirmed the number form earlier** are flagged on the assignment page: a notice lists them (*N students confirmed an address without their name in it*, with **Copy logins**), and their Confirmed address cell reads *No name in the address*. Send them the **Confirm-email link** (under **Invite link**). They are asked again, the new address replaces the old one, the flag clears at the next report, and a roster row whose address came from their old confirmation follows them; one you typed yourself is left for you to change on the Roster page. Their repository, acceptance and work are not touched.
 
-It is a filter, not proof. Nothing checks that a claimed address *exists*, so `asdf@student.pxl.be` passes the domain test - it is the roster match that refuses it. A student with no PXL address on their GitHub account may still type one; the binding is recorded with `claim_verified: false` and shows as *unverified* on the Roster tab. That is by design: requiring a GitHub-verified address locks out a real fraction of students and stops nothing determined, because the page is public JavaScript either way.
+It is a filter, not proof. Nothing checks that a claimed address *exists*, so `asdf@student.pxl.be` passes the domain test - it is the roster match that refuses it. A student with no PXL address on their GitHub account may still type one; the binding is recorded with `claim_verified: false` and shows as *unverified* on the Roster page. That is by design: requiring a GitHub-verified address locks out a real fraction of students and stops nothing determined, because the page is public JavaScript either way.
 
 A student who has spent their five attempts is refused with `rejected:claim-blocked` and told to contact you - deliberately without a countdown, since that is a progress bar for whoever is enumerating addresses. Clear it by unlinking them (§6.6), which removes the counter as well as any binding.
 
@@ -880,7 +880,7 @@ What you get instead is a record to read afterwards, in `reports/<id>.json` and 
 | `claim_verified` | `true` if GitHub had already verified that address for them; `false` if they typed it |
 | `claim_domain_allowed` | `false` means the address is outside `claim_domains`. **Recorded, not refused** |
 
-Two addresses confirmed by two different accounts show up as a duplicate in `pxl-classroom roster list` and on the Roster tab. Treat all of this as a review aid for an exam cohort, not as enrolment control - if you need control, `enforced` or `claim` is the mode.
+Two addresses confirmed by two different accounts show up as a duplicate in `pxl-classroom roster list` and on the Roster page. Treat all of this as a review aid for an exam cohort, not as enrolment control - if you need control, `enforced` or `claim` is the mode.
 
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 

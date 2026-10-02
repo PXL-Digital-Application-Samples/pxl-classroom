@@ -225,8 +225,7 @@ test.describe('25 - Responsive layout', () => {
 
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/dashboard/${ORG}/admin`);
-      await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+      await page.goto(`/dashboard/${ORG}/roster`);
       await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
       // The hints arrive after the roster, so waiting on the table alone would
       // measure the tab without the content this test exists for.

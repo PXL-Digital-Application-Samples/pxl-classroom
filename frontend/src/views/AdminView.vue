@@ -50,48 +50,26 @@
     </AuthCard>
 
     <template v-else>
-    <nav class="primer-tabs" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'assignments'"
-        :tabindex="activeTab === 'assignments' ? 0 : -1"
-        :class="['primer-tab', { active: activeTab === 'assignments' }]"
-        @click="setTab('assignments')"
-        @keydown="onTabKeydown"
-      >
-        <Icon name="file-text" :size="14" />
-        <span>Assignments</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'roster'"
-        :tabindex="activeTab === 'roster' ? 0 : -1"
-        :class="['primer-tab', { active: activeTab === 'roster' }]"
-        @click="setTab('roster')"
-        @keydown="onTabKeydown"
-      >
-        <Icon name="users" :size="14" />
-        <span>Roster</span>
-      </button>
-    </nav>
+    <!-- THE ROSTER IS THE ORGANIZATION'S, not this page's. It sat here as a tab
+         beside the assignments, which read as though it belonged to them; it
+         is one file per org and every assignment admits all of it or a
+         selection from it (lib/cohort.mjs). It has its own page now, and this
+         strip is the editor's way there, with the two numbers the form below
+         judges acceptance by. -->
+    <div v-if="!controlRepoUnreadable" class="org-roster-bar">
+      <Icon name="users" :size="14" />
+      <span>
+        <strong>Course roster</strong><template v-if="rosterReadFailed">: couldn't be read</template><template
+          v-else-if="rosterCount !== null"
+        >: {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }}<template
+          v-if="rosterCount > 0"
+        >, {{ rosterLinked }} with a GitHub account</template></template>
+      </span>
+      <span class="text-secondary">Shared by every assignment in {{ org }}.</span>
+      <router-link :to="{ name: 'roster', params: { org } }" class="btn btn-sm org-roster-link">Open the roster</router-link>
+    </div>
 
-    <!-- v-show (not v-if): unmounting would silently discard an un-committed
-         CSV import preview when the lecturer flips tabs. -->
-    <!-- The assignments are passed so the roster can offer "add the students
-         who accepted" from here. That action WRITES the roster, so this is
-         where it belongs; it is per-assignment, so it has to be told which
-         assignments exist. AdminView has already loaded them - a second read
-         inside the tab would be the same request twice. -->
-    <RosterTab
-      v-show="activeTab === 'roster'"
-      ref="rosterTab"
-      :org="org"
-      :assignments="assignments"
-    />
-
-    <div v-show="activeTab === 'assignments'" class="admin-layout">
+    <div class="admin-layout">
       <!-- LEFT: assignment list -->
       <aside class="list-pane">
         <!-- DESIGN.md §1.2 counts primaries across the whole view. With an
@@ -112,43 +90,13 @@
         </button>
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
-        <!-- One card per verdict, from the judge the dashboard uses
-             (control-repo-access.js). It said "isn't onboarded yet ... (or you
-             can't see it)" to everybody, including an owner of the hub org
-             looking at a course that had been running for days. -->
-        <div v-else-if="controlRepoUnreadable" class="list-empty error-state-box">
-          <template v-if="controlRepoAccess?.verdict === 'no-org-access'">
-            <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} is set up, but not for this account</h4>
-            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-              Its course data is in a private repository this account can't read.
-              Ask an owner of <strong>{{ org }}</strong> to add you as an owner.
-              <span v-if="controlRepoAccess.budgetOwner && !budgetOwnerIsViewer">Its budget owner is <strong>@{{ controlRepoAccess.budgetOwner }}</strong>.</span>
-            </p>
-          </template>
-          <template v-else-if="controlRepoAccess?.verdict === 'unknown'">
-            <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't tell whether {{ org }} is set up</h4>
-            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-              This account can't read its control repository, and the hub's list of set-up
-              organizations didn't load.
-            </p>
-            <button class="btn btn-sm" @click="loadAssignments">Retry</button>
-          </template>
-          <template v-else-if="controlRepoAccess?.verdict === 'no-access'">
-            <h4 style="margin: 0 0 var(--space-xs) 0;">This account can't read {{ org }}'s course data</h4>
-            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-              If you teach this course, ask a PXL Classroom administrator to set the organization
-              up and to give you access to its control repository.
-            </p>
-          </template>
-          <template v-else>
-            <h4 style="margin: 0 0 var(--space-xs) 0;">{{ org }} isn't set up yet</h4>
-            <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0; line-height: 1.4;">
-              There is no <code>{{ org }}/{{ config.controlRepo }}</code> repository yet.
-              <template v-if="controlRepoAccess?.hubWritable">Set it up from this organization's overview.</template>
-              <template v-else>A hub admin sets it up by running <strong>Setup Organization</strong>.</template>
-            </p>
-          </template>
-        </div>
+        <ControlRepoUnreadable
+          v-else-if="controlRepoUnreadable"
+          :org="org"
+          :access="controlRepoAccess"
+          :viewer-login="user?.login || ''"
+          @retry="loadAssignments"
+        />
         <div v-else-if="assignmentsError" class="list-empty error-state-box">
           <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
           <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0;">{{ assignmentsError }}</p>
@@ -1085,13 +1033,13 @@
               <!-- `enforced` and `claim` both make students/roster.yml
                    load-bearing, so the form says whether anyone can accept at
                    all rather than naming a tab it does not link to
-                   (ARCHITECTURE §10.4). The count
-                   comes from RosterTab, which has already read the file. -->
+                   (ARCHITECTURE §10.4). The count comes from this view's own
+                   read of the org roster (lib/roster-read.js). -->
               <small v-if="rosterGatesAcceptance(form.roster_mode)" class="roster-status">
                 <span v-if="rosterCount === 0" class="status-indicator">
                   <span class="status-dot dot-warning"></span>
                   <span>No students imported yet - nobody can accept.</span>
-                  <button type="button" class="btn-link" @click="setTab('roster')">Import roster →</button>
+                  <router-link :to="{ name: 'roster', params: { org } }" class="btn-link">Import roster →</router-link>
                 </span>
                 <span
                   v-else-if="rosterMatchesLogin(form.roster_mode) && rosterCount > 0 && rosterLinked === 0"
@@ -1109,7 +1057,7 @@
                     {{ rosterCount }} student{{ rosterCount === 1 ? '' : 's' }} on the roster, but
                     none has a GitHub username yet - nobody can accept.
                   </span>
-                  <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
+                  <router-link :to="{ name: 'roster', params: { org } }" class="btn-link">Manage →</router-link>
                 </span>
                 <span v-else-if="rosterCount > 0" class="status-indicator">
                   <span class="status-dot dot-success"></span>
@@ -1118,11 +1066,12 @@
                       v-if="rosterMatchesLogin(form.roster_mode) && rosterLinked < rosterCount"
                     >, {{ rosterCount - rosterLinked }} without a GitHub username yet</template>.
                   </span>
-                  <button type="button" class="btn-link" @click="setTab('roster')">Manage →</button>
+                  <router-link :to="{ name: 'roster', params: { org } }" class="btn-link">Manage →</router-link>
                 </span>
                 <span v-else>
-                  Students must appear in <code>students/roster.yml</code>. Import them under the
-                  <strong>Roster</strong> tab - an empty roster means nobody can accept.
+                  Students must appear in the course roster. Import them on the
+                  <router-link :to="{ name: 'roster', params: { org } }">Roster page</router-link>
+                  - an empty roster means nobody can accept.
                 </span>
               </small>
               <small v-else class="text-warning">
@@ -1892,7 +1841,7 @@ function stateDot(state) {
   return 'dot-neutral'
 }
 import { countdownParts } from '../lib/countdown.js'
-import RosterTab from '../components/RosterTab.vue'
+import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
 import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -1910,7 +1859,7 @@ import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '
 import { classGroupChips, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
 import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
-import { sameLogin } from '../../../lib/github-login.mjs'
+import { readRoster } from '../lib/roster-read.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 
 const props = defineProps({ org: { type: String, required: true } })
@@ -1932,36 +1881,36 @@ function handleLogout() {
 
 async function onAuthenticated(authedUser) {
   user.value = authedUser
-  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary()])
+  await Promise.all([loadAssignments(), loadTemplates(), loadCohortSummary(), loadRoster()])
 }
 
 
-// ---------------------------------------------------------------- tabs
+// ---------------------------------------------------------------- the org roster
 
-const VALID_TABS = new Set(['assignments', 'roster'])
-function tabFromHash() {
-  const h = (typeof window !== 'undefined' && window.location.hash || '').replace(/^#/, '')
-  return VALID_TABS.has(h) ? h : 'assignments'
-}
-const activeTab = ref(tabFromHash())
-function setTab(name) {
-  if (!VALID_TABS.has(name)) return
-  activeTab.value = name
-  if (typeof window !== 'undefined') {
-    history.replaceState(null, '', `#${name}`)
+// Read here for the form's numbers and the cohort picker, edited on the Roster
+// page (RosterView). This view used to read them off a mounted roster tab; on
+// separate pages each reads the file, through the same function.
+const rosterDoc = ref(null)
+// True until the first read settles, so the form says "not known yet" rather
+// than "nobody can accept" for the moment before it.
+const rosterLoading = ref(true)
+const rosterReadFailed = ref(false)
+async function loadRoster() {
+  rosterLoading.value = true
+  rosterReadFailed.value = false
+  try {
+    rosterDoc.value = (await readRoster(getToken(), props.org)).doc
+  } catch (e) {
+    rosterDoc.value = null
+    rosterReadFailed.value = true
+    console.error('Failed to load roster', e)
+  } finally {
+    rosterLoading.value = false
   }
 }
-// Registered in onMounted / removed in onUnmounted - a setup-scope listener
-// would leak (and mutate unmounted state) across route visits.
-function onHashChange() { activeTab.value = tabFromHash() }
 
-// Roving-tabindex arrow navigation for the two tabs (WAI-ARIA tabs pattern).
-function onTabKeydown(e) {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-  e.preventDefault()
-  setTab(activeTab.value === 'assignments' ? 'roster' : 'assignments')
-  nextTick(() => document.querySelector('.admin-tabs .tab.active')?.focus())
-}
+// `#roster` is a bookmark from when the roster was a tab on this page.
+const LEGACY_ROSTER_HASH = '#roster'
 
 // ---------------------------------------------------------------- state
 
@@ -1971,7 +1920,6 @@ const assignmentsError = ref(null)
 // Why the control repository answered 404, when it did - control-repo-access.js.
 const controlRepoAccess = ref(null)
 const controlRepoUnreadable = computed(() => assignmentsError.value === 'no-control-repo')
-const budgetOwnerIsViewer = computed(() => sameLogin(controlRepoAccess.value?.budgetOwner, user.value?.login))
 const templates = ref([])
 const loadingTemplates = ref(false)
 const templatesError = ref(null)
@@ -2026,7 +1974,7 @@ function onDiagnosticFixed({ type }) {
 
 function onDiagnosticNavigate(tabName) {
   if (tabName === 'roster') {
-    setTab('roster')
+    router.push({ name: 'roster', params: { org: props.org } })
   }
 }
 
@@ -2069,14 +2017,6 @@ const {
   onReady: (msg) => toast.success(msg),
 })
 
-// The roster editor keeps its own pending-import state; include it in the
-// exit guards so flipping away doesn't silently discard a parsed CSV.
-const rosterTab = ref(null)
-function rosterDirty() {
-  return rosterTab.value?.isDirty?.() === true
-}
-// null until the roster has been read (or when there is no roster file at all),
-// so the form can say "not known yet" rather than "nobody can accept".
 // The org's real class groups, and what restricting to some of them would cost.
 //
 // The picker appears ONLY when both halves are true: the roster is actually the
@@ -2084,7 +2024,8 @@ function rosterDirty() {
 // control that does nothing - DESIGN.md §1.5), and the roster genuinely has
 // groups (offering a distinction this org has not made is worse than offering
 // none).
-const rosterStudents = computed(() => rosterTab.value?.rosterStudents ?? [])
+const rosterStudents = computed(() =>
+  (Array.isArray(rosterDoc.value?.students) ? rosterDoc.value.students : []))
 // It needs a roster that gates and a roster with somebody in it. An empty roster
 // under `enforced` already has a louder warning on the mode itself - nobody can
 // accept at all - and an empty picker underneath it would bury it.
@@ -2437,21 +2378,22 @@ function clearCohort() {
   writeCohort(new Set(cohortLocked.value))
 }
 
-const rosterCount = computed(() => rosterTab.value?.studentCount ?? null)
+// null means "not known": still loading, or the read failed. A roster file that
+// does not exist is 0 - that is a known fact, and it is the one that stops
+// every acceptance under `roster_mode: enforced`.
+const rosterCount = computed(() =>
+  (rosterLoading.value || rosterReadFailed.value ? null : rosterStudents.value.length))
 // How many of them can actually be matched by accept.mjs, which reads
 // github_login and nothing else.
-const rosterLinked = computed(() => rosterTab.value?.linkedCount ?? 0)
-function confirmRosterDiscard() {
-  if (!rosterDirty()) return true
-  return window.confirm('Discard the un-committed roster import?')
-}
+const rosterLinked = computed(() =>
+  rosterStudents.value.filter((s) => typeof s?.github_login === 'string' && s.github_login.trim()).length)
 
 // In-page navigation is guarded via confirmDiscard(); guard the two exits
 // that used to lose edits silently - leaving the route (e.g. the Dashboard
 // back button) and closing/refreshing the tab.
-onBeforeRouteLeave(() => confirmDiscard() && confirmRosterDiscard())
+onBeforeRouteLeave(() => confirmDiscard())
 function onBeforeUnload(e) {
-  if (hasUnsavedEdits() || rosterDirty()) {
+  if (hasUnsavedEdits()) {
     e.preventDefault()
     e.returnValue = ''
   }
@@ -5220,7 +5162,6 @@ async function setState(newState) {
 function applyRouteIntent() {
   const q = route.query
   if (q.new === '1' || q.new === 'true' || q.action === 'new') {
-    activeTab.value = 'assignments'
     newAssignment()
     const { new: _new, action: _action, ...rest } = q
     router.replace({ query: rest })
@@ -5229,18 +5170,18 @@ function applyRouteIntent() {
   if (q.edit && (!editing.value || editing.value.id !== q.edit)) {
     const a = assignments.value.find((x) => x.id === q.edit)
     if (a) {
-      activeTab.value = 'assignments'
       editAssignment(a)
     }
   }
 }
 
 onMounted(async () => {
-  window.pxlHasUnsavedState = () => {
-    return hasUnsavedEdits() || rosterDirty()
+  if (window.location.hash === LEGACY_ROSTER_HASH) {
+    router.replace({ name: 'roster', params: { org: props.org } })
+    return
   }
+  window.pxlHasUnsavedState = () => hasUnsavedEdits()
   window.addEventListener('beforeunload', onBeforeUnload)
-  window.addEventListener('hashchange', onHashChange)
   document.addEventListener('click', handleClickOutside)
   clockTimer = setInterval(() => { now.value = new Date() }, 60000)
   if (!isAuthenticated()) { loadingList.value = false; return }
@@ -5252,13 +5193,12 @@ onMounted(async () => {
   // "reading the report…" rather than guessing a number. Behind Promise.all
   // the assignment was never selected at all while that request was in flight.
   const listed = loadAssignments().then(() => applyRouteIntent())
-  await Promise.all([listed, loadTemplates(), loadCohortSummary()])
+  await Promise.all([listed, loadTemplates(), loadCohortSummary(), loadRoster()])
 })
 
 onUnmounted(() => {
   window.pxlHasUnsavedState = null
   window.removeEventListener('beforeunload', onBeforeUnload)
-  window.removeEventListener('hashchange', onHashChange)
   document.removeEventListener('click', handleClickOutside)
   stopPublishWatch()
   if (clockTimer) {
@@ -5294,6 +5234,20 @@ watch(
 /* Under the template badge, because Submission ref itself is inside the
    collapsed Advanced section (lib/template-source.mjs, submissionBranchProvisioned). */
 .submission-branch-warning { display: block; margin-top: var(--space-xs); }
+
+/* Where the Assignments / Roster tab row was: the editor's way to the org's
+   roster, which is a page of its own now. */
+.org-roster-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: 0.9rem;
+}
+.org-roster-link { margin-left: auto; }
 
 .admin-layout {
   display: grid;

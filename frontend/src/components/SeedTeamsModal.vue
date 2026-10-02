@@ -38,7 +38,7 @@
             <template v-if="loadingSources">Looking for group assignments in {{ org }}…</template>
             <template v-else-if="sourceAssignments.length === 0">
               No other group assignment exists in this organization yet — the roster columns are the
-              only source. Fill them from the Roster tab’s CSV import.
+              only source. Fill them from the Roster page’s CSV import.
             </template>
             <template v-else>
               The most recent grouping is the safest source: it reflects every switch and dropout.

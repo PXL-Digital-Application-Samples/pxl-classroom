@@ -96,6 +96,15 @@
                  Hub write alone does not earn it either: that is a role on
                  the hub, and this tag is about the selected organization. -->
             <span v-if="staffHere" class="lecturer-tag text-muted text-xs">Lecturer</span>
+            <!-- Not while loading (staffHere is true before anything is known),
+               not for an org the App is not installed on, and not without a
+               control repository: there is no roster to open in an org nobody
+               has set up. -->
+            <OrgSwitch
+              v-if="user && orgIsInstalled && staffHere && !loadingData && dashState !== 'no-control-repo'"
+              :org="selectedOrg"
+              current="assignments"
+            />
         </div>
       </template>
       <template #actions>
@@ -587,6 +596,7 @@ import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
+import OrgSwitch from '../components/OrgSwitch.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { assignmentStateLabel } from '../lib/status-labels.js'

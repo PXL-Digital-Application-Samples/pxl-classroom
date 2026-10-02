@@ -327,16 +327,19 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
 // ============================================== §5.2 what the roster count means
 
 test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => {
-  test('Importing a roster updates the count on the form, with no reload', async ({ page }) => {
-    // The count crosses a component boundary: RosterTab reads the file,
-    // AdminView renders the number. Nothing but an end-to-end run exercises
-    // the pair, and re-reading the file in AdminView would have been a second
-    // request and a second answer.
+  test('Importing a roster on the Roster page updates the count on the form', async ({ page }) => {
+    // The count crosses a page boundary: the Roster page writes the file, the
+    // Admin Panel reads it again and renders the number. They were one page
+    // until the roster became an org-level route; nothing but an end-to-end
+    // run exercises the pair.
     await openNewForm(page);
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
 
-    await page.locator('.primer-tab', { hasText: 'Roster' }).click();
+    // The gate change is an unsaved edit, so leaving asks; this test leaves.
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('link', { name: 'Open the roster' }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await page.locator('textarea').first().fill(
       'student_number,full_name,email,github_login\n' +
         '0001,Alice Example,alice@student.pxl.be,alice-test\n' +
@@ -347,7 +350,9 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await commit.click();
     await expect(page.locator('.toast', { hasText: /Roster committed/i })).toBeVisible({ timeout: 10000 });
 
-    await page.locator('.primer-tab', { hasText: 'Assignments' }).click();
+    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.locator('.new-btn').click();
+    await gateOn(page);
     await expect(rosterStatus(page)).toContainText('2 students on the roster');
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
   });

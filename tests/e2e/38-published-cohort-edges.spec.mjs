@@ -387,19 +387,10 @@ test.describe('38 - Nothing leaks from one assignment to the next', () => {
     await expect(details(page), 'the disclosure the edit is inside must not shut').toHaveJSProperty('open', true);
   });
 
-  test('Flipping to the Roster tab and back keeps the pane where it was', async ({ page }) => {
-    // The tabs are v-show, so nothing unmounts - which is the point, and also
-    // means any state that got out of step would survive the round trip.
-    await open(page, { assignments: two, extra: { reports: { dashboard: dashTwo } } });
-    await expandSettings(page);
-
-    await page.getByRole('tab', { name: 'Roster' }).click();
-    await expect(page.getByRole('tab', { name: 'Roster' })).toHaveAttribute('aria-selected', 'true');
-    await page.getByRole('tab', { name: 'Assignments' }).click();
-
-    await expect(details(page)).toHaveJSProperty('open', true);
-    await expect(cohort(page)).toContainText('47');
-  });
+  // "Flipping to the Roster tab and back keeps the pane where it was" lived
+  // here: the tabs were v-show, so state that got out of step survived the
+  // round trip. The roster is its own route now and leaving for it unmounts
+  // this view, behind the same unsaved-changes guard as any other exit.
 });
 
 // ============================================ transitions change which layout applies

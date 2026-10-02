@@ -333,8 +333,7 @@ test.describe('49 - picking who an assignment is for', () => {
     // file that silently un-groups their whole roster on the way back in.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -365,8 +364,7 @@ test.describe('49 - setting a class group without a CSV', () => {
   async function rosterTab(page, contentWrites) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER, contentWrites });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
     await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   }
 

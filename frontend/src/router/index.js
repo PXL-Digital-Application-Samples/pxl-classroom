@@ -43,6 +43,14 @@ const routes = [
     props: true,
   },
   {
+    // The organization's roster. A static segment, so it outranks
+    // `:assignmentId` below whatever the order, as `admin` and `usage` do.
+    path: '/dashboard/:org/roster',
+    name: 'roster',
+    component: () => import('../views/RosterView.vue'),
+    props: true,
+  },
+  {
     path: '/dashboard/:org/:assignmentId',
     name: 'assignment-detail',
     component: () => import('../views/AssignmentDetailView.vue'),
@@ -118,6 +126,9 @@ router.afterEach((to) => {
       break
     case 'admin':
       page = `Admin Panel - ${to.params.org}`
+      break
+    case 'roster':
+      page = `Roster - ${to.params.org}`
       break
     case 'assignment-detail':
       page = `${to.params.assignmentId} - ${to.params.org}`

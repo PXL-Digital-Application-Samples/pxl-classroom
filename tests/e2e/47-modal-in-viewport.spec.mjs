@@ -99,8 +99,7 @@ test.describe('47 - a dialog opens inside the viewport', () => {
       assignments: {},
       roster: [{ student_number: '0123456', full_name: 'Alice Example', email: 'alice@student.pxl.be' }],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
     await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
 
     await page.locator('.row-menu-anchor button').first().click();

@@ -36,8 +36,7 @@ const claim = (login, id, email, verified = true) => ({
 async function openRoster(page, opts) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, roster: ROSTER, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
 }
 
 const row = (page, name) => page.locator('tr', { hasText: name });

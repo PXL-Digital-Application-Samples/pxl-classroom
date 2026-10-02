@@ -164,7 +164,9 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await expect(rosterStatus(page)).toContainText('No students imported yet - nobody can accept');
     await expect(rosterStatus(page).locator('.status-dot.dot-warning')).toBeVisible();
 
-    await rosterStatus(page).getByRole('button', { name: /Import roster/ }).click();
+    page.on('dialog', (d) => d.accept());
+    await rosterStatus(page).getByRole('link', { name: /Import roster/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await expect(page.locator('.roster-tab')).toBeVisible();
   });
 
@@ -179,7 +181,9 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
 
-    await rosterStatus(page).getByRole('button', { name: /Manage/ }).click();
+    page.on('dialog', (d) => d.accept());
+    await rosterStatus(page).getByRole('link', { name: /Manage/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await expect(page.locator('.roster-tab')).toBeVisible();
   });
 

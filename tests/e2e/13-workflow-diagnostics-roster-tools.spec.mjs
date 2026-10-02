@@ -86,7 +86,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
     await page.goto(`/dashboard/${ORG}/admin`);
 
     // Switch to Roster tab
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.getByRole('link', { name: 'Open the roster' }).click();
 
     // Verify filter chips
     await expect(page.getByRole('button', { name: 'All (3)' })).toBeVisible();
@@ -119,8 +119,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       contentWrites,
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     // Click + Add student
     await page.getByRole('button', { name: '+ Add student' }).click();

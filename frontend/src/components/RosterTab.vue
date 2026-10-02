@@ -857,6 +857,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
+import { readRoster } from '../lib/roster-read.js'
 import { REPORTS_DIR, assignmentPath } from '../../../lib/control-layout.mjs'
 // An address is the only identity a person TYPES, so it is the only one that can
 // change under a row. This says which assignments would stop matching if it did.
@@ -2401,15 +2402,14 @@ async function loadExisting() {
   rosterReadFailed.value = false
   try {
     const token = getToken()
-    // getRepoContent resolves to null on a 404 and throws on anything else, so
-    // a falsy body here is a genuine absence.
-    const text = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
-    existingRoster.value = text ? parseYaml(text) : null
+    // A null doc is a genuine absence; an unreadable file throws.
+    const { doc, raw } = await readRoster(token, props.org)
+    existingRoster.value = doc
     // The bytes as loaded, so an in-place edit can tell "nothing changed under
     // me" from "somebody else committed while this page was open". Comparing
     // the parsed document would not do: key order and formatting survive a
     // round trip through the API but not through parse-and-restringify.
-    rosterRaw.value = text ?? null
+    rosterRaw.value = raw
   } catch (e) {
     rosterReadFailed.value = true
     existingRoster.value = null
