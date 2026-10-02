@@ -1,4 +1,4 @@
-// 90 - The new-assignment form says what it needs and shows what it derived.
+// 93 - The new-assignment form says what it needs and shows what it derived.
 //
 // Reviewed as a whole on 2026-10-02. Each test is one place the form made a
 // lecturer guess: Save greyed out with no reason, a derived repository name
@@ -20,7 +20,7 @@ async function openNewAssignmentForm(page) {
 
 const blockers = (page) => page.locator('.save-blockers');
 
-test.describe('90 - What the new-assignment form says', () => {
+test.describe('93 - What the new-assignment form says', () => {
   test('a disabled Save names what is still needed', async ({ page }) => {
     await openNewAssignmentForm(page);
     await expect(page.getByRole('button', { name: 'Save as draft' })).toBeDisabled();

@@ -1,4 +1,4 @@
-// 89 - The page says which step a request is at, and when to send it again.
+// 92 - The page says which step a request is at, and when to send it again.
 //
 // 2026-10-02: two students joining PXL-2TIN-DevOps-2627's `fullhouse` watched
 // the team card spin, time out after three minutes and say "your team
@@ -118,7 +118,7 @@ async function advance(page, ms) {
 // Past the second check, which is the first that reads the issue.
 const settle = (page) => advance(page, 12_000);
 
-test.describe('89 - Which step the request is at', () => {
+test.describe('92 - Which step the request is at', () => {
   test('not delivered: said at once, and sending it again sends a new request', async ({ page }) => {
     const sent = await setup(page, { title: NOT_DELIVERED_TITLE_BY_PURPOSE.accept });
     await accept(page);
