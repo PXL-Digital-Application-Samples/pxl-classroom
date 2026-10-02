@@ -5,11 +5,11 @@
       ref="el"
       role="dialog"
       aria-modal="true"
-      :aria-label="`Re-grade a commit for ${student.github_login}`"
+      :aria-label="`Choose the commit that counts for ${student.github_login}`"
       @keydown="onKeydown"
     >
       <header class="modal-head">
-        <h3>Re-grade a commit: <code>{{ student.github_login }}</code></h3>
+        <h3>Choose the commit that counts: <code>{{ student.github_login }}</code></h3>
         <button class="modal-close" type="button" @click="requestClose" :disabled="saving" aria-label="Close">×</button>
       </header>
 
@@ -63,14 +63,15 @@
             <div v-if="r.result.state === 'none' || r.result.state === 'error'" class="commit-none text-sm text-secondary">
               {{ r.result.reason }}
               <template v-if="grader.available">
-                <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="gradeNow(r)">Grade this commit now</button>
-                <span>Runs the grading workflow on their {{ branch }} branch against the code of this commit. Tests written
-                  in the workflow are the current ones; test files in the repository are the ones at this commit.</span>
+                <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="gradeNow(r)">Start a grading run on this commit</button>
+                <span>Starts a new run on GitHub: the grading workflow on their {{ branch }} branch, against the code of
+                  this commit. Tests written in the workflow are the current ones; test files in the repository are the
+                  ones at this commit.</span>
               </template>
               <template v-if="r.rerun">
                 <template v-if="r.rerun.can">
-                  <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="rerun(r)">Run grading again</button>
-                  <span>Runs the tests as they were at this commit, now. A test that needs something that no longer
+                  <button type="button" class="btn btn-secondary btn-xs" :disabled="saving" @click="rerun(r)">Re-run its grading on GitHub</button>
+                  <span>Starts GitHub's re-run of this commit's grading run: the tests as they were at this commit, now. A test that needs something that no longer
                     exists (a cloud exam's sandbox) will fail.</span>
                 </template>
                 <template v-else-if="r.rerun.why">{{ r.rerun.why }}</template>
@@ -81,7 +82,7 @@
         </ul>
         <button v-if="hasMore && !loading" type="button" class="btn-link" @click="loadMore">Show older commits</button>
         <p v-if="grader.reason && rows.some((r) => r.result.state === 'none')" class="form-hint text-secondary">
-          Grading a chosen commit now is not possible here: {{ grader.reason }}.
+          Starting a grading run for a chosen commit is not possible here: {{ grader.reason }}.
         </p>
       </section>
 

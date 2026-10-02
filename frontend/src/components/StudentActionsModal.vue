@@ -207,7 +207,7 @@
             type="button"
             :disabled="busy"
             @click="emit('choose-commit')"
-          >Re-grade a commit…</button>
+          >Choose the commit that counts…</button>
         </div>
         <p v-if="student.repo_name && decision?.kind === 'score'" class="text-secondary text-sm">
           A score set by hand wins over any commit. Remove it below to grade a commit instead.

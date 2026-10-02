@@ -277,7 +277,7 @@
                   Scores updated: successfully read and recorded grades for all {{ regradePanel.total }} students.
                 </strong>
                 <strong v-else-if="regradePanel.status === 'error'" class="text-danger">
-                  Regrading halted: {{ regradePanel.error }}
+                  Reading scores stopped: {{ regradePanel.error }}
                 </strong>
                 <p v-if="regradePanel.status === 'running'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
                   Querying test check runs, calculating point totals, and synchronizing autograding summaries...
@@ -2389,8 +2389,11 @@ const ignoredHandIns = computed(() => {
  * count is in it because forty is the number that makes a lecturer reach for
  * the per-student action instead.
  */
+// READ, not re-grade (2026-10-02): this starts no grading run. It reads the
+// results of runs that already happened and applies the rules again, and a
+// lecturer reads "re-grade" as "run the tests again".
 const regradeLabel = computed(() =>
-  hasGrades.value ? `Re-grade all ${gradableCount.value}` : 'Read scores from GitHub Actions',
+  hasGrades.value ? `Read all scores again (${gradableCount.value})` : 'Read scores from GitHub Actions',
 )
 
 /**
@@ -4892,7 +4895,7 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
       // have a score, by the new reason when they do not. Everybody else's stands.
       failed: [...(base?.failed || []).filter((f) => String(f.login).toLowerCase() !== login), ...(why ? [why] : [])],
     })
-    const saved = await saveSummaryMerging(token, merged, prev, `Re-grade ${student.github_login} for ${props.assignmentId}`)
+    const saved = await saveSummaryMerging(token, merged, prev, `Read ${student.github_login}'s score again for ${props.assignmentId}`)
     if (!saved.ok) {
       toast.error(saved.message)
       return

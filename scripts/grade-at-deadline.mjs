@@ -131,7 +131,7 @@ async function main() {
     return log(
       true,
       `already graded by ${existing.graded_by ? `@${existing.graded_by}` : "a local runner"} ` +
-        `via ${existing.runner} on ${existing.generated_at} - left alone. Use Re-grade to replace it.`,
+        `via ${existing.runner} on ${existing.generated_at} - left alone. Use Read all scores again to replace it.`,
     );
   }
 

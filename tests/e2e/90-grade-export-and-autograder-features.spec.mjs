@@ -304,10 +304,10 @@ test.describe('90 - Grade exports and autograder features', () => {
   test('Regrade Run Progress Panel appears on regrade action and can be dismissed', async ({ page }) => {
     await setup(page);
 
-    // Click More actions dropdown then Regrade all
+    // More, then Read all scores again (it reads the runs; it starts none)
     const moreBtn = page.getByRole('button', { name: /More/i });
     await moreBtn.click();
-    const regradeBtn = page.locator('.export-dropdown-item', { hasText: /Re-?grade/i });
+    const regradeBtn = page.locator('.export-dropdown-item', { hasText: /Read all scores again/ });
     await expect(regradeBtn).toBeVisible();
     await regradeBtn.click();
 

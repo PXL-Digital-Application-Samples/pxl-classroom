@@ -100,7 +100,7 @@ async function setup(page, { overrides = null, cancelAll = false, startSummary =
 
 const dialog = (page) => page.getByRole('dialog', { name: `Actions for ${LOGIN}` });
 const grading = (page) => dialog(page).locator('[data-section="grading"]');
-const picker = (page) => page.getByRole('dialog', { name: `Re-grade a commit for ${LOGIN}` });
+const picker = (page) => page.getByRole('dialog', { name: `Choose the commit that counts for ${LOGIN}` });
 const lastWrite = (writes, path) => [...writes].reverse().find((w) => w.path === path);
 const lastSummary = (writes) => JSON.parse(lastWrite(writes, summaryPath).content);
 
@@ -127,7 +127,7 @@ test.describe('87 - grading decisions', () => {
     await openActions(page);
     await expect(grading(page)).toContainText('Now 5/10, on commit 05aaaaa. Graded by the rules.');
     await expect(grading(page).getByRole('button', { name: 'Read score again' })).toBeVisible();
-    await expect(grading(page).getByRole('button', { name: 'Re-grade a commit…' })).toBeVisible();
+    await expect(grading(page).getByRole('button', { name: 'Choose the commit that counts…' })).toBeVisible();
     await expect(grading(page).locator('summary', { hasText: 'Set score by hand' })).toBeVisible();
     await expect(dialog(page).getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
   });
@@ -135,7 +135,7 @@ test.describe('87 - grading decisions', () => {
   test('RE-GRADE A COMMIT: the over-limit hand-in is listed with its result, chosen with a reason, and stored', async ({ page }) => {
     const { contentWrites } = await setup(page);
     await openActions(page);
-    await grading(page).getByRole('button', { name: 'Re-grade a commit…' }).click();
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
     const rows = picker(page).locator('.commit-row');
     await expect(rows).toHaveCount(6);
     const six = rows.filter({ hasText: '#6' });
@@ -156,12 +156,12 @@ test.describe('87 - grading decisions', () => {
   test('a hand-in with NO result says why and offers to run it again - and the result, once there, can be chosen', async ({ page }) => {
     const { reruns } = await setup(page);
     await openActions(page);
-    await grading(page).getByRole('button', { name: 'Re-grade a commit…' }).click();
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
     const three = picker(page).locator('.commit-row').filter({ hasText: '#3' });
     await expect(three).toContainText('no result');
     await expect(three.getByRole('radio')).toBeDisabled();
-    await expect(three).toContainText('Runs the tests as they were at this commit');
-    await three.getByRole('button', { name: 'Run grading again' }).click();
+    await expect(three).toContainText('the tests as they were at this commit');
+    await three.getByRole('button', { name: 'Re-run its grading on GitHub' }).click();
     await expect.poll(() => reruns.length).toBe(1);
     expect(reruns[0]).toMatch(/\/actions\/runs\/103\/rerun$/);
     await expect(three).toContainText('3/10', { timeout: 20000 });
@@ -331,7 +331,7 @@ test.describe('87 - grading decisions', () => {
     const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
     await setup(page, { overrides: [manual] });
     await openActions(page);
-    await expect(grading(page).getByRole('button', { name: 'Re-grade a commit…' })).toHaveCount(0);
+    await expect(grading(page).getByRole('button', { name: 'Choose the commit that counts…' })).toHaveCount(0);
     await expect(grading(page)).toContainText('A score set by hand wins over any commit. Remove it below to grade a commit instead.');
   });
 
