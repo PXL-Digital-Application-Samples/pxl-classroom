@@ -107,19 +107,8 @@
             />
         </div>
       </template>
-      <template #actions>
-        <button
-          v-if="selectedOrg"
-          type="button"
-          class="btn btn-ghost btn-icon health-btn"
-          @click="showHealthModal = true"
-          title="System health check"
-          aria-label="System health check"
-        >
-          <Icon name="activity" :size="16" />
-          <span v-if="hubStuckRun" class="alert-dot" title="Pipeline warning detected"></span>
-        </button>
-      </template>
+      <!-- No health button here any more: System health, and Usage & limits,
+           are on the Organization tab (OrganizationView.vue). -->
     </AppHeader>
 
     <main class="container">
@@ -217,7 +206,7 @@
       </div>
 
       <!-- No assignments - say WHY, each cause has a different remedy -->
-      <div v-else-if="assignments.length === 0" class="center-card fade-in">
+      <div v-else-if="assignments.length === 0 && drafts.length === 0" class="center-card fade-in">
         <!-- NOT STAFF HERE, and it must say so rather than describe a
              half-configured organization.
              The org reaches the switcher for anyone whose App installation
@@ -418,13 +407,13 @@
                 <div class="step-icon"><Icon name="plus-circle" :size="16" class="text-blue" /></div>
                 <div class="step-body">
                   <strong>3. Create &amp; Publish Assignment</strong>
-                  <p>Open the Admin Panel, select your template, and generate the student invitation link.</p>
+                  <p>Create an assignment, select your template, and publish it to get the student invitation link.</p>
                 </div>
               </div>
             </div>
 
             <div class="onboarding-actions">
-              <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
+              <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
                 <Icon name="plus" :size="14" />
                 <span>Create Your First Assignment</span>
               </router-link>
@@ -440,14 +429,11 @@
           <p class="text-secondary">
             The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
             It appears when an assignment is published (and refreshes nightly).
-            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
-            </span>
-            <span v-else style="display: block; margin-top: var(--space-xs);">
+            <span style="display: block; margin-top: var(--space-xs);">
               Published assignments appear here once the first report is generated.
             </span>
           </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+          <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary">New assignment</router-link>
         </template>
         <!-- The state the page cannot explain.
              "Assignments in this organization are closed or archived" was
@@ -461,16 +447,11 @@
         <template v-else>
           <h2>Nothing to show for {{ selectedOrg }}</h2>
           <p class="text-secondary">
-            <span v-if="draftCount > 0">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel.
-            </span>
-            <span v-else>
-              No assignments came back for this organization. If you know there are some,
-              this is a failed load rather than an empty course - reload, and tell whoever
-              maintains this deployment if it keeps happening.
-            </span>
+            No assignments came back for this organization. If you know there are some,
+            this is a failed load rather than an empty course - reload, and tell whoever
+            maintains this deployment if it keeps happening.
           </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+          <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary">New assignment</router-link>
         </template>
       </div>
 
@@ -489,14 +470,35 @@
             </label>
           </div>
           <div class="flex items-center gap-sm">
-            <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
+            <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
               <Icon name="plus" :size="14" />
               <span>New assignment</span>
             </router-link>
           </div>
         </div>
-        
-        <div v-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
+
+        <!-- Drafts first and apart: nothing to track yet, so a name and a
+             deadline, and a click opens the settings, where a draft's work is. -->
+        <section v-if="drafts.length" class="drafts-row" aria-label="Drafts">
+          <h3 class="drafts-row-title text-secondary text-sm">Drafts</h3>
+          <div class="drafts-row-list">
+            <router-link
+              v-for="d in drafts"
+              :key="d.id"
+              :to="{ name: 'assignment-settings', params: { org: selectedOrg, assignmentId: d.id } }"
+              class="draft-chip card"
+            >
+              <span class="status-dot dot-neutral"></span>
+              <span class="draft-chip-title">{{ d.title || d.id }}</span>
+              <span v-if="d.deadline_at" class="text-muted text-xs">due {{ formatDate(d.deadline_at, d.timezone) }}</span>
+            </router-link>
+          </div>
+        </section>
+
+        <div v-if="visibleAssignments.length === 0 && drafts.length" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
+          Nothing published yet. Publish a draft to hand out its invitation link.
+        </div>
+        <div v-else-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
           No active assignments right now.
         </div>
         <div v-else class="assignment-grid">
@@ -574,9 +576,6 @@
         </div>
       </div>
 
-      <!-- Embedded Resource Usage & Limits Section -->
-      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo' && staffHere" :org="selectedOrg" />
-
       <!-- Unified Health Diagnostics Modal -->
       <SystemHealthModal
         :is-open="showHealthModal"
@@ -593,7 +592,6 @@ import { useRouter, useRoute } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
-import UsagePanel from '../components/UsagePanel.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
 import OrgSwitch from '../components/OrgSwitch.vue'
@@ -938,7 +936,12 @@ async function runSetupOrg() {
 }
 const dashError = ref(null)
 
-const draftCount = ref(0)
+// DRAFTS ARE A ROW OF THEIR OWN, above the cards (BETA-UX.md, 2026-10-02):
+// nothing to track yet, so no figures, and each opens its settings, which is
+// where a draft's work is. Set wherever the list is, never cleared ahead of
+// its replacement.
+const drafts = ref([])
+const draftCount = computed(() => drafts.value.length)
 const showArchived = ref(false)
 
 const archivedCount = computed(() => {
@@ -1139,7 +1142,6 @@ async function loadDashboard(orgArg) {
   // Scalars, not the list: these describe the run and every authoritative exit
   // sets them. `assignments` stays until a replacement exists.
   dashState.value = ''
-  draftCount.value = 0
   hubWritable.value = false
 
   try {
@@ -1183,14 +1185,15 @@ async function loadDashboard(orgArg) {
       // after a newer one has moved to another organization would put that
       // organization's assignments under this one's name.
       if (superseded()) return
-      assignments.value = [...displayList, ...extra].sort((a, b) => {
+      assignments.value = [...displayList, ...extra.filter((a) => a.state !== 'draft')].sort((a, b) => {
         const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
         if (diff !== 0) return diff
         return (a.id || '').localeCompare(b.id || '')
       })
-
-      const drafts = Object.values(reportData.assignments).filter(a => a.state === 'draft')
-      draftCount.value = drafts.length + extra.filter((a) => a.state === 'draft').length
+      drafts.value = [
+        ...Object.entries(reportData.assignments).map(([id, a]) => ({ id, ...a })).filter((a) => a.state === 'draft'),
+        ...extra.filter((a) => a.state === 'draft'),
+      ].sort((a, b) => (a.id || '').localeCompare(b.id || ''))
 
       const now = new Date()
       const hasActive = assignments.value.some((a) => {
@@ -1257,6 +1260,7 @@ async function loadDashboard(orgArg) {
         // cards from the organization you just switched away from stay on
         // screen under the new one's name.
         assignments.value = []
+        drafts.value = []
         dashState.value = DASH_STATE_FOR_VERDICT[access.verdict]
         orgStatusMap.value.set(org.toLowerCase(), access.verdict === 'not-set-up' ? 'empty' : 'no-access')
         return
@@ -1277,6 +1281,7 @@ async function loadDashboard(orgArg) {
       // This is the beginning lecturer state - show the onboarding readiness card!
       if (superseded()) return
       assignments.value = []
+      drafts.value = []
       dashState.value = 'onboarding'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
       return
@@ -1287,9 +1292,9 @@ async function loadDashboard(orgArg) {
       // who had just published two assignments was told they had two drafts to
       // publish. What is missing here is reports/dashboard.json, not the
       // publish; read each YAML's own state and say only what is true.
-      const drafts = await countDraftAssignments(token, org, ymls)
+      const found = await listDraftAssignments(token, org, ymls)
       if (superseded()) return
-      draftCount.value = drafts
+      drafts.value = found
       assignments.value = []
       dashState.value = 'no-dashboard'
       orgStatusMap.value.set(org.toLowerCase(), 'empty')
@@ -1321,13 +1326,6 @@ async function loadDashboard(orgArg) {
   }
 }
 
-// How many of these assignment YAMLs are actually drafts.
-//
-// The directory listing carries names, not contents, so each file is fetched.
-// That only happens on this branch - reports/dashboard.json missing, i.e. a
-// newly onboarded org - and the pool keeps a large assignments/ directory from
-// firing one request per file at once. `yaml` is imported lazily so it stays
-// out of the dashboard chunk for the ordinary path.
 /**
  * Assignments that exist on disk but are not in `reports/dashboard.json` yet.
  *
@@ -1340,8 +1338,8 @@ async function loadDashboard(orgArg) {
  * has never been reported on. It is listed rather than hidden, since "exists
  * but has no numbers" is the truth and "does not exist" is not.
  *
- * Drafts are excluded to match the generated list, which excludes them too -
- * they are counted separately and shown as a prompt to publish.
+ * Drafts are included, with their state; the caller puts them in the drafts
+ * row rather than among the cards.
  */
 async function assignmentsMissingFrom(token, org, reported) {
   let files = []
@@ -1371,8 +1369,8 @@ async function assignmentsMissingFrom(token, org, reported) {
         if (!text) continue
         const doc = parseYaml(text)
         // An absent state is a draft - the schema's own default.
+        // Drafts too: the caller puts them in the drafts row.
         const state = doc?.state || 'draft'
-        if (state === 'draft') continue
         out.push({
           id: doc?.id || f.name.replace(/\.ya?ml$/, ''),
           title: doc?.title || null,
@@ -1392,17 +1390,26 @@ async function assignmentsMissingFrom(token, org, reported) {
   return out
 }
 
-async function countDraftAssignments(token, org, files) {
+// Which of these assignment YAMLs are actually drafts.
+//
+// The directory listing carries names, not contents, so each file is fetched.
+// That only happens on this branch - reports/dashboard.json missing, i.e. a
+// newly onboarded org - and the pool keeps a large assignments/ directory from
+// firing one request per file at once. `yaml` is imported lazily so it stays
+// out of the dashboard chunk for the ordinary path.
+async function listDraftAssignments(token, org, files) {
   const { parse: parseYaml } = await import('yaml')
   const queue = [...files]
-  let drafts = 0
+  const found = []
   const worker = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
       try {
         const text = await getRepoContent(token, org, config.controlRepo, f.path)
         if (!text) continue
+        const doc = parseYaml(text)
         // An absent state is a draft - the schema's own default.
-        if ((parseYaml(text)?.state || 'draft') === 'draft') drafts++
+        if ((doc?.state || 'draft') !== 'draft') continue
+        found.push({ id: doc?.id || f.name.replace(/\.ya?ml$/, ''), title: doc?.title || null, state: 'draft', deadline_at: doc?.deadline_at || null })
       } catch {
         // Unreadable or unparseable is not evidence of a draft. Leaving it out
         // is the point: the bug being fixed was counting files as drafts.
@@ -1410,7 +1417,7 @@ async function countDraftAssignments(token, org, files) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
-  return drafts
+  return found.sort((a, b) => a.id.localeCompare(b.id))
 }
 
 async function onAuthenticated(authedUser) {
@@ -1426,6 +1433,7 @@ function handleLogout() {
   orgsLoaded.value = false
   selectedOrg.value = ''
   assignments.value = []
+  drafts.value = []
 }
 </script>
 
@@ -1808,18 +1816,20 @@ main {
   flex-wrap: wrap;
 }
 
-.health-btn {
-  position: relative;
+.drafts-row { margin: var(--space-md) 0; }
+.drafts-row-title { margin: 0 0 var(--space-xs) 0; font-weight: 600; }
+.drafts-row-list { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+.draft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  max-width: 100%;
 }
-.alert-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--accent-red);
-}
+.draft-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pipeline-stuck-banner {
   background: var(--tint-attention-subtle);
   border: 1px solid var(--tint-attention-emphasis);
@@ -1832,7 +1842,6 @@ main {
      wordmark duplicates the logo, which still links home. */
   .lecturer-tag { display: none; }
   .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
-  .health-btn { justify-content: center; }
   .onboarding-actions { flex-direction: column; align-items: stretch; }
   .org-dropdown-container { max-width: 240px; }
 }

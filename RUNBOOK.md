@@ -15,7 +15,7 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | | |
 |---|---|
 | Create the template repository | [§1.1](#11-create-the-template-repository) |
-| Define the assignment | [§1.2](#12-define-the-assignment-in-the-admin-panel) |
+| Define the assignment | [§1.2](#12-define-the-assignment) |
 | Reuse the groups from an earlier group assignment | [§1.3](#13-reuse-the-groups-from-an-earlier-group-assignment) |
 | Publish it, and share the link | [§1.4](#14-publish), [§1.5](#15-share-the-link) |
 | Give a colleague who teaches the course access to it | [ADMIN.md §1.6](ADMIN.md#16-give-a-lecturer-access-to-a-course-organization) |
@@ -72,14 +72,13 @@ Done by a lecturer.
 
 **A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
-Step 2 is the one people miss, and it is the most common reason the Admin Panel's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
+Step 2 is the one people miss, and it is the most common reason the editor's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
 
-### 1.2 Define the assignment in the Admin Panel
+### 1.2 Define the assignment
 
 1. Open the dashboard: `https://<pages-host>/pxl-classroom/dashboard/<org>`.
 2. Sign in with device flow.
-3. Click **Admin Panel**.
-4. Click **New assignment** and fill the form:
+3. Click **New assignment** and fill the form. (Later, an assignment's settings are its **Settings** tab; a draft is in the **Drafts** row at the top of the list, and clicking it opens them.)
 
 **Pick the template first and most of the form fills itself.** The fields are in the order the values derive: the template's repository name becomes the Title, the Title becomes the slug, and the slug becomes the Repository name pattern. Each is only filled while still empty, so anything you type yourself is left alone.
 
@@ -98,7 +97,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
 | Submission ref (under **Advanced**) | the branch collected, locked at the deadline and graded. Student repositories are created with the template's **default branch only**, so this must name that branch: a new assignment fills it in from the template (`refs/heads/master` for a `master` template) unless you type your own. A ref naming any other branch shows a warning under the template, and publishing refuses it. |
 
-5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
+4. The editor validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
 ### 1.3 Reuse the groups from an earlier group assignment
 
@@ -142,9 +141,9 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 1.4 Publish
 
-In the editor -> click **Save & publish** in the header bar (on an existing draft, *Lifecycle -> State -> **Publish (create broker, enable nightly)*** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+In the editor -> click **Save & publish** in the header bar (on an existing draft, the **state button** at the top -> **Publish** does the same). The panel watches for the broker repo and confirms when the accept link is live.
 
-Once it is published, opening it again leads with the invitation link, an accepted/deadline summary and a link to the tracking page; the six fieldsets move behind **Edit settings** and *Lifecycle* separates **Repair** (Republish broker) from the state transitions below it.
+Once it is published, its **Settings** tab leads with the invitation link and an accepted/deadline summary; the six fieldsets move behind **Edit settings**, and a *Broker* section below them holds **Republish broker**. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
 
 **Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
 
@@ -168,13 +167,12 @@ Publishing days or weeks ahead is safe and is the better habit for an exam: `ope
 
 The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo (ARCHITECTURE §4.3.2).
 
-**Where to find it.** The **Share with students** block appears in four places, and you never have to open the editor to reach it:
+**Where to find it.** The **Share with students** block appears in three places, and you never have to open the settings to reach it:
 
 | Where | What you get |
 |---|---|
-| The banner after publishing, in the Admin Panel | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
-| The assignment's detail page, behind the **Invite link** button | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link** and **Copy confirm-email link** |
-| Each published row in the Admin Panel's assignment list | A copy button |
+| The **Invite link** button at the top of every tab of the assignment | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link** and **Copy confirm-email link** |
+| The banner after publishing, on the **Settings** tab | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
 | Each published card on the dashboard | A copy button |
 
 The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
@@ -225,8 +223,8 @@ To restore:
 
 ### 3.2 Grant an extension
 
-1. Open the assignment's **roster & progress** page (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
-2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the Admin Panel's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1). The Lifecycle block in the editor links here.
+1. Open the assignment's **Progress** tab (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
+2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the editor's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1).
 3. The modal shows any extension already in force, then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`), appending to the existing history rather than replacing it.
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
@@ -284,7 +282,7 @@ The run says which mechanism it used and why, so a lecturer reading it can tell 
 [ok] lock scope - repository scope - this assignment opts out of organization scope
 ```
 
-**To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the Admin Panel; nothing in the form can set it again, which is why it is carried rather than rebuilt.
+**To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the editor; nothing in the form can set it again, which is why it is carried rather than rebuilt.
 
 Two things to know before turning it on:
 
@@ -330,7 +328,7 @@ Possible causes:
 - **A student says the Accept button does nothing.** If the page reports "GitHub is blocking your request", their GitHub account has been flagged and its content is hidden from everyone but themselves - the acceptance issue is created and removed before the broker sees it. Confirm with `gh api users/<login>`: a flagged account returns 404 to everyone else and 200 to itself. Only GitHub Support can lift it; provision the student manually in the meantime.
   - *Lecturer Retry Flow:* the student comes from the report row, so there is no login to validate; the SPA checks whether the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run. A retry the gates refuse (a locked repository after the deadline, a student not on the roster) changes nothing: the student's acceptance and report row stay as they were.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
-- **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject. Note the cap is a **guardrail, not an exact seat count**: acceptances are checked and recorded in parallel runs, so a simultaneous burst can land a couple over it. That is deliberate - making it exact would make every acceptance in the cohort wait on every other (ARCHITECTURE §5.4). If you need an exact number, reconcile afterwards rather than relying on the cap.
+- **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or on its Settings tab) or reject. Note the cap is a **guardrail, not an exact seat count**: acceptances are checked and recorded in parallel runs, so a simultaneous burst can land a couple over it. That is deliberate - making it exact would make every acceptance in the cohort wait on every other (ARCHITECTURE §5.4). If you need an exact number, reconcile afterwards rather than relying on the cap.
 - **The student is not on the roster.** Under `roster_mode: enforced` (not the default - new assignments are `open`) the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out - the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§6.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§6.4 -> *Running an assignment without a roster*).
 
 ## 3.7 Nightly finalize failed
@@ -380,11 +378,11 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 
 **Check the rate limit first, and expect it to be fine** - a near-full quota is what rules out the cause the wording implies and points at a permission instead.
 
-The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The Admin Panel authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
+The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The dashboard authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
 
 1. **App owner**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Repository permissions** -> **Checks: Read-only** -> **Save changes**. Confirm with `gh api apps/pxl-classroom-provisioner --jq .permissions.checks` (must print `read`).
 2. **Each org owner**: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve.
-3. Sign out of the Admin Panel and back in, so the device flow issues a token carrying the new permission. An existing session keeps the old one.
+3. Sign out of the dashboard and back in, so the device flow issues a token carrying the new permission. An existing session keeps the old one.
 
 `node scripts/check-app-declaration.mjs` answers step 1 immediately and needs no token; `scripts/check-installation-approvals.mjs` (the `installation-approvals` job in `weekly-usage-report.yml`) answers step 2 for every org at once.
 
@@ -470,7 +468,7 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 
 The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohort is one gesture, and nothing else is in the blast radius.
 
-**Delete assignment** does the PXL Classroom half of this. It is offered on the editor's lifecycle row once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
+**Delete assignment** does the PXL Classroom half of this. It is offered on the state button once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
 
 What it does, in this order, because the order is the safety property:
 
@@ -584,7 +582,7 @@ Editing an existing assignment is checked for one thing only: repointing its pat
 
 §6.1-§6.3 install and configure the CLI, and are needed only for the CLI route. Everything from §6.4 onwards is a task, and each says which surfaces can do it.
 
-The `pxl-classroom` CLI in `cli/` is an optional power-user surface for the actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the Admin Panel.
+The `pxl-classroom` CLI in `cli/` is an optional power-user surface for the actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the editor.
 
 ### 6.1 Install (from a clone of the hub)
 
@@ -670,13 +668,13 @@ pxl-classroom roster import --org <org> roster.csv --force      # commit incl. r
 pxl-classroom roster list   --org <org>                          # tabular view
 ```
 
-An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Admin Panel); non-interactive runs must pass `--force` to allow removals.
+An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Roster tab); non-interactive runs must pass `--force` to allow removals.
 
 The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag. When the flag is omitted, the CLI prints a reminder to stderr identifying the resolved last-used organization.
 
 All CLI commands query the control repo. If assignments or reports are queried that do not exist, the CLI catches 404 errors and displays a friendly explanation instead of raw stack traces. If repository records are empty, it handles the 404 gracefully and returns an empty list.
 
-**SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses - no drift between surfaces.
+**SPA flow:** open the **Roster** tab (`/dashboard/<org>/roster`), drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses - no drift between surfaces.
 
 Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` - both safe for one-shot writes.
 
@@ -883,7 +881,7 @@ Symptom this fixes: with `roster_mode: enforced` and an empty or missing `studen
 
 ### 6.8 Auditing an org's install
 
-`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA runs the same checks behind **Check System Health** on the dashboard - a modal, not a panel - and on the Admin Panel for one assignment.
+`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA runs the same checks behind **Check System Health** on the dashboard - a modal, not a panel - and on the editor for one assignment.
 
 ```bash
 pxl-classroom audit --org PXLAutomation
@@ -928,7 +926,7 @@ pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        #
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
+The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The assignment page (`AssignmentDetailView`) shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
 
 `feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 
@@ -1037,7 +1035,7 @@ Where it does inject: a `python` test becomes **two** steps - one that writes it
 
 Each grader step's result reaches the reporter through an environment variable **the reporter names, not us**: `<RUNNER-ID-UPPERCASED>_RESULTS`, with the hyphens kept. Getting that name wrong is silent - every grader step goes green and the job fails at the reporter with a message blaming its `runners` input.
 
-Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
+Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The editor cannot produce that state; only a hand-edited YAML the schema rejects can.
 
 #### Where the number comes from
 
@@ -1115,7 +1113,7 @@ Press **Sync again** on that line, or run it again from **··· More**. Each st
 
 #### Changed the assignment's template after students accepted
 
-Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. The Template repository field already warns while you change it, saying how many students have a repository from the current one; after the save the Admin Panel repeats it with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students get the new template's full starter code, file by file: a file that is still starter code (of either template) is replaced or removed, and a file they changed arrives as a pull request. The sync dialog names them. From then on, later changes to the template reach them like anyone else.
+Changing **Template repository** in the editor, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. The Template repository field already warns while you change it, saying how many students have a repository from the current one; after the save the editor repeats it with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students get the new template's full starter code, file by file: a file that is still starter code (of either template) is replaced or removed, and a file they changed arrives as a pull request. The sync dialog names them. From then on, later changes to the template reach them like anyone else.
 
 #### Changed the Student permission after students accepted
 
@@ -1130,7 +1128,7 @@ Changing **Template repository** in the Admin Panel, and publishing again, chang
 
 Choose `admin` for an exercise that needs a runner or an environment.
 
-Changing it and saving applies to students who accept from then on. For students who already have a repository, the Admin Panel then says how many still have the old one, with **Apply … to N students**. A student who has not accepted their repository invitation yet gets the new permission on the invitation. **Nobody past their own deadline is changed, and no locked repository is** - counting a cohort the deadline sentinel has already stopped, before the nightly records the lock - even when an extension or a later deadline has moved the date since: a changed permission would unlock it (a student at `admin` can switch off a repository-level lock). Reopen those one by one (§6.15) instead; a repository you reopened follows the change, for every member of a team. A student whose access you removed is not re-invited: **Apply** asks GitHub whether each student is still a collaborator or still invited, and names anyone who is neither - including a student you removed in GitHub's own settings. Who is changed is worked out again when you click **Apply**, from the assignment as saved, so a notice left open across a deadline, or across a later save that moved the deadline earlier, changes nobody it no longer may, and says so.
+Changing it and saving applies to students who accept from then on. For students who already have a repository, the editor then says how many still have the old one, with **Apply … to N students**. A student who has not accepted their repository invitation yet gets the new permission on the invitation. **Nobody past their own deadline is changed, and no locked repository is** - counting a cohort the deadline sentinel has already stopped, before the nightly records the lock - even when an extension or a later deadline has moved the date since: a changed permission would unlock it (a student at `admin` can switch off a repository-level lock). Reopen those one by one (§6.15) instead; a repository you reopened follows the change, for every member of a team. A student whose access you removed is not re-invited: **Apply** asks GitHub whether each student is still a collaborator or still invited, and names anyone who is neither - including a student you removed in GitHub's own settings. Who is changed is worked out again when you click **Apply**, from the assignment as saved, so a notice left open across a deadline, or across a later save that moved the deadline earlier, changes nobody it no longer may, and says so.
 
 #### Syncing up to a commit that is not the newest
 
@@ -1144,11 +1142,11 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
 
 #### Option A: Web UI (Unified System Health Center)
 
-1. **Organization-Wide Health Check (Dashboard):**
-   - Click the pulse icon to the right of the organization selector on `DashboardView` - it is the one whose tooltip reads **System health check**.
+1. **Organization-Wide Health Check (Organization tab):**
+   - Open the **Organization** tab, unfold **System health** and click **Run the checks**. It is there whatever else on that page could or could not load, because it is the tool for exactly that.
    - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
-2. **Assignment Pre-Flight Troubleshooter (Admin Panel):**
-   - When creating or editing an assignment on `AdminView`, click the **Troubleshoot** button in the header (or click any warning banner).
+2. **Assignment Pre-Flight Troubleshooter (Settings tab):**
+   - On an assignment's **Settings** tab, click the **Troubleshoot** button in the header (or click any warning banner).
    - The troubleshooter executes a 5-tier inspection in dependency order:
      - **Tier 0:** Auth & Quota.
      - **Tier 1:** Org & GitHub App Foundation.

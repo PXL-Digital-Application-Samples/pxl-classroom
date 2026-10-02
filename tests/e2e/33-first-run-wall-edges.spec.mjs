@@ -100,13 +100,12 @@ const student = (n, over = {}) => ({
 async function openAdmin(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
 }
 
 async function openNewForm(page, opts = {}) {
   await openAdmin(page, opts);
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
@@ -143,8 +142,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await routeTemplateSearch(page, [], { status: 500 });
     await routeOrgRepos(page, [], { status: 500 });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateError(page)).toBeVisible();
     await expect(templateEmpty(page)).toHaveCount(0);
@@ -157,8 +155,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeTemplateSearch(page, [], { status: 500 });
     await routeOrgRepos(page, [], { status: 500 });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateError(page)).toContainText('HTTP 500');
     await expect(page.locator('.btn-refresh')).toBeEnabled();
@@ -173,8 +170,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await routeTemplateSearch(page, [], { status: 403 });
     await routeOrgRepos(page, [templateRepo('notes', false), templateRepo('scratch', false)]);
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page)).toBeVisible();
     await expect(templateError(page)).toHaveCount(0);
@@ -188,8 +184,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeTemplateSearch(page, [templateRepo('starter', false), templateRepo('demo', false)]);
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page)).toBeVisible();
     await expect(templateEmpty(page)).toContainText('Template repository');
@@ -214,8 +209,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
       });
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // Still loading, for as long as this test cares to look.
     await expect(page.locator('.loading-inline')).toBeVisible();
@@ -238,8 +232,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
       await route.fulfill({ status: 200, body: JSON.stringify({ total_count: items.length, items }) });
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(templateEmpty(page)).toBeVisible();
 
     created = true; // the lecturer ticked the box in another tab
@@ -299,8 +292,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeTemplateSearch(page, []);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page)).toBeVisible();
   });
@@ -310,8 +302,7 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeTemplateSearch(page, []);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page)).toBeVisible();
     await expect(templateEmpty(page).locator('.btn-primary')).toHaveCount(0);
@@ -350,8 +341,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await commit.click();
     await expect(page.locator('.toast', { hasText: /Roster committed/i })).toBeVisible({ timeout: 10000 });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('2 students on the roster');
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
@@ -361,8 +351,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { body: 'students: { unterminated\n' });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('Students must appear in');
@@ -374,8 +363,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { body: 'schema_version: 1\n' });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('No students imported yet - nobody can accept');
@@ -390,8 +378,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await serveRoster(page, {
       students: [1, 2, 3].map((n) => student(n, { github_login: null })),
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
@@ -405,8 +392,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await serveRoster(page, {
       students: [student(1), student(2), student(3, { github_login: '' }), student(4, { github_login: null })],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // Some students CAN accept, so this is not a warning.
     await gateOn(page);
@@ -419,8 +405,7 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [student(1), student(2)] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('2 students on the roster.');
@@ -632,8 +617,7 @@ test.describe('33 - A forked template is still a template', () => {
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeSearchLikeGitHub(page, { forks: [templateRepo('Guts-DotNetAdvanced-2627')] });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page), 'the org has a template - the wall is a false claim').toHaveCount(0);
     await expect(page.getByPlaceholder('Type or select a template repository')).toHaveValue(
@@ -647,8 +631,7 @@ test.describe('33 - A forked template is still a template', () => {
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeSearchLikeGitHub(page, { forks: [templateRepo('forked-a'), templateRepo('forked-b')] });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 2 template repositories')).toBeVisible({ timeout: 5000 });
   });
 
@@ -662,8 +645,7 @@ test.describe('33 - A forked template is still a template', () => {
       forks: [templateRepo('forked-in')],
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 2 template repositories')).toBeVisible({ timeout: 5000 });
   });
 });
@@ -675,8 +657,7 @@ test.describe('33 - Both walls at once', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeTemplateSearch(page, []);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page)).toBeVisible();
     await gateOn(page);

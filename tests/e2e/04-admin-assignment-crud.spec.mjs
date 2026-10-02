@@ -9,14 +9,10 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
     const adminHeader = page.locator('.app-header-crumbs .app-header-heading');
     await expect(adminHeader).toBeVisible({ timeout: 10000 });
 
-    // Click "+ New assignment"
-    const newBtn = page.locator('.new-btn');
-    await expect(newBtn).toBeVisible();
-    await newBtn.click();
 
     // Fill Title and verify slug derivation
     const titleInput = page.getByPlaceholder('e.g. Linux Processes 2026');
@@ -43,9 +39,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    const newBtn = page.locator('.new-btn');
-    await newBtn.click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // With empty title, save buttons are disabled
     const saveDraftBtn = page.locator('button', { hasText: 'Save as draft' }).first();
@@ -88,8 +82,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // `open` since 2026-08-24: signed invitations gate the broker, so the
     // roster is no longer what stands between a stranger and a repository -
@@ -120,8 +113,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await openAutogradeModal(page);
     await addCheck(page, CHECK_PYTHON);
     await page.getByLabel('Check 1 Python script').fill('');
@@ -151,8 +143,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const box = templateBox(page);
     await expect(box).toBeVisible();
@@ -173,8 +164,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await templateBox(page).fill(`https://github.com/${ORG}/linux-template/generate`);
     await expect(templateBox(page)).toHaveValue(`${ORG}/linux-template`);
@@ -186,8 +176,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await templateBox(page).fill('https://gitlab.com/x/y');
     await expect(templateBox(page)).toHaveValue('https://gitlab.com/x/y');

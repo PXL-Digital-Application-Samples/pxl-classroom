@@ -14,12 +14,12 @@ This document outlines the core UI/UX design principles and tokens for **PXL Cla
    * Check the tone actually differs in **both** themes before removing a border. `--bg-surface` and `--bg-surface-elevated` are both `#ffffff` in light (§2), so an "elevated" panel on a white modal has a contrast ratio of exactly 1.000. `--bg-inset` is the recessed step that differs in both.
 
 2. **Strict 1-Primary-Button Rule:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
-   * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, the `Invite link` popover trigger on Detail view).
+   * **Only ONE** solid primary button (`.btn-primary`) per view or major screen section (e.g., `+ New assignment` on Dashboard, the `Invite link` popover trigger on an assignment's Progress, Teams and Grading tabs).
    * Standard toolbar actions (`Refresh`, `Export`, `Sync`) must use neutral secondary styling (`.btn-secondary`).
-   * Destructive actions (`Close acceptance`, `Freeze`) belong in a `··· More` overflow dropdown or use subtle danger outlines until confirmed in a modal dialog.
+   * Destructive actions (`Stop accepting`, `Lock everyone out now`, `Delete`) live in a menu, never as a bare button: an assignment's lifecycle is its **state button** (`AssignmentHeader.vue`, the menu under the state at the top of every tab), with the destructive entries last and marked, each confirmed in a dialog. Elsewhere a `··· More` overflow dropdown or a subtle danger outline.
    * A **modal counts as its own view**. An action repeated per row or per card is never primary - one card per assignment meant one primary button per assignment before this was caught.
    * **A form does not repeat its actions.** `AdminView`'s editor rendered `Cancel / Save as draft / Save & publish` in its header bar *and* again below the fieldsets - two solid buttons on screen at once, which is why the conformity test was scoped away from that view for two workstreams. The header bar is the form's action bar; there is no second row.
-   * **A pane-level CTA yields to the pane that has focus.** `New assignment` is solid while nothing is being edited and plain once an assignment is open, so the count is exactly one in both states rather than one per pane.
+   * **A shared header yields to the view it sits on.** The assignment header's `Invite link` is solid on Progress, Teams and Grading, and plain on Settings (`primaryInvite`), where `Save` is the one thing to do - so the count is exactly one on every tab rather than one per component.
 
 3. **Status Dots over Bulky Pill Capsules:** *(enforced by `tests/e2e/22-design-conformity.spec.mjs`)*
    * In data tables, student cards, and metric rows, prefer `.status-indicator` with a glowing `.status-dot` and clean mixed-case text (`● On time`, `● Repository ready`, `● Accepting`).
@@ -317,9 +317,9 @@ Every route renders exactly one `<AppHeader>`. Two shapes:
   `.crumb-link` - the org name sat between two links as plain text, which reads as broken.
   A trail may end in an `.app-header-switch`: underline `.primer-tab`s (§1.4) for the *views
   of the thing the trail names*. Inside an organization that is `OrgSwitch`, the same three
-  on every page - **Assignments**, **Roster**, **Admin** - and the assignment on screen travels
-  between Assignments and Admin, so one assignment's overview and its editor reach each other in
-  one click. It is a `nav` in `#left` rather than a button in `#actions` deliberately - it
+  on every page - **Assignments**, **Roster**, **Organization**. An assignment's own views
+  (Progress, Teams, Grading, Settings) are not here: they are the tabs under its header
+  (`AssignmentHeader.vue`), and Assignments stays lit on all of them. It is a `nav` in `#left` rather than a button in `#actions` deliberately - it
   switches between views of the current page's subject, it does not act on it - and it takes
   its own row under 640px so the trail cannot push the page sideways.
 
@@ -482,7 +482,7 @@ excluded, or everything looks styled). What it found:
 | A scoped rule styles the **tag** | `.advanced` on `<details>`, `.col-ci`/`.col-score` on `<th>`/`<td>` |
 | The **element default** is the intent | `.team-name` on `<strong>` |
 | A **sibling** does the work | `.org-item-text` - `.org-dropdown-item` is flex and `.check-icon` carries `margin-left: auto` |
-| An **ancestor** sets it | `.deadline` inherits size and colour from `.assignment-list .meta` |
+| An **ancestor** sets it | `.deadline` inherited size and colour from `.assignment-list .meta` (that list is gone with the Admin page, and the class with it) |
 | It carries an **inline style** | `.template-preflight-badge`, `.diff-patch-view-container` |
 | **Page root**, no look intended | `.not-found-page`, `.usage-page`, `.student-dashboard` |
 
@@ -509,7 +509,8 @@ Global vocabulary now includes:
 | Stat colours | `.stat-green`, `.stat-yellow`, `.stat-red`, `.stat-blue` |
 | Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |
 | Components | `.repo-link`, `.repo-link-card`, `.progress-bar` (+ `-fill`), `.diag-banner` |
-| Menu rows | `.export-dropdown-item` (+ `.dropdown-icon`, `.dropdown-item-text`, `.dropdown-item-title`, `.dropdown-item-sub`), `.dropdown-divider`. The assignment page's Export, More and Invite link menus. Scoped inside `AssignmentDetailView` while it drew every row itself; shared since 2026-09-30, when the Invite link menu, drawn by `InvitationShare`, was rebuilt from the same rows. A row that is a link needs `a.export-dropdown-item:hover` too, or the global `a:hover` turns it blue and underlines it. |
+| Menus | `.dropdown-container` (the anchor), `.export-dropdown-menu` (the floating surface, anchored right; a menu whose trigger sits on the left overrides that), `.export-dropdown-menu.invite-menu`. Scoped inside `AssignmentDetailView` until 2026-10-02, when the state and Invite link menus moved into `AssignmentHeader`. |
+| Menu rows | `.export-dropdown-item` (+ `.dropdown-icon`, `.dropdown-item-text`, `.dropdown-item-title`, `.dropdown-item-sub`), `.dropdown-divider`. The assignment page's Export, More and Invite link menus, and the state menu. Scoped inside `AssignmentDetailView` while it drew every row itself; shared since 2026-09-30, when the Invite link menu, drawn by `InvitationShare`, was rebuilt from the same rows. A row that is a link needs `a.export-dropdown-item:hover` too, or the global `a:hover` turns it blue and underlines it. |
 
 ### Contextual help
 
@@ -570,8 +571,9 @@ goes on the track, and the child then does what it was already styled to do
 `tests/e2e/25-responsive-layout.spec.mjs` measures this. Its route sweep had
 visited `/dashboard/:org/admin` with **nothing open**, where the editor pane is
 a two-line empty state - so the pane holding the entire assignment form was
-never measured at any width. It now opens an assignment, collapsed and
-expanded, at all seven widths.
+never measured at any width. It now opens an assignment's Settings tab
+(`/dashboard/:org/:id/settings`, the same editor), collapsed and expanded, at
+all seven widths.
 
 **And it only ever measured that route on the Assignments tab.** The Roster tab
 is the denser of the two - a five-column table with an email address in it, a

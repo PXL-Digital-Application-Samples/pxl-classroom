@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken, expandSettings, openSystemHealth } from '../fixtures/e2e-fixtures.mjs';
 
 // DESIGN.md §1 is the half of the design system no static test can check: the
 // rules are about what is VISIBLE at once, and most of these views render their
@@ -154,7 +154,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       reports: { g: GROUP_REPORT },
     });
     await page.goto(`/dashboard/${ORG}/g`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
     await page.waitForTimeout(400);
   }
 
@@ -316,7 +316,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER });
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
     await expect(page.locator('.diagnostic-modal')).toBeVisible();
     await expect(page.locator('.modal-head .btn')).toBeEnabled({ timeout: 15000 });
     await conforms(page, 'System Health modal');

@@ -23,9 +23,8 @@ const answer = (page, value) => field(page).locator(`input[type="radio"][value="
 async function openNewAssignmentForm(page) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 

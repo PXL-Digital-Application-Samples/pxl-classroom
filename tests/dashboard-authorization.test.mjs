@@ -136,9 +136,10 @@ test("nothing staff-facing renders in the refused state", () => {
     /dashState === 'no-access'/,
     "there must be a dedicated refused state, not a silently empty dashboard",
   );
-  const usage = code.match(/<UsagePanel v-if="[^"]+"/);
-  assert.ok(usage, "the usage panel must still be conditional");
-  assert.match(usage[0], /&& staffHere/, "and hidden from an account that cannot read the org");
+  // The usage panel moved to the Organization tab (OrganizationView.vue),
+  // which refuses on its own read of the control repository; the dashboard
+  // no longer reads billing at all.
+  assert.doesNotMatch(code, /<UsagePanel\b/, "the dashboard reads no billing");
 
   // The refused states must come FIRST in the chain, or the onboarding branch
   // above them wins and Setup Organization is offered again.

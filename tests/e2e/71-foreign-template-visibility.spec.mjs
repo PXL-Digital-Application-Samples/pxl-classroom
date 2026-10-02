@@ -63,8 +63,7 @@ async function openFormWithTemplate(page, template) {
   const [owner, repo] = template.full.split('/');
   await routeTemplateRepo(page, { owner, repo, isPrivate: template.isPrivate });
 
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await templateBox(page).fill(template.full);
   // The probe is debounced by 400ms; the badge is what says it has landed.
   await expect(page.locator('.template-preflight-badge')).toBeVisible({ timeout: 10000 });
@@ -107,8 +106,7 @@ test.describe('71 - a private template in another organization', () => {
     await routeTemplateRepo(page, { owner: 'colleague-org', repo: 'python-starter', isPrivate: true });
     await routeTemplateRepo(page, { owner: ORG, repo: 'starter-template', isPrivate: true });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Cross Org Lab');
 
     await templateBox(page).fill('colleague-org/python-starter');
@@ -160,8 +158,7 @@ test.describe('71 - the template pin', () => {
       isPrivate: false,
       ...repoOpts,
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.assignment-list li', { hasText: 'Pinned Lab' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
     await expect(templateBox(page)).toHaveValue('colleague-org/python-starter', { timeout: 10000 });
     return { contentWrites };
   }

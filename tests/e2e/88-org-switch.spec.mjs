@@ -1,11 +1,10 @@
-// 88 - An organization's three views: Assignments, Roster, Admin.
+// 88 - An organization's three views: Assignments, Roster, Organization.
 //
-// One switch in the header of every page in the org (OrgSwitch.vue), replacing
-// an assignment's Overview / Admin pair and the org's Assignments / Roster
-// pair. The assignment on screen travels both ways: from its overview Admin
-// opens it in the editor, and from the editor Assignments goes back to its
-// overview - the most-used move, kept at one click. With no assignment in hand
-// every tab goes to its plain view.
+// One switch in the header of every page in the org (OrgSwitch.vue). There is
+// no Admin view (BETA-UX.md, 2026-10-02): the editor is each assignment's
+// Settings tab, so everything about one assignment - Progress, Teams, Grading,
+// Settings - is under Assignments, which stays lit there and still leads back
+// to the list. Organization holds what is the organization's own.
 
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
@@ -28,40 +27,46 @@ const REPORTS = {
 const views = (page) => page.getByRole('navigation', { name: 'Course views' });
 const tab = (page, name) => views(page).getByRole('link', { name, exact: true });
 const current = (page) => views(page).locator('[aria-current="page"]');
+const assignmentTabs = (page) => page.locator('.assignment-tabs .primer-tab');
 
 async function setup(page) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: ASSIGNMENTS, reports: REPORTS });
 }
 
-test.describe('88 - Assignments, Roster, Admin', () => {
-  test('on an assignment, Admin opens THAT assignment in the editor', async ({ page }) => {
+test.describe('88 - Assignments, Roster, Organization', () => {
+  test('on an assignment, its own tabs carry it, Settings included', async ({ page }) => {
     await setup(page);
     await page.goto(`/dashboard/${ORG}/${ID}`);
-    await expect(current(page)).toHaveText('Assignments');
-    await expect(tab(page, 'Admin')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/admin\\?edit=${ID}$`));
+    await expect(assignmentTabs(page)).toHaveText(['Progress', 'Grading', 'Settings']);
 
-    await tab(page, 'Admin').click();
-    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/admin\\?edit=${ID}$`));
+    await assignmentTabs(page).filter({ hasText: /^Settings$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}/settings$`));
     await expect(page.locator('.app-header-heading')).toHaveText(ID);
-    await expect(current(page)).toHaveText('Admin');
-  });
+    await expect(page.locator('.assignment-tabs [aria-current="page"]')).toHaveText('Settings');
 
-  test('in the editor with an assignment open, Assignments goes back to its overview', async ({ page }) => {
-    await setup(page);
-    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await expect(page.locator('.app-header-heading')).toHaveText(ID);
-    await expect(tab(page, 'Assignments')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${ID}$`));
-
-    await tab(page, 'Assignments').click();
+    await assignmentTabs(page).filter({ hasText: /^Progress$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));
   });
 
-  test('in the editor with nothing open, Assignments is the list', async ({ page }) => {
+  test('inside an assignment Assignments stays lit, and leads back to the list', async ({ page }) => {
     await setup(page);
+    for (const path of [`/${ID}`, `/${ID}/settings`, '/new']) {
+      await page.goto(`/dashboard/${ORG}${path}`);
+      const assignments = tab(page, 'Assignments');
+      await expect(assignments).toHaveClass(/active/);
+      await expect(assignments).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
+    }
+  });
+
+  test('old Admin links land where their page went', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}/settings$`));
+    await page.goto(`/dashboard/${ORG}/admin?new=1`);
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/new$`));
     await page.goto(`/dashboard/${ORG}/admin`);
-    await expect(current(page)).toHaveText('Admin');
-    await expect(tab(page, 'Assignments')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
   });
 
   test('on the roster, both other tabs go to their plain views', async ({ page }) => {
@@ -69,14 +74,14 @@ test.describe('88 - Assignments, Roster, Admin', () => {
     await page.goto(`/dashboard/${ORG}/roster`);
     await expect(current(page)).toHaveText('Roster');
     await expect(tab(page, 'Assignments')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
-    await expect(tab(page, 'Admin')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/admin$`));
+    await expect(tab(page, 'Organization')).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/organization$`));
   });
 
   test('the three tabs are the same three on every page, in the same order', async ({ page }) => {
     await setup(page);
-    for (const path of ['', `/${ID}`, '/roster', '/admin']) {
+    for (const path of ['', `/${ID}`, `/${ID}/settings`, '/roster', '/organization']) {
       await page.goto(`/dashboard/${ORG}${path}`);
-      await expect(views(page).locator('.primer-tab')).toHaveText(['Assignments', 'Roster', 'Admin']);
+      await expect(views(page).locator('.primer-tab')).toHaveText(['Assignments', 'Roster', 'Organization']);
     }
   });
 });

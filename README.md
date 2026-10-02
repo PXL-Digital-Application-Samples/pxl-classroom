@@ -135,7 +135,7 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 ### 2. Create Assignment
 
-- Open `/dashboard/:org/admin`.
+- Open `/dashboard/:org` and click **New assignment**.
 - Fill in the template repository, the title and deadline
 - Check settings for individual or group work, who may accept, and any automated checks.
 - Click Save & Publish.

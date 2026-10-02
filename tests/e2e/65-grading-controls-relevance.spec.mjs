@@ -69,14 +69,14 @@ async function openDetail(page, assignment) {
 }
 
 /**
- * The MORE menu, by the label it actually carries. `/Actions/i` matched the
- * per-student row buttons (`aria-label="Actions for <login>"`) instead, so the
- * absence assertions below passed over a menu that had never opened - a
- * vacuous green, which is the failure mode a test like this one has.
+ * The Grading tab, where every control that reads or produces a score is
+ * (BETA-UX.md, 2026-10-02). Waits on the tab's own content - its empty state or
+ * its action bar - so an absence below is a real absence and not a tab that
+ * had not rendered yet, which is the vacuous green a test like this one risks.
  */
-async function openMoreMenu(page) {
-  await page.getByRole('button', { name: 'More' }).click();
-  await expect(page.locator('.export-dropdown-menu')).toBeVisible();
+async function openGradingTab(page) {
+  await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
+  await expect(page.locator('.grading-empty, .grading-actions').first()).toBeVisible();
 }
 
 /** Every control that reads a grading run, by the label a lecturer sees. */
@@ -86,10 +86,14 @@ test.describe('65 - grading controls appear only where there is grading', () => 
   test('AN ASSIGNMENT THAT GRADES NOTHING OFFERS NO WAY TO READ A SCORE', async ({ page }) => {
     await openDetail(page, { ...base, template_grades: false });
 
-    await openMoreMenu(page);
-    await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(0);
-    // ...and no Autograding panel behind it either.
+    await openGradingTab(page);
+    await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(0);
+    // ...and no Autograding panel behind it either. The tab says so instead,
+    // and where to change it.
     await expect(page.locator('.autograde-section')).toHaveCount(0);
+    await expect(page.locator('.grading-empty')).toContainText('Nothing grades this assignment yet');
+    await expect(page.locator('.grading-empty').getByRole('link', { name: 'Set up grading' }))
+      .toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${ID}/settings\\?section=grading$`));
   });
 
   test('an assignment the template grades offers it', async ({ page }) => {
@@ -98,8 +102,8 @@ test.describe('65 - grading controls appear only where there is grading', () => 
     // above.
     await openDetail(page, { ...base, template_grades: true });
 
-    await openMoreMenu(page);
-    await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(1);
+    await openGradingTab(page);
+    await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(1);
   });
 
   test('checks the LECTURER runs offer the CLI command and never the CI read', async ({ page }) => {
@@ -114,15 +118,9 @@ test.describe('65 - grading controls appear only where there is grading', () => 
       },
     });
 
-    const exportBtn = page.getByRole('button', { name: /Export/i });
-    await exportBtn.click();
-    await expect(
-      page.locator('.export-dropdown-item', { hasText: 'Copy CLI Grade' }),
-    ).toHaveCount(1);
-    await page.keyboard.press('Escape');
-
-    await openMoreMenu(page);
-    await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(0);
+    await openGradingTab(page);
+    await expect(page.getByRole('button', { name: 'Copy grading command' })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(0);
   });
 
   test('an assignment saved before the answer existed is decided by evidence', async ({ page }) => {
@@ -137,15 +135,15 @@ test.describe('65 - grading controls appear only where there is grading', () => 
       submission_marker: { type: 'commit_message', value: 'hand-in', multiple: true },
     });
 
-    await openMoreMenu(page);
-    await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(1);
+    await openGradingTab(page);
+    await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(1);
   });
 
   test('an old assignment with no evidence at all stays quiet', async ({ page }) => {
     await openDetail(page, { ...base });
 
-    await openMoreMenu(page);
-    await expect(page.locator('.export-dropdown-item', { hasText: CI_CONTROL })).toHaveCount(0);
+    await openGradingTab(page);
+    await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(0);
   });
 });
 

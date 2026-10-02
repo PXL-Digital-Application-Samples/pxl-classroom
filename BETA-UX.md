@@ -27,7 +27,16 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   chooses the teams and only ever offers those students (first item). Nothing
   stored twice, no merged table, and the teams never decide who may accept.
 
-### The assignment page (decided 2026-10-02)
+### The assignment page (decided 2026-10-02; built 2026-10-02)
+
+Built as decided (`AssignmentHeader.vue`, `lib/state-actions.js`). Where the
+building changed a detail: the state button offers Publish / Delete draft on a
+draft; Stop accepting / Back to draft / Archive on a published one; Reopen /
+Back to draft / Archive / Delete on a closed one; *Lock everyone out now* once
+the deadline has passed; and **no Reopen past the deadline** - nobody can accept
+then, and a locked assignment cannot be published again - but *Move the
+deadline…*, which opens Settings at the schedule. *Invite link* is the solid
+button on Progress, Teams and Grading, and plain on Settings, whose Save is.
 
 The page a card opens had one long scroll: summary cards, the student list (or,
 for a group assignment, a Teams View / Students View toggle over it), and an
@@ -70,7 +79,14 @@ empty state.
 - **The tab is in the address** (`?tab=grading`), so a link opens a tab, Back
   moves between tabs and a refresh stays put. No tab means Progress.
 
-### The organization's tabs (decided 2026-10-02)
+### The organization's tabs (decided 2026-10-02; built 2026-10-02)
+
+Built as decided (`OrganizationView.vue`, `lib/org-notices.mjs`,
+`lib/course-activity.mjs`). Where the building changed a detail: the editor's
+list is not hidden but gone, so the Settings tab and *New assignment* are two
+addresses (`/<id>/settings`, `/new`) and old `/admin` links redirect to them;
+System health sits outside every loading state of the Organization page,
+because it is the tool for when that page cannot load.
 
 "Admin" was not administration: it was a second list of every assignment beside
 the full editor, and the only place drafts existed. Watching an assignment and

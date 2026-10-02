@@ -28,9 +28,8 @@ test.describe('47 - a dialog opens inside the viewport', () => {
   test('the Automated checks modal is on screen, not scrolled off the top', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
     const setup = page.locator('.autograde-summary-row button').first();
     await expect(setup).toBeVisible({ timeout: 15000 });
 
@@ -62,9 +61,8 @@ test.describe('47 - a dialog opens inside the viewport', () => {
     // height (measured at 2000px tall, starting at y=-1281).
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
     const setup = page.locator('.autograde-summary-row button').first();
     await expect(setup).toBeVisible({ timeout: 15000 });
     await setup.click();
@@ -119,8 +117,7 @@ test.describe('47 - a dialog opens inside the viewport', () => {
     // one: whatever holds a modal must not establish a containing block.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await page.goto(`/dashboard/${ORG}/new`);
     const setup = page.locator('.autograde-summary-row button').first();
     await expect(setup).toBeVisible({ timeout: 15000 });
     await setup.click();

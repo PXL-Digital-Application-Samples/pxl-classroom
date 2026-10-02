@@ -19,8 +19,7 @@ import { MANUAL_TOPICS } from '../../lib/manual-topics.mjs';
 async function openForm(page) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button', { hasText: 'New assignment' }).first().click();
+  await page.goto(`/dashboard/${ORG}/new`);
 }
 
 test.describe('53 - the help drawer', () => {
@@ -74,7 +73,7 @@ test.describe('53 - the help drawer', () => {
     await drawer.getByRole('button', { name: /add everyone who accepted/ }).click();
 
     await expect(drawer).toContainText('Adds the students who accepted');
-    await expect(page).toHaveURL(/\/admin/);
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/new$`));
   });
 });
 
@@ -82,7 +81,7 @@ test.describe('53 - the manual page', () => {
   test('Help in the header reaches every topic', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await page.getByRole('link', { name: 'Help' }).first().click();
     await expect(page).toHaveURL(/\/manual/);

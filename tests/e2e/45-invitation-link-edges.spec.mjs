@@ -225,8 +225,7 @@ async function troubleshoot(page, { doc = assignment(), variables = null } = {})
       }),
     );
   }
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('li, .assignment-row', { hasText: 'Link Edges 2026' }).first().click();
+  await page.goto(`/dashboard/${ORG}/${ID}/settings`);
   await expandSettings(page);
   await page.locator('button', { hasText: 'Troubleshoot' }).first().click();
   const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');

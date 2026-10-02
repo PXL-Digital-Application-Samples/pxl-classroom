@@ -133,7 +133,6 @@
             <th>Repository</th>
             <th>Commits</th>
             <th>Status</th>
-            <th v-if="ciStatusColumn">CI Status</th>
             <th v-if="autogradeEnabled">Score</th>
             <th>Preserved</th>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -209,21 +208,8 @@
               </span>
             </td>
 
-            <!-- CI Status column (Autograding) -->
-            <td v-if="ciStatusColumn">
-              <button
-                v-if="team.ci_status"
-                type="button"
-                :class="['badge', team.ci_status === 'success' ? 'badge-success' : team.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
-                @click="openTeamAutogradeModal(team)"
-                title="Click to view team test breakdown"
-                style="cursor: pointer; border: none;"
-              >
-                {{ team.ci_status }}
-              </button>
-              <span v-else class="text-muted text-xs">-</span>
-            </td>
-
+            <!-- No CI status column: the run's status is on the Grading tab,
+                 and the score below opens the team's results. -->
             <!-- Score column (Autograding) -->
             <td v-if="autogradeEnabled">
               <button
@@ -529,15 +515,6 @@ const studentPermission = computed(() => props.assignment?.student_permission ||
 // column that can only ever be blank is C4.
 const hasGrades = computed(() => (props.teams || []).some((t) => t.earned_points != null))
 const autogradeEnabled = computed(() => hasGrades.value)
-
-// Whether the assignment declares Actions-run autograding here - which is what
-// makes `refreshLiveStatus` fill ci_status, independently of any score. So the
-// CI column has two ways to be populated and the Score column has one.
-const isGitHubActionsAutograde = computed(
-  () => props.assignment?.autograde?.enabled === true &&
-        props.assignment?.autograde?.execution_environment === 'github_actions'
-)
-const ciStatusColumn = computed(() => hasGrades.value || isGitHubActionsAutograde.value)
 
 const activeTeamAutograde = ref(null)
 

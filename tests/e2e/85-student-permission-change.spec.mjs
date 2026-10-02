@@ -226,8 +226,7 @@ test.describe('85 - changing Student permission after students accepted', () => 
   test('a new assignment starts at maintain', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await page.locator('details.advanced > summary').click();
     await expect(select(page)).toHaveValue('maintain');
   });

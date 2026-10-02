@@ -46,8 +46,7 @@ async function openNew(page, { assignments = {} } = {}) {
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ total_count: REPOS.length, items: REPOS }),
   }));
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('fieldset').first()).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }

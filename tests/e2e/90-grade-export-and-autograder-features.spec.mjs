@@ -223,14 +223,15 @@ async function setup(page, options = {}) {
     });
   });
 
-  await page.goto(`/dashboard/${ORG}/${ID}`);
+  // Everything about scores is the Grading tab's (BETA-UX.md, 2026-10-02).
+  await page.goto(`/dashboard/${ORG}/${ID}${options.tab ? `?tab=${options.tab}` : ''}`);
   await expect(page.getByRole('heading', { name: ID, level: 1 })).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }
 
 test.describe('90 - Grade exports and autograder features', () => {
   test('Autograder table dedicated columns: Confirmed address & Graded submission with links', async ({ page }) => {
-    await setup(page);
+    await setup(page, { tab: 'grading' });
     const autogradeTable = page.locator('.autograde-section table');
     await expect(autogradeTable).toBeVisible();
 
@@ -247,7 +248,7 @@ test.describe('90 - Grade exports and autograder features', () => {
   });
 
   test('Autograder table sorting on Earned points and Login headers', async ({ page }) => {
-    await setup(page);
+    await setup(page, { tab: 'grading' });
     const autogradeTable = page.locator('.autograde-section table');
 
     // Click Login header to sort descending
@@ -275,7 +276,7 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(rows.nth(2)).toContainText('student-bob');
   });
 
-  test('Submissions table sorting on CI Status and Score headers', async ({ page }) => {
+  test('Submissions table sorting on its Score header', async ({ page }) => {
     await setup(page);
     const submissionsTable = page.locator('.table-wrapper.desktop-only table');
     await expect(submissionsTable).toBeVisible();
@@ -302,12 +303,10 @@ test.describe('90 - Grade exports and autograder features', () => {
   });
 
   test('Regrade Run Progress Panel appears on regrade action and can be dismissed', async ({ page }) => {
-    await setup(page);
+    await setup(page, { tab: 'grading' });
 
-    // More, then Read all scores again (it reads the runs; it starts none)
-    const moreBtn = page.getByRole('button', { name: /More/i });
-    await moreBtn.click();
-    const regradeBtn = page.locator('.export-dropdown-item', { hasText: /Read all scores again/ });
+    // Read all scores again, on the Grading tab (it reads the runs; it starts none)
+    const regradeBtn = page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ });
     await expect(regradeBtn).toBeVisible();
     await regradeBtn.click();
 
@@ -325,13 +324,11 @@ test.describe('90 - Grade exports and autograder features', () => {
   });
 
   test('Export Grades (Excel XLSX) exports confirmed_email, login, name, and authentic commit date in .xlsx format', async ({ page }) => {
-    await setup(page);
-    const exportBtn = page.getByRole('button', { name: /Export/ }).first();
-    await exportBtn.click();
+    await setup(page, { tab: 'grading' });
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.export-dropdown-item', { hasText: 'Export Grades (Excel XLSX)' }).click(),
+      page.locator('.grading-actions').getByRole('button', { name: 'Export grades' }).click(),
     ]);
 
     expect(download.suggestedFilename()).toBe(`${ID}-grades.xlsx`);
@@ -354,12 +351,11 @@ test.describe('90 - Grade exports and autograder features', () => {
   });
 
   test('Export Breakdown (Excel) skips detailed log for max points and includes breakdown for partial points', async ({ page }) => {
-    await setup(page);
+    await setup(page, { tab: 'grading' });
 
-    // Click Export Breakdown from the autograder banner
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export Breakdown (Excel)' }).click(),
+      page.locator('.grading-actions').getByRole('button', { name: 'Export breakdown' }).click(),
     ]);
 
     expect(download.suggestedFilename()).toBe(`${ID}-breakdown.xlsx`);
@@ -411,7 +407,7 @@ test.describe('90 - Grade exports and autograder features', () => {
       ...initialSummary,
       failed: [{ login: 'student-david', reason: 'no commit says "final submission", so nothing was handed in' }],
     };
-    await setup(page, { summary: summaryWithFailed });
+    await setup(page, { summary: summaryWithFailed, tab: 'grading' });
     const failureDetails = page.locator('details.autograde-failed').first();
     await expect(failureDetails).toBeVisible();
     await expect(failureDetails).not.toHaveAttribute('open', '');

@@ -134,9 +134,8 @@ test.describe('21 - Popovers are reachable, not clipped', () => {
   test('Admin: template repository combobox', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
-    await page.locator('.new-btn').click();
     const combo = page.locator('.combobox-input-wrapper input').first();
     await expect(combo).toBeVisible();
     await combo.click();

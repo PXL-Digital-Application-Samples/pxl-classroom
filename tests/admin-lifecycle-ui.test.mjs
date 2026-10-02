@@ -204,21 +204,22 @@ test("Initial condition: In-flight publishing disables the button with loading l
 test("AdminView.vue template strictly adheres to lifecycle condition invariants and confirmation dialog", () => {
   const template = readFileSync(join(root, "frontend", "src", "views", "AdminView.vue"), "utf8");
 
-  // Lifecycle section presence check
+  // What is left of the Lifecycle section is the broker: repairing a published
+  // one, and watching a publish go live. Never on a new assignment.
   assert.ok(
-    template.includes('<div v-if="!isNew" class="lifecycle">'),
-    "Lifecycle block must be gated on !isNew"
+    template.includes(`<div v-if="!isNew && (form.state === 'published' || publishWatch)" id="settings-lifecycle" class="lifecycle">`),
+    "The broker block is gated on an existing, published (or publishing) assignment"
   );
-
-  // Repair sits above the rule, state transitions below it (ARCHITECTURE §10.1.1).
   assert.ok(
     /class="lifecycle-group lifecycle-repair"/.test(template),
-    "Republish belongs to the repair group, not the transition row"
+    "Republish belongs to the repair group"
   );
-  assert.ok(
-    template.indexOf('lifecycle-repair') < template.indexOf('lifecycle-transitions'),
-    "Repair is rendered above the state transitions"
-  );
+  // The state transitions are the header's state button now (BETA-UX.md,
+  // 2026-10-02) - one place, on every tab - and not a second row of buttons.
+  assert.ok(!template.includes("lifecycle-transitions"), "no second set of state buttons in the editor");
+  for (const call of ["setState('closed')", "setState('draft')", "setState('archived')"]) {
+    assert.ok(!template.includes(`@click="${call}"`), `${call} is reached through the state button, not a button of its own`);
+  }
 
   // A published assignment's Publish button becomes Republish, and carries the
   // secondary treatment to say so.
@@ -238,22 +239,9 @@ test("AdminView.vue template strictly adheres to lifecycle condition invariants 
     "Button must call handlePublishClick"
   );
 
-  // Exactly one of the two publish entry points can render: Repair's
-  // "Republish broker" once the assignment is out, the transition row's
-  // "Publish" while it is not. Complementary conditions, so neither state can
-  // show both or neither.
   assert.ok(
     template.includes(`<div v-if="form.state === 'published'" class="lifecycle-group lifecycle-repair">`),
     "Repair group renders for a published assignment only"
-  );
-  assert.ok(
-    template.includes(`v-if="form.state !== 'published'"`),
-    "The transition-row Publish renders for every other state"
-  );
-  assert.match(
-    template,
-    /Reopen for acceptance/,
-    "and from closed or archived it is named after what it does"
   );
   assert.ok(
     template.includes("Republish broker"),
@@ -601,11 +589,30 @@ test("the editor no longer runs per-student operations", () => {
   ]) {
     assert.ok(!src.includes(gone), `${gone} moved to AssignmentDetailView - no copy may stay here`);
   }
-  assert.match(
-    src,
-    /Per-student extensions and retries are on the/,
-    "and the lecturer who knew the accordions is told where they went"
-  );
+  // And they are one tab away: the settings carry the assignment's own header,
+  // whose Progress tab is where each student's row is.
+  assert.match(src, /<AssignmentHeader[\s\S]*?current="settings"/, "the settings sit under the assignment's tabs");
+});
+
+test("every state the header's button offers, the settings carry out", async () => {
+  // The button only says which was asked for (AssignmentHeader emits a key);
+  // a key no page handles is a menu item that does nothing. Derived from the
+  // function that makes the menu, so a new transition fails here until a page
+  // handles it.
+  const { stateActions } = await import("../frontend/src/lib/state-actions.js");
+  const keys = new Set();
+  for (const state of ["draft", "published", "closed", "archived"]) {
+    for (const deadlinePassed of [false, true]) {
+      for (const a of stateActions({ state, deadlinePassed })) keys.add(a.key);
+    }
+  }
+  const src = adminSrc();
+  const start = src.indexOf("function runStateAction(");
+  assert.ok(start > 0, "runStateAction must exist");
+  const body = src.slice(start, src.indexOf("\n}", start));
+  for (const key of keys) {
+    assert.ok(body.includes(`case '${key}':`), `the state button's "${key}" is handled in AdminView's runStateAction`);
+  }
 });
 
 test("the form's actions are not repeated top and bottom", () => {
@@ -620,12 +627,6 @@ test("the form's actions are not repeated top and bottom", () => {
   assert.ok(
     !/<div class="actions">/.test(template),
     "the duplicated bottom action row is gone; the header bar is the form's action bar"
-  );
-  // And the list pane's own CTA yields while an assignment is open.
-  assert.match(
-    template,
-    /editing \? '' : 'btn-primary'/,
-    "New assignment is only solid when there is no assignment on screen"
   );
 });
 

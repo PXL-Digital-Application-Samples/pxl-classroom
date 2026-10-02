@@ -155,36 +155,10 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
 // ============================================ §4.2 four surfaces
 
 test.describe('34 - §4.2 The link is reachable without opening the editor', () => {
-  test('The admin list carries it on every published row', async ({ page, context }) => {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, {
-      currentUser: LECTURER,
-      assignments: { [ID]: assignment(), 'draft-lab': assignment({ id: 'draft-lab', title: 'Draft Lab', state: 'draft', invite_token: undefined }) },
-    });
-    await page.goto(`/dashboard/${ORG}/admin`);
-
-    // One button, on the published row only - a draft has no link to copy.
-    await expect(compact(page)).toHaveCount(1, { timeout: 15000 });
-
-    await compact(page).click();
-    await expect(page.locator('.toast', { hasText: /Invitation link copied/i })).toBeVisible({ timeout: 10000 });
-    const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toContain(inviteToken(ORG, ID));
-  });
-
-  test('Copying from the list does not open the editor', async ({ page, context }) => {
-    // The button sits inside the row's router-link, so a click that bubbles
-    // would navigate - and the whole point is not having to go there.
-    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: assignment() } });
-    await page.goto(`/dashboard/${ORG}/admin`);
-
-    await compact(page).click();
-    await expect(page.locator('.toast', { hasText: /Invitation link copied/i })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveCount(0);
-  });
+  // The Admin page's list carried it on every published row, and two tests
+  // here held that. The list is gone (BETA-UX.md, 2026-10-02): assignments are
+  // listed once, as the dashboard's cards, which carry it below, and every tab
+  // of an assignment carries it in its header.
 
   test('The dashboard card carries it, reading the token only when clicked', async ({ page, context }) => {
     // dashboard.json must not hold the token, so the card has an id and nothing
@@ -285,7 +259,12 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
     const empty = page.locator('.cohort-empty');
     await expect(empty).toContainText('No one has accepted yet');
     await expect(empty).toContainText('Students appear here as they accept');
-    await expect(empty.getByRole('link', { name: /check the invitation/ })).toBeVisible();
+    // To the assignment's settings - who may accept, the dates, the cap. The
+    // link itself is the Invite link button at the top of the page.
+    await expect(empty.getByRole('link', { name: /check the settings/ })).toHaveAttribute(
+      'href',
+      new RegExp(`/dashboard/${ORG}/${ID}/settings$`),
+    );
   });
 
   test('"Run daily activity now" is gone; refreshing is small print', async ({ page }) => {
@@ -377,6 +356,9 @@ test.describe('34 - §4.4 The Invite link menu is built like Export and More', (
     await expect(invite.locator('.export-dropdown-item .dropdown-icon')).toHaveCount(3);
     const inviteLook = await lookOf(invite);
 
+    // The Invite link sits in the header above the toolbar, so its open menu
+    // covers Export; close it the way a person would.
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: /Export/i }).click();
     const exportLook = await lookOf(page.locator('.export-dropdown-menu[role="menu"]'));
     expect(inviteLook).toEqual(exportLook);

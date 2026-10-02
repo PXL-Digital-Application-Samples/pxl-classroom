@@ -45,9 +45,8 @@ async function fillMinimum(page, title) {
 async function openNewAssignmentForm(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
@@ -432,9 +431,9 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await overrideFile(page, 'c-broken', { body: 'title: { unterminated\n' });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     // Only a-draft. Counting files said three; counting optimistically says two.
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveAttribute('href', `/dashboard/${ORG}/a-draft/settings`);
   });
 
   test('A missing state is a draft, and a file that 404s is nothing at all', async ({ page }) => {
@@ -448,7 +447,8 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await overrideFile(page, 'vanished', { status: 404 });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
+    await expect(page.locator('.drafts-row .draft-chip')).toContainText('No State');
   });
 
   test('When nothing can be read at all, the panel still says something true', async ({ page }) => {
@@ -459,14 +459,14 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await page.goto(`/dashboard/${ORG}`);
     await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     await expect(page.locator('text=Published assignments appear here once the first report is generated')).toBeVisible();
-    await expect(page.locator('text=in the Admin Panel - publish to track them here')).not.toBeVisible();
+    await expect(page.locator('.drafts-row'), 'unreadable is not a draft').toHaveCount(0);
   });
 
-  test('Every assignment in draft is still counted, and pluralised', async ({ page }) => {
+  test('Every assignment in draft is still listed', async ({ page }) => {
     await openDashboard(page, { 'd1': asgn('d1'), 'd2': asgn('d2'), 'p1': asgn('p1', { state: 'closed' }) });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('text=You have 2 drafts in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(2);
   });
 });
 

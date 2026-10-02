@@ -115,15 +115,14 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
       gradingSummaries: { 'group-autograding-actions': actionsSummary },
     });
 
-    await page.goto(`/dashboard/${ORG}/group-autograding-actions`);
+    await page.goto(`/dashboard/${ORG}/group-autograding-actions?tab=teams`);
 
-    // 1. In Teams View: the Score and CI Status columns appear because grades
-    //    exist, not because the assignment declares autograding.
-    // Scoped to the teams table: the Autograder panel below it has a "CI status"
-    // header of its own now that grades are on screen.
+    // 1. On the Teams tab: the Score column appears because grades exist, not
+    //    because the assignment declares autograding. There is one score column
+    //    (BETA-UX.md, 2026-10-02); the run's own status is on the Grading tab.
     const teamsTable = page.locator('.teams-table-component')
-    await expect(teamsTable.locator('th', { hasText: 'CI Status' })).toBeVisible({ timeout: 10000 });
-    await expect(teamsTable.locator('th', { hasText: 'Score' })).toBeVisible();
+    await expect(teamsTable.locator('th', { hasText: 'Score' })).toBeVisible({ timeout: 10000 });
+    await expect(teamsTable.locator('th', { hasText: 'CI Status' })).toHaveCount(0);
 
     // 2. The team score is the score of its repository - joined via its member.
     const teamFailBtn = page.locator('button', { hasText: '20/30 pts' }).first();
@@ -148,7 +147,7 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     await expect(autogradeModal).not.toBeVisible();
 
     // 4. Students View carries the same joined score.
-    const studentsTab = page.locator('.tab-pill', { hasText: /Students View/i });
+    const studentsTab = page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ });
     if (await studentsTab.isVisible()) {
       await studentsTab.click();
       const studentFailScore = page.locator('.col-score button', { hasText: '20/30 pts' }).first();
@@ -202,14 +201,16 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
       },
     });
 
-    await page.goto(`/dashboard/${ORG}/group-autograding-docker`);
+    await page.goto(`/dashboard/${ORG}/group-autograding-docker?tab=teams`);
 
     await expect(page.locator('.teams-table-component th', { hasText: 'Score' })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('button', { hasText: '50/50 pts' }).first()).toBeVisible();
     await expect(page.locator('button', { hasText: '25/50 pts' }).first()).toBeVisible();
 
     // A locally-graded assignment offers the CLI, not a GitHub Actions read -
-    // there are no check runs to read.
-    await expect(page.locator('.autograde-banner')).toContainText('pxl-classroom grade');
+    // there are no check runs to read. Both are the Grading tab's.
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
+    await expect(page.getByRole('button', { name: 'Copy grading command' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Read scores from GitHub Actions|Read all scores again/ })).toHaveCount(0);
   });
 });

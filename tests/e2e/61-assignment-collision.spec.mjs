@@ -142,13 +142,12 @@ async function openAdmin(page, {
       : route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Not Found' }) });
   });
 
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   return writes;
 }
 
 /** Start a new assignment and fill it to where Save as draft is enabled. */
 async function fillNew(page, { title = 'Lab 3', slug = ID, pattern = null, opensAt = null } = {}) {
-  await page.locator('.new-btn').click();
   await page.getByPlaceholder('e.g. Linux Processes 2026').fill(title);
   await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
   if (opensAt) {
@@ -652,7 +651,6 @@ test.describe('the name is taken', () => {
 
   test('a TEAM pattern is not asked about at all - the answer is fixed', async ({ page }) => {
     const writes = await openAdmin(page, { orgRepos: ['lab-3-team-alpha', 'lab-3-team-beta'] });
-    await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
     // The form only accepts a {team_slug} pattern on a group assignment.
@@ -797,7 +795,7 @@ test.describe('the verdict follows the form it was about', () => {
     // autoSyncSlug rewrites form.id AND the pattern without an @input on
     // either field, so the clear cannot live only on those handlers.
     await openAdmin(page, { orgRepos: [], assignments: rival() });
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     const title = page.getByPlaceholder('e.g. Linux Processes 2026');
     await title.fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
@@ -821,7 +819,6 @@ test.describe('the verdict follows the form it was about', () => {
     // that handler, and would make an assertion about visible text pass
     // without the gate ever running.
     const writes = await openAdmin(page, { orgRepos: [], assignments: rival() });
-    await page.locator('.new-btn').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab 3');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
     await (await openSlug(page)).fill(ID);

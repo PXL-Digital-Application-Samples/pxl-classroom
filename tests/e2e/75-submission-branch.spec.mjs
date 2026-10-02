@@ -45,8 +45,7 @@ async function openNew(page, templates) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
   for (const t of templates) await routeTemplateRepo(page, t);
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
 }
 
 test.describe('75 - a new assignment collects from the branch students will have', () => {
@@ -125,8 +124,7 @@ test.describe('75 - an existing assignment on the wrong branch', () => {
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: stored } });
     await routeTemplateRepo(page, { repo: 'java-start', defaultBranch: 'master' });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.assignment-list li', { hasText: 'Java Lab' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
     await expect(templateBox(page)).toHaveValue(`${ORG}/java-start`, { timeout: 10000 });
 
     await expect(branchWarning(page)).toContainText('Set Submission ref to refs/heads/master.', { timeout: 10000 });
@@ -135,7 +133,6 @@ test.describe('75 - an existing assignment on the wrong branch', () => {
 
     // Writing into the form on probe would trip the unsaved-changes guard on an
     // assignment nobody touched.
-    await page.locator('.new-btn').click();
     expect(dialogs, 'opening an assignment must not make it look edited').toEqual([]);
   });
 });

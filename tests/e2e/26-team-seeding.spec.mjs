@@ -58,7 +58,7 @@ function emptyReport(assignmentId, { students = [], teams = [] } = {}) {
 /** Open the assignment detail page's Teams tab and the seed modal. */
 async function openSeedModal(page, assignmentId) {
   await page.goto(`/dashboard/${ORG}/${assignmentId}`);
-  const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
+  const teamsTab = page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ });
   await expect(teamsTab).toBeVisible({ timeout: 15000 });
   await teamsTab.click();
   await page.locator('button', { hasText: 'Copy teams' }).first().click();
@@ -331,7 +331,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/${NEXT}`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
 
     await expect(page.locator('.seeded-note')).toContainText('carried over from Linux Processes');
     await expect(page.locator('.member-pending-note')).toContainText('1 not accepted yet');
@@ -359,7 +359,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/${NEXT}`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
 
     await expect(page.locator('.data-table tbody tr')).toHaveCount(2);
     await expect(page.locator('.seeded-note').first()).toContainText('carried over from Linux Processes');
@@ -387,7 +387,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/${NEXT}`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
 
     await expect(page.locator('.data-table tbody tr')).toHaveCount(2);
     await expect(page.locator('.data-table')).toContainText('Gamma Team');
@@ -404,7 +404,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/${NEXT}`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
     await expect(page.locator('.empty-state')).toContainText('Copy the teams of an earlier assignment');
   });
 
@@ -629,7 +629,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
   async function openTeamsTab(page, assignmentId, { acceptConfirm = true } = {}) {
     page.on('dialog', (d) => (acceptConfirm ? d.accept() : d.dismiss()));
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
     await page.waitForTimeout(300);
   }
 

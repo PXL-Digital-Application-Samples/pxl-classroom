@@ -117,7 +117,7 @@ async function openManageAlpha(page, captured) {
     await route.fallback();
   });
 
-  await page.goto(`/dashboard/${ORG}/${ID}`);
+  await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
   const alphaRow = page.locator('tr', { hasText: 'Alpha' });
   await expect(alphaRow).toBeVisible();
   await alphaRow.getByRole('button', { name: /Manage/i }).click();
@@ -189,7 +189,7 @@ test.describe('48 - Moving a student between teams', () => {
       currentUser: LECTURER,
       gitCommits,
     });
-    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
     await page.locator('tr', { hasText: 'Alpha' }).getByRole('button', { name: /Manage/i }).click();
     page.on('dialog', (d) => d.accept());
     const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
@@ -233,7 +233,7 @@ test.describe('48 - Moving a student between teams', () => {
       controlTeams: { [ID]: [storedAlpha(), fullBeta] },
       currentUser: LECTURER,
     });
-    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
     const alphaRow = page.locator('tr', { hasText: 'Alpha' });
     await alphaRow.getByRole('button', { name: /Manage/i }).click();
 

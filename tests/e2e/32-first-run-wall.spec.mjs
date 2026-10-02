@@ -34,13 +34,12 @@ const templateEmpty = (page) => page.locator('.template-empty');
 async function openAdmin(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
 }
 
 async function openNewAssignmentForm(page, opts = {}) {
   await openAdmin(page, opts);
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
@@ -84,8 +83,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const empty = templateEmpty(page);
     await expect(empty).toBeVisible();
@@ -102,8 +100,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const link = templateEmpty(page).getByRole('link', { name: /Create one on GitHub/i });
     await expect(link).toHaveAttribute('href', `https://github.com/organizations/${ORG}/repositories/new`);
@@ -118,8 +115,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const input = page.getByPlaceholder('Type or select a template repository');
     await expect(input).toBeVisible();
@@ -144,8 +140,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
         }),
       });
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(page.locator('text=Found 2 template repositories')).toBeVisible();
     await expect(templateEmpty(page)).toHaveCount(0);
@@ -174,8 +169,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [student(1), student(2), student(3)] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
@@ -191,8 +185,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [student(1)] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('1 student on the roster');
@@ -203,8 +196,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
@@ -217,8 +209,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { status: 500 });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // The neutral copy still explains that an empty roster blocks acceptance -
     // what it must not do is assert this org's roster IS empty.

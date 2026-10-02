@@ -47,8 +47,7 @@ const row = (page, name) => page.locator('.cohort-row', { hasText: name });
 async function newAssignment(page, { roster = ROSTER } = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button', { hasText: 'New assignment' }).first().click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
 }
 
@@ -663,8 +662,7 @@ test.describe('49 - the picker at a real course size', () => {
   async function bigPicker(page) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: BIG });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(guardrails(page)).toBeVisible({ timeout: 20000 });
     await gateOnRoster(page);
     await expect(page.locator('.cohort-row')).toHaveCount(200, { timeout: 20000 });

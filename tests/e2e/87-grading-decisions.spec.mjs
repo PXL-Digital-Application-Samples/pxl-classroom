@@ -354,31 +354,37 @@ test.describe('87 - grading decisions', () => {
 
 // --- the Graded count (2026-09-27) ------------------------------------------
 //
-// A sixth card on the assignment page and a stat on the overview's card, shown
-// only once somebody has a score, and moved by a re-grade without a reload.
+// The Grading tab's summary line says how many students have a score (it was a
+// sixth card on the page until the tabs, 2026-10-02), and the overview's card
+// carries it too. Shown only once somebody has a score, and moved by a re-grade
+// without a reload.
 
-const gradedCard = (page) => page.locator('.summary-card', { hasText: 'Graded' });
+const gradingTab = (page) => page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ });
+const gradedLine = (page) => page.locator('.grading-actions');
 
 test.describe('87 - the Graded count', () => {
   test('the assignment page shows how many students have a score', async ({ page }) => {
     await setup(page);
-    await expect(gradedCard(page)).toBeVisible();
-    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
   });
 
-  test('NOBODY GRADED: no card - a 0 would read as graded and nobody passed', async ({ page }) => {
+  test('NOBODY GRADED: no count - a 0 would read as graded and nobody passed', async ({ page }) => {
     await setup(page, { startSummary: { ...summary, students: [] } });
-    await expect(page.locator('.summary-card', { hasText: 'No submission' })).toBeVisible();
-    await expect(gradedCard(page)).toHaveCount(0);
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText('No scores read yet');
+    await expect(gradedLine(page)).not.toContainText('have a score');
   });
 
   test('a RE-GRADE moves it at once, with no reload', async ({ page }) => {
     const { contentWrites } = await setup(page, { startSummary: { ...summary, students: [] } });
-    await expect(gradedCard(page)).toHaveCount(0);
     await openActions(page);
     await grading(page).getByRole('button', { name: 'Read score again' }).click();
     await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
-    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+    // The dialog may have closed itself after the read; close it if not.
+    if (await dialog(page).isVisible()) await dialog(page).locator('.modal-close').click();
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
   });
 
   test('the overview card carries it too, from the grade summary - and not where nobody is graded', async ({ page }) => {

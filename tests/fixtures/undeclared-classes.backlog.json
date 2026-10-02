@@ -28,9 +28,6 @@
     "checks-list": [
       "StudentDiagnosticsModal.vue"
     ],
-    "col-ci": [
-      "AssignmentDetailView.vue"
-    ],
     "col-score": [
       "AssignmentDetailView.vue"
     ],
@@ -42,9 +39,6 @@
     ],
     "consequences-list": [
       "FreezeConfirmModal.vue"
-    ],
-    "deadline-card": [
-      "AssignmentDetailView.vue"
     ],
     "demo-toolbar": [
       "SandboxView.vue"
@@ -159,7 +153,6 @@
     ]
   },
   "reasons": {
-    "col-ci": "AssignmentDetailView scoped `th {}` / `td {}` style the cells by tag.",
     "col-score": "AssignmentDetailView scoped `th {}` / `td {}` style the cells by tag.",
     "team-name": "A <strong>; the weight is the element default and that is the intent.",
     "org-item-text": "Positioned by its siblings: .org-dropdown-item is flex and .check-icon carries margin-left:auto, so the text needs no rule of its own.",

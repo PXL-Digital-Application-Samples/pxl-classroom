@@ -162,7 +162,7 @@ test.describe('25 - Responsive layout', () => {
       const students = await page.evaluate(MEASURE);
       expect(students.scrollsSideways, `students view at ${width}px: ${students.overflowing.join(', ')}`).toBe(false);
 
-      await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+      await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
       await page.waitForTimeout(300);
 
       const teams = await page.evaluate(MEASURE);

@@ -25,10 +25,10 @@ import {
   setupStandardMockRoutes,
   inviteToken,
   expandSettings,
+  chooseState,
 } from '../fixtures/e2e-fixtures.mjs';
 
 const A = 'linux-processes-2026';
-const B = 'linux-networking-2026';
 const TITLE_A = 'Linux Processes 2026';
 const TITLE_B = 'Linux Networking 2026';
 
@@ -296,101 +296,32 @@ test.describe('38 - The countdown at its edges', () => {
   });
 });
 
-// ==================================== moving between assignments on a live view
+// ==================================== leaving an assignment's settings
 
-test.describe('38 - Nothing leaks from one assignment to the next', () => {
-  const two = { [A]: assignment(A), [B]: assignment(B) };
-  // Dashboard ENTRIES, not the assignment documents - `accepted` is what the
-  // card reads, and an assignment object has no such field. Passing the wrong
-  // shape here made an earlier draft of these tests pass against a card
-  // permanently stuck on "no cohort report yet".
-  const dashTwo = dashboardDoc({
-    [A]: entry({ accepted: 47 }),
-    [B]: entry({ title: TITLE_B, accepted: 3 }),
-  });
-
-  const row = (page, title) => page.locator('.assignment-list li', { hasText: title }).first();
-
-  test('Opening a second published assignment collapses its settings again', async ({ page }) => {
-    // `settingsOpen` is a single ref on a view that never unmounts. Left
-    // alone, the lecturer expands A once and every assignment after it opens
-    // on the form - the exact behaviour WS5 removed.
-    await open(page, { assignments: two, extra: { reports: { dashboard: dashTwo } } });
-    await expandSettings(page);
-    await expect(details(page)).toHaveJSProperty('open', true);
-
-    await row(page, TITLE_B).click();
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue(TITLE_B, { timeout: 10000 })
-      .catch(() => {});
-    await expect(details(page)).toHaveJSProperty('open', false);
-  });
-
-  test('Switching from a published assignment to a draft gives the form back', async ({ page }) => {
-    const mixed = { [A]: assignment(A), [B]: assignment(B, { state: 'draft', invite_token: undefined }) };
-    await open(page, { assignments: mixed, extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } } });
-    await expect(details(page)).toHaveJSProperty('open', false);
-
-    await row(page, TITLE_B).click();
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue(TITLE_B, { timeout: 10000 });
-    await expect(cohort(page)).toHaveCount(0);
-    await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
-  });
-
-  test('The cohort card reads the assignment on screen, not the one before it', async ({ page }) => {
-    await open(page, {
-      assignments: two,
-      extra: {
-        reports: {
-          dashboard: dashboardDoc({
-            [A]: entry({ accepted: 47 }),
-            [B]: entry({ title: TITLE_B, accepted: 3 }),
-          }),
-        },
-      },
-    });
-    await expect(cohort(page)).toContainText('47');
-
-    await row(page, TITLE_B).click();
-    await expect(cohort(page)).toContainText('3', { timeout: 10000 });
-    await expect(cohort(page)).not.toContainText('47');
-  });
-
-  test('The "moved" pointer follows the assignment', async ({ page }) => {
-    await open(page, { assignments: two, extra: { reports: { dashboard: dashTwo } } });
-    const link = () => page.locator('.lifecycle-moved a');
-    await expect(link()).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${A}$`));
-
-    await row(page, TITLE_B).click();
-    await expect(link()).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${B}$`), { timeout: 10000 });
-  });
-
-  test('New assignment after a published one opens on the form', async ({ page }) => {
-    await open(page, { assignments: two, extra: { reports: { dashboard: dashTwo } } });
-    await expect(details(page)).toHaveJSProperty('open', false);
-
-    await page.getByRole('button', { name: /New assignment/ }).click();
-    await expect(page.locator('.editor-title h3', { hasText: 'New assignment' })).toBeVisible();
-    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
-    await expect(cohort(page)).toHaveCount(0);
-    await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
-  });
-
+// "Nothing leaks from one assignment to the next" lived here: the editor sat
+// beside a list of every assignment and stayed mounted while the lecturer
+// clicked from one to another, so a collapsed disclosure, a cohort card or a
+// "moved" pointer could outlive the assignment it belonged to. The editor is
+// each assignment's Settings tab now (BETA-UX.md, 2026-10-02) and there is no
+// list beside it: reaching another assignment's settings leaves this page, so
+// nothing on it survives to leak. What still matters on the way out is an
+// edit the lecturer has not saved.
+test.describe('38 - Leaving the settings asks about unsaved edits', () => {
   test('A dismissed unsaved-changes prompt leaves the edit and the disclosure alone', async ({ page }) => {
-    await open(page, { assignments: two, extra: { reports: { dashboard: dashTwo } } });
+    await open(page, {
+      assignments: { [A]: assignment(A) },
+      extra: { reports: { dashboard: dashboardDoc({ [A]: entry({ accepted: 47 }) }) } },
+    });
     await expandSettings(page);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Edited but not saved');
 
     page.on('dialog', (d) => d.dismiss());
-    await row(page, TITLE_B).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
 
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}/settings`));
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
     await expect(details(page), 'the disclosure the edit is inside must not shut').toHaveJSProperty('open', true);
   });
-
-  // "Flipping to the Roster tab and back keeps the pane where it was" lived
-  // here: the tabs were v-show, so state that got out of step survived the
-  // round trip. The roster is its own route now and leaving for it unmounts
-  // this view, behind the same unsaved-changes guard as any other exit.
 });
 
 // ============================================ transitions change which layout applies
@@ -403,12 +334,13 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
       extra: { contentWrites, reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
     page.on('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: /^Stop accepting$/ }).click();
+    await chooseState(page, 'Stop accepting');
 
-    await expect(page.locator('.badge', { hasText: 'closed' }).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-state-menu]')).toContainText('Closed', { timeout: 15000 });
     await expect(cohort(page), 'a closed assignment still has a cohort to look at').toBeVisible();
     await expect(details(page)).toHaveJSProperty('open', false);
-    await expect(page.getByRole('button', { name: /^Stop accepting$/ })).toBeDisabled();
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Stop accepting');
   });
 
   test('Archiving hands the form back', async ({ page }) => {
@@ -420,12 +352,13 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
     page.on('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: /^Archive$/ }).click();
+    await chooseState(page, 'Archive');
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await expect(cohort(page)).toHaveCount(0);
     await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
-    await expect(page.getByRole('button', { name: /^Archive$/ })).toBeDisabled();
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Archive');
   });
 
   test('Publishing a draft flips to the cohort layout without yanking the form away', async ({ page }) => {
@@ -463,9 +396,9 @@ test.describe('38 - Republish is a repair only where it repairs', () => {
 
     await expect(page.locator('.lifecycle-repair')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Republish broker/i })).toHaveCount(0);
-    await expect(
-      page.locator('.lifecycle-transitions').getByRole('button', { name: /^Reopen for acceptance$/ }),
-    ).toBeVisible();
+    // Reopening is a transition, so it is on the state button, named for what it does.
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu .dropdown-item-title', { hasText: /^Reopen for acceptance$/ })).toBeVisible();
   });
 
   test('Reopening says what it does, and dismissing dispatches nothing', async ({ page }) => {
@@ -477,7 +410,7 @@ test.describe('38 - Republish is a repair only where it repairs', () => {
 
     const seen = [];
     page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
-    await page.getByRole('button', { name: /^Reopen for acceptance$/ }).click();
+    await chooseState(page, 'Reopen for acceptance');
 
     await expect.poll(() => seen.length).toBe(1);
     expect(seen[0]).toMatch(/reopen/i);
@@ -492,7 +425,21 @@ test.describe('38 - Republish is a repair only where it repairs', () => {
   test('An archived assignment reopens too, and is equally explicit', async ({ page }) => {
     await open(page, { assignments: { [A]: assignment(A, { state: 'archived' }) } });
     await expect(page.locator('.lifecycle-repair')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Reopen for acceptance$/ })).toBeVisible();
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu .dropdown-item-title', { hasText: /^Reopen for acceptance$/ })).toBeVisible();
+  });
+
+  test('Past the deadline it is not offered, and moving the deadline is', async ({ page }) => {
+    // Every acceptance after the deadline is refused as too late, and a
+    // publish of an assignment that was locked at its deadline is refused
+    // outright - so "Reopen" there would be a control that cannot do what it
+    // says (DESIGN.md §1.5).
+    const past = new Date(Date.now() - 86400_000).toISOString();
+    await open(page, { assignments: { [A]: assignment(A, { state: 'closed', deadline_at: past }) } });
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu')).not.toContainText('Reopen for acceptance');
+    await page.locator('.state-menu .dropdown-item-title', { hasText: /^Move the deadline/ }).click();
+    await expect(page.locator('#settings-schedule')).toBeInViewport();
   });
 
   test('A published assignment still repairs, and that path is unchanged', async ({ page }) => {

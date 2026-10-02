@@ -23,9 +23,8 @@
           <span class="app-header-sep">/</span>
           <h1 class="app-header-heading" :title="headerTitle">{{ headerTitle }}</h1>
 
-          <!-- The org's three views. With a saved assignment open, Assignments
-               goes back to ITS overview (OrgSwitch); a new one has nothing to
-               track until it is saved, so it goes to the list. Not over a
+          <!-- The org's three views; an assignment's settings are under
+               Assignments, like the rest of the assignment. Not over a
                control repository this account cannot read.
                Unsaved edits are safe without any handling here - the view's
                `onBeforeRouteLeave` guard already runs confirmDiscard() on ANY
@@ -33,8 +32,8 @@
           <OrgSwitch
             v-if="user && !controlRepoUnreadable"
             :org="org"
-            current="admin"
-            :assignment-id="switchAssignmentId || ''"
+            current="assignments"
+            :assignment-id="assignmentId || 'new'"
           />
         </div>
       </template>
@@ -45,7 +44,7 @@
     <!-- Not authenticated - never render the editor with data-shaped empty
          states signed out ("No assignments yet" on a full course reads as
          data loss after the 8h token expiry). -->
-    <AuthCard v-if="!user" title="Sign in to open the Admin Panel" @authenticated="onAuthenticated">
+    <AuthCard v-if="!user" title="Sign in to edit this assignment" @authenticated="onAuthenticated">
       Sign in with a GitHub account that owns <strong>{{ org }}</strong>.
       Sessions last 8 hours. If you were signed in earlier, it has expired.
     </AuthCard>
@@ -70,24 +69,22 @@
     </div>
 
     <div class="admin-layout">
-      <!-- LEFT: assignment list -->
-      <aside class="list-pane">
-        <!-- DESIGN.md §1.2 counts primaries across the whole view. With an
-             assignment open, the view's job is that assignment and its Save is
-             the solid button; with nothing open, this is the only thing to do
-             here and gets it. Exactly one, in both states. -->
-        <!-- Disabled, with the card below saying why, while the control
-             repository cannot be read: an assignment is saved INTO it, so the
-             form could only fail at the end. -->
-        <button
-          :class="['btn', 'new-btn', 'btn-with-icon', editing ? '' : 'btn-primary']"
-          :disabled="controlRepoUnreadable"
-          :title="controlRepoUnreadable ? `An assignment is saved in ${org}'s control repository, which this account can't read` : undefined"
-          @click="newAssignment"
-        >
-          <Icon name="plus" :size="14" />
-          <span>New assignment</span>
-        </button>
+      <main class="editor-pane">
+        <!-- The assignment's header and tabs, Settings active: the same header
+             as its Progress, Teams and Grading tabs. Its state button runs the
+             lifecycle here (runStateAction). -->
+        <AssignmentHeader
+          v-if="mode === 'single' && storedDoc"
+          :org="org"
+          :assignment-id="assignmentId"
+          :assignment="storedDoc"
+          current="settings"
+          :is-group="storedDoc.assignment_type === 'group'"
+          :accepted-count="cohortAcceptedCount"
+          :busy="saving || publishing || deleting"
+          :primary-invite="false"
+          @state-action="runStateAction"
+        />
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
         <ControlRepoUnreadable
@@ -98,71 +95,24 @@
           @retry="loadAssignments"
         />
         <div v-else-if="assignmentsError" class="list-empty error-state-box">
-          <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load assignments</h4>
+          <h4 style="margin: 0 0 var(--space-xs) 0;">Couldn't load the assignment</h4>
           <p class="text-secondary" style="font-size: 0.85rem; margin: 0 0 var(--space-sm) 0;">{{ assignmentsError }}</p>
           <button class="btn btn-sm" @click="loadAssignments">Retry</button>
         </div>
-        <div v-else-if="assignments.length === 0" class="list-empty">
-          No assignments yet. Create one to begin.
-        </div>
-        <ul v-else class="assignment-list">
-          <li
-            v-for="a in assignments"
-            :key="a.id"
-            :class="{ active: editing && editing.id === a.id }"
-            style="padding: 0; margin-bottom: 4px;"
-          >
-            <router-link
-              :to="{ name: 'admin', params: { org: props.org }, query: { edit: a.id } }"
-              @click.prevent="editAssignment(a)"
-              style="text-decoration: none; color: inherit; display: block;"
-            >
-              <div class="title">{{ a.title || a.id }}</div>
-              <div class="slug">{{ a.id }}</div>
-              <div class="meta">
-                <!-- DESIGN.md §1.3: a status is a dot with mixed-case text, not
-                     a filled pill capsule. These evaded the conformity guard
-                     only because it matches on `text-transform: uppercase` and
-                     these were lowercase - the shape was always wrong. -->
-                <span class="status-indicator">
-                  <span class="status-dot" :class="stateDot(a.state)"></span>
-                  <span>{{ stateLabel(a.state) }}</span>
-                </span>
-                <span v-if="a.deadline_at" class="deadline">{{ formatDate(a.deadline_at, a.timezone) }}</span>
-                <!-- The link, without opening the editor first (ARCHITECTURE §10.3).
-                     The list already parsed each YAML, so the token is in hand
-                     and this costs no request. -->
-                <InvitationShare
-                  v-if="a.state === 'published'"
-                  :org="org"
-                  :assignment="a"
-                  variant="compact"
-                  :resolve="false"
-                />
-              </div>
-            </router-link>
-          </li>
-        </ul>
-      </aside>
-
-      <!-- RIGHT: editor -->
-      <main class="editor-pane">
-        <!-- Not an invitation to pick or create while there is nothing to
-             pick from and New assignment is disabled; the card on the left
-             says why. -->
-        <div v-if="!editing && controlRepoUnreadable" class="empty-state">
-          <h3>No assignments to show</h3>
-        </div>
-        <div v-else-if="!editing" class="empty-state">
-          <h3>Pick an assignment to edit</h3>
-          <p>Or click <strong>+ New assignment</strong> to create one.</p>
+        <!-- A name in the address that is not an assignment: say so, never an
+             empty editor that would create one by that name. -->
+        <div v-else-if="!editing && mode === 'single'" class="empty-state">
+          <h3>There is no assignment called <code>{{ assignmentId }}</code> in {{ org }}.</h3>
+          <p><router-link :to="{ name: 'dashboard', params: { org } }">Back to the assignments</router-link></p>
         </div>
 
-        <form v-else class="editor-form" @submit.prevent>
+        <form v-else-if="editing" class="editor-form" @submit.prevent>
           <div class="editor-header-bar">
+            <!-- The state is the header's button above; the title says what
+                 this page is. -->
             <div class="editor-title">
               <h3 v-if="isNew">New assignment</h3>
-              <h3 v-else>Edit: <code>{{ form.id }}</code> <span class="badge" :class="`badge-${form.state}`">{{ assignmentStateLabel(form.state) }}</span></h3>
+              <h3 v-else>Settings</h3>
             </div>
             <div class="editor-header-actions">
               <button
@@ -887,7 +837,7 @@
                opening date and the deadline are different on every single
                assignment. The rarely-changed control was sitting above the
                always-changed one. -->
-          <fieldset>
+          <fieldset id="settings-schedule">
             <legend>Schedule</legend>
             <!-- THE ONE PLACE TWO FIELDS GENUINELY PAIR. They are read
                  together - an assignment opens THEN closes - and a
@@ -1404,8 +1354,9 @@
             </div>
           </fieldset>
 
-          <!-- GRADING: what happens to the work, apart from the deadline. -->
-          <fieldset>
+          <!-- GRADING: what happens to the work, apart from the deadline. The
+               Grading tab's "Set up grading" opens the settings here. -->
+          <fieldset id="settings-grading">
             <legend>Grading</legend>
             <div class="field checkbox">
               <div class="checkbox-with-help">
@@ -1536,9 +1487,13 @@
                `Save & publish` on screen at once - DESIGN.md §1.2, and the
                reason it was scoped out of the conformity test until now. -->
 
-          <!-- LIFECYCLE ACTIONS for existing -->
-          <div v-if="!isNew" class="lifecycle">
-            <h4>Lifecycle</h4>
+          <!-- THE BROKER, for an existing assignment. Changing the STATE is the
+               state button in the header above (AssignmentHeader.vue,
+               runStateAction), the one place it is offered on every tab; what
+               is left here is repairing a published assignment's broker and
+               watching a publish go live. -->
+          <div v-if="!isNew && (form.state === 'published' || publishWatch)" id="settings-lifecycle" class="lifecycle">
+            <h4>Broker</h4>
 
             <!-- Repair above the rule, state transitions below it
                  (ARCHITECTURE §10.1.1). "Republish the broker" and "stop the whole
@@ -1573,60 +1528,6 @@
               <small v-if="migratesInvitation" class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched. This assignment still uses the old invitation format, so publishing upgrades it and links handed out so far stop working.</small>
               <small v-else class="text-secondary">Recreates the broker and its variables. Existing student repositories are untouched, and links already handed out keep working.</small>
             </div>
-
-            <div class="lifecycle-group lifecycle-transitions">
-              <span v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-group-label">State</span>
-              <button
-                v-if="form.state !== 'published'"
-                class="btn btn-with-icon"
-                type="button"
-                @click="handlePublishClick"
-                :disabled="publishing"
-              >
-                <template v-if="publishing">Publishing…</template>
-                <!-- Named after what it does from here. From `closed` or
-                     `archived` this is not a publish, it is an un-close. -->
-                <template v-else-if="form.state === 'closed' || form.state === 'archived'">Reopen for acceptance</template>
-                <template v-else>Publish (create broker, enable nightly)</template>
-              </button>
-              <button class="btn" type="button" @click="setState('closed')" :disabled="form.state === 'closed' || saving">
-                Stop accepting
-              </button>
-              <button v-if="form.state === 'published' || form.state === 'closed'" class="btn" type="button" @click="setState('draft')" :disabled="saving">
-                Revert to draft
-              </button>
-              <button class="btn" type="button" @click="setState('archived')" :disabled="form.state === 'archived' || saving">
-                Archive
-              </button>
-              <!-- No "Copy invitation link" here: copying is not a lifecycle
-                   transition (ARCHITECTURE §10.3 / UX24). It lives in the share block
-                   above and on every assignment row. -->
-              <button v-if="form.state === 'draft'" class="btn btn-danger" type="button" @click="deleteDraft" :disabled="deleting">
-                {{ deleting ? 'Deleting…' : 'Delete draft' }}
-              </button>
-              <!-- Only once acceptance is shut. Deleting a live assignment
-                   would take its broker out from under students who can still
-                   be accepting, so the lifecycle does the stopping first and
-                   this only ever runs on something already closed. Outline, not
-                   solid: DESIGN.md §3 keeps the solid danger for the view whose
-                   point IS the destruction, which is the dialog. -->
-              <button
-                v-if="!isNew && (form.state === 'closed' || form.state === 'archived')"
-                class="btn btn-danger-outline"
-                type="button"
-                @click="showDeleteModal = true"
-                :disabled="deleting"
-              >Delete assignment</button>
-            </div>
-
-            <!-- Both used to live here as accordions that made you type a
-                 login from memory. They are per-student operations and their
-                 home is the student's own row (ARCHITECTURE §10.1.1 / C2). -->
-            <p v-if="form.state === 'published' || form.state === 'closed'" class="lifecycle-moved text-secondary">
-              Per-student extensions and retries are on the
-              <router-link :to="{ name: 'assignment-detail', params: { org, assignmentId: form.id } }">roster &amp; progress</router-link>
-              page, on the student's own row.
-            </p>
 
             <div v-if="publishWatch === 'watching'" class="publish-watch">
               <div class="spinner sm"></div>
@@ -1738,9 +1639,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { config } from '../lib/config.js'
-import { assignmentStateLabel } from '../lib/status-labels.js'
 // deployment.yml's display timezone, so the form default, the placeholder and
 // the value buildDoc() writes are one fact rather than three literals.
 import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
@@ -1825,29 +1725,10 @@ import {
   EMPTY_TEMPLATE,
 } from '../../../lib/template-source.mjs'
 import { formatDate } from '../lib/format.js'
-
-// DESIGN.md §1.3/§4 - a status is a dot plus mixed-case text. The WORDS match
-// AssignmentDetailView's header deliberately: `published` reads as "Accepting"
-// there, and one assignment must not appear to be in two different states
-// depending on which page a lecturer opened.
-function stateLabel(state) {
-  if (state === 'published') return 'Accepting'
-  if (state === 'closed') return 'Closed'
-  if (state === 'draft') return 'Draft'
-  if (state === 'archived') return 'Archived'
-  return state
-}
-
-// §4's table: success is "the state you wanted", warning "needs a look, not an
-// alarm", neutral "not started ... NOT an error". A draft is not a fault.
-function stateDot(state) {
-  if (state === 'published') return 'dot-success'
-  if (state === 'closed') return 'dot-warning'
-  return 'dot-neutral'
-}
 import { countdownParts } from '../lib/countdown.js'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
 import OrgSwitch from '../components/OrgSwitch.vue'
+import AssignmentHeader from '../components/AssignmentHeader.vue'
 import HelpButton from '../components/HelpButton.vue'
 import AuthCard from '../components/AuthCard.vue'
 import AppHeader from '../components/AppHeader.vue'
@@ -1868,7 +1749,16 @@ import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/
 import { readRoster } from '../lib/roster-read.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 
-const props = defineProps({ org: { type: String, required: true } })
+// THE EDITOR FOR ONE ASSIGNMENT (BETA-UX.md, 2026-10-02). It was the Admin
+// page: a list of every assignment beside this editor. Now it is an
+// assignment's Settings tab (`mode: 'single'`, under the same header as its
+// Progress, Teams and Grading tabs) or a new assignment (`mode: 'new'`). The
+// list is gone; the assignments are listed once, on the Assignments tab.
+const props = defineProps({
+  org: { type: String, required: true },
+  assignmentId: { type: String, default: '' },
+  mode: { type: String, default: 'single', validator: (v) => ['single', 'new'].includes(v) },
+})
 const route = useRoute()
 const router = useRouter()
 
@@ -2401,6 +2291,8 @@ const rosterLinked = computed(() =>
 // that used to lose edits silently - leaving the route (e.g. the Dashboard
 // back button) and closing/refreshing the tab.
 onBeforeRouteLeave(() => confirmDiscard())
+// One assignment's settings to another's is the same route with a new id.
+onBeforeRouteUpdate((to, from) => to.params.assignmentId === from.params.assignmentId || confirmDiscard())
 function onBeforeUnload(e) {
   if (hasUnsavedEdits()) {
     e.preventDefault()
@@ -2410,13 +2302,58 @@ function onBeforeUnload(e) {
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
-// The trail NAMES the assignment being edited, and the switch beside it takes
-// Assignments back to that assignment's overview. With nothing open - or with a new assignment,
-// which has nothing to track until it is saved - it falls back to naming the
-// console itself.
-const switchAssignmentId = computed(() =>
-  editing.value && !isNew.value && form.value.id ? form.value.id : null)
-const headerTitle = computed(() => switchAssignmentId.value || 'Admin')
+// The trail names the assignment, as it does on the assignment's other tabs.
+const headerTitle = computed(() =>
+  props.mode === 'new' ? 'New assignment' : (props.assignmentId || 'Assignment'))
+
+// The assignment AS STORED, for the header: its state button and deadline say
+// what the assignment is, never what the form would make it.
+const storedDoc = computed(() =>
+  props.mode === 'single' ? assignments.value.find((a) => a.id === props.assignmentId) || null : null)
+const cohortAcceptedCount = computed(() => (cohort.value ? cohort.value.accepted : 0))
+
+// The header's state button (lib/state-actions.js). Every one of these was a
+// button in this editor's Lifecycle section and still runs the same function,
+// with its own confirmation. "Lock everyone out now" is the Progress tab's:
+// its confirmation dialog lives there, so it is opened there.
+function runStateAction(key) {
+  switch (key) {
+    case 'publish':
+    case 'reopen':
+      return handlePublishClick()
+    case 'close':
+      return setState('closed')
+    case 'draft':
+      return setState('draft')
+    case 'archive':
+      return setState('archived')
+    case 'delete-draft':
+      return deleteDraft()
+    case 'delete':
+      showDeleteModal.value = true
+      return
+    case 'edit-deadline':
+      return scrollToSection('settings-schedule')
+    case 'freeze':
+      return router.push({ name: 'assignment-detail', params: { org: props.org, assignmentId: props.assignmentId }, query: { action: 'freeze' } })
+  }
+}
+
+// A fieldset of the form, brought into view with the settings unfolded.
+async function scrollToSection(id) {
+  settingsOpen.value = true
+  await nextTick()
+  document.getElementById(id)?.scrollIntoView({ block: 'start' })
+}
+
+// Where Cancel and a delete leave: the assignment, or the list when there is
+// no assignment to go back to.
+function leaveEditor({ deleted = false } = {}) {
+  if (props.mode === 'single' && !deleted) {
+    return router.push({ name: 'assignment-detail', params: { org: props.org, assignmentId: props.assignmentId } })
+  }
+  return router.push({ name: 'dashboard', params: { org: props.org } })
+}
 
 // A published or closed assignment leads with the cohort; a draft leads with
 // the form, because defining it is still the job (ARCHITECTURE §10.1.1). An archived
@@ -2511,7 +2448,7 @@ const filteredTemplates = computed(() => {
 })
 
 // The static segments under /dashboard/<org>/ (router/index.js).
-const RESERVED_SLUGS = Object.freeze(['admin', 'usage', 'roster'])
+const RESERVED_SLUGS = Object.freeze(['admin', 'usage', 'roster', 'organization', 'new'])
 
 const fieldErrors = computed(() => {
   const errors = {}
@@ -3390,10 +3327,9 @@ async function loadTemplates() {
 
 // ---------------------------------------------------------------- edit flow
 
-function newAssignment() {
-  // The button is disabled for this; `?new=1` reaches here without it.
+function newAssignment({ confirmed = false } = {}) {
   if (controlRepoUnreadable.value) return
-  if (!confirmDiscard()) return
+  if (!confirmed && !confirmDiscard()) return
   stopPublishWatch()
   templateNotice.value = null
   permissionNotice.value = null
@@ -3439,8 +3375,8 @@ function newAssignment() {
   snapshotForm()
 }
 
-function editAssignment(a) {
-  if (editing.value && editing.value.id !== a.id && !confirmDiscard()) return
+function editAssignment(a, { confirmed = false } = {}) {
+  if (!confirmed && editing.value && editing.value.id !== a.id && !confirmDiscard()) return
   stopPublishWatch()
   if (templateNotice.value?.id !== a.id) templateNotice.value = null
   if (permissionNotice.value?.id !== a.id) permissionNotice.value = null
@@ -3602,9 +3538,9 @@ function editAssignment(a) {
   snapshotForm()
 }
 
+// Leaving asks about unsaved edits on the way out (onBeforeRouteLeave).
 function cancelEdit() {
-  if (!confirmDiscard()) return
-  editing.value = null
+  leaveEditor()
 }
 
 // ---------------------------------------------------------------- automated checks
@@ -4407,6 +4343,11 @@ async function saveAssignment(stateOverride = null) {
       // Stay on the edited assignment
       const stillExists = assignments.value.find((a) => a.id === form.value.id)
       if (stillExists) editing.value = { id: stillExists.id }
+      // A new assignment has an address now: its Settings tab. The same
+      // component stays mounted, so a publish that follows this save carries on.
+      if (stillExists && props.mode === 'new') {
+        await router.replace({ name: 'assignment-settings', params: { org: props.org, assignmentId: stillExists.id } })
+      }
       if (form.value.state === 'published') {
         verifyLiveInfrastructure(form.value.id)
       }
@@ -4913,7 +4854,7 @@ async function deleteDraft() {
     if (res.ok) {
       toast.success(`Deleted draft ${form.value.id}`)
       editing.value = null
-      await loadAssignments()
+      await leaveEditor({ deleted: true })
     } else {
       toast.error(`Delete failed: ${res.data?.message || 'unknown error'}`)
     }
@@ -5202,7 +5143,7 @@ async function deleteAssignment() {
     toast.success(`Deleted ${id}. Grades and the report are in ${retiredDir(id)}/.`)
     showDeleteModal.value = false
     editing.value = null
-    await loadAssignments()
+    await leaveEditor({ deleted: true })
   } catch (e) {
     toast.error(`Delete failed: ${e.message || String(e)}`)
   } finally {
@@ -5259,31 +5200,37 @@ async function setState(newState) {
  * A loader must never change what the user is editing; see the comment in
  * loadAssignments() for what that cost.
  *
- * The two queries are deliberately treated differently:
+ * The page is a LOCATION - a new assignment, or one assignment's settings -
+ * and a refresh lands back on it. Two queries ride on it, and both are
+ * ACTIONS, consumed once so a refresh never repeats them:
  *
- *   ?new=1      an ACTION. Consumed, because leaving it standing means any
- *               later reload re-opens a blank form over your work - and because
- *               a refresh should not silently discard what you typed.
- *   ?edit=<id>  a LOCATION. Kept, because it is a shareable deep link to one
- *               assignment and a refresh should land back on it.
+ *   ?action=<key>   a state change asked for from another tab's state button
+ *                   (runStateAction), carried out here with its own
+ *                   confirmation.
+ *   ?section=<name> where to scroll: `grading` is the Grading tab's "Set up
+ *                   grading".
  *
- * Neither is re-applied by anything except a genuine query change, which is the
- * property that makes keeping `?edit` safe.
+ * The route has already been left or changed by the time this runs, and the
+ * router's leave guard asked about unsaved edits on the way, so opening what
+ * the address names does not ask again.
  */
-function applyRouteIntent() {
-  const q = route.query
-  if (q.new === '1' || q.new === 'true' || q.action === 'new') {
-    newAssignment()
-    const { new: _new, action: _action, ...rest } = q
-    router.replace({ query: rest })
+async function applyRouteIntent() {
+  if (props.mode === 'new') {
+    if (!isNew.value) newAssignment({ confirmed: true })
     return
   }
-  if (q.edit && (!editing.value || editing.value.id !== q.edit)) {
-    const a = assignments.value.find((x) => x.id === q.edit)
-    if (a) {
-      editAssignment(a)
-    }
+  const a = assignments.value.find((x) => x.id === props.assignmentId)
+  if (!a) {
+    editing.value = null
+    return
   }
+  if (!editing.value || editing.value.id !== a.id) editAssignment(a, { confirmed: true })
+  const { action, section, ...rest } = route.query
+  if (!action && !section) return
+  await router.replace({ query: rest })
+  await nextTick()
+  if (section === 'grading') await scrollToSection('settings-grading')
+  if (typeof action === 'string') runStateAction(action)
 }
 
 onMounted(async () => {
@@ -5325,8 +5272,11 @@ watch(
   }
 )
 
+// The route, not only its query: Settings and New are the same component, so
+// saving a new assignment, or going from one to the other, changes the
+// props under a page that stays mounted.
 watch(
-  () => route.query,
+  () => route.fullPath,
   () => applyRouteIntent(),
 )
 </script>
@@ -5367,71 +5317,17 @@ watch(
      track grew to fit it and the editor pane pushed the page 208px wider than
      a 375px phone, sideways-scrolling the whole admin route. The floor makes
      the child ellipsise (which it is already styled to do) instead of the
-     track widening. tests/e2e/25-responsive-layout.spec.mjs covers this route
-     now; it never did before. */
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: var(--space-lg);
-  align-items: start;
-}
-@media (max-width: 900px) {
-  .admin-layout { grid-template-columns: minmax(0, 1fr); }
+     track widening. tests/e2e/25-responsive-layout.spec.mjs covers this route.
+     One column: the list of assignments that sat beside the editor is the
+     Assignments tab now. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
-/* LIST */
-.list-pane {
-  position: sticky;
-  /* BELOW the sticky app bar, not behind it. `top: var(--space-md)` stuck the
-     pane 16px from the viewport top while the bar occupies the first 49px, so
-     its own heading sat under the bar and was unreadable. */
-  top: calc(var(--header-height) + var(--space-md));
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: var(--space-md);
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-}
-.new-btn { width: 100%; margin-bottom: var(--space-md); }
 .list-loading, .list-empty {
   padding: var(--space-md);
   color: var(--text-secondary);
   text-align: center;
 }
-.assignment-list { list-style: none; padding: 0; margin: 0; }
-.assignment-list li {
-  margin-bottom: 4px;
-}
-.assignment-list li a {
-  padding: var(--space-sm) var(--space-md);
-  border-radius: 6px;
-  cursor: pointer;
-  border: 1px solid transparent;
-  text-decoration: none;
-  color: inherit;
-  display: block;
-}
-.assignment-list li a:hover { background: var(--bg-surface-elevated); }
-.assignment-list li.active a {
-  background: var(--bg-surface-elevated);
-  border-color: var(--accent-blue);
-}
-.assignment-list .title { font-weight: 600; }
-.assignment-list .slug { font-size: 0.8rem; color: var(--text-secondary); font-family: var(--font-mono); }
-/* The date used to break MID-STRING in this narrow column - "30 Sept 2026,
-   22:00" on one line and "CEST" on the next - which left the status alone on
-   its row with dead space beside it and read as a stray empty line. The row
-   wraps as whole items now, and the date is one of them. */
-.assignment-list .meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-sm);
-  margin-top: var(--space-xs);
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-.assignment-list .deadline { white-space: nowrap; }
-
 /* BADGES */
 .badge {
   display: inline-block;
@@ -5440,10 +5336,6 @@ watch(
   font-size: 0.75rem;
   text-transform: lowercase;
 }
-.badge-draft { background: var(--tint-neutral-muted); color: var(--text-secondary); }
-.badge-published { background: var(--tint-success-muted); color: var(--accent-green-bright); }
-.badge-closed { background: var(--tint-attention-muted); color: var(--accent-yellow-bright); }
-.badge-archived { background: var(--tint-neutral-subtle); color: var(--text-muted); }
 
 /* EDITOR */
 .editor-pane {
@@ -5836,11 +5728,6 @@ details .field { padding: 0 var(--space-sm); }
   min-width: 0;
   font-size: 0.8rem;
   line-height: 1.4;
-}
-.lifecycle-transitions { margin-bottom: var(--space-md); }
-.lifecycle-moved {
-  font-size: 0.85rem;
-  margin: 0 0 var(--space-md) 0;
 }
 .autograde-summary small {
   display: block;

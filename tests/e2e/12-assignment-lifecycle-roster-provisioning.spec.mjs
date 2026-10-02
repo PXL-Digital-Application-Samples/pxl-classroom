@@ -15,11 +15,9 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible();
 
-    // Click "+ New assignment"
-    await page.locator('.new-btn').click();
 
     // Fill Title
     const titleInput = page.getByPlaceholder('e.g. Linux Processes 2026');

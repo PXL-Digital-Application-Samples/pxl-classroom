@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openSystemHealth } from '../fixtures/e2e-fixtures.mjs';
 import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 
 test.describe('06 - System Health & Diagnostics Modal', () => {
@@ -13,7 +13,7 @@ test.describe('06 - System Health & Diagnostics Modal', () => {
     await page.goto(`/dashboard/${ORG}`);
 
     // The System Health button is icon-only - aria-label is the only handle.
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
 
     const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
     await expect(overlay).toBeVisible();
@@ -74,7 +74,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
     const tier1 = await openTier1(page);
 
     const declaration = row(tier1, 'GitHub App Declaration');
@@ -98,7 +98,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
 
     const tier1 = await openTier1(page);
     await expect(row(tier1, 'GitHub App Declaration')).toHaveClass(/check-ok/);
@@ -114,7 +114,7 @@ test.describe('06b - App-level permission attribution', () => {
     });
 
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
 
     const tier1 = await openTier1(page);
     const access = row(tier1, 'App Repository Access');

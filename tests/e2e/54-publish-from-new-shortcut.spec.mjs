@@ -70,9 +70,9 @@ test.describe('54 - the + Assignment shortcut', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/admin?edit=other-one`);
-    await expect(page.locator('.new-btn')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Brand New Thing');
     // The slug is derived and shown as a line rather than asked for in a box,
     // so this reads what is on screen - which is what the assertion was always
@@ -91,6 +91,26 @@ test.describe('54 - the + Assignment shortcut', () => {
       publish.inputs.assignment_id,
       'the publish must be for the assignment that was just saved, not the one ?edit= points at',
     ).toBe('brand-new-thing');
+    // Saved, a new assignment has an address: its Settings tab. The page moves
+    // there without remounting, which is what lets the publish above carry on.
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/brand-new-thing/settings$`));
+  });
+
+  test('Cancel on a new assignment goes back to the list, and on a saved one to the assignment', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { 'other-one': { id: 'other-one', title: 'Other One', state: 'published' } },
+    });
+    await page.goto(`/dashboard/${ORG}/new`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: /^Cancel$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
+
+    await page.goto(`/dashboard/${ORG}/other-one/settings`);
+    await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: /^Cancel$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/other-one$`));
   });
 
   // TWO other tests were written for this file and deleted, both for the same

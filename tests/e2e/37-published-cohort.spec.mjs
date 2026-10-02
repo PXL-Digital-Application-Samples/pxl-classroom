@@ -28,6 +28,7 @@ import {
   setupStandardMockRoutes,
   inviteToken,
   expandSettings,
+  chooseState,
 } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
@@ -159,7 +160,7 @@ test.describe('37 - The published editor leads with the cohort', () => {
     await expect(page.locator('details.settings-disclosure')).toHaveJSProperty('open', false);
 
     page.on('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: /^Revert to draft$/ }).click();
+    await chooseState(page, 'Back to draft');
 
     await expect(page.locator('.cohort-card')).toHaveCount(0, { timeout: 15000 });
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
@@ -285,11 +286,11 @@ test.describe('37 - Per-student operations live on the student', () => {
     await expect(page.getByPlaceholder('octocat')).toHaveCount(0);
   });
 
-  test('And the lecturer who knew the accordions is told where they went', async ({ page }) => {
+  test('And the student rows are one tab away from the settings', async ({ page }) => {
+    // The settings are the assignment's Settings tab now, under the same
+    // header as its Progress tab, where each student's row is.
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    const moved = page.locator('.lifecycle-moved');
-    await expect(moved).toContainText('Per-student extensions and retries');
-    await expect(moved.getByRole('link', { name: /roster & progress/i })).toHaveAttribute(
+    await expect(page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ })).toHaveAttribute(
       'href',
       new RegExp(`/dashboard/${ORG}/${ID}$`),
     );
@@ -360,8 +361,8 @@ test.describe('37 - Per-student operations live on the student', () => {
 
 // ======================================================== the lifecycle
 
-test.describe('37 - Lifecycle groups repair above state', () => {
-  test('Repair is its own group, above the transitions', async ({ page }) => {
+test.describe('37 - Repair in the settings, state in the header', () => {
+  test('Repair stays in the settings; the transitions are the state button', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
 
     const repair = page.locator('.lifecycle-repair');
@@ -370,27 +371,23 @@ test.describe('37 - Lifecycle groups repair above state', () => {
     await expect(repair, 'a repair must promise not to break live links')
       .toContainText('links already handed out keep working');
 
-    const transitions = page.locator('.lifecycle-transitions');
-    await expect(transitions.getByRole('button', { name: /^Stop accepting$/ })).toBeVisible();
-    await expect(transitions.getByRole('button', { name: /^Revert to draft$/ })).toBeVisible();
-    await expect(transitions.getByRole('button', { name: /^Archive$/ })).toBeVisible();
+    // One place for the state, on every tab: no second row of buttons here.
+    await expect(page.locator('.lifecycle-transitions')).toHaveCount(0);
+    await page.locator('[data-state-menu]').click();
+    const items = page.locator('.state-menu .dropdown-item-title');
+    await expect(items).toHaveText(['Stop accepting', 'Back to draft', 'Archive']);
     // Republish is NOT a transition.
-    await expect(transitions.getByRole('button', { name: /Republish/i })).toHaveCount(0);
-
-    const repairBox = await repair.boundingBox();
-    const transBox = await transitions.boundingBox();
-    expect(repairBox.y).toBeLessThan(transBox.y);
+    await expect(page.locator('.state-menu')).not.toContainText('Republish');
   });
 
-  test('A draft has nothing to repair, and Publish sits with the transitions', async ({ page }) => {
+  test('A draft has nothing to repair, and Publish is on the state button', async ({ page }) => {
     const draft = assignment({ state: 'draft' });
     delete draft.invite_token;
     await openEditor(page, { asgn: draft });
 
     await expect(page.locator('.lifecycle-repair')).toHaveCount(0);
-    await expect(
-      page.locator('.lifecycle-transitions').getByRole('button', { name: /Publish \(create broker/i }),
-    ).toBeVisible();
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu .dropdown-item-title').first()).toHaveText('Publish');
   });
 
   test('Stopping the cohort names the consequence before it happens', async ({ page }) => {
@@ -398,7 +395,7 @@ test.describe('37 - Lifecycle groups repair above state', () => {
 
     const seen = [];
     page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
-    await page.getByRole('button', { name: /^Stop accepting$/ }).click();
+    await chooseState(page, 'Stop accepting');
     await expect.poll(() => seen.length).toBe(1);
     expect(seen[0]).toMatch(/no longer accept/i);
     expect(seen[0], 'and what is NOT affected, which is the anxious question')
@@ -411,7 +408,7 @@ test.describe('37 - Lifecycle groups repair above state', () => {
 
     const seen = [];
     page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
-    await page.getByRole('button', { name: /^Revert to draft$/ }).click();
+    await chooseState(page, 'Back to draft');
     await expect.poll(() => seen.length).toBe(1);
     expect(seen[0]).toMatch(/students can no longer open the accept link/i);
     expect(
@@ -444,14 +441,15 @@ test.describe('37 - The editor has one solid button', () => {
     expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['Save']);
   });
 
-  test('With nothing open, New assignment is the one', async ({ page }) => {
+  test('On the list of assignments, New assignment is the one', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
       assignments: { [ID]: assignment() },
+      reports: { dashboard: dashboard(47) },
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await expect(page.locator('.assignment-list li').first()).toBeVisible({ timeout: 15000 });
+    await page.goto(`/dashboard/${ORG}`);
+    await expect(page.locator('.assignment-card').first()).toBeVisible({ timeout: 15000 });
     expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['New assignment']);
   });
 

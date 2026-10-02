@@ -1,43 +1,34 @@
 <template>
-  <!-- An organization's three staff views: Assignments (the dashboard and each
-       assignment's overview), Roster, and Admin (the assignment editor). One
-       control on every page of the org, where there used to be two that took
-       turns: an assignment's Overview / Admin switch and the org's
-       Assignments / Roster one.
+  <!-- An organization's three staff views: Assignments (the list, and every
+       tab of one assignment, its settings included), Roster, and Organization
+       (what is the organization's own: what needs the lecturer, course
+       activity, health, usage, connection). BETA-UX.md, 2026-10-02: there is no
+       Admin view any more; the editor is each assignment's Settings tab.
 
-       THE ASSIGNMENT TRAVELS, both ways. The most-used move is between one
-       assignment's results and its settings, so from lab-3's overview Admin
-       opens lab-3 in the editor (`?edit=`), and from the editor with lab-3
-       open Assignments goes back to lab-3's overview rather than the list.
-       The list is always one click away in the breadcrumb.
+       Inside an assignment, Assignments stays lit and still leads back to the
+       list, since that is where it goes from anywhere else too.
 
        Same chrome as before (style.css, `.app-header-switch`). -->
   <nav class="app-header-switch" aria-label="Course views">
-    <span v-if="current === 'assignments'" class="primer-tab active" aria-current="page">Assignments</span>
-    <router-link v-else :to="assignmentsTarget" class="primer-tab">Assignments</router-link>
+    <span v-if="current === 'assignments' && !assignmentId" class="primer-tab active" aria-current="page">Assignments</span>
+    <router-link
+      v-else
+      :to="{ name: 'dashboard', params: { org } }"
+      :class="['primer-tab', { active: current === 'assignments' }]"
+    >Assignments</router-link>
     <span v-if="current === 'roster'" class="primer-tab active" aria-current="page">Roster</span>
     <router-link v-else :to="{ name: 'roster', params: { org } }" class="primer-tab">Roster</router-link>
-    <span v-if="current === 'admin'" class="primer-tab active" aria-current="page">Admin</span>
-    <router-link v-else :to="adminTarget" class="primer-tab">Admin</router-link>
+    <span v-if="current === 'organization'" class="primer-tab active" aria-current="page">Organization</span>
+    <router-link v-else :to="{ name: 'organization', params: { org } }" class="primer-tab">Organization</router-link>
   </nav>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-
-const props = defineProps({
+defineProps({
   org: { type: String, required: true },
   /** Which of the three is on screen. */
-  current: { type: String, required: true, validator: (v) => ['assignments', 'roster', 'admin'].includes(v) },
-  /** The assignment on screen, if any: carried to the other view of it. */
+  current: { type: String, required: true, validator: (v) => ['assignments', 'roster', 'organization'].includes(v) },
+  /** The assignment on screen, if any: Assignments then leads back to the list. */
   assignmentId: { type: String, default: '' },
 })
-
-const assignmentsTarget = computed(() => (props.assignmentId
-  ? { name: 'assignment-detail', params: { org: props.org, assignmentId: props.assignmentId } }
-  : { name: 'dashboard', params: { org: props.org } }))
-
-const adminTarget = computed(() => (props.assignmentId
-  ? { name: 'admin', params: { org: props.org }, query: { edit: props.assignmentId } }
-  : { name: 'admin', params: { org: props.org } }))
 </script>

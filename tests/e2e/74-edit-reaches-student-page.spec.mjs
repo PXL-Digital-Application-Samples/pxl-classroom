@@ -30,7 +30,7 @@ import {
   setupStandardMockRoutes,
   inviteToken,
   expandSettings,
-  openMoreActionsMenu,
+  chooseState,
 } from '../fixtures/e2e-fixtures.mjs';
 
 // Read, not spelled: the label names the institution from deployment.yml.
@@ -194,7 +194,7 @@ test.describe('74 - saving a live assignment', () => {
     const { writes, dispatches } = await openLiveEditor(page);
 
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Stop accepting' }).click();
+    await chooseState(page, 'Stop accepting');
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
     expect(named(dispatches, REGENERATE)[0].writesBefore).toBeGreaterThan(0);
@@ -248,12 +248,17 @@ test.describe('74 - the cohort page', () => {
   test('re-opening acceptance rebuilds the page that says it is closed', async ({ page }) => {
     const { writes, dispatches } = await openCohort(page, liveAssignment({ state: 'closed' }), fullReport(3));
 
-    await openMoreActionsMenu(page);
+    // Reopening is the state button's, on any tab: it opens Settings, which
+    // republishes (one writer of `state`) after asking.
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('menuitem', { name: /Re-open Acceptance/ }).click();
+    await chooseState(page, 'Reopen for acceptance');
 
-    await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
-    expect(named(dispatches, REGENERATE)[0].writesBefore).toBeGreaterThan(0);
-    expect(parse(writes.at(-1).content).state).toBe('published');
+    // A reopen is a publish: publish-assignment.yml sets the state, turns the
+    // broker back on and rebuilds the page - so it, not a second regeneration,
+    // is what reaches the student (`publishedSaveWorkflow`). The page's old
+    // toggle rewrote the field and left a nightly-closed broker dead.
+    await expect.poll(() => named(dispatches, 'publish-assignment.yml').length, { timeout: 15000 }).toBe(1);
+    expect(named(dispatches, REGENERATE), 'a publish regenerates; a second dispatch would race it').toHaveLength(0);
+    expect(writes.length, 'and what was on screen is saved first').toBeGreaterThan(0);
   });
 });

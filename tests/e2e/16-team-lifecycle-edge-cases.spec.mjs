@@ -77,7 +77,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       currentUser: LECTURER,
     });
 
-    await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    await page.goto(`/dashboard/${ORG}/${assignmentId}?tab=teams`);
 
     // Verify both teams appear in table
     const phoenixRow = page.locator('tr', { hasText: 'Team Phoenix' });
@@ -220,7 +220,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       gitCommits,
     });
 
-    await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    await page.goto(`/dashboard/${ORG}/${assignmentId}?tab=teams`);
 
     const apolloRow = page.locator('tr', { hasText: 'Team Apollo' });
     await expect(apolloRow).toBeVisible();
@@ -336,7 +336,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       currentUser: LECTURER,
     });
 
-    await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    await page.goto(`/dashboard/${ORG}/${assignmentId}?tab=teams`);
 
     const titanRow = page.locator('tr', { hasText: 'Team Titan' });
     await expect(titanRow).toBeVisible();

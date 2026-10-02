@@ -3,7 +3,7 @@ import { ORG,
   LECTURER,
   STUDENT_1,
   injectAuth,
-  setupStandardMockRoutes, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
+  setupStandardMockRoutes, inviteUrl, chooseState } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Team Switching', () => {
 
@@ -29,40 +29,25 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
       currentUser: LECTURER,
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}`);
 
-    // Verify Draft assignment renders in the list with its status.
-    // A status DOT, not a filled pill: DESIGN.md §1.3 asks for
-    // `.status-indicator` + `.status-dot` with mixed-case text, and the pills
-    // that were here evaded the conformity guard only because it matches on
+    // The draft is in the drafts row, with its status as a DOT, not a filled
+    // pill: DESIGN.md §1.3 asks for a `.status-dot`, and the pills that were
+    // here once evaded the conformity guard only because it matches on
     // `text-transform: uppercase` and these were lowercase (2026-09-02).
-    const draftItem = page.locator('.assignment-list li', { hasText: 'Docker Microservices' });
-    await expect(draftItem).toBeVisible();
-    await expect(draftItem.locator('.status-indicator', { hasText: /Draft/i })).toBeVisible();
+    const draftItem = page.locator('.drafts-row .draft-chip', { hasText: 'Docker Microservices' });
+    await expect(draftItem).toBeVisible({ timeout: 15000 });
     await expect(draftItem.locator('.status-dot.dot-neutral')).toBeVisible();
 
-    // Click assignment to open editor
+    // A draft opens on its settings, where a draft's work is.
     await draftItem.click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${draftAssignmentId}/settings$`));
 
-    // Verify lifecycle section renders Publish button
-    const publishBtn = page.getByRole('button', { name: /Publish \(create broker, enable nightly\)/i });
-    await expect(publishBtn).toBeVisible();
+    // Publish is the state button's first entry for a draft.
+    await expect(page.locator('[data-state-menu]')).toContainText('Draft');
+    await chooseState(page, 'Publish');
 
-    // Click Publish button
-    await publishBtn.click();
-
-    // Verify workflow trigger toast
     await expect(page.locator('.toast', { hasText: /Publish workflow triggered/i })).toBeVisible();
-
-    // Set up dialog handler for window.confirm
-    page.on('dialog', (dialog) => dialog.accept());
-
-    // Change state to Closed. WS5 renamed the button after what it does to
-    // the cohort rather than after the state name (ARCHITECTURE §10.1.1).
-    const closeBtn = page.getByRole('button', { name: /^Stop accepting$/i });
-    await expect(closeBtn).toBeVisible();
-    await closeBtn.click();
-    await expect(page.locator('.toast', { hasText: /closed/i })).toBeVisible();
   });
 
   test('Scenario 2 (Preservation Manifest Download, CLI Copy & CSV Export): Exports preserved submission manifest, copies CLI commands, and exports CSV', async ({ page, context }) => {

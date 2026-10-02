@@ -15,7 +15,7 @@
 // decides the roll call.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState } from '../fixtures/e2e-fixtures.mjs';
 import { buildDashboardEntry } from '../../lib/dashboard-aggregate.mjs';
 
 const REPORTED = 'reported-assignment';
@@ -103,7 +103,7 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
     await page.goto(`/dashboard/${ORG}/admin?edit=${REPORTED}`);
     // The lifecycle row, not the title field: a published assignment opens
     // with its settings collapsed and the cohort card on top.
-    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-state-menu]')).toBeEnabled({ timeout: 15000 });
   }
 
   /** The dashboard.json body the SPA last wrote, parsed. */
@@ -117,7 +117,7 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
       const contentWrites = [];
       await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
 
-      await page.getByRole('button', { name: label, exact: true }).click();
+      await chooseState(page, label);
 
       await expect
         .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
@@ -131,7 +131,7 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
     const contentWrites = [];
     await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
 
-    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await chooseState(page, 'Archive');
 
     await expect
       .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
@@ -154,9 +154,9 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
     });
     page.on('dialog', (d) => d.accept());
     await page.goto(`/dashboard/${ORG}/admin?edit=${FRESH}`);
-    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-state-menu]')).toBeEnabled({ timeout: 15000 });
 
-    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await chooseState(page, 'Archive');
     await expect(page.locator('.toast')).toContainText(`${FRESH} -> archived`, { timeout: 10000 });
 
     expect(writtenDashboard(contentWrites)).toBeNull();

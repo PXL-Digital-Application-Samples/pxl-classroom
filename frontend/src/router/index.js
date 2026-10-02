@@ -37,9 +37,42 @@ const routes = [
     props: true,
   },
   {
+    // THERE IS NO ADMIN PAGE ANY MORE (BETA-UX.md, 2026-10-02): the editor is
+    // each assignment's Settings tab, creating one is its own page, and what was
+    // the organization's is under Organization. Old links still land: `?edit=`
+    // on that assignment's settings, `?new=1` on a new one, anything else on the
+    // assignment list. Every branch names its `query`: vue-router keeps the old
+    // one on a redirect that does not, so `?new=1` would ride along.
     path: '/dashboard/:org/admin',
     name: 'admin',
+    redirect: (to) => {
+      const { edit, new: isNew, action, ...rest } = to.query
+      if (edit) return { name: 'assignment-settings', params: { org: to.params.org, assignmentId: String(edit) }, query: rest }
+      if (isNew === '1' || isNew === 'true' || action === 'new') return { name: 'assignment-new', params: { org: to.params.org }, query: rest }
+      return { name: 'dashboard', params: { org: to.params.org }, query: rest }
+    },
+  },
+  {
+    // A new assignment: the editor on its own.
+    path: '/dashboard/:org/new',
+    name: 'assignment-new',
     component: () => import('../views/AdminView.vue'),
+    props: (to) => ({ org: to.params.org, mode: 'new' }),
+  },
+  {
+    // An assignment's Settings tab: the editor, for this one assignment, under
+    // the same header as its Progress, Teams and Grading tabs.
+    path: '/dashboard/:org/:assignmentId/settings',
+    name: 'assignment-settings',
+    component: () => import('../views/AdminView.vue'),
+    props: (to) => ({ org: to.params.org, assignmentId: to.params.assignmentId, mode: 'single' }),
+  },
+  {
+    // What is the organization's own: what needs the lecturer, course
+    // activity, health, usage, connection. A static segment, like `roster`.
+    path: '/dashboard/:org/organization',
+    name: 'organization',
+    component: () => import('../views/OrganizationView.vue'),
     props: true,
   },
   {
@@ -124,8 +157,14 @@ router.afterEach((to) => {
     case 'dashboard':
       page = to.params.org ? `Dashboard - ${to.params.org}` : 'Dashboard'
       break
-    case 'admin':
-      page = `Admin Panel - ${to.params.org}`
+    case 'assignment-new':
+      page = `New assignment - ${to.params.org}`
+      break
+    case 'assignment-settings':
+      page = `${to.params.assignmentId} settings - ${to.params.org}`
+      break
+    case 'organization':
+      page = `Organization - ${to.params.org}`
       break
     case 'roster':
       page = `Roster - ${to.params.org}`

@@ -63,8 +63,13 @@ test("every caller passes accepted_count, or the check cannot fire", () => {
   const callers = [
     ["frontend/src/views/AdminView.vue", "banner"],
     ["frontend/src/views/DashboardView.vue", "compact"],
-    ["frontend/src/views/AssignmentDetailView.vue", "inline"],
+    // The assignment's header, which every tab renders; its callers pass the
+    // count in as `accepted-count`.
+    ["frontend/src/components/AssignmentHeader.vue", "popover"],
   ];
+  for (const file of ["frontend/src/views/AssignmentDetailView.vue", "frontend/src/views/AdminView.vue"]) {
+    assert.match(read(file), /<AssignmentHeader[\s\S]*?:accepted-count=/, `${file} hands the header its accepted count`);
+  }
   for (const [file, variant] of callers) {
     const src = read(file);
     assert.ok(

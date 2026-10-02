@@ -1672,6 +1672,25 @@ export async function openMoreActionsMenu(page) {
   await expect(page.locator('[role="menu"]').first()).toBeVisible();
 }
 
+// An assignment's lifecycle is the state button at the top of every tab
+// (AssignmentHeader.vue): Stop accepting, Back to draft, Archive, Publish,
+// Reopen, Delete. Opens the menu and picks the entry whose label matches.
+export async function chooseState(page, label) {
+  const trigger = page.locator('[data-state-menu]');
+  await expect(trigger).toBeEnabled({ timeout: 15000 });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await page.locator('.state-menu [role="menuitem"]').filter({ has: page.locator('.dropdown-item-title', { hasText: label }) }).click();
+}
+
+// System health is on the Organization tab (OrganizationView.vue), folded, and
+// there whatever state the rest of that page is in. Opens the modal.
+export async function openSystemHealth(page, org = ORG) {
+  await page.goto(`/dashboard/${org}/organization`);
+  const fold = page.locator('details.org-fold', { has: page.locator('summary', { hasText: 'System health' }) });
+  await fold.locator('summary').click();
+  await fold.getByRole('button', { name: 'Run the checks' }).click();
+}
+
 // Automated checks moved out of the Guardrails fieldset into a modal
 // (ARCHITECTURE §11.6). The form shows one summary line; everything else is behind it.
 export async function openAutogradeModal(page) {

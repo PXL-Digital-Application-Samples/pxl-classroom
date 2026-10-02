@@ -96,8 +96,7 @@ test.describe('50 - the lecturer side', () => {
   async function newAssignment(page) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
   }
 

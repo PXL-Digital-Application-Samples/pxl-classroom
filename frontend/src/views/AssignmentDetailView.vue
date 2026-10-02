@@ -14,10 +14,8 @@
           <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">{{ org }}</router-link>
           <span class="app-header-sep">/</span>
           <h1 class="app-header-heading" :title="assignmentId">{{ assignmentId }}</h1>
-          <span v-if="assignment" class="status-indicator">
-            <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
-            <span class="text-xs text-secondary">{{ assignmentStateLabel(assignment.state) }}</span>
-          </span>
+          <!-- No state here: it is the state button under the title bar
+               (AssignmentHeader.vue), which also changes it. -->
 
           <!-- The org's three views, in the trail that names this assignment.
                Admin opens THIS assignment in the editor (OrgSwitch). It
@@ -195,14 +193,25 @@
           </div>
         </div>
 
-        <!-- Summary cards -->
+        <!-- ONE JOB PER TAB (BETA-UX.md, 2026-10-02). The page was one long
+             scroll: the student list, a Teams View / Students View toggle over
+             it, and an Autograder table at the bottom - scores shown three
+             times. The header - state button, deadline, invitation link, tabs -
+             is shared with the Settings tab, which is the editor's page. -->
+        <AssignmentHeader
+          :org="org"
+          :assignment-id="assignmentId"
+          :assignment="assignment"
+          :current="activeTab"
+          :is-group="isGroupAssignment"
+          :accepted-count="acceptedStudentsCount"
+          :busy="freezingNow"
+          @state-action="onStateAction"
+        />
+
+        <template v-if="activeTab === 'progress'">
+        <!-- Summary cards: they filter the list below, so they live with it. -->
         <div class="summary-row">
-          <div class="summary-card card deadline-card">
-            <span class="summary-value deadline-value" :class="{ 'stat-red': deadlinePassed }">
-              {{ deadlineRelative || '-' }}
-            </span>
-            <span class="summary-label">Deadline{{ deadlineAbs ? ` · ${deadlineAbs}` : '' }}</span>
-          </div>
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = ''" title="Show all students">
             <span class="summary-value">{{ report.students.length }}</span>
             <span class="summary-label">Students</span>
@@ -219,18 +228,6 @@
             <span class="summary-value stat-red">{{ noSubCount }}</span>
             <span class="summary-label">No submission</span>
           </div>
-          <!-- Only once somebody HAS a score: before that a 0 would read as
-               "graded, and nobody passed". Computed from the rows the table
-               shows, so Refresh, Re-grade all and a single re-grade move it
-               the moment they land. -->
-          <div
-            v-if="gradedCount > 0"
-            class="summary-card card"
-            :title="`${gradedCount} of ${report.students.length} students have a score`"
-          >
-            <span class="summary-value">{{ gradedCount }}</span>
-            <span class="summary-label">Graded</span>
-          </div>
         </div>
 
         <!-- Where the last starter sync stands - running, stopped part-way,
@@ -246,77 +243,6 @@
           @sync="followSyncRun = null; showStarterSyncModal = true"
           @follow="followSyncRun = $event; showStarterSyncModal = true"
         />
-
-        <!-- Regrade Run Progress & Outcome Panel -->
-        <section
-          v-if="regradePanel.visible"
-          class="regrade-progress-panel diag-banner fade-in"
-          :class="{
-            'regrade-running': regradePanel.status === 'running',
-            'regrade-success': regradePanel.status === 'success',
-            'regrade-error': regradePanel.status === 'error',
-          }"
-          aria-live="polite"
-        >
-          <div class="flex items-center justify-between gap-md flex-wrap w-full">
-            <div class="flex items-center gap-sm">
-              <span
-                class="status-dot"
-                :class="{
-                  'dot-info': regradePanel.status === 'running',
-                  'dot-success': regradePanel.status === 'success',
-                  'dot-danger': regradePanel.status === 'error',
-                }"
-              ></span>
-              <div>
-                <strong v-if="regradePanel.status === 'running'">
-                  Reading scores from GitHub Actions: {{ regradePanel.synced }} / {{ regradePanel.total }} students
-                  ({{ regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0 }}%)
-                </strong>
-                <strong v-else-if="regradePanel.status === 'success'">
-                  Scores updated: successfully read and recorded grades for all {{ regradePanel.total }} students.
-                </strong>
-                <strong v-else-if="regradePanel.status === 'error'" class="text-danger">
-                  Reading scores stopped: {{ regradePanel.error }}
-                </strong>
-                <p v-if="regradePanel.status === 'running'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                  Querying test check runs, calculating point totals, and synchronizing autograding summaries...
-                </p>
-                <p v-else-if="regradePanel.status === 'success'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                  New scores committed to <code>grading/{{ assignmentId }}/summary.json</code>.
-                </p>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-xs">
-              <button
-                v-if="regradePanel.status === 'error'"
-                type="button"
-                class="btn btn-xs btn-secondary"
-                @click="syncGradesFromGitHub"
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost btn-icon btn-xs"
-                @click="dismissRegradePanel"
-                aria-label="Dismiss progress panel"
-                title="Dismiss"
-              >
-                <Icon name="x" :size="14" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Progress track bar while running -->
-          <div v-if="regradePanel.status === 'running'" class="regrade-track-wrap">
-            <div
-              class="regrade-track-fill"
-              :style="{ width: `${regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0}%` }"
-            ></div>
-          </div>
-        </section>
 
         <!-- Actions bar -->
         <div class="actions-bar flex items-center justify-between flex-wrap gap-sm">
@@ -374,38 +300,6 @@
             </div>
           </div>
           <div class="flex gap-xs items-center">
-            <!-- HANDING THE LINK TO STUDENTS IS WHAT THIS PAGE IS FOR before
-                 anyone has accepted, and ARCHITECTURE §10.6 requires it never
-                 to vanish - the whole view was once replaced by a "No report
-                 yet" page, taking the link with it at the one moment it was the
-                 only thing that mattered. A labelled button that is always
-                 present satisfies that; what it replaces is a large unlabelled
-                 URL block wedged between the tab pills and the table, which a
-                 lecturer could not identify (reported 2026-09-02).
-                 DESIGN.md §1.2 names this view's one CTA, so the TRIGGER is the
-                 primary and the Copy inside the popover is secondary. -->
-            <div class="dropdown-container" ref="inviteMenuRef">
-              <button
-                class="btn btn-primary btn-sm btn-with-icon"
-                type="button"
-                @click.stop="toggleInviteMenu"
-                :aria-expanded="inviteMenuOpen"
-                aria-haspopup="true"
-              >
-                <Icon name="link" :size="13" />
-                <span>Invite link</span>
-                <Icon :name="inviteMenuOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
-              </button>
-
-              <!-- Not role="menu": besides its rows it holds the link box, a
-                   status line and a help button, none of which is a menu item.
-                   It LOOKS like Export and More beside it; the heading and help
-                   line it had are the Copy row's title and subtitle now. -->
-              <div v-if="inviteMenuOpen" class="export-dropdown-menu invite-menu fade-in" aria-label="Invite link for students">
-                <InvitationShare :org="org" :assignment="shareAssignment" variant="popover" />
-              </div>
-            </div>
-
             <!-- Refresh Button (Neutral Secondary) -->
             <button class="btn btn-secondary btn-sm btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive" title="Fetch live commit and autograding status">
               <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingLive }" />
@@ -439,34 +333,7 @@
                   </div>
                 </button>
 
-                <button
-                  v-if="hasGrades || autogradeSummary?.students?.length"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleExportGradesXLSX"
-                >
-                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Export Grades (Excel XLSX)</span>
-                    <span class="dropdown-item-sub">Confirmed email, login, name &amp; scores for grading systems</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="hasGrades || autogradeSummary?.students?.length"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleExportBreakdownXLSX"
-                >
-                  <Icon name="file-text" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Export Detailed Breakdown (Excel XLSX)</span>
-                    <span class="dropdown-item-sub">Per-test status check logs &amp; scores in Excel workbook</span>
-                  </div>
-                </button>
-
+                <!-- Grade exports are on the Grading tab: one action, one place. -->
                 <button class="export-dropdown-item" type="button" role="menuitem" @click="handleExportCSV">
                   <Icon name="download" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
@@ -522,20 +389,6 @@
                   </div>
                 </button>
 
-                <!-- `pxl-classroom grade --runner docker` runs the checks on
-                     the lecturer's own machine, so it means something only when
-                     the assignment is configured to be graded there. The
-                     Autograding panel's button copies this exact command and
-                     has always been gated on it; this one was the same control
-                     without the guard. HIDDEN rather than disabled: on a
-                     CI-graded assignment it is not "not yet", it is never. -->
-                <button v-if="localRunnerDeclared" class="export-dropdown-item" type="button" role="menuitem" @click="handleCopyGradeCmd">
-                  <Icon name="copy" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">Copy CLI Grade</span>
-                    <span class="dropdown-item-sub">Command to run automated grading runner</span>
-                  </div>
-                </button>
               </div>
             </div>
 
@@ -569,64 +422,8 @@
                   </div>
                 </button>
 
-                <!-- The only way in for an assignment whose autograding ships
-                     inside the template repository: there is no Autograder
-                     section to hold the button until the first read has
-                     produced grades. Maintenance actions live here per
-                     DESIGN.md §1.2. -->
-                <button
-                  v-if="ciGradingAvailable"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleSyncGrades"
-                  :disabled="syncingGrades"
-                >
-                  <Icon name="check-circle" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">{{ syncingGrades ? `Reading scores (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}</span>
-                    <span class="dropdown-item-sub">
-                      {{ hasGrades
-                        ? `Replaces all ${gradableCount} scores with a fresh reading`
-                        : 'Pull each student’s autograding result into the table' }}
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="feedbackPrEnabled"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleOpenFeedbackPrs"
-                  :disabled="openingFeedbackPrs"
-                >
-                  <Icon name="message-square" :size="14" class="dropdown-icon" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">{{ openingFeedbackPrs ? 'Opening PRs…' : 'Open Feedback PRs' }}</span>
-                    <span class="dropdown-item-sub">Create review branches on student repos</span>
-                  </div>
-                </button>
-
-                <button
-                  v-if="feedbackPrEnabled"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleRefreshFeedbackPrs"
-                  :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
-                >
-                  <Icon name="refresh-cw" :size="14" class="dropdown-icon" :class="{ 'spin-animation': refreshingFeedbackPrs }" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title">{{ refreshingFeedbackPrs ? 'Checking PRs…' : 'Refresh feedback PR status' }}</span>
-                    <span class="dropdown-item-sub">
-                      {{ feedbackPrAlreadyOpenedCount === 0
-                        ? 'No feedback PRs have been opened yet'
-                        : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)` }}
-                    </span>
-                  </div>
-                </button>
-
+                <!-- Reading scores and feedback pull requests are on the Grading
+                     tab, with the rest of grading. -->
                 <button
                   v-if="canPromoteRoster"
                   class="export-dropdown-item"
@@ -649,53 +446,13 @@
                   </div>
                 </button>
 
-                <div v-if="assignment && (assignment.template || feedbackPrEnabled || canPromoteRoster)" class="dropdown-divider"></div>
-
-                <button
-                  v-if="assignment && (assignment.state === 'published' || assignment.state === 'closed')"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleToggleAcceptanceState"
-                  :disabled="togglingState"
-                >
-                  <Icon :name="assignment.state === 'published' ? 'lock' : 'unlock'" :size="14" class="dropdown-icon" :class="assignment.state === 'published' ? 'text-danger' : 'text-success'" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title" :class="assignment.state === 'published' ? 'text-danger' : 'text-success'">
-                      {{ togglingState ? 'Updating…' : (assignment.state === 'published' ? 'Close Acceptance' : 'Re-open Acceptance') }}
-                    </span>
-                    <span class="dropdown-item-sub">
-                      {{ assignment.state === 'published' ? 'Prevent new student registrations' : 'Allow new students to join' }}
-                    </span>
-                  </div>
-                </button>
-
-                <!-- FREEZE LIVES HERE, not in the preservation strip.
-                     DESIGN.md §1.2 names Freeze as an overflow-menu action, and
-                     it has to be one: the strip only appears once the
-                     assignment is closed, so an assignment whose deadline has
-                     passed while it is still Accepting - exactly the one a
-                     lecturer wants to freeze - had no route to this at all
-                     while it sat inside the strip. It is beside Close
-                     Acceptance because they are the same kind of decision. -->
-                <button
-                  v-if="deadlinePassed"
-                  class="export-dropdown-item"
-                  type="button"
-                  role="menuitem"
-                  @click="handleFreezeNow"
-                  :disabled="freezingNow"
-                >
-                  <Icon name="lock" :size="14" class="dropdown-icon text-danger" />
-                  <div class="dropdown-item-text">
-                    <span class="dropdown-item-title text-danger">
-                      {{ freezingNow ? 'Locking…' : 'Lock everyone out now' }}
-                    </span>
-                    <span class="dropdown-item-sub">
-                      Immediately takes away every student's write access and copies their work to the archive. This cannot be undone.
-                    </span>
-                  </div>
-                </button>
+                <!-- Stop accepting, reopen and "lock everyone out now" are on the
+                     state button in the header, beside the rest of the
+                     assignment's lifecycle, reachable from every tab. Freeze
+                     was here because the preservation strip only appears once
+                     an assignment is closed, so a passed deadline that was
+                     still accepting had no route to it; the state button
+                     offers it whenever the deadline has passed. -->
               </div>
             </div>
 
@@ -703,39 +460,8 @@
         </div>
 
 
-        <!-- Segmented Tab for Group Assignments -->
-        <div v-if="isGroupAssignment" class="tab-pill-selector" style="margin-bottom: var(--space-md);">
-          <button
-            type="button"
-            class="tab-pill"
-            :class="{ active: viewTab === 'teams' }"
-            @click="viewTab = 'teams'"
-          >
-            Teams View ({{ report.teams ? report.teams.length : 0 }})
-          </button>
-          <button
-            type="button"
-            class="tab-pill"
-            :class="{ active: viewTab === 'students' }"
-            @click="viewTab = 'students'"
-          >
-            Students View ({{ report.students.length }})
-          </button>
-        </div>
-
-        <!-- Group Assignment: Teams Table View -->
-        <TeamsTable
-          v-if="isGroupAssignment && viewTab === 'teams'"
-          :teams="report.teams || []"
-          :assignment="assignment"
-          :org="org"
-          :roster="roster"
-          :students="report.students || []"
-          @refresh="loadAll"
-        />
-
         <!-- Student table (desktop) -->
-        <div v-else class="table-wrapper desktop-only">
+        <div class="table-wrapper desktop-only">
           <table>
             <thead>
               <tr>
@@ -771,9 +497,6 @@
                      on hover. -->
                 <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')" title="Commits">
                   <span class="th-label"><span aria-hidden="true">#</span><span class="sr-only">Commits</span><SortIcon :dir="sortDir('commit_count')" /></span>
-                </th>
-                <th v-if="ciStatusColumn" @click="sortBy('ci_status')" @keydown.enter="sortBy('ci_status')" @keydown.space.prevent="sortBy('ci_status')" tabindex="0" class="sortable col-ci" :aria-sort="ariaSort('ci_status')">
-                  <span class="th-label">CI Status<SortIcon :dir="sortDir('ci_status')" /></span>
                 </th>
                 <th v-if="hasGrades" @click="sortBy('score')" @keydown.enter="sortBy('score')" @keydown.space.prevent="sortBy('score')" tabindex="0" class="sortable col-score" :aria-sort="ariaSort('score')">
                   <span class="th-label">Score<SortIcon :dir="sortDir('score')" /></span>
@@ -957,18 +680,6 @@
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
                   <span v-else class="text-muted">-</span>
                 </td>
-                <td v-if="ciStatusColumn" class="col-ci">
-                  <button
-                    v-if="s.ci_status"
-                    type="button"
-                    :class="['badge badge-clickable', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
-                    @click="openAutogradeModal(s)"
-                    title="Click to view autograding details"
-                  >
-                    {{ s.ci_status }}
-                  </button>
-                  <span v-else class="text-muted">-</span>
-                </td>
                 <td v-if="hasGrades" class="col-score">
                   <button
                     v-if="s.earned_points != null"
@@ -1055,16 +766,15 @@
 
         <!-- Nobody has accepted. Only the TABLE says so; the header, the share
              block and the actions bar stay where they were (ARCHITECTURE §10.1.1).
-             Not on the Teams tab: TeamsTable has its own empty state, and two
-             of them stacked is the noise this is meant to remove. -->
+             Progress only: TeamsTable has its own empty state. -->
         <div
-          v-if="report.students.length === 0 && !(isGroupAssignment && viewTab === 'teams')"
+          v-if="report.students.length === 0"
           class="empty-state cohort-empty"
         >
           <h3>No one has accepted yet.</h3>
           <p class="text-secondary">
             Students appear here as they accept. Share the link above, or
-            <router-link :to="{ name: 'admin', params: { org }, query: { edit: assignmentId } }" class="btn-link">check the invitation</router-link>
+            <router-link :to="settingsTarget()" class="btn-link">check the settings</router-link>
             if you expected someone by now.
           </p>
           <p v-if="dailyWatch === ''" class="text-muted cohort-empty-note">
@@ -1124,13 +834,11 @@
                 <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha text-muted" :title="commitMsg(s) || null">· {{ latestSha(s).slice(0, 7) }}</a>
                 <span v-if="s.commit_count != null" class="text-muted">· {{ s.commit_count.toLocaleString() }} commits</span>
               </div>
-              <div v-if="ciStatusColumn" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
-                <span>CI Status:</span>
-                <span v-if="s.ci_status" :class="['badge', s.ci_status === 'success' ? 'badge-success' : s.ci_status === 'failure' ? 'badge-error' : 'badge-warning']" style="font-size: 0.7rem; padding: 1px 6px;">
-                  {{ s.ci_status }}
-                </span>
-                <span v-else class="text-muted">-</span>
-                <span v-if="s.earned_points != null" class="text-muted">· {{ s.earned_points }}/{{ s.total_points }} pts</span>
+              <!-- The score only, as the desktop list: the run's status is on
+                   the Grading tab. -->
+              <div v-if="hasGrades && s.earned_points != null" class="commit-row" style="margin-top: var(--space-xs, 4px); align-items: center;">
+                <span>Score:</span>
+                <span class="text-muted">{{ s.earned_points }}/{{ s.total_points }} pts</span>
               </div>
               <div v-if="feedbackPrEnabled" class="commit-row" style="margin-top: var(--space-xs, 4px);">
                 <span>Feedback PR:</span>
@@ -1236,8 +944,170 @@
           </div>
         </section>
 
-        <!-- Autograde results (read-only) -->
-        <section v-if="autogradeEnabled" class="autograde-section">
+        </template>
+
+        <!-- TEAMS: making teams and each team's progress, one table. -->
+        <template v-if="activeTab === 'teams'">
+          <TeamsTable
+            :teams="report.teams || []"
+            :assignment="assignment"
+            :org="org"
+            :roster="roster"
+            :students="report.students || []"
+            @refresh="loadAll"
+          />
+        </template>
+
+        <!-- GRADING: every score and every grading action, each in one place.
+             It was a table under the student list, its buttons duplicated in
+             the Export and More menus above it, and its scores shown twice
+             more in the lists (BETA-UX.md). -->
+        <template v-if="activeTab === 'grading'">
+          <section
+            v-if="regradePanel.visible"
+            class="regrade-progress-panel diag-banner fade-in"
+            :class="{
+              'regrade-running': regradePanel.status === 'running',
+              'regrade-success': regradePanel.status === 'success',
+              'regrade-error': regradePanel.status === 'error',
+            }"
+            aria-live="polite"
+          >
+            <div class="flex items-center justify-between gap-md flex-wrap w-full">
+              <div class="flex items-center gap-sm">
+                <span
+                  class="status-dot"
+                  :class="{
+                    'dot-info': regradePanel.status === 'running',
+                    'dot-success': regradePanel.status === 'success',
+                    'dot-danger': regradePanel.status === 'error',
+                  }"
+                ></span>
+                <div>
+                  <strong v-if="regradePanel.status === 'running'">
+                    Reading scores from GitHub Actions: {{ regradePanel.synced }} / {{ regradePanel.total }} students
+                    ({{ regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0 }}%)
+                  </strong>
+                  <strong v-else-if="regradePanel.status === 'success'">
+                    Scores updated: successfully read and recorded grades for all {{ regradePanel.total }} students.
+                  </strong>
+                  <strong v-else-if="regradePanel.status === 'error'" class="text-danger">
+                    Reading scores stopped: {{ regradePanel.error }}
+                  </strong>
+                  <p v-if="regradePanel.status === 'running'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                    Querying test check runs, calculating point totals, and synchronizing autograding summaries...
+                  </p>
+                  <p v-else-if="regradePanel.status === 'success'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
+                    New scores committed to <code>grading/{{ assignmentId }}/summary.json</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-xs">
+                <button
+                  v-if="regradePanel.status === 'error'"
+                  type="button"
+                  class="btn btn-xs btn-secondary"
+                  @click="syncGradesFromGitHub"
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-icon btn-xs"
+                  @click="dismissRegradePanel"
+                  aria-label="Dismiss progress panel"
+                  title="Dismiss"
+                >
+                  <Icon name="x" :size="14" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Progress track bar while running -->
+            <div v-if="regradePanel.status === 'running'" class="regrade-track-wrap">
+              <div
+                class="regrade-track-fill"
+                :style="{ width: `${regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0}%` }"
+              ></div>
+            </div>
+          </section>
+
+          <!-- Nothing grades this assignment: say so, and where to change it.
+               The old bottom table simply did not appear, so a lecturer who had
+               not set grading up never learned where it was. -->
+          <div v-if="!gradingOnThisTab" class="empty-state card text-center py-xl grading-empty">
+            <Icon name="check-circle" :size="40" class="status-icon" />
+            <h3>Nothing grades this assignment yet.</h3>
+            <p class="text-secondary">
+              Students' work is collected and archived at the deadline either way.
+            </p>
+            <router-link :to="settingsTarget('grading')" class="btn btn-secondary btn-sm">Set up grading</router-link>
+          </div>
+
+          <template v-else>
+            <div class="actions-bar grading-actions flex items-center justify-between flex-wrap gap-sm">
+              <span class="text-secondary text-sm">
+                <template v-if="hasGrades">{{ gradedCount }} of {{ report.students.length }} students have a score.</template>
+                <template v-else-if="autogradeEnabled || ciGradingAvailable">No scores read yet.</template>
+              </span>
+              <div class="flex gap-xs items-center flex-wrap">
+                <button v-if="localRunnerDeclared" class="btn btn-secondary btn-sm btn-with-icon" type="button" @click="copyGradeCmd" title="Command to run the checks on your own machine">
+                  <Icon name="copy" :size="13" />
+                  <span>Copy grading command</span>
+                </button>
+                <button v-else-if="ciGradingAvailable" class="btn btn-secondary btn-sm btn-with-icon" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades" :title="hasGrades ? `Replaces all ${gradableCount} scores with a fresh reading` : 'Pull each student’s autograding result into the table'">
+                  <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': syncingGrades }" />
+                  <span>{{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}</span>
+                </button>
+                <button
+                  v-if="hasGrades"
+                  class="btn btn-secondary btn-sm btn-with-icon"
+                  type="button"
+                  @click="exportGradesXLSX"
+                  :disabled="exporting"
+                  title="Confirmed email, login, name and score per student, for a grading system"
+                >
+                  <Icon name="download" :size="13" />
+                  <span>Export grades</span>
+                </button>
+                <button
+                  v-if="hasGrades"
+                  class="btn btn-secondary btn-sm btn-with-icon"
+                  type="button"
+                  @click="exportBreakdownXLSX"
+                  :disabled="exporting"
+                  title="Grades with every check's result, as an Excel workbook"
+                >
+                  <Icon :name="exporting ? 'refresh-cw' : 'file-text'" :size="13" :class="{ 'spin-icon': exporting }" />
+                  <span>{{ exporting ? exportStatusText : 'Export breakdown' }}</span>
+                </button>
+                <button
+                  v-if="feedbackPrEnabled"
+                  class="btn btn-secondary btn-sm btn-with-icon"
+                  type="button"
+                  @click="openFeedbackPrs"
+                  :disabled="openingFeedbackPrs"
+                  title="Create a review pull request in each student's repository"
+                >
+                  <Icon name="message-square" :size="13" />
+                  <span>{{ openingFeedbackPrs ? 'Opening…' : 'Open feedback PRs' }}</span>
+                </button>
+                <button
+                  v-if="feedbackPrEnabled"
+                  class="btn btn-secondary btn-sm btn-with-icon"
+                  type="button"
+                  @click="refreshFeedbackPrStatus"
+                  :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
+                  :title="feedbackPrAlreadyOpenedCount === 0 ? 'No feedback PRs have been opened yet' : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)`"
+                >
+                  <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingFeedbackPrs }" />
+                  <span>{{ refreshingFeedbackPrs ? 'Checking…' : 'Refresh feedback PRs' }}</span>
+                </button>
+              </div>
+            </div>
+
+        <section v-if="autogradeEnabled || ciGradingAvailable" class="autograde-section">
           <header class="autograde-head">
             <h3>Autograder</h3>
             <span class="text-muted text-xs">
@@ -1255,35 +1125,6 @@
               The checks are defined by a workflow inside the template repository, not here.
             </template>
             <template v-if="ciGradingAvailable">{{ gradingBlurb }}</template>
-            <!-- Secondary, not primary: DESIGN.md §1.2 names Sync among the
-                 toolbar actions, and the invitation link is this view's one
-                 solid button. -->
-            <button v-if="localRunnerDeclared" class="btn-link" type="button" @click="copyGradeCmd">Copy <code>pxl-classroom grade …</code></button>
-            <button v-else class="btn btn-secondary btn-sm" type="button" @click="syncGradesFromGitHub" :disabled="syncingGrades">
-              {{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}
-            </button>
-            <button
-              v-if="autogradeSummary?.students?.length"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="exportGradesXLSX"
-              :disabled="exporting"
-              title="Export confirmed emails, logins, names and scores as Excel XLSX"
-            >
-              <Icon name="download" :size="13" />
-              <span>Export Grades (Excel)</span>
-            </button>
-            <button
-              v-if="autogradeSummary?.students?.length"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="exportBreakdownXLSX"
-              :disabled="exporting"
-              title="Export grades with per-test feedback breakdown as Excel XLSX"
-            >
-              <Icon :name="exporting ? 'refresh-cw' : 'file-text'" :size="13" :class="{ 'spin-icon': exporting }" />
-              <span>{{ exporting ? exportStatusText : 'Export Breakdown (Excel)' }}</span>
-            </button>
           </div>
           <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
             <table>
@@ -1403,6 +1244,8 @@
             </ul>
           </details>
         </section>
+          </template>
+        </template>
       </div>
 
       <!-- Nothing loaded, and no error to show for it. Reached when a path
@@ -1537,7 +1380,8 @@ import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib
 import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
-import InvitationShare from '../components/InvitationShare.vue'
+import AssignmentHeader from '../components/AssignmentHeader.vue'
+import { keepMenuInView } from '../lib/menu-position.js'
 import TeamsTable from '../components/TeamsTable.vue'
 import StarterSyncModal from '../components/StarterSyncModal.vue'
 import StarterSyncStatus from '../components/StarterSyncStatus.vue'
@@ -1559,8 +1403,8 @@ import { generateXlsxBlob } from '../lib/xlsx.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
 // RosterTab.vue and report.mjs, and none of the three had an inverse.
 import { csvCell } from '../../../lib/csv-cell.mjs'
+import { readTrackingIssue } from '../lib/tracking-issue.js'
 import {
-  TRACKING_LABEL,
   rejectionsForAssignment,
   rejectionCount,
 } from '../../../lib/rejection-notice.mjs'
@@ -1602,7 +1446,7 @@ import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
 } from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, assignmentStateLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
+import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
@@ -1623,59 +1467,56 @@ const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
 
-// The assignment YAML plus the live accepted count, which is what makes the
-// share block's status line ("cap reached") true rather than a guess. The
-// component reads the token from the same YAML if it is not in hand.
-const shareAssignment = computed(() => ({
-  ...(assignment.value || {}),
-  id: props.assignmentId,
-  accepted_count: acceptedStudentsCount.value,
-}))
+// The share block (in AssignmentHeader.vue) gets the assignment YAML plus the
+// live accepted count, which is what makes its status line ("cap reached")
+// true rather than a guess.
 const loadError = ref(null)
-const togglingState = ref(false)
-const viewTab = ref('teams')
-
 const isGroupAssignment = computed(() =>
   assignment.value?.assignment_type === 'group' || (report.value?.teams && report.value.teams.length > 0)
 )
 
-async function toggleAcceptanceState() {
-  const token = getToken()
-  if (!token || !assignment.value) return
-  const currentState = assignment.value.state || 'published'
-  const nextState = currentState === 'published' ? 'closed' : 'published'
+// THE TAB IS IN THE ADDRESS (`?tab=grading`): a link opens it, Back moves
+// between tabs, a refresh stays put. No tab - or one this assignment does not
+// have, like Teams on an individual assignment - is Progress. Settings is the
+// editor's own page (AssignmentHeader.vue links to it).
+const activeTab = computed(() => {
+  const asked = String(route.query.tab || '')
+  if (asked === 'grading') return 'grading'
+  if (asked === 'teams' && isGroupAssignment.value) return 'teams'
+  return 'progress'
+})
 
-  const confirmMsg = nextState === 'closed'
-    ? `Close acceptance for "${props.assignmentId}"? Students can no longer accept new repositories (existing accepted repositories are unaffected).`
-    : `Open acceptance for "${props.assignmentId}"? Students with the link can now accept and get their repositories.`
+// The state button. Every state change is the editor's (one writer of `state`,
+// with its own confirmation and its dashboard and student-page updates), so it
+// opens the Settings tab with the action, which carries it out at once. This
+// page had a second, different writer for open/close - it merged the stored
+// document and never told the dashboard - which is gone. "Lock everyone out
+// now" is this page's: its confirmation dialog lives here.
+function onStateAction(key) {
+  if (key === 'freeze') return handleFreezeNow()
+  router.push(settingsTarget(null, key))
+}
 
-  if (!window.confirm(confirmMsg)) return
+// Anything that grades or reviews this assignment puts the Grading tab to
+// work; with none of it the tab says so and offers to set it up.
+const gradingOnThisTab = computed(
+  () => autogradeEnabled.value || ciGradingAvailable.value || localRunnerDeclared.value || feedbackPrEnabled.value,
+)
 
-  togglingState.value = true
-  try {
-    const path = assignmentPath(props.assignmentId)
-    const updatedDoc = { ...assignment.value, state: nextState }
-    const yamlStr = stringifyYaml(updatedDoc)
-    const res = await commitFile(token, props.org, config.controlRepo, path, yamlStr, `Set ${props.assignmentId} state to ${nextState}`)
-    if (res.ok) {
-      assignment.value.state = nextState
-      toast.success(`Acceptance is now ${nextState === 'published' ? 'OPEN' : 'CLOSED'}`)
-      // The student's page reads the card, not this document: reopened with a
-      // stale one, it keeps telling the cohort acceptance is closed.
-      await republishStudentPages({
-        token,
-        org: props.org,
-        failure: 'Saved, but publishing the change to students failed',
-      })
-    } else {
-      toast.error(`Failed to change state: ${res.data?.message || 'unknown error'}`)
-    }
-  } catch (e) {
-    toast.error(`Failed to update state: ${e.message}`)
-  } finally {
-    togglingState.value = false
+// This assignment's Settings tab, opened at a section and, from the state
+// button, with the action that was asked for.
+function settingsTarget(section, action) {
+  return {
+    name: 'assignment-settings',
+    params: { org: props.org, assignmentId: props.assignmentId },
+    query: { ...(section ? { section } : {}), ...(action ? { action } : {}) },
   }
 }
+
+// Opening and closing acceptance is the editor's (AdminView `setState`, and a
+// publish for reopening, which also turns the broker back on - this page's own
+// toggle only rewrote the field, so reopening after the nightly had closed the
+// broker left a dead link). The state button sends it there (onStateAction).
 
 // All dates in this view render in the assignment's display timezone
 // (assignment.timezone, set in the Admin Panel), falling back to the
@@ -1839,11 +1680,6 @@ const isGitHubActionsAutograde = computed(
 // behaviour the system does not have.
 const hasGrades = computed(() => (autogradeSummary.value?.students?.length || 0) > 0)
 const autogradeEnabled = computed(() => autogradeDeclared.value || hasGrades.value)
-
-// `refreshLiveStatus` fills ci_status from the check run at each student's
-// latest commit without reading any score, so the CI column has a second way
-// to be populated and outlives the grades.
-const ciStatusColumn = computed(() => hasGrades.value || isGitHubActionsAutograde.value)
 const preservedCount = computed(() =>
   (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' || s.preserved_sha).length
 )
@@ -2715,7 +2551,6 @@ const tableColumnCount = computed(() =>
   7 +
   (isGroupAssignment.value ? 1 : 0) +
   (hasClaimedEmails.value ? 1 : 0) +
-  (ciStatusColumn.value ? 1 : 0) +
   (hasGrades.value ? 1 : 0) +
   (feedbackPrEnabled.value ? 1 : 0) +
   (hasSubmitTags.value ? 1 : 0))
@@ -2798,7 +2633,6 @@ const showPreservationBanner = computed(() =>
   !!report.value &&
   report.value.students.length > 0 &&
   (assignment.value?.state === 'closed' || preservedCount.value > 0))
-const deadlineRelative = computed(() => currentDeadline.value ? formatRelative(currentDeadline.value) : '')
 const deadlineAbs = computed(() => {
   return currentDeadline.value ? fmt(currentDeadline.value) : ''
 })
@@ -2861,15 +2695,7 @@ function handleFreezeNow() {
 const hasPreservationActions = computed(() =>
   Boolean(archiveRepoHref.value) || unpreservedCount.value > 0)
 
-// The Invite link popover. Same open/close contract as every other dropdown on
-// this page, for the same reason.
-const inviteMenuOpen = ref(false)
-const inviteMenuRef = ref(null)
-
-function toggleInviteMenu() {
-  inviteMenuOpen.value = !inviteMenuOpen.value
-  if (inviteMenuOpen.value) keepMenuInView(inviteMenuRef)
-}
+// The Invite link popover is in AssignmentHeader.vue, above every tab.
 
 const filteredStudents = computed(() => {
   let list = report.value?.students || []
@@ -2964,16 +2790,6 @@ function handleExportCSV() {
   exportCSV()
 }
 
-function handleExportGradesXLSX() {
-  exportDropdownOpen.value = false
-  exportGradesXLSX()
-}
-
-function handleExportBreakdownXLSX() {
-  exportDropdownOpen.value = false
-  exportBreakdownXLSX()
-}
-
 function handleDownloadManifest() {
   exportDropdownOpen.value = false
   downloadManifest()
@@ -2982,11 +2798,6 @@ function handleDownloadManifest() {
 function handleCopyDownloadCmd() {
   exportDropdownOpen.value = false
   copyDownloadCmd()
-}
-
-function handleCopyGradeCmd() {
-  exportDropdownOpen.value = false
-  copyGradeCmd()
 }
 
 // More Actions Dropdown Menu State
@@ -3003,71 +2814,9 @@ function handleSyncStarterCode() {
   showStarterSyncModal.value = true
 }
 
-function handleSyncGrades() {
-  moreActionsOpen.value = false
-  syncGradesFromGitHub()
-}
 
-function handleOpenFeedbackPrs() {
-  moreActionsOpen.value = false
-  openFeedbackPrs()
-}
 
-function handleRefreshFeedbackPrs() {
-  moreActionsOpen.value = false
-  refreshFeedbackPrStatus()
-}
-
-function handleToggleAcceptanceState() {
-  moreActionsOpen.value = false
-  toggleAcceptanceState()
-}
-
-/**
- * Keep an opened dropdown inside the window.
- *
- * These menus anchor to their trigger's RIGHT edge, which is right while the
- * toolbar is right-aligned. On a narrow window that toolbar WRAPS and the
- * triggers land at the left edge, so a 437px menu anchored right of a button at
- * x=15 starts at x=-315 and only its last few pixels are on screen (reported
- * 2026-09-02).
- *
- * A media query cannot fix this. The wrap point is not a fixed width: it moves
- * with what the toolbar contains, and it moves again by the width of a
- * scrollbar depending on how tall the page happens to be - measured flipping
- * either way at 950px between runs. So this measures the rendered menu and
- * shifts it only when it would actually overflow, which is what Floating UI's
- * `shift` middleware does and what `position-try-fallbacks` would do if its
- * overflow were evaluated against the viewport rather than the containing
- * block.
- *
- * Both directions, because this project has had it wrong each way round: the
- * menus were `left: 0` once and overflowed the RIGHT edge, which is why they
- * anchor right at all.
- */
-async function keepMenuInView(containerRef) {
-  await nextTick()
-  const container = containerRef?.value
-  const menu = container?.querySelector('.export-dropdown-menu')
-  if (!menu) return
-
-  // Start from the stylesheet's own anchoring before measuring, or a previous
-  // clamp decides the answer for the next one.
-  menu.style.left = ''
-  menu.style.right = ''
-
-  const pad = 8
-  const cRect = container.getBoundingClientRect()
-  const mRect = menu.getBoundingClientRect()
-
-  if (mRect.left < pad) {
-    menu.style.right = 'auto'
-    menu.style.left = `${Math.round(pad - cRect.left)}px`
-  } else if (mRect.right > window.innerWidth - pad) {
-    menu.style.left = 'auto'
-    menu.style.right = `${Math.round(pad - (window.innerWidth - cRect.right))}px`
-  }
-}
+// keepMenuInView: lib/menu-position.js, shared with AssignmentHeader.vue.
 
 function onDocumentClick(e) {
   if (exportDropdownRef.value && !exportDropdownRef.value.contains(e.target)) {
@@ -3079,9 +2828,6 @@ function onDocumentClick(e) {
   if (preservationMenuRef.value && !preservationMenuRef.value.contains(e.target)) {
     preservationMenuOpen.value = false
   }
-  if (inviteMenuRef.value && !inviteMenuRef.value.contains(e.target)) {
-    inviteMenuOpen.value = false
-  }
 }
 
 function onKeydown(e) {
@@ -3089,7 +2835,6 @@ function onKeydown(e) {
     if (exportDropdownOpen.value) exportDropdownOpen.value = false
     if (moreActionsOpen.value) moreActionsOpen.value = false
     if (preservationMenuOpen.value) preservationMenuOpen.value = false
-    if (inviteMenuOpen.value) inviteMenuOpen.value = false
     if (actionStudent.value) closeActions()
   }
 }
@@ -3100,6 +2845,7 @@ onMounted(async () => {
   if (!isAuthenticated()) { loading.value = false; return }
   user.value = getUser()
   await loadAll()
+  consumeRouteAction()
 })
 
 // Device-flow sign-in for deep links opened without a session. Failures
@@ -3109,6 +2855,17 @@ async function onAuthenticated(authedUser) {
   user.value = authedUser
   loading.value = true
   await loadAll()
+  consumeRouteAction()
+}
+
+// "Lock everyone out now" from the Settings tab's state button arrives as
+// `?action=freeze`: its confirmation dialog is this page's. Consumed once, so a
+// refresh does not ask again.
+function consumeRouteAction() {
+  if (route.query.action !== 'freeze') return
+  const { action: _action, ...rest } = route.query
+  router.replace({ query: rest })
+  if (assignment.value) handleFreezeNow()
 }
 
 
@@ -3245,45 +3002,17 @@ async function loadRejections(token, { force = false } = {}) {
   rejectionsUnreadable.value = false
   rejectionsFor.value = props.assignmentId
   try {
-    const found = await ghApi(
-      token,
-      'GET',
-      `/repos/${props.org}/${config.controlRepo}/issues?labels=${TRACKING_LABEL}&state=open&per_page=1`,
-    )
-    // A 404 on the issues endpoint means no control repo we can read, which the
-    // rest of the page has already reported. Anything else that is not ok is a
-    // read we could not make, and we say so rather than showing a clean slate.
+    // Walked whole by the shared reader (lib/tracking-issue.js), which the
+    // Organization page uses too. A 404 means no control repo we can read,
+    // which the rest of the page has already reported; no tracking issue is a
+    // real answer - nobody has been turned away; anything else not read is
+    // said, never shown as a clean slate.
+    const read = await readTrackingIssue(token, { org: props.org, controlRepo: config.controlRepo })
     if (superseded()) return
-    if (!found.ok) {
-      if (found.status !== 404) rejectionsUnreadable.value = true
-      return
-    }
-    const issue = Array.isArray(found.data) ? found.data[0] : null
-    // No tracking issue is a real answer: nothing has ever been notified in this
-    // organization, so nobody has been turned away.
-    if (!issue) return
-    rejectionsIssueUrl.value = issue.html_url || null
-
-    // ONE PAGE IS NOT THE LIST, and GitHub returns issue comments OLDEST first,
-    // so the first page of a long-lived tracking issue is the oldest hundred -
-    // exactly the ones least likely to be about this assignment. Walk it, and
-    // treat a capped walk as unreadable rather than complete.
-    const comments = []
-    for (let page = 1; page <= 10; page++) {
-      const res = await ghApi(
-        token,
-        'GET',
-        `/repos/${props.org}/${config.controlRepo}/issues/${issue.number}/comments?per_page=100&page=${page}`,
-      )
-      if (superseded()) return
-      if (!res.ok) { rejectionsUnreadable.value = true; return }
-      const batch = Array.isArray(res.data) ? res.data : []
-      comments.push(...batch)
-      if (batch.length < 100) break
-      if (page === 10) { rejectionsUnreadable.value = true; return }
-    }
-    if (superseded()) return
-    rejections.value = rejectionsForAssignment(comments, props.assignmentId)
+    if (read.state === 'no-repo' || read.state === 'none') return
+    rejectionsIssueUrl.value = read.issueUrl || null
+    if (read.state === 'unreadable') { rejectionsUnreadable.value = true; return }
+    rejections.value = rejectionsForAssignment(read.comments, props.assignmentId)
   } catch {
     if (!superseded()) rejectionsUnreadable.value = true
   }
@@ -5473,6 +5202,13 @@ async function retryAcceptanceFor(student) {
 <style scoped>
 .detail-page { min-height: 100vh; }
 
+/* Above the tabs: the deadline and the invitation link. */
+.assignment-head { margin-bottom: var(--space-sm); }
+.assignment-head-deadline { display: flex; align-items: baseline; gap: var(--space-xs); flex-wrap: wrap; min-width: 0; }
+.assignment-tabs { margin-bottom: var(--space-md); }
+.grading-actions { margin-bottom: var(--space-md); }
+.grading-empty h3 { margin: var(--space-sm) 0 var(--space-xs); }
+
 /* `.back-link` lives in style.css - see the note there. */
 .breadcrumb { min-width: 0; flex: 1; }
 .breadcrumb h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5796,21 +5532,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 0.8rem;
   margin-top: var(--space-sm);
 }
-/* The Invite link menu. Its padding, border and shadow are Export's and
-   More's; InvitationShare pads the link box and the status like a row, so all
-   three menus line up the same way. Compounded with .export-dropdown-menu so
-   it wins whatever the order in this stylesheet, where a bare `.invite-menu`
-   would lose to a rule declared further down.
-   A WIDTH, not a min-width: the link box is one unbreakable line, and as a
-   min-width the menu grew to fit the whole URL - about 650px on the real
-   site, whose address carries the Pages path and the organization. The box
-   cuts it off with an ellipsis instead; Copy and Open are how the link is
-   used. The cap keeps the 8px keepMenuInView() leaves on a 320px phone. */
-.export-dropdown-menu.invite-menu {
-  width: 340px;
-  max-width: calc(100vw - 16px);
-  display: block;
-}
 
 .ext-note {
   font-size: 0.72rem;
@@ -5885,46 +5606,10 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .modal-close:hover { color: var(--text-primary); }
 
-/* Export Dropdown Menu */
-.dropdown-container {
-  position: relative;
-  display: inline-block;
-}
-
-.export-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  /* Anchored to the trigger's RIGHT edge, because these triggers live in a
-     right-aligned toolbar. With `left: 0` the 270px menu grew towards the
-     viewport edge and stayed on screen only because another button happened to
-     sit to its right - remove that button and the More menu's own centre fell
-     outside the window (tests/e2e/21-org-dropdown.spec.mjs). */
-  right: 0;
-  z-index: 100;
-  min-width: 270px;
-  background: var(--bg-surface);
-  /* An OPEN MENU has to read as a separate surface floating over the page.
-     --border-default is #30363d in dark, barely a step from the surface behind
-     it, so the menu's edge was hard to find at all - reported 2026-09-02.
-     --border-strong is DESIGN.md's "emphasised outlines" and moves the right
-     way in both themes: darker than default in light, lighter in dark. */
-  border: 1px solid var(--border-strong);
-  /* No inline fallback after the comma: --radius-md is defined, and a fallback
-     only hides a typo (DESIGN.md §5 rule 2). */
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px var(--shadow-color-lg);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* ...and `keepMenuInView()` shifts it back when that would put it off screen -
-   see the note there for why this cannot be a media query. */
-
-/* The menu ROWS (.export-dropdown-item, .dropdown-icon, .dropdown-item-*,
-   .dropdown-divider) are in style.css: the Invite link menu's rows are drawn by
-   InvitationShare, which no rule scoped here can reach (DESIGN.md §7). */
+/* The menus themselves (.dropdown-container, .export-dropdown-menu) and their
+   rows are in style.css: the assignment's header (AssignmentHeader.vue) draws
+   the state and Invite link menus, and InvitationShare the Invite link's rows,
+   none of which a rule scoped here can reach (DESIGN.md §7). */
 
 .badge-count {
   font-size: 0.7rem;
