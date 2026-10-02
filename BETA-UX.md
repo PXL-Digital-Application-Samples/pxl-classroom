@@ -35,15 +35,19 @@ student list, a column in the teams table, the bottom table), and everything
 about configuring the assignment lives under Admin, linked from nowhere but an
 empty state.
 
-- **Underline tabs: Progress, Teams, Grading.** Same style as Assignments /
-  Roster / Admin (DESIGN.md §1.4). Progress is today's summary cards and
+- **Underline tabs: Progress, Teams, Grading, Settings.** Same style as the
+  organization's tabs (DESIGN.md §1.4). Progress is today's summary cards and
   student list. Teams appears for group assignments only. Grading takes the
-  bottom table and everything about scores. No code is moved out of the page
-  (the big views are not split, CLAUDE.md, Frontend).
-- **Settings stay in Admin, linked both ways.** The page gets an *Edit
-  settings* button that opens Admin's editor on this assignment; the editor
-  gets *Back to the assignment*. A Settings tab was declined because it would
-  move the editor out of AdminView.
+  bottom table and everything about scores. Settings is today's editor (see
+  *The organization's tabs* below). No code is moved out of the big views
+  (CLAUDE.md, Frontend).
+- ~~Settings stay in Admin, linked both ways.~~ Superseded the same day by the
+  Settings tab, when Admin was reconsidered.
+- **The state is a button in the header, and it carries the lifecycle.**
+  `Draft v` offers Publish; `Published v` offers Stop accepting and Close;
+  `Closed v` offers Reopen and Archive; Delete is last and guarded. Reachable
+  from every tab, so closing an exam is not a matter of finding a form
+  section.
 - **Teams tab = making teams + progress per team.** Create, move, add, copy
   from an earlier assignment, and each team's status and score in the same
   table. The Teams View / Students View toggle goes; Progress is per student.
@@ -53,8 +57,8 @@ empty state.
   leaves Progress and the teams table.
 - **Grading is always there.** Without autograding it says nothing grades this
   assignment (work is still collected and archived) and offers *Set up
-  grading*, which opens Edit settings at the Grading section.
-- **Above the tabs: title, state, deadline, Edit settings, Invite link.** The
+  grading*, which opens the Settings tab at its Grading section.
+- **Above the tabs: title, state button, deadline, Invite link.** The
   counting cards (total / on time / late / none) move into Progress, because
   clicking one filters the Progress list. Grading has its own summary line.
 - **Each tab has its own actions; nothing appears twice.** Progress: export
@@ -64,6 +68,40 @@ empty state.
   The bottom table's buttons and the duplicate menu entries go.
 - **The tab is in the address** (`?tab=grading`), so a link opens a tab, Back
   moves between tabs and a refresh stays put. No tab means Progress.
+
+### The organization's tabs (decided 2026-10-02)
+
+"Admin" was not administration: it was a second list of every assignment beside
+the full editor, and the only place drafts existed. Watching an assignment and
+editing it were two trees, and the organization's own things were scattered
+(System Health a header button, Usage & limits under the assignment cards, Setup
+on its own route).
+
+- **Assignments | Roster | Organization.** Admin goes. Everything about one
+  assignment is under that assignment (its Settings tab); everything about the
+  organization is under Organization.
+- **The Settings tab shows the existing editor with its list hidden**, so the
+  editor is not split out of AdminView. *+ New assignment* opens the same
+  editor on its own.
+- **Drafts get their own row above the live and closed cards** on Assignments;
+  archived stay behind a toggle. A draft opens on its Settings tab.
+- **Organization leads with what needs the lecturer, else "All quiet".** One
+  sentence and only actionable items (an acceptance that got no answer, a
+  repository nothing recorded, a deadline that did not lock, failed
+  provisioning), each with its fix beside it. When there are none: everything
+  ran as expected, and when the nightly last checked. Below, folded: Course
+  activity, System health, Usage & limits, Connection & setup.
+- **Course activity is per assignment, in plain words**, built from the
+  course's own records ("Lab 3: 41 accepted, 2 refused, collected today 02:00";
+  "Exam: locked at the deadline, 38 of 38 archived"), with a folded *Technical
+  details* of the recent hub runs that can be tied to this organization
+  (acceptance runs by their name, nightly legs), status and links.
+- **Instructor notifications are read in the app**, in the "needs you" list,
+  with a link to the GitHub issue, which stays the record and the email
+  channel.
+- **Every lecturer of the organization sees it.** A repair only an
+  administrator can do (App permissions, cancelling a hub run) says so, never a
+  button that fails.
 
 ## Open
 
