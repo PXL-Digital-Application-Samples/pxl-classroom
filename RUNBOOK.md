@@ -259,8 +259,8 @@ The form asks **two questions**, and they are two questions rather than one and 
 
 | Answer | At the deadline |
 |---|---|
-| **still counts** (default for new assignments) | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
-| **does not count** | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
+| **still counts** | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
+| **does not count** (default for new assignments) | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
 | **repository stays as it is** (default) | They keep admin, and with it Actions, secrets, environments and runners. |
 | **repository becomes read-only** | The student is demoted, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and resets to *stays as it is* when you pick "does not count" (the branch lock already stops pushes). |
 

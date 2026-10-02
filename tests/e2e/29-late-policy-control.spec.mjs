@@ -36,12 +36,14 @@ const staysAsIs = (page) => repoField(page).locator('input[type="radio"]').first
 const becomesReadOnly = (page) => repoField(page).locator('input[type="radio"]').last();
 
 test.describe('29 - Late work control', () => {
-  test('A new assignment does not discard late work by default', async ({ page }) => {
-    // `block` throws away commits. Now that it does something, defaulting to it
-    // would start silently discarding students' work on every new assignment.
+  test('A new assignment\'s deadline is final by default, and leaves the toolchain alone', async ({ page }) => {
+    // `block` since 2026-10-02, the lecturer's call: late commits do not count
+    // unless somebody says they do. The repository answer stays "as it is",
+    // because the branch lock already stops late pushes.
     await openNewAssignmentForm(page);
-    await expect(counts(page)).toBeChecked();
-    await expect(doesNotCount(page)).not.toBeChecked();
+    await expect(doesNotCount(page)).toBeChecked();
+    await expect(counts(page)).not.toBeChecked();
+    await expect(staysAsIs(page)).toBeChecked();
   });
 
   test('The control lives in Guardrails, not behind the Advanced disclosure', async ({ page }) => {
@@ -95,6 +97,8 @@ test.describe('29 - Late work control', () => {
 
   test('Blocking pushes resets the repository answer, because it takes what the lock preserves', async ({ page }) => {
     await openNewAssignmentForm(page);
+    // From "still counts", since "does not count" is the default now.
+    await counts(page).check();
     await becomesReadOnly(page).check();
 
     await doesNotCount(page).check();
@@ -135,6 +139,7 @@ test.describe('29 - Late work control', () => {
 
   test('Going back to "still counts" leaves the repository answer where the lecturer left it', async ({ page }) => {
     await openNewAssignmentForm(page);
+    await counts(page).check();
     await becomesReadOnly(page).check();
     await doesNotCount(page).check();
     await expect(staysAsIs(page)).toBeChecked();

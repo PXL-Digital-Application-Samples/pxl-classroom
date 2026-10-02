@@ -3091,21 +3091,26 @@ function emptyForm() {
     // Open requires a cap (schema `allOf`/`if`/`then`), and `max_acceptances`
     // below is why a new assignment is valid the moment it is created.
     roster_mode: 'open',
-    // Off, so an open assignment stays anonymous unless the lecturer asks for
-    // an address. `open` is what you choose when you do not know the cohort up
-    // front - most often an exam - and making that identify itself by default
-    // would be the opposite of the point.
-    require_claim: false,
+    // ON (2026-10-02, the lecturer's call). An open assignment that collects no
+    // address leaves only GitHub usernames to match against the roster, which
+    // is the reconciliation nobody can do afterwards. A lecturer who wants an
+    // anonymous one unticks it. It was off, on the argument that `open` is for
+    // a cohort nobody listed up front and should not identify itself.
+    require_claim: true,
     // Empty means EVERY class group, which is what a new assignment should
     // mean - restricting a cohort is a decision a lecturer makes, never a
     // default they inherit.
     cohort: [],
     // Nothing is published yet, so nothing in the picker is locked.
     _cohort_published: [],
-    // `block` discards work. Now that it actually does something, defaulting to
-    // it would silently start throwing away students' late commits on every new
-    // assignment - so a lecturer opts in.
-    late_policy: 'report',
+    // `block` (2026-10-02, the lecturer's call): the deadline is final unless
+    // somebody says otherwise. It locks the submission branch and leaves the
+    // student their Actions, secrets and runners; late commits do not count.
+    // It was `report`, on the argument that a default which discards late work
+    // should be opted into. The repository question below stays "as it is":
+    // `block` already stops late pushes, and demotion on top of it takes the
+    // toolchain this lock exists to leave alone.
+    late_policy: 'block',
     // EMPTY, and no field on the form sets it - the dialog Save opens does,
     // once, and only on an individual assignment where repositories were
     // actually found. Absent is "nobody said", which lib/existing-repo.mjs

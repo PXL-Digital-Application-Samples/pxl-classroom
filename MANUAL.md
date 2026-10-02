@@ -66,7 +66,7 @@ There are two ways to ask for it.
 
 ### At acceptance
 
-Tick **Ask students to confirm...** on the assignment. This is available under **Open** only.
+**Ask students to confirm...** is ticked on a new assignment. It is available under **Open** only.
 
 - The student confirms an address before they can accept.
 - It does not restrict who may accept. Anyone with the link still can.

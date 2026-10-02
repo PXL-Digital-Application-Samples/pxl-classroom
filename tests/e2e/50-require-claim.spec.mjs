@@ -6,9 +6,9 @@
 // which was a hope rather than a mechanism - nothing had been recorded to
 // reconcile against.
 //
-// `require_claim` is that mechanism, and it is OFF by default on purpose. Open
-// is the mode for a cohort nobody listed up front, most often an exam, and
-// making one identify itself by accident is the opposite of the point.
+// `require_claim` is that mechanism. The form ticks it for a new assignment
+// (2026-10-02); an assignment document without the field still asks nothing,
+// which is what every open assignment before then relies on.
 //
 // What it does NOT do is gate: anyone with the link still accepts. It records
 // who, so the reconciliation is possible.
@@ -104,12 +104,17 @@ test.describe('50 - the lecturer side', () => {
   const askBox = (page) =>
     guardrails(page).locator('label', { hasText: ASK_LABEL });
 
-  test('the option is offered on an open assignment, and starts off', async ({ page }) => {
-    // A new assignment defaults to open, so this is the state it opens in.
+  test('the option is offered on an open assignment, and starts ON', async ({ page }) => {
+    // A new assignment defaults to open, so this is the state it opens in. On
+    // since 2026-10-02: a username alone is what nobody can reconcile later.
     await newAssignment(page);
 
     await expect(askBox(page)).toBeVisible();
-    await expect(askBox(page).locator('input[type="checkbox"]')).not.toBeChecked();
+    await expect(askBox(page).locator('input[type="checkbox"]')).toBeChecked();
+    await expect(guardrails(page)).toContainText('does not restrict who may accept');
+
+    // Unticking it is the anonymous assignment, and says what it costs.
+    await askBox(page).locator('input[type="checkbox"]').uncheck();
     await expect(guardrails(page)).toContainText('GitHub username and nothing else');
   });
 
