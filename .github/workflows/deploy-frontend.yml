@@ -323,6 +323,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: build
+    # Decided on the production build ALONE. Without this the default
+    # `success()` reads the whole `needs:` chain, so a failed `build-beta`
+    # skipped this job even though `build` had succeeded and already put the
+    # "no beta" page in the artifact: on 2026-10-02 a schema change on main
+    # made the beta (correctly) refuse to build, and four production deploys
+    # in a row were skipped. CLAUDE.md: one failure must not skip another's work.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

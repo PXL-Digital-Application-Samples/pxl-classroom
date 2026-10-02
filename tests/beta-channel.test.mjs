@@ -138,6 +138,26 @@ test("a failed beta does not cost production its deploy", () => {
   assert.match(download.if, /needs\.build-beta\.result == 'success'/);
 });
 
+test("EVERY job downstream of the beta decides for itself, at any depth", () => {
+  // A failed job skips everything after it through the WHOLE `needs:` chain,
+  // not only its direct dependents. The first version guarded `build` and left
+  // `deploy` on the default `success()`, so on 2026-10-02 a beta that
+  // correctly refused to build (schemas changed on main) skipped four
+  // production deploys while `build` itself had succeeded.
+  const jobs = deploy.jobs;
+  const needsOf = (name) => [jobs[name]?.needs ?? []].flat();
+  const downstreamOfBeta = (name, seen = new Set()) => needsOf(name).some((n) =>
+    n === "build-beta" || (!seen.has(n) && (seen.add(n), downstreamOfBeta(n, seen))));
+  const affected = Object.keys(jobs).filter((name) => downstreamOfBeta(name));
+  assert.ok(affected.includes("deploy"), "the deploy job is downstream of the beta - or this test checks nothing");
+  for (const name of affected) {
+    assert.match(String(jobs[name].if ?? ""), /!cancelled\(\)|always\(\)/,
+      `${name} would be skipped by a failed beta build - give it an explicit if:`);
+  }
+  assert.match(String(jobs.deploy.if), /needs\.build\.result == 'success'/,
+    "deploy runs on the production build's result, never on the beta's");
+});
+
 test("a push to beta deploys from main, the only place the site deploys from", () => {
   const wf = parse(read(".github/workflows/beta-channel.yml"));
   assert.deepEqual(wf.on.push.branches, ["beta"]);

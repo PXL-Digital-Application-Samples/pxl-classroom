@@ -1066,7 +1066,8 @@ something to test; operating it is [ADMIN.md §9](ADMIN.md).
   change lands on main first and is merged into `beta`.
 - **A failed or absent beta never costs production its deploy.** `build` runs
   on `!cancelled()` and publishes `pages/beta-unavailable.html` as
-  `beta/index.html` instead.
+  `beta/index.html` instead, and `deploy` runs on `build`'s result alone -
+  every job downstream of `build-beta`, at any depth, carries its own `if:`.
 - **`beta/index.html` always exists.** `404.html` is the one fallback for the
   whole site and keeps two path segments under `beta/`, so a deep link reaches
   the beta app; with nothing there, it would redirect to a path that 404s back
