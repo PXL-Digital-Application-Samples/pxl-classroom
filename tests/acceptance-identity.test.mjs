@@ -70,11 +70,24 @@ test("no other reading of the same fact survives in the workflow", () => {
   );
 });
 
-test("the concurrency key is the same field", () => {
-  // Per-account serialisation. Keying it on a different field than the one that
-  // identifies the acceptance would serialise against the wrong thing, which is
-  // the shape of the team-hint bug (§5.6) one level down.
-  assert.equal(DOC.concurrency.group, "accept-${{ github.event.issue.user.login }}");
+test("the issue says '(processed)' only when the hub really has it", () => {
+  // It used to say so whatever the dispatch did: a failed hand-off left the
+  // student's page waiting minutes for an answer that was never coming.
+  const dispatch = step("Dispatch to central");
+  assert.equal(dispatch.id, "dispatch");
+  assert.match(String(dispatch.run), /for WAIT in /, "the hand-off is retried");
+  const redact = step("Redact and lock");
+  assert.equal(redact.env.DELIVERED, "${{ steps.dispatch.outcome }}");
+  assert.match(String(redact.run), /if \[ "\$DELIVERED" = "success" \]; then\s+gh api [^\n]*\(processed\)/);
+  assert.match(String(redact.run), /else\s+gh api [^\n]*\(not delivered\)/);
+});
+
+test("the broker has no concurrency group to get stuck behind", () => {
+  // It had one per accepting account. GitHub keeps one pending run per group
+  // and a run that never starts holds it for a day, so a student whose first
+  // attempt was stuck could not get a second one through. The hub orders a
+  // student's attempts by issue number instead (lib/acceptance-reservation.mjs).
+  assert.equal(DOC.concurrency, undefined, "acceptance/broker-workflow.yml has a concurrency group again");
 });
 
 test("the dispatch forwards the validated pair and nothing else", () => {

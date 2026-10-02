@@ -1,4 +1,11 @@
 name: Accept assignment
+# THE RUN IS NAMED AFTER THE STUDENT'S ATTEMPT, so their page can find it in
+# this public repository's run list and say which step their request is at -
+# waiting for GitHub to start it, running, or stopped (lib/acceptance-run-name.mjs,
+# which the page builds the same string from). Both halves are already public:
+# the issue sits on a public broker and names its author. A display string,
+# never a script.
+run-name: acceptance ${{ github.event.client_payload.broker_repo }}#${{ github.event.client_payload.issue_number }}
 on:
   repository_dispatch:
     types: [acceptance]
@@ -7,19 +14,32 @@ permissions:
   contents: read
   actions: write # dispatches regenerate-dashboard.yml
 
-# team_hint is the broker's title-derived team slug. It is a CONCURRENCY KEY
-# ONLY - it serializes joins to one team, which is what guards team capacity
-# without a distributed lock (ARCHITECTURE §5.6). The authoritative team comes
-# from the `team` step below, which re-reads the issue in this repository.
-concurrency:
-  group: accept-${{ github.event.client_payload.org }}-${{ github.event.client_payload.assignment_id }}-${{ github.event.client_payload.team_hint || github.event.client_payload.github_login }}
-  cancel-in-progress: false
+# NO CONCURRENCY GROUP, deliberately - do not add one back.
+#
+# Joins to a team were serialised here with `accept-<org>-<id>-<team_hint>`.
+# GitHub keeps ONE pending run per group and the newest arrival cancels it, and
+# a run that never gets a runner holds the group for up to 24 hours, because
+# timeout-minutes only counts a running job. On 2026-10-02 one join to a team
+# sat queued for twenty minutes and the seven behind it cancelled each other;
+# two students ended in no team (LESSONS.md). `queue: max` (2026-05) lifts the
+# one-pending limit but not the stuck run.
+#
+# What the group protected - a team's size, one team per student - is now kept
+# by the decision itself: it is saved before anything is provisioned, by a push
+# GitHub refuses when another run saved first, and decided again when that run
+# changed one of its inputs (acceptance/reserve.mjs,
+# lib/acceptance-reservation.mjs). A run that is stuck, cancelled or late
+# blocks nobody but itself, and an older attempt that lands late is
+# `superseded` rather than undoing a newer one.
 
 jobs:
   accept:
     environment: provisioning
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Saving the decision and the record each retry for up to ~3 minutes in a
+    # class-wide burst (acceptance/reserve.mjs, scripts/record-acceptance.sh),
+    # around provisioning. Well inside the App token's hour.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -52,10 +72,9 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.client_payload.issue_number }}
           ORG: ${{ github.event.client_payload.org }}
           EXPECTED_LOGIN: ${{ github.event.client_payload.github_login }}
-          # The concurrency group above was keyed on this. The script refuses a
-          # body that names a different team, or per-team serialization - the
-          # only thing guarding max_team_size - could be side-stepped by
-          # disagreeing with your own title.
+          # The team the issue's TITLE names. The script refuses a body that
+          # names a different one: the page always sends them in agreement, so
+          # a disagreement is a hand-made issue.
           TEAM_HINT: ${{ github.event.client_payload.team_hint }}
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: node scripts/read-team-payload.mjs
@@ -81,6 +100,10 @@ jobs:
           claim-verified: ${{ steps.team.outputs.claim_verified }}
           claim-private-key: ${{ secrets.PXL_CLAIM_PRIVATE_KEY }}
           claim-private-keys-retired: ${{ secrets.PXL_CLAIM_PRIVATE_KEYS_RETIRED }}
+          # Both read back from the issue by the step above, never off the
+          # dispatch: which attempt this is, and when the student made it.
+          issue-number: ${{ steps.team.outputs.issue_number }}
+          acted-at: ${{ steps.team.outputs.acted_at }}
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
         id: prov
@@ -172,9 +195,15 @@ jobs:
         run: node scripts/publish-acceptance-outcome.mjs
 
       - name: Tell the student they were turned away
-        if: startsWith(steps.accept.outputs.outcome, 'rejected')
+        if: startsWith(steps.accept.outputs.outcome, 'rejected') && steps.accept.outputs.outcome != 'rejected:repo-unreadable'
         # A courtesy label must never turn a handled rejection into a red run.
         continue-on-error: true
+        # EXCEPT when nothing turned them away: `rejected:repo-unreadable` means
+        # GitHub did not answer whether their repository name is free. The
+        # lecturer is still told (the notice above); the student is not told
+        # "your lecturer can see the reason" about GitHub's error. Their page
+        # sees a finished run with no answer and offers to try again, and the
+        # nightly lists the attempt if they do not (lib/unanswered-attempts.mjs).
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
           ORG: ${{ github.event.client_payload.org }}
@@ -202,60 +231,20 @@ jobs:
             [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
           
-      # EVERY OUTCOME THAT WRITES UNDER students/ AND PROVISIONS NOTHING.
-      #
-      # The only other commit step is gated on an ACCEPTED outcome, so anything
-      # written by a run that does not provision is left in the runner's
-      # checkout and discarded. That has now cost two features:
-      #
-      #   `rejected:*` wrote the failed-attempt counter, which made
-      #   MAX_CLAIM_ATTEMPTS unenforceable and left the guessing oracle
-      #   unbounded - a rate limit has to ship WITH its gate, because an
-      #   unbounded oracle over enumerable addresses is not a follow-up.
-      #
-      #   `confirmed` wrote the claim binding. The run went green, the log said
-      #   "@tomcoolpxl confirmed …", and the record 404'd - measured live on
-      #   2026-09-06 against pxl-classroom-testbed. The whole feature did
-      #   nothing, silently, and no unit or e2e test could see it: accept.mjs
-      #   writes the file correctly and the browser posts correctly, and the
-      #   discard happens in the seam between them.
-      #
-      # So this step is written as a CLASS rather than a list of two, and
-      # tests/acceptance-outcome-persisted.test.mjs fails when accept.mjs grows
-      # an outcome no step here handles.
-      #
-      # continue-on-error, for the same reason the notify steps carry it: a
-      # rejection is an outcome and exits 0 on purpose, and a failed push about
-      # one must not turn it into a red run.
-      - name: Persist records written without provisioning
-        if: >-
-          always()
-          && (startsWith(steps.accept.outputs.outcome, 'rejected:')
-              || steps.accept.outputs.outcome == 'confirmed'
-              || steps.accept.outputs.outcome == 'already-confirmed')
-        continue-on-error: true
-        env:
-          LOGIN: ${{ github.event.client_payload.github_login }}
-          OUTCOME: ${{ steps.accept.outputs.outcome }}
-        run: |
-          set -e
-          # Each `run:` block is its own shell, so the stage() helper in the
-          # step below does not exist here. `git add <dir>/` is fatal when the
-          # directory is absent - see that step for the whole story.
-          mkdir -p control/students
-          git -C control add "students/"
-          # `already-confirmed` is idempotent and writes nothing, which lands
-          # here rather than in a branch: nothing staged, nothing committed,
-          # exit 0.
-          if git -C control diff --cached --quiet; then
-            echo "nothing to persist for $OUTCOME"
-            exit 0
-          fi
-          git -C control config user.name "pxl-classroom[bot]"
-          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control commit -m "Record ${OUTCOME} for ${LOGIN}"
-          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
+      # NOTHING ELSE COMMITS A DECISION. ./acceptance saves what accept.mjs
+      # wrote for EVERY outcome before it returns - an admitted acceptance or
+      # confirmation in full, a refusal's attempt counter, a superseded attempt
+      # nothing (lib/acceptance-reservation.mjs `pathsToCommit`, which
+      # tests/acceptance-outcome-persisted.test.mjs holds exhaustive). A
+      # separate "persist" step lived here, gated on a list of outcomes; two
+      # features were silently discarded in the seam between that list and
+      # accept.mjs before it became a class, and the class now lives beside the
+      # code that saves it.
 
+      # Writes what PROVISIONING produced: the repository record, the team's
+      # repository, the acceptance's status. Re-applied on the latest state
+      # rather than rebased, and only while this run still owns the decision -
+      # scripts/record-acceptance.sh, shared with retry-acceptance.yml.
       - name: Write repository record into control checkout, push
         id: record
         if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
@@ -271,82 +260,9 @@ jobs:
           BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
           STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -e
-
-          # `git add <dir>/` is FATAL when the directory does not exist - exit
-          # 128, and nothing at all is staged, not even the pathspecs that did
-          # match. Under `set -e` that kills this whole step, so the student's
-          # repository is created and then the repository record, the
-          # acceptance status update AND the claim binding are all discarded.
-          #
-          # It is latent rather than theoretical: `teams/` was added to the
-          # staging list on 2026-08-19 with group assignments, and a control
-          # repo that has never run a group assignment has no teams/ directory
-          # (git cannot store an empty one). PXL-Automation-II is exactly that
-          # - its six exam acceptances were provisioned on 2026-08-03, before
-          # the change, and no acceptance has run there since. The next one
-          # would have been the first to hit it.
-          #
-          # The fix is `mkdir -p` before each add, not a conditional around it.
-          # `git add` on an EXISTING but empty directory exits 0 and stages
-          # nothing, so creating it first is a no-op when there was nothing to
-          # commit and correct when there was - where a `[ -d ]` guard would
-          # silently skip a directory that did have content if anything ever
-          # went wrong upstream.
-          #
-          # Explicit paths rather than `git add -A`: staging only what this job
-          # writes is what stops a stray file reaching a course's control repo.
-          if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-            node scripts/write-repository-record.mjs \
-              --assignment-id "$ASSIGNMENT_ID" \
-              --login "$LOGIN" \
-              --org "$ORG" \
-              --target-repo "$TARGET_REPO" \
-              --team-slug "$TEAM_SLUG" \
-              --repo-id "$REPO_ID" \
-              --repo-url "$REPO_URL" \
-              --baseline-sha "$BASELINE_SHA" \
-              --student-permission "$STUDENT_PERMISSION" \
-              --run-url "$RUN_URL" \
-              --data-dir control
-            mkdir -p control/repositories
-            git -C control add "repositories/"
-          elif [ -n "$TEAM_SLUG" ] && [ -n "$REPO_ID" ]; then
-            # Failed after the team repo existed: record it on the team only.
-            node scripts/write-repository-record.mjs --team-only \
-              --assignment-id "$ASSIGNMENT_ID" --org "$ORG" \
-              --target-repo "$TARGET_REPO" --team-slug "$TEAM_SLUG" \
-              --repo-id "$REPO_ID" --repo-url "$REPO_URL" --data-dir control
-          fi
-          # Every outcome: membership was decided before provisioning ran, and
-          # dropping it on failure hid the team and refused its next member.
-          mkdir -p control/teams
-          git -C control add "teams/"
-
-          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
-          if [ -f "control/$ACCEPT_FILE" ]; then
-            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "provisioned"
-            else
-              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
-            fi
-            mkdir -p control/acceptances
-            git -C control add "acceptances/"
-          fi
-
-          # students/ holds the claim binding (students/claims/<id>.json). It
-          # was not staged, so the binding was written into the runner's
-          # checkout and thrown away: the claim worked once and bound nothing.
-          # Found by running it - the drill's acceptance succeeded and the
-          # binding 404'd afterwards.
-          mkdir -p control/students
-          git -C control add "students/"
-
-          git -C control config user.name "pxl-classroom[bot]"
-          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control diff --cached --quiet || git -C control commit -m "Provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
+          COMMIT_LABEL: Provision
+          DATA_DIR: control
+        run: scripts/record-acceptance.sh
 
       # A REPOSITORY NOBODY RECORDED IS A STUDENT NOBODY LOCKS, ARCHIVES OR
       # GRADES - and the student cannot tell, because their side worked.

@@ -62,6 +62,21 @@ test("a moved student's records follow them to the new team's repository", () =>
   assert.equal(acc.accepted_at, "2026-09-10T08:00:00Z", "the acceptance time is theirs, not the move's");
 });
 
+test("a lecturer's move takes the record from a run that is still provisioning", () => {
+  // The student's own run writes their repository record only while the
+  // acceptance names it as the decider (scripts/record-acceptance.sh). Left at
+  // the run's id, a run still provisioning would undo the move seconds later.
+  const changes = plan({
+    toTeam: team("blue", 22),
+    repoRecord: record("red", 11),
+    acceptance: { ...acceptance("red"), issue_number: 66, decided_by_run_id: "36995575594" },
+  });
+  assertValid(changes);
+  const acc = JSON.parse(changes.find((c) => c.path === "acceptances/lab1/ann.json").content);
+  assert.equal(acc.decided_by_run_id, "0");
+  assert.equal(acc.issue_number, 66, "the attempt order is kept: an older attempt is still superseded");
+});
+
 test("a student ADDED to a team with a repository gets a record lockdown can see", () => {
   const changes = plan({ toTeam: team("blue", 22), repoRecord: null, acceptance: null });
   assertValid(changes);

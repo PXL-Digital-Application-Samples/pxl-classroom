@@ -89,6 +89,22 @@ function emits(file, name) {
   );
 }
 
+/**
+ * Scripts this one runs as a child and FORWARDS the outputs of.
+ *
+ * acceptance/reserve.mjs runs accept.mjs - possibly several times - with
+ * GITHUB_OUTPUT pointed at a scratch file, and appends only the last run's to
+ * the real one. Its outputs are therefore accept.mjs's. Derived from the spawn
+ * itself, never listed, so a delegate that is renamed fails here rather than
+ * passing on an empty set.
+ */
+function delegatesOf(file) {
+  const src = read(file);
+  return [...src.matchAll(/spawnSync\(\s*process\.execPath\s*,\s*\[\s*join\(\s*here\s*,\s*"([^"]+\.mjs)"\s*\)/g)]
+    .map(([, rel]) => join(dirname(file), rel))
+    .filter((f) => existsSync(f));
+}
+
 test("every steps.<id>.outputs.<name> a workflow reads is one the step can produce", () => {
   let checked = 0;
   const skipped = [];
@@ -158,7 +174,7 @@ test("every output a local action declares is one its own script emits", () => {
       if (scripts.length === 0) continue; // not a node step - out of reach here
 
       assert.ok(
-        scripts.some((f) => emits(f, innerName)),
+        scripts.some((f) => emits(f, innerName) || delegatesOf(f).some((d) => emits(d, innerName))),
         `${uses}: output "${publicName}" is wired to steps.${innerId}.outputs.${innerName}, ` +
           `but ${scripts.join(" / ")} never writes "${innerName}". It resolves to "" for every consumer.`,
       );

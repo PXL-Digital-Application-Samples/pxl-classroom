@@ -101,9 +101,39 @@ inputs:
     default: ''
   prior-acceptance-file:
     description: >-
-      Path to the acceptance record a retry set aside so the gates run again.
-      Read for its `accepted_at` alone, so a retried student keeps the time
-      they originally accepted. Empty for an ordinary acceptance.
+      Path to a copy of the acceptance record a retry sets aside so the gates
+      run again. Read for its `accepted_at` and `issue_number` alone, so a
+      retried student keeps the time they originally accepted. Empty for an
+      ordinary acceptance.
+    required: false
+    default: ''
+  set-aside:
+    description: >-
+      "true" on a lecturer's Retry: the student's acceptance record is removed
+      from the checkout before every decision (acceptance/reserve.mjs), and is
+      only ever replaced by an admitted one.
+    required: false
+    default: 'false'
+  persist-refusals:
+    description: >-
+      "false" on a lecturer's Retry. An ordinary acceptance saves the claim
+      attempt counter a refusal writes; a Retry never counted against the
+      student.
+    required: false
+    default: 'true'
+  issue-number:
+    description: >-
+      The broker issue this attempt is, as the hub read it back. Issue numbers
+      only grow, so it orders a student's attempts: an older one GitHub starts
+      late is `superseded` and does nothing. Empty on a Retry.
+    required: false
+    default: ''
+  acted-at:
+    description: >-
+      GitHub's own created_at on the student's issue, as the hub read it back
+      (scripts/read-team-payload.mjs) - never a dispatch value. A request made
+      before the deadline is still in time when GitHub starts the run late
+      (lib/acceptance-reservation.mjs actedInTime). Empty on a Retry.
     required: false
     default: ''
 
@@ -119,10 +149,14 @@ outputs:
     value: ${{ steps.accept.outputs.github_id }}
   outcome:
     description: >-
-      accepted | already-accepted | confirmed | already-confirmed | rejected:* |
-      fail:*. The two confirm outcomes come from kind: confirm and provision
-      nothing - the provisioning step gates on `accepted` explicitly rather than
-      on "not a rejection", which is why adding them here is safe.
+      accepted | already-accepted | confirmed | already-confirmed | superseded |
+      rejected:* | fail:*. The two confirm outcomes come from kind: confirm and
+      provision nothing - the provisioning step gates on `accepted` explicitly
+      rather than on "not a rejection", which is why adding them here is safe.
+      `superseded` is an older attempt overtaken by a newer one and does
+      nothing at all. By the time this is set the decision is SAVED in the
+      control repository (acceptance/reserve.mjs); `fail:reserve` means it could
+      not be.
     value: ${{ steps.accept.outputs.outcome }}
   reject_reason:
     description: >-
@@ -203,7 +237,11 @@ runs:
       working-directory: ${{ github.action_path }}/..
       run: npm ci --omit=dev
 
-    - name: Validate acceptance
+    # Decides AND SAVES: acceptance/reserve.mjs runs accept.mjs, commits what it
+    # decided and pushes it, deciding again whenever another run saved one of
+    # its inputs first. This is what keeps a team at its size now that nothing
+    # serialises acceptances (lib/acceptance-reservation.mjs).
+    - name: Decide acceptance and save the decision
       id: accept
       shell: bash
       env:
@@ -225,4 +263,8 @@ runs:
         CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}
         CLAIM_PRIVATE_KEYS_RETIRED: ${{ inputs.claim-private-keys-retired }}
         PRIOR_ACCEPTANCE_FILE: ${{ inputs.prior-acceptance-file }}
-      run: node "$GITHUB_ACTION_PATH/accept.mjs"
+        SET_ASIDE: ${{ inputs.set-aside }}
+        PERSIST_REFUSALS: ${{ inputs.persist-refusals }}
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        ACTED_AT: ${{ inputs.acted-at }}
+      run: node "$GITHUB_ACTION_PATH/reserve.mjs"

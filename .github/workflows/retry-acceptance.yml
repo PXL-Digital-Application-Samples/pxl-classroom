@@ -27,11 +27,10 @@ on:
         default: 'true'
       team_slug:
         description: >-
-          For a GROUP assignment, the team this student is in (shown on the
-          tracking page). Used ONLY to serialize this retry against concurrent
-          joins to that same team - it does not move the student, and the
-          acceptance still resolves the team from the manifests as before.
-          Leave empty for individual assignments.
+          Accepted and not used. It keyed a concurrency group that no longer
+          exists (acceptance/reserve.mjs keeps a team at its size now); kept so
+          a page that still sends it is not refused for an unexpected input.
+          The acceptance resolves the team from the manifests, as it always did.
         required: false
         type: string
         default: ''
@@ -40,28 +39,21 @@ permissions:
   contents: read
   actions: write # dispatches regenerate-dashboard.yml
 
-# MUST MIRROR acceptance-handler.yml's group exactly, because GitHub serializes
-# only runs whose group STRING matches. This keyed on github_login alone while
-# the ordinary acceptance keys on `team_hint || github_login`, so for a group
-# assignment the two produced different strings and neither waited for the
-# other: a lecturer's retry and a student's join on the same team could both
-# read the manifest at n-1 members and both append, past max_team_size. That
-# per-team serialization is the ONLY thing guarding team capacity - there is no
-# distributed lock (ARCHITECTURE 5.8) - and accept.mjs really does
-# members.push() then writeFile().
-#
-# The retry cannot discover the team on its own: a concurrency group is
-# evaluated before any step runs. So the lecturer supplies it, and when they do
-# the two keys coincide. Left empty it behaves exactly as before.
-concurrency:
-  group: accept-${{ inputs.org }}-${{ inputs.assignment_id }}-${{ inputs.team_slug || inputs.github_login }}
-  cancel-in-progress: false
+# NO CONCURRENCY GROUP, as in acceptance-handler.yml and for the same reason:
+# GitHub's group holds one waiting run and cancels it for the next, and a run
+# that never starts blocks the whole group for a day. A Retry used to queue
+# behind exactly the stuck run it was pressed to rescue. A team's size is kept
+# by the decision being saved with a push that fails when another run saved
+# first (acceptance/reserve.mjs), which holds between a Retry and a student's
+# own join exactly as it does between two joins.
 
 jobs:
   retry:
     environment: provisioning
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # As acceptance-handler.yml: the decision and the record each retry for up
+    # to ~3 minutes when a class is accepting at the same moment.
+    timeout-minutes: 15
     steps:
       # A lecturer dispatches these as themselves, through the SPA or the
       # Actions tab. The only other thing that can reach workflow_dispatch here
@@ -171,32 +163,19 @@ jobs:
           esac
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
-      # Moved to RUNNER_TEMP, outside the checkout, so accept.mjs can keep the
-      # original `accepted_at` and nothing can commit the copy.
-      #
-      # IN THE CHECKOUT ONLY - NEVER COMMITTED HERE. Removing the record is what
-      # makes accept.mjs run every gate again instead of leaving through
-      # `already-accepted`; the replacement it writes is committed by the
-      # record step below, which runs only when the acceptance was admitted. A
-      # refusal therefore changes nothing. This step used to commit and push
-      # the wipe first, so a lecturer pressing Retry for a locked student after
-      # the deadline had the record deleted, then the retry refused as frozen,
-      # and the student's report row read "No submission" (testbed
+      # THE STUDENT'S RECORD IS SET ASIDE BY ./acceptance (`set-aside`), NOT
+      # HERE, AND NEVER COMMITTED ON A REFUSAL. Removing it is what makes
+      # accept.mjs run every gate again instead of leaving through
+      # `already-accepted`; acceptance/reserve.mjs copies it to
+      # `prior-acceptance-file` (for the original `accepted_at`) and removes it
+      # before EVERY decision, because a decision that has to be made again
+      # starts from the remote's checkout - and a copy taken here, once, went
+      # stale when the student's own attempt saved in between. Only an admitted
+      # decision commits a replacement. A step here used to commit and push the
+      # wipe first, so a lecturer pressing Retry for a locked student after the
+      # deadline had the record deleted, then the retry refused as frozen, and
+      # the student's report row read "No submission" (testbed
       # drill-20260927-0146, LESSONS.md).
-      - name: Set half-done acceptance state aside
-        env:
-          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
-          GITHUB_LOGIN: ${{ inputs.github_login }}
-        run: |
-          set -e
-          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${GITHUB_LOGIN}.json"
-          if [ ! -f "control/$ACCEPT_FILE" ]; then
-            echo "No prior acceptance file at $ACCEPT_FILE - proceeding to fresh acceptance."
-            exit 0
-          fi
-          mv "control/$ACCEPT_FILE" "${RUNNER_TEMP}/prior-acceptance.json"
-          echo "Set $ACCEPT_FILE aside; it is replaced only if the acceptance is admitted."
-
       - name: Run acceptance
         id: accept
         uses: ./acceptance
@@ -212,6 +191,8 @@ jobs:
           workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           bypass-window: ${{ inputs.bypass_window || 'true' }}
           prior-acceptance-file: ${{ runner.temp }}/prior-acceptance.json
+          set-aside: 'true'
+          persist-refusals: 'false'
 
       - if: steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted'
         uses: ./provisioning
@@ -261,66 +242,11 @@ jobs:
           BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
           STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -e
-
-          # `git add <dir>/` is FATAL when the directory is absent - exit 128,
-          # and nothing at all is staged. Under `set -e` that kills the step,
-          # so the repository gets provisioned and then its record, the
-          # acceptance status and the claim binding are all discarded.
-          #
-          # This workflow is where it hurts most: retry-acceptance is what a
-          # lecturer reaches for when a student is already in trouble. Surveyed
-          # 2026-08-27 - PXL-Systems-Expert and PXL-2TIN-DevOps-2627 both lack
-          # teams/, and both have a published assignment still accepting.
-          # See acceptance-handler.yml for the whole story.
-          if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-            node scripts/write-repository-record.mjs \
-              --assignment-id "$ASSIGNMENT_ID" \
-              --login "$LOGIN" \
-              --org "$ORG" \
-              --target-repo "$TARGET_REPO" \
-              --team-slug "$TEAM_SLUG" \
-              --repo-id "$REPO_ID" \
-              --repo-url "$REPO_URL" \
-              --baseline-sha "$BASELINE_SHA" \
-              --student-permission "$STUDENT_PERMISSION" \
-              --run-url "$RUN_URL" \
-              --data-dir control
-            mkdir -p control/repositories
-            git -C control add "repositories/"
-          elif [ -n "$TEAM_SLUG" ] && [ -n "$REPO_ID" ]; then
-            # Failed after the team repo existed: record it on the team only.
-            node scripts/write-repository-record.mjs --team-only \
-              --assignment-id "$ASSIGNMENT_ID" --org "$ORG" \
-              --target-repo "$TARGET_REPO" --team-slug "$TEAM_SLUG" \
-              --repo-id "$REPO_ID" --repo-url "$REPO_URL" --data-dir control
-          fi
-          # Every outcome: membership was decided before provisioning ran, and
-          # dropping it on failure hid the team and refused its next member.
-          mkdir -p control/teams
-          git -C control add "teams/"
-
-          ACCEPT_FILE="acceptances/${ASSIGNMENT_ID}/${LOGIN}.json"
-          if [ -f "control/$ACCEPT_FILE" ]; then
-            if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
-              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "provisioned"
-            else
-              node scripts/update-json-field.mjs --schema acceptance "control/$ACCEPT_FILE" "status" "failed"
-            fi
-            mkdir -p control/acceptances
-            git -C control add "acceptances/"
-          fi
-
-          mkdir -p control/students
-          git -C control add "students/"
-
-          git -C control config user.name "pxl-classroom[bot]"
-          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          git -C control diff --cached --quiet || git -C control commit -m "Retry-provision ${LOGIN} for ${ASSIGNMENT_ID} (${OUTCOME})"
-          # As acceptance-handler.yml: a lecturer retrying a whole class races
-          # the same branch.
-          MAX_RETRIES=15 scripts/git-push-with-retry.sh control
+          COMMIT_LABEL: Retry-provision
+          DATA_DIR: control
+        # The same script as acceptance-handler.yml, so the two cannot drift:
+        # this block used to be a copy of that one, comments and all.
+        run: scripts/record-acceptance.sh
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')

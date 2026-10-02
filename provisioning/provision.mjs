@@ -18,7 +18,7 @@ import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
-import { emptyFromCommits } from "../lib/existing-repo.mjs";
+import { emptyFromCommits, mayStillBeFilling } from "../lib/existing-repo.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
 import { submissionBranch } from "../lib/submission-marker.mjs";
@@ -524,9 +524,26 @@ async function main() {
   //
   // And only on GitHub's own "Git Repository is empty": an unreadable answer
   // is not evidence, and that repository is reused exactly as before.
+  //
+  // AND NEVER ONE THAT MAY STILL BE FILLING. A repository GitHub generated a
+  // moment ago is empty until the template's contents arrive, and nothing
+  // queues acceptances any more, so a teammate's run - or this student's own
+  // second attempt - can meet the first run's repository in that window
+  // (lib/existing-repo.mjs `mayStillBeFilling`). Removing it there deletes a
+  // repository another run is about to hand out. It is reused instead, and the
+  // writers below wait for it to fill.
+  const stillFilling = alreadyExists ? mayStillBeFilling(existing.data?.created_at) : null;
   if (alreadyExists && cfg.recreateEmpty) {
     const empty = emptyFromCommits(await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?per_page=1`));
-    if (empty === true && cfg.dryRun) {
+    if (empty === true && stillFilling !== false) {
+      log("idempotency", {
+        ok: true,
+        note:
+          `exists id=${existing.data.id} and is EMPTY, but ` +
+          (stillFilling ? "was created less than ten minutes ago" : "its age could not be read") +
+          ` - another run may still be filling it, so it is kept. A later attempt removes it if it is still empty.`,
+      });
+    } else if (empty === true && cfg.dryRun) {
       log("idempotency", { ok: true, note: `exists id=${existing.data.id} and is EMPTY - a real run would remove it and create it again` });
     } else if (empty === true) {
       const del = await gh("DELETE", `/repos/${cfg.org}/${cfg.targetRepo}`);
@@ -544,8 +561,10 @@ async function main() {
   log("idempotency", { ok: existing.status === 200 || existing.status === 404, note: alreadyExists ? `exists id=${existing.data.id} - reuse` : "absent - create" });
   // Nothing is populating a repository we did not just generate, so the writers
   // below have nothing to wait for. Waiting anyway would fail a legitimate
-  // reuse of a repository a student has emptied out.
-  if (alreadyExists) repoPopulated = true;
+  // reuse of a repository a student has emptied out. EXCEPT one generated
+  // minutes ago, by another run that may still be filling it - the writers
+  // wait for that one exactly as they wait for their own.
+  if (alreadyExists) repoPopulated = stillFilling !== true;
 
   // 4. Create from template (skip if exists / dry-run).
   let repo = alreadyExists ? existing.data : null;

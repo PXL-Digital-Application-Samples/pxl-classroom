@@ -19,6 +19,8 @@ export type Acceptance = {
   claimed_email?: string;
   claim_verified?: boolean;
   claim_domain_allowed?: boolean;
+  issue_number?: number;
+  decided_by_run_id?: string;
   reused_existing_repo?: boolean;
 };
 

@@ -7,7 +7,12 @@
 //
 // Inputs via env: BROKER_REPO (owner/repo), ISSUE_NUMBER, ORG, EXPECTED_LOGIN,
 //                 TEAM_HINT, GH_TOKEN
-// Outputs via GITHUB_OUTPUT: team_slug, team_name, team_action, issue_node_id
+// Outputs via GITHUB_OUTPUT: team_slug, team_name, team_action, issue_node_id,
+//                            claim_payload, claim_verified, issue_number, acted_at
+//
+// Runs for EVERY acceptance, individual ones included: the claim, the attempt
+// number and the time of the request are read from the issue whatever the
+// assignment type.
 //
 // issue_node_id is emitted so the caller can DELETE the issue once the body has
 // been read. The issue's title carries the assignment's signed invitation and
@@ -17,31 +22,51 @@
 //
 // A malformed or mismatched payload is not a failure: it degrades to empty
 // outputs, and accept.mjs rejects it as `rejected:no-team` with a real reason.
+// An issue that could not be READ is a failure, and fails the run: that is
+// GitHub's error, not the student's answer.
 
 import { appendFile } from "node:fs/promises";
 import { gh } from "../lib/gh.mjs";
 import { parseTeamPayload, teamHintMatches } from "../lib/team-payload.mjs";
 import { parseClaimFields } from "../lib/claim.mjs";
 import { resolveBrokerIssue } from "../lib/broker-issue-target.mjs";
+import { parseActedAt, parseIssueNumber } from "../lib/acceptance-reservation.mjs";
 
 // GraphQL node ids are base64-ish. Anything else must not reach a mutation, and
 // an empty one is how the caller knows there is nothing to delete.
 const NODE_ID = /^[A-Za-z0-9_=-]{1,200}$/;
 
-async function setOutputs({ team_slug, team_name, team_action, issue_node_id = "", claim_payload = "", claim_verified = false }) {
+async function setOutputs({
+  team_slug, team_name, team_action, issue_node_id = "", claim_payload = "", claim_verified = false,
+  issue_number = "", acted_at = "",
+}) {
   if (!process.env.GITHUB_OUTPUT) return;
   await appendFile(
     process.env.GITHUB_OUTPUT,
     `team_slug=${team_slug}\nteam_name=${team_name}\nteam_action=${team_action}\n` +
       `issue_node_id=${issue_node_id}\n` +
-      `claim_payload=${claim_payload}\nclaim_verified=${claim_verified ? "true" : "false"}\n`
+      `claim_payload=${claim_payload}\nclaim_verified=${claim_verified ? "true" : "false"}\n` +
+      `issue_number=${issue_number}\nacted_at=${acted_at}\n`
   );
 }
 
 const EMPTY = {
   team_slug: "", team_name: "", team_action: "", issue_node_id: "",
-  claim_payload: "", claim_verified: false,
+  claim_payload: "", claim_verified: false, issue_number: "", acted_at: "",
 };
+
+// WHICH ATTEMPT, AND WHEN THE STUDENT MADE IT - as GitHub says, read back here
+// from the issue itself, never taken from the dispatch the broker composed.
+// The number orders a student's attempts (an older one that runs late is
+// `superseded`); the time is what a deadline is judged at when GitHub started
+// the run late (lib/acceptance-reservation.mjs). Only once the author has been
+// checked, so neither can come from somebody else's issue.
+function attemptOf(issue) {
+  return {
+    issue_number: parseIssueNumber(issue?.number) ?? "",
+    acted_at: parseActedAt(issue?.created_at)?.toISOString() ?? "",
+  };
+}
 
 async function main() {
   const brokerRepo = (process.env.BROKER_REPO || "").trim();
@@ -72,10 +97,21 @@ async function main() {
   const res = await gh("GET", `/repos/${owner}/${name}/issues/${issueNumber}`, null, {
     token: process.env.GH_TOKEN,
   });
-  if (!res.ok) {
-    console.error(`[warn] could not read ${brokerRepo}#${issueNumber}: HTTP ${res.status} - ignoring payload`);
+  // A 404 is an answer: the issue is gone, and there is nothing to read. ANY
+  // OTHER FAILURE IS NOT, and must not be decided on. It used to degrade to
+  // empty outputs like a malformed body, so a GitHub hiccup here turned a team
+  // join into `rejected:no-team` and a student was labelled "turned away" for
+  // GitHub's error - and the attempt number and request time the decision now
+  // needs were silently missing too. The run fails instead: nothing is written,
+  // the student's page says it did not go through, and they try again.
+  if (res.status === 404) {
+    console.error(`[warn] ${brokerRepo}#${issueNumber} no longer exists - ignoring payload`);
     await setOutputs(EMPTY);
     return;
+  }
+  if (!res.ok) {
+    console.log(`::error::Could not read ${brokerRepo}#${issueNumber} (HTTP ${res.status}). Nothing was decided; the student can try again.`);
+    process.exit(1);
   }
 
   // The dispatch reported github.actor; the issue reports its author. They are
@@ -103,19 +139,17 @@ async function main() {
   // (only sealed bytes travel over the public channel).
   const claim = parseClaimFields({ body: res.data?.body });
 
-  // The team hint came from the issue TITLE and is what the hub's concurrency
-  // group was keyed on, before this body could be read - and that per-team
-  // serialization is the only thing guarding max_team_size, since there is no
-  // distributed lock (ARCHITECTURE 5.8). Nothing compared the two, so a title
-  // saying `team:decoy` with a body saying `team_slug: popular-team` serialized
-  // against one team while writing to another: two of those in parallel both
-  // read the target at n-1 members and both appended. The SPA always sends them
-  // in agreement; a hand-written issue need not.
+  // The team hint came from the issue TITLE. It was the hub's concurrency key
+  // until 2026-10-02, when the concurrency group was removed (team size is now
+  // kept by acceptance/reserve.mjs, which does not care what the title says).
+  // The comparison stays: the SPA always sends the two in agreement, so a title
+  // and body that disagree are a hand-made issue, and honouring either one is a
+  // guess about what its author meant.
   if (!teamHintMatches(parsed.team_slug, teamHint)) {
     console.error(
       `[warn] ${brokerRepo}#${issueNumber} declares team "${parsed.team_slug}" in its body but ` +
-        `"${teamHint}" in its title. The title is what the concurrency key was built from, so ` +
-        `honouring the body would bypass per-team serialization - ignoring the payload.`
+        `"${teamHint}" in its title. The page always sends them in agreement, so this issue was ` +
+        `not made by it - ignoring the payload rather than guessing which team was meant.`
     );
     await setOutputs({ ...EMPTY, issue_node_id: deletable });
     return;
@@ -125,11 +159,12 @@ async function main() {
     `[ok] ${brokerRepo}#${issueNumber} -> team_slug="${parsed.team_slug}" team_action="${parsed.team_action}" ` +
       `claim=${claim.claim_payload ? "present" : "absent"} claim_verified=${claim.claim_verified}`
   );
-  await setOutputs({ ...parsed, ...claim, issue_node_id: deletable });
+  await setOutputs({ ...parsed, ...claim, ...attemptOf(res.data), issue_node_id: deletable });
 }
 
 main().catch(async (err) => {
-  // Never take the acceptance run down over a team payload.
-  console.error(`[warn] read-team-payload failed: ${err.message} - ignoring payload`);
-  await setOutputs(EMPTY);
+  // A thrown read is a failed read, not a malformed payload: deciding on empty
+  // outputs would refuse a team join for GitHub's error (see the 404 branch).
+  console.log(`::error::read-team-payload failed: ${err.message}. Nothing was decided; the student can try again.`);
+  process.exit(1);
 });

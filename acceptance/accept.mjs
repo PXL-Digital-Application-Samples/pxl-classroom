@@ -22,6 +22,8 @@ import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.m
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
+import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
+import { lockdownRecordPath } from "../lib/control-layout.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
@@ -828,8 +830,41 @@ async function main() {
     return;
   }
 
+  // 3.8 A NEWER ATTEMPT ALREADY DECIDED. Nothing serialises acceptances any
+  // more (lib/acceptance-reservation.mjs), so GitHub can start this run after a
+  // later attempt by the same student has been decided - in an outage, hours
+  // after. Acting on it would undo what they did since: rejoin a team they
+  // left. Before every gate below, because the claim gate writes an attempt
+  // counter and a superseded run must write nothing at all.
+  const acceptDir = join(dataDir, "acceptances", assignmentId);
+  const acceptFile = join(acceptDir, `${login}.json`);
+  const issueNumber = parseIssueNumber(env("ISSUE_NUMBER", ""));
+  const runId = /^[0-9]{1,20}$/.test(env("GITHUB_RUN_ID", "")) ? env("GITHUB_RUN_ID", "") : null;
+  if (issueNumber && existsSync(acceptFile)) {
+    let stored = null;
+    try {
+      stored = JSON.parse(await readFile(acceptFile, "utf-8"));
+    } catch {
+      // Unreadable: not evidence that anything newer was decided.
+    }
+    const newer = supersededBy(stored, issueNumber);
+    if (newer) {
+      log(SUPERSEDED, { ok: true, note: `attempt #${issueNumber} is older than #${newer}, which was already decided - nothing to do` });
+      await setOutput("assignment_id", assignmentId);
+      await setOutput("github_login", login);
+      await setOutput("github_id", githubId);
+      await setOutput("outcome", "superseded");
+      await summary(`### Acceptance: \`superseded\`\n\n${login}'s attempt #${issueNumber} was overtaken by #${newer}.`);
+      process.exit(0);
+    }
+  }
+
   // 4. Check open window (guardrail)
   const now = new Date();
+  // When the student made the request: GitHub's own `created_at` on their
+  // issue, read by the hub (scripts/read-team-payload.mjs), never the dispatch.
+  // Absent on a Retry, which has no issue and bypasses the window anyway.
+  const actedAt = parseActedAt(env("ACTED_AT", ""));
   const bypassWindow = env("BYPASS_WINDOW") === "true";
   if (bypassWindow) {
     log("window", { ok: true, note: `bypassing open window checks (BYPASS_WINDOW=true)` });
@@ -841,8 +876,25 @@ async function main() {
     }
     if (assignment.deadline_at) {
       const deadline = new Date(assignment.deadline_at);
-      if (now > deadline)
-        await reject("rejected:past-deadline", `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}`);
+      if (now > deadline) {
+        // THE STUDENT WAS ON TIME; GITHUB WAS NOT. A request made before the
+        // deadline whose run started after it is decided as of the request,
+        // for an hour and only until the deadline's lock has run - after that
+        // a new repository would be one nothing locks or archives.
+        const lockRan = existsSync(join(dataDir, lockdownRecordPath(assignmentId)));
+        if (actedInTime({ deadline, now, actedAt, lockRan })) {
+          log("window", {
+            ok: true,
+            note: `requested at ${actedAt.toISOString()}, before the deadline ${assignment.deadline_at}; GitHub started this run at ${now.toISOString()}`,
+          });
+        } else {
+          await reject(
+            "rejected:past-deadline",
+            `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}` +
+              (actedAt ? `, requested at ${actedAt.toISOString()}` : ""),
+          );
+        }
+      }
     }
     log("window", { ok: true, note: `within open window` });
   }
@@ -939,8 +991,8 @@ async function main() {
   // `max_team_size` for the next student through the door, listed on the
   // dashboard, and seeded forward into the next assignment. Nothing here
   // touches a repository or a manifest, so nothing has to be undone.
-  const acceptDir = join(dataDir, "acceptances", assignmentId);
-  const acceptFile = join(acceptDir, `${login}.json`);
+  // (`acceptDir` and `acceptFile` are read at 3.8.)
+  //
   // A student who already holds an acceptance is not taking a second seat -
   // they are returning, or switching team. This was spelled `!previousTeamSlug`
   // when the check sat after the team resolution; the two admit exactly the
@@ -952,20 +1004,21 @@ async function main() {
   // "fixing" it.
   //
   // The count below is read, compared, and then written to - a textbook
-  // check-then-act. The acceptance concurrency group is
-  // `accept-<org>-<id>-<team_hint || github_login>`, so acceptances by
-  // DIFFERENT students are not serialized against each other: two students
-  // arriving together both read 49, both see 49 < 50, and both write. The cap
-  // can therefore overshoot by roughly the number of acceptances in flight at
-  // once.
+  // check-then-act. A decision is saved by a push that GitHub refuses when
+  // somebody pushed first, and the run then decides again only when what that
+  // somebody changed was one of ITS inputs (lib/acceptance-reservation.mjs
+  // `decisionInputsChanged`). Other students' acceptance records are
+  // deliberately not inputs, so two students arriving together both read 49,
+  // both see 49 < 50, and both write. The cap can therefore overshoot by
+  // roughly the number of acceptances in flight at once.
   //
-  // Closing it means keying the concurrency group on the assignment instead of
-  // the student, which serializes every acceptance for that assignment. A
+  // Closing it means making every other student's record an input, so that
+  // every acceptance for the assignment re-decides against every other. A
   // 200-student cohort accepting in the first minutes of a lecture would then
-  // run one at a time - roughly 30s each - on a system whose whole design goal
-  // is billing zero minutes when idle (Wave 8). The overshoot is a handful of
-  // repositories; the cure is an hour of queued runners and a room full of
-  // students watching a spinner.
+  // spend its time re-deciding against itself - effectively one at a time,
+  // roughly 30s each - on a system whose whole design goal is billing zero
+  // minutes when idle (Wave 8). The overshoot is a handful of repositories; the
+  // cure is an hour of runners and a room full of students watching a spinner.
   //
   // Decided 2026-08-24: leave it. The cap exists to stop an unbounded link
   // being farmed, and it does that. It is not an exam-seat allocator. Nothing
@@ -1234,6 +1287,19 @@ async function main() {
     const existing = JSON.parse(await readFile(acceptFile, "utf-8"));
     log("idempotent", { ok: true, note: `already accepted at ${existing.accepted_at}` });
 
+    // STAMPED, so this attempt is the decided one. An older attempt that GitHub
+    // starts later is superseded by it (3.8), and the provisioning that follows
+    // writes the repository record only while this run is still the one that
+    // decided. Merged onto the record, never rebuilt.
+    const stamped = {
+      ...existing,
+      ...(issueNumber ? { issue_number: issueNumber } : {}),
+      ...(runId ? { decided_by_run_id: runId } : {}),
+    };
+    if (stamped.issue_number !== existing.issue_number || stamped.decided_by_run_id !== existing.decided_by_run_id) {
+      await writeFile(acceptFile, JSON.stringify(stamped, null, 2) + "\n");
+    }
+
     await setOutput("assignment_id", assignmentId);
     await setOutput("github_login", login);
     await setOutput("github_id", githubId);
@@ -1368,7 +1434,11 @@ async function main() {
   // lecturer pressed Retry, possibly after the deadline. retry-acceptance.yml
   // passes the set-aside copy as PRIOR_ACCEPTANCE_FILE; it is read for this
   // one field and nothing else.
-  let acceptedAt = now.toISOString();
+  //
+  // A FIRST acceptance is dated when the student asked, not when GitHub got
+  // round to it: the two differ by however long the run waited, and in an
+  // outage near a deadline that is the difference between on time and late.
+  let acceptedAt = (actedAt && actedAt <= now ? actedAt : now).toISOString();
   const priorFile = existsSync(acceptFile) ? acceptFile : env("PRIOR_ACCEPTANCE_FILE", "");
   let priorAcceptance = null;
   if (priorFile && existsSync(priorFile)) {
@@ -1393,9 +1463,22 @@ async function main() {
     github_login: login,
     github_id: Number(githubId),
     accepted_at: acceptedAt,
-    star_event_ref: workflowRunUrl || null,
+    // ABSENT, never null: the schema types it a string, and a null made every
+    // later write through `update-json-field --schema acceptance` - the
+    // record step's status update - refuse the document. Every broker sends
+    // the run URL, so only a dispatch without one ever wrote it.
+    ...(workflowRunUrl ? { star_event_ref: workflowRunUrl } : {}),
     status: "accepted",
     ...(isGroup ? { team_slug: teamSlug, team_name: teamName } : {}),
+    // Which attempt and which run decided this (lib/acceptance-reservation.mjs).
+    // A Retry has no issue of its own and keeps the attempt it is redoing, so a
+    // stale run for an even older attempt is still recognised as one.
+    ...(issueNumber
+      ? { issue_number: issueNumber }
+      : Number.isInteger(priorAcceptance?.issue_number)
+        ? { issue_number: priorAcceptance.issue_number }
+        : {}),
+    ...(runId ? { decided_by_run_id: runId } : {}),
     // Written only when true. A `false` on every other record would be a field
     // claiming to have been evaluated on acceptances that predate it, and the
     // question this answers - "did this student start from the template" - has

@@ -62,7 +62,11 @@ until git push; do
     echo "::error::git push failed after $MAX_RETRIES attempts." >&2
     exit 1
   fi
-  SLEEP_TIME=$(awk -v min=2 -v max=6 'BEGIN{srand(); printf "%d", min + int(rand()*(max-min+1))}')
+  # Seeded with this process's id and the attempt, never the clock alone:
+  # `srand()` with no argument seeds from the current SECOND, so writers
+  # refused in the same second all waited the same time and collided again, in
+  # lockstep.
+  SLEEP_TIME=$(awk -v min=2 -v max=6 -v seed="$$" -v n="$RETRY_COUNT" 'BEGIN{srand(seed * 31 + n); printf "%d", min + int(rand()*(max-min+1))}')
   echo "Push failed. Retrying in ${SLEEP_TIME}s (attempt ${RETRY_COUNT}/${MAX_RETRIES})..."
   sleep "$SLEEP_TIME"
   pull_rebase

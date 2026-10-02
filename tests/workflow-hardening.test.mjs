@@ -832,42 +832,26 @@ test("a reusable workflow has a caller, and every workflow can actually fire", (
   );
 });
 
-test("the retry serializes against the same things an ordinary acceptance does", () => {
-  // GitHub serializes only runs whose concurrency group STRING matches, so two
-  // workflows that both provision for a student have to build that string the
-  // same way or they do not wait for each other at all.
+test("the retry and an ordinary acceptance keep a team's size the same way, and neither queues", () => {
+  // Until 2026-10-02 both were serialised by a concurrency group, and they had
+  // to build its STRING identically or a lecturer's Retry and a student's join
+  // did not wait for each other - which they once did not. The group itself was
+  // the defect: GitHub holds one pending run per group and cancels it for the
+  // next, and a run that never starts blocks the group for a day (LESSONS.md).
   //
-  // They did not. acceptance-handler keys on `team_hint || github_login` -
-  // per-TEAM for a group assignment, which is the only thing guarding
-  // max_team_size, since there is no distributed lock (ARCHITECTURE 5.8) and
-  // accept.mjs really does members.push() then writeFile(). retry-acceptance
-  // keyed on github_login alone, so a lecturer's retry and a student's join on
-  // the same team produced different strings, both ran, and both could read
-  // the manifest at n-1 members and append.
-  //
-  // The retry cannot discover the team itself - a concurrency group is
-  // evaluated before any step runs - so the lecturer supplies it and the keys
-  // then coincide. Left empty it behaves exactly as it did.
-  const groupOf = (file) => {
+  // A team's size is now kept by the decision being saved with a push that
+  // fails when another run saved first (acceptance/reserve.mjs). Both
+  // workflows reach it through the one composite action, so they cannot
+  // disagree about it - and neither may put a group back.
+  for (const file of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
     const doc = parse(readFileSync(join(WORKFLOW_DIR, file), "utf8"));
-    return String(doc?.concurrency?.group ?? "");
-  };
-
-  const handler = groupOf("acceptance-handler.yml");
-  const retry = groupOf("retry-acceptance.yml");
-
-  assert.match(handler, /^accept-/, "the acceptance group must still be the accept- family");
-  assert.match(retry, /^accept-/, "the retry must serialize in the same family");
-
-  // Both must fall back to the login, and both must prefer a team key.
-  for (const [name, group] of [["acceptance-handler", handler], ["retry-acceptance", retry]]) {
-    assert.match(group, /github_login/, `${name}: must key on the login`);
-    assert.match(
-      group,
-      /team_hint|team_slug/,
-      `${name}: must prefer a team key, or per-team serialization is lost`,
-    );
-    assert.match(group, /\|\|/, `${name}: the team key must FALL BACK to the login`);
+    assert.equal(doc?.concurrency, undefined, `${file}: a concurrency group is back`);
+    for (const job of Object.values(doc?.jobs ?? {})) {
+      assert.equal(job?.concurrency, undefined, `${file}: a job-level concurrency group is back`);
+    }
+    const steps = Object.values(doc?.jobs ?? {}).flatMap((j) => j?.steps ?? []);
+    assert.ok(steps.some((s) => s?.uses === "./acceptance"), `${file}: no longer decides through ./acceptance`);
+    assert.ok(steps.some((s) => s?.run === "scripts/record-acceptance.sh"), `${file}: no longer records through the shared script`);
   }
 });
 
