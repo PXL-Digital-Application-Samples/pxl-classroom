@@ -7,7 +7,7 @@ What each setting does, and what it changes for your students.
 - **Roster** - every student you teach. There is one roster per organisation, and everything else refers to it.
 - **Class group** - a label on a student, such as `3A`. Use it to filter the roster when you are picking students.
 - **Cohort** - the students one assignment is for, picked from the roster.
-- **Team** - students who share a repository on one assignment. Use **Seed teams from...** to reuse teams on a later assignment.
+- **Team** - students who share a repository on one assignment. Use **Copy teams from...** to reuse teams on a later assignment.
 
 A class group helps you find students on the roster. A team gives students a shared repository. They are not related.
 
@@ -143,7 +143,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 - Set the maximum team size, and the minimum if you want the report to flag teams that are short.
 - **Self-service** lets students form their own teams. **Pre-assigned** means you seed the teams first, and you decide what happens to a student who is in none.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
-- Using the same teams again on a later assignment is a separate step, not automatic. **Seed teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
+- Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 
 ## Autograding
 

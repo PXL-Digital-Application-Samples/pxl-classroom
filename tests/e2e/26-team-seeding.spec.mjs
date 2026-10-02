@@ -61,7 +61,7 @@ async function openSeedModal(page, assignmentId) {
   const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
   await expect(teamsTab).toBeVisible({ timeout: 15000 });
   await teamsTab.click();
-  await page.locator('button', { hasText: 'Seed teams' }).first().click();
+  await page.locator('button', { hasText: 'Copy teams' }).first().click();
   await expect(page.locator('.seed-modal')).toBeVisible();
 }
 
@@ -97,7 +97,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.seed-preview-row').first()).toContainText(`@${STUDENT_1.login}`);
     expect(gitCommits).toHaveLength(0);
 
-    await page.locator('.modal-foot button', { hasText: /Seed 2 team/ }).click();
+    await page.locator('.modal-foot button', { hasText: /Copy 2 team/ }).click();
     await expect(page.locator('.seed-modal')).toBeHidden({ timeout: 10000 });
 
     // One commit, both files, target assignment id rewritten.
@@ -405,7 +405,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await page.goto(`/dashboard/${ORG}/${NEXT}`);
     await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
-    await expect(page.locator('.empty-state')).toContainText('Seed teams from a previous assignment');
+    await expect(page.locator('.empty-state')).toContainText('Copy the teams of an earlier assignment');
   });
 
   test('Admin form: seeding is absent until the first save, and the fallback toggle is pre-assigned only', async ({ page }) => {
@@ -423,7 +423,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     // own impossibility; ARCHITECTURE §5.6.1 removes it from the screen it cannot
     // work on. It returns on the editor for a saved assignment - covered by
     // "Seeding from the assignment editor raises exactly one toast" below.
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toHaveCount(0);
     await expect(page.locator('text=Save this assignment first')).toHaveCount(0);
 
     // The fallback only means anything when the lecturer owns the grouping.
@@ -664,8 +664,8 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await openTeamsTab(page, NEXT);
-    const undo = page.locator('button', { hasText: /Undo seed/ });
-    await expect(undo).toContainText('Undo seed (2)');
+    const undo = page.locator('button', { hasText: /Undo copy/ });
+    await expect(undo).toContainText('Undo copy (2)');
     await undo.click();
     await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
 
@@ -700,8 +700,8 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await openTeamsTab(page, NEXT);
-    await expect(page.locator('button', { hasText: /Undo seed/ })).toContainText('Undo seed (1)');
-    await page.locator('button', { hasText: /Undo seed/ }).click();
+    await expect(page.locator('button', { hasText: /Undo copy/ })).toContainText('Undo copy (1)');
+    await page.locator('button', { hasText: /Undo copy/ }).click();
     await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
     expect(gitCommits[0].files.map((f) => f.path)).toEqual([`teams/${NEXT}/beta.json`]);
   });
@@ -725,7 +725,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await openTeamsTab(page, NEXT);
-    await expect(page.locator('button', { hasText: /Undo seed/ })).toHaveCount(0);
+    await expect(page.locator('button', { hasText: /Undo copy/ })).toHaveCount(0);
   });
 
   test('Undo is absent when the teams were formed by students', async ({ page }) => {
@@ -741,7 +741,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await openTeamsTab(page, NEXT);
-    await expect(page.locator('button', { hasText: /Undo seed/ })).toHaveCount(0);
+    await expect(page.locator('button', { hasText: /Undo copy/ })).toHaveCount(0);
     await expect(page.locator('.seeded-note', { hasText: 'carried over' })).toHaveCount(0);
   });
 
@@ -758,7 +758,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     });
 
     await openTeamsTab(page, NEXT, { acceptConfirm: false });
-    await page.locator('button', { hasText: /Undo seed/ }).click();
+    await page.locator('button', { hasText: /Undo copy/ }).click();
     await page.waitForTimeout(600);
     expect(gitCommits).toHaveLength(0);
     await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
@@ -785,9 +785,36 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await openTeamsTab(page, NEXT);
     const note = page.locator('.seeded-note', { hasText: 'no team' });
-    await expect(note).toContainText('2 students on the roster have no team');
+    await expect(note).toContainText('2 students of this assignment have no team');
     await expect(note).toContainText(`@${STUDENT_2.login}`);
     await expect(note).toContainText('@carol');
+  });
+
+  // The roster is the organization's: other sections and previous years are on
+  // it. A lecturer used to be offered all of them, and could place a student in
+  // a team who was then refused at acceptance (lib/team-candidates.mjs).
+  test('Only this assignment\'s students are counted and offered, not the whole roster', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [NEXT]: groupAssignment(NEXT, { cohort: ['num:1', 'num:2'] }) },
+      roster: [
+        { student_number: '1', full_name: 'One', github_login: STUDENT_1.login },
+        { student_number: '2', full_name: 'Two', github_login: STUDENT_2.login },
+        { student_number: '3', full_name: 'Other Section', github_login: 'carol' },
+      ],
+      reports: {
+        [NEXT]: emptyReport(NEXT, {
+          teams: [{ team_slug: 'alpha', team_name: 'Alpha Team', members: [STUDENT_1.login], submission_status: 'no-submission' }],
+        }),
+      },
+    });
+
+    await openTeamsTab(page, NEXT);
+    const note = page.locator('.seeded-note', { hasText: 'no team' });
+    await expect(note).toContainText('1 student of this assignment has no team');
+    await expect(note).toContainText(`@${STUDENT_2.login}`);
+    await expect(note).not.toContainText('@carol');
   });
 
   test('No unplaced line once every roster student has a team', async ({ page }) => {
@@ -820,7 +847,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await openTeamsTab(page, NEXT);
     const note = page.locator('.seeded-note', { hasText: 'no team' });
-    await expect(note).toContainText('20 students on the roster have no team');
+    await expect(note).toContainText('20 students of this assignment have no team');
     await expect(note).toContainText('and 12 more');
   });
 
@@ -1062,9 +1089,9 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await openSeedModal(page, NEXT);
     await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
-    await expect(page.locator('.seed-footnote', { hasText: 'Nothing left to seed' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.seed-footnote', { hasText: 'Nothing left to copy' })).toBeVisible({ timeout: 10000 });
     const apply = page.locator('.modal-foot .btn-primary');
-    await expect(apply).toContainText('Nothing to seed');
+    await expect(apply).toContainText('Nothing to copy');
     await expect(apply).toBeDisabled();
   });
 
@@ -1080,7 +1107,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     // A published assignment opens on its cohort, with the fieldsets - and the
     // seed control among them - behind the settings disclosure (ARCHITECTURE §10.1.1).
     await expandSettings(page);
-    const seedBtn = page.locator('button', { hasText: 'Seed teams from…' });
+    const seedBtn = page.locator('button', { hasText: 'Copy teams from…' });
     await expect(seedBtn).toBeEnabled({ timeout: 15000 });
     await seedBtn.click();
 

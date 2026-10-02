@@ -105,7 +105,7 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 Students should not have to re-form the same teams for every group assignment. Seeding copies an existing grouping into the new assignment; each student then confirms their group with one click instead of picking a team.
 
 1. Create and **save** the new group assignment first - teams are stored under its ID, and the seed reads its team size and repository pattern, so the button stays disabled while the form has unsaved edits.
-2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Seed teams**.
+2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Copy teams**.
 3. Pick a source:
    - **A previous group assignment** - the normal choice. It carries the *final* membership, including switches and dropouts, so always seed from the most recent grouping rather than from the first one.
    - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster page's CSV import (§6.4) first.
@@ -120,7 +120,7 @@ Students should not have to re-form the same teams for every group assignment. S
 
 Afterwards the Teams tab shows a "carried over from …" line, a standing "N students on the roster have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
 
-**Seeded the wrong source?** The Teams tab's **Undo seed (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+**Seeded the wrong source?** The Teams tab's **Undo copy (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
 
 Headless equivalent:
 

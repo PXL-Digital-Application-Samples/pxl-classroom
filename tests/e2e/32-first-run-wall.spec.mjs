@@ -8,7 +8,7 @@
 //         and buries the checkbox that is the actual reason the list is empty
 //   §5.2  roster_mode: enforced makes students/roster.yml load-bearing, and the
 //         form named a tab it did not link to and a count it did not show
-//   §5.3  "Seed teams from…", permanently disabled on the create form,
+//   §5.3  "Copy teams from…", permanently disabled on the create form,
 //         explaining its own impossibility
 //   §5.4  raw AJV: /autograde/tests/0/id must match pattern "^[a-z0-9]..."
 //
@@ -245,7 +245,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
 // ========================================================== §5.3 seed teams
 
 test.describe('32 - §5.3 A control that cannot work is not on the screen', () => {
-  test('Seed teams is absent from the create form and present on a saved one', async ({ page }) => {
+  test('Copy teams is absent from the create form and present on a saved one', async ({ page }) => {
     const saved = {
       schema_version: 1,
       id: 'group-lab',
@@ -263,15 +263,15 @@ test.describe('32 - §5.3 A control that cannot work is not on the screen', () =
     await openNewAssignmentForm(page);
     await page.locator('input[type="radio"][value="group"]').check();
     await expect(page.locator('text=Starting teams')).toHaveCount(0);
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toHaveCount(0);
 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { 'group-lab': saved } });
     await page.goto(`/dashboard/${ORG}/admin?edit=group-lab`);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Group Lab', { timeout: 10000 });
 
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toBeVisible();
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toBeEnabled();
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toBeVisible();
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toBeEnabled();
   });
 });
 

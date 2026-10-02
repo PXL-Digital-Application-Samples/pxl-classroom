@@ -36,7 +36,7 @@ const templateEmpty = (page) => page.locator('.template-empty');
 // outranks, so the failure rendered in help-text grey (DESIGN.md §7).
 const templateError = (page) => page.locator('.field-error-msg', { hasText: 'Failed to load templates' });
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
-const seedBtn = (page) => page.locator('button', { hasText: 'Seed teams from…' });
+const seedBtn = (page) => page.locator('button', { hasText: 'Copy teams from…' });
 const summary = (page) => page.locator('.validation-errors');
 
 const templateRepo = (name, isTemplate = true) => ({

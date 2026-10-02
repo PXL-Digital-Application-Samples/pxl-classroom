@@ -258,7 +258,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
     await conforms(page, 'Manage Team modal');
     await page.locator('.modal-foot button', { hasText: 'Close' }).click();
 
-    await page.locator('button', { hasText: 'Seed teams' }).first().click();
+    await page.locator('button', { hasText: 'Copy teams' }).first().click();
     await expect(page.locator('.seed-modal')).toBeVisible();
     await conforms(page, 'Seed Teams modal');
   });

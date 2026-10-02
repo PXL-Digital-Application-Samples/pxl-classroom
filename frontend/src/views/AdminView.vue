@@ -1017,7 +1017,7 @@
                    that said Group, and it collided with the class groups on the
                    roster - two unrelated concepts, one word. Everything
                    downstream of this radio already said team: Formation Mode,
-                   maximum and minimum team size, the Teams tab, Seed teams,
+                   maximum and minimum team size, the Teams tab, Copy teams,
                    team_slug and team_name. Canvas draws the same distinction and
                    names them the same way round: sections segment the class,
                    groups collaborate on one submission. -->
@@ -1105,7 +1105,7 @@
                     @click="showSeedModal = true"
                   >
                     <Icon name="users" :size="13" />
-                    <span>Seed teams from…</span>
+                    <span>Copy teams from…</span>
                   </button>
                   <span v-if="hasUnsavedEdits()" class="text-muted text-xs">
                     Save your changes first — seeding reads this assignment's team size and

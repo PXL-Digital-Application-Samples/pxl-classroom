@@ -54,7 +54,7 @@
       <div class="toolbar-actions flex items-center gap-sm">
         <button class="btn btn-sm btn-secondary btn-with-icon" @click="showSeedModal = true" title="Carry an existing grouping into this assignment">
           <Icon name="users" :size="14" />
-          <span>Seed teams</span>
+          <span>Copy teams</span>
         </button>
         <button class="btn btn-sm btn-secondary btn-with-icon" @click="openCreateTeamModal">
           <Icon name="plus" :size="14" />
@@ -70,7 +70,7 @@
           title="Delete the carried-over teams nobody has accepted into yet"
         >
           <Icon name="x-circle" :size="14" />
-          <span>Undo seed ({{ removableSeededTeams.length }})</span>
+          <span>Undo copy ({{ removableSeededTeams.length }})</span>
         </button>
 
         <div class="toolbar-stats text-secondary text-sm">
@@ -87,14 +87,14 @@
     <p v-if="unassignedStudents.length" class="seeded-note">
       <Icon name="alert-circle" :size="13" />
       <span>
-        {{ unassignedStudents.length }} student{{ unassignedStudents.length === 1 ? '' : 's' }} on the
-        roster {{ unassignedStudents.length === 1 ? 'has' : 'have' }} no team:
+        {{ unassignedStudents.length }} student{{ unassignedStudents.length === 1 ? '' : 's' }} of this
+        assignment {{ unassignedStudents.length === 1 ? 'has' : 'have' }} no team:
         {{ unassignedPreview }}
       </span>
     </p>
     <p v-if="assignment?.state === 'draft' && teams.length" class="seeded-note">
       <Icon name="eye-off" :size="13" />
-      <span>Draft — students cannot see these teams until the assignment is published.</span>
+      <span>Draft: students cannot see these teams until the assignment is published.</span>
     </p>
 
     <!-- Empty state -->
@@ -102,12 +102,12 @@
       <Icon name="users" :size="40" class="status-icon" />
       <template v-if="teams.length === 0">
         <p class="text-secondary">
-          No teams yet. Students form their own when they accept — or start from the groups they
-          already worked in.
+          No teams yet. Copy the teams of an earlier assignment, so students keep the group they
+          already worked in, or let students form their own when they accept.
         </p>
         <div class="flex gap-sm justify-center" style="margin-top: 8px;">
           <button class="btn btn-secondary btn-sm" @click="showSeedModal = true">
-            Seed teams from a previous assignment
+            Copy the teams of an earlier assignment
           </button>
           <button class="btn btn-secondary btn-sm" @click="openCreateTeamModal">
             Create a team
@@ -325,7 +325,7 @@
                 <span>@{{ s.github_login }} ({{ s.full_name || s.student_number }})</span>
               </label>
               <div v-if="unassignedStudents.length === 0" class="text-muted text-xs">
-                No unassigned students available in roster.
+                Every student of this assignment is already in a team.
               </div>
             </div>
             <span class="form-hint text-xs text-secondary">
@@ -429,7 +429,7 @@
       </div>
     </div>
 
-    <!-- Modal: Seed teams from an existing grouping -->
+    <!-- Modal: Copy teams from an existing grouping -->
     <SeedTeamsModal
       v-if="showSeedModal"
       :org="org"
@@ -472,6 +472,7 @@ import { config } from '../lib/config.js'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { toast } from '../lib/toast.js'
 import { planUnseed } from '../../../lib/seed-teams.mjs'
+import { teamCandidates } from '../../../lib/team-candidates.mjs'
 import { archiveBranchUrl } from '../lib/archive-repo.js'
 
 const props = defineProps({
@@ -642,20 +643,16 @@ const computedNewSlug = computed(() => {
     .replace(/^-+|-+$/g, '')
 })
 
-const assignedLogins = computed(() => {
-  const set = new Set()
-  for (const t of props.teams) {
-    for (const m of t.members || []) {
-      set.add(m.toLowerCase())
-    }
-  }
-  return set
-})
-
+// THIS ASSIGNMENT'S students, never the whole roster: the roster is the
+// organization's, and offering all of it let a lecturer place someone in a team
+// who was then refused at acceptance (lib/team-candidates.mjs).
 const unassignedStudents = computed(() =>
-  (props.roster || []).filter(
-    (s) => s.github_login && !assignedLogins.value.has(s.github_login.toLowerCase())
-  )
+  teamCandidates({
+    assignment: props.assignment,
+    roster: props.roster,
+    accepted: props.students,
+    teams: props.teams,
+  }).unassigned
 )
 
 const filteredTeams = computed(() => {
@@ -1051,7 +1048,7 @@ async function saveTeamMembers() {
     // change therefore wrote a manifest that FAILS its own schema (created_by
     // is required) and silently dropped `repo_id` and `seeded_from`. Losing
     // seeded_from is the one a lecturer would feel: planUnseed and the
-    // "Undo seed" button both key on it, so editing one member of a seeded team
+    // "Undo copy" button both key on it, so editing one member of a seeded team
     // quietly removed it from the bulk undo.
     //
     // Merge, never replace - the same rule promote-roster follows. Reading

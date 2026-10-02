@@ -9,7 +9,7 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
 ## To build (decided)
 
 - **Team pickers offer this assignment's students, not the whole roster.**
-  Decided 2026-10-02. The Teams tab's *Add member* dropdown, *Create team*
+  Decided 2026-10-02; built 2026-10-02 (`lib/team-candidates.mjs`). The Teams tab's *Add member* dropdown, *Create team*
   checklist and its "N students have no team" line read every roster student
   with a GitHub username in the organization - other sections and previous
   years included - so a lecturer can place a student in a team who is then
@@ -17,7 +17,8 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   admits (its selected students, or the whole roster when none are selected),
   through the same judge acceptance uses (`lib/cohort.mjs`).
 - **Copying the teams of an earlier assignment is found on the Teams tab.**
-  Decided 2026-10-02. It exists (*Seed teams*, `lib/seed-teams.mjs`) but a
+  Decided 2026-10-02; built 2026-10-02 - and "Seed teams" is called *Copy
+  teams* everywhere a lecturer reads it. It exists (*Seed teams*, `lib/seed-teams.mjs`) but a
   lecturer looking for it did not find it. An empty group assignment's Teams
   tab leads with *Copy the teams of an earlier assignment*, beside "or let
   students form their own when they accept". Not in the assignment form.

@@ -6,7 +6,7 @@
              deliberate step rather than something that happens. That is the
              sentence the topic opens with, and this modal is where somebody
              first wonders about it. -->
-        <h3 id="seed-modal-title">Seed teams — {{ assignment.id }} <HelpButton topic="group-assignments" label="how teams work" /></h3>
+        <h3 id="seed-modal-title">Copy teams into {{ assignment.id }} <HelpButton topic="group-assignments" label="how teams work" /></h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -37,8 +37,8 @@
           <small class="form-hint">
             <template v-if="loadingSources">Looking for group assignments in {{ org }}…</template>
             <template v-else-if="sourceAssignments.length === 0">
-              No other group assignment exists in this organization yet — the roster columns are the
-              only source. Fill them from the Roster page’s CSV import.
+              No other group assignment exists in this organization yet, so the roster columns are
+              the only source. Fill them from the Roster page’s CSV import.
             </template>
             <template v-else>
               The most recent grouping is the safest source: it reflects every switch and dropout.
@@ -110,7 +110,7 @@
 
             <!-- Everything in the source is already covered here -->
             <p v-if="plan.teams.length === 0" class="seed-footnote">
-              Nothing left to seed — every team from this source already exists in
+              Nothing left to copy: every team from this source already exists in
               <code>{{ assignment.id }}</code>, or its members have joined other teams here.
             </p>
 
@@ -262,10 +262,10 @@ const canApply = computed(
 )
 
 const applyLabel = computed(() => {
-  if (applying.value) return 'Seeding…'
-  if (plan.value?.ok && plan.value.teams.length > 0) return `Seed ${plan.value.teams.length} team(s)`
-  if (plan.value?.ok) return 'Nothing to seed'
-  return 'Seed teams'
+  if (applying.value) return 'Copying…'
+  if (plan.value?.ok && plan.value.teams.length > 0) return `Copy ${plan.value.teams.length} team(s)`
+  if (plan.value?.ok) return 'Nothing to copy'
+  return 'Copy teams'
 })
 
 // "3 skipped" on its own is a number nobody can act on.
