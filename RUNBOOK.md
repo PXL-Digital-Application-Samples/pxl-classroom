@@ -155,6 +155,7 @@ If the workflow dispatch fails (typically 403 - you're not a hub collaborator, s
 This dispatches `publish-assignment.yml`, which:
 
 - Mints the invitation (a P-256 keypair and a nonce) and writes it to the assignment in the control repo. Republishing reuses both, so links already handed out keep working.
+- **Refuses a finished assignment** - one whose deadline has passed and whose submissions were locked. Publishing turns acceptance back on and puts the broker's key back on a public repository, which is what the nightly switched off when it finished the assignment. To reopen one, move its deadline into the future first, then publish.
 - Creates `<org>/broker-<id>` (public).
 - Pushes the broker's `acceptance-trigger.yml` workflow.
 - Sets five variables on the broker: `ASSIGNMENT_ID`, `CONTROL_ORG`, `INVITE_PUBKEY`, `INVITE_NONCE`, `INVITE_ENABLED`.

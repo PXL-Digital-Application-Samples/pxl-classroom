@@ -150,6 +150,18 @@ jobs:
             exit 1
           fi
 
+      # A FINISHED ASSIGNMENT IS NOT PUBLISHED AGAIN. Publishing turns acceptance
+      # on and puts the broker App's key back on the public broker - exactly
+      # what the nightly's finalize turned off (scripts/close-acceptance.mjs).
+      # Before anything below writes, so the revert step has nothing to undo.
+      # Moving the deadline into the future is how a lecturer reopens one
+      # (lib/finished-assignment.mjs).
+      - name: Refuse to reopen a finished assignment
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/check-not-finished.mjs
+
       # WHAT THE LECTURER SHOULD KNOW BEFORE STUDENTS CAN ACCEPT.
       #
       # Asked here because this is the first surface holding the credential

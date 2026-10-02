@@ -1178,6 +1178,8 @@ So the nightly closes it in the pass that finalizes the deadline (`scripts/close
 
 **The general lesson is the shape, not the variable.** Every `publish` in this system has a matching state it turns *on*; ask what turns it off, and when. This one had an answer for eleven months and it was "nobody".
 
+**And then ask what turns it back on.** On 2026-10-02 every live broker needed a new acceptance template, which reaches a broker only through a re-publish. Of the fourteen assignments still marked `published`, two (`labo-api`, `finalize-drill`) were finished: deadline passed, locked, `INVITE_ENABLED` false and the broker key deleted by the finalize. Re-publishing sets `INVITE_ENABLED` true and writes the key back, with no warning - it would have reopened both, and the plan to do so was described to the user as having no effect on anyone before anybody read the workflow. Publish now refuses a finished assignment (deadline passed and the lock record present, `lib/finished-assignment.mjs`), before any step writes; moving the deadline is how a lecturer reopens one. A save never dispatches publish for an assignment whose broker exists, so the refusal cannot block an ordinary edit.
+
 **So the question was asked of the rest, and the answer was worse.** Publishing switches on five things: two hub workflows, the broker's variables, the broker's secrets, and the broker repository itself.
 
 | switched on by publish | switched off by |
