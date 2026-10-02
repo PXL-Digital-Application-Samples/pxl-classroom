@@ -13,11 +13,11 @@
 import { readFile, writeFile, mkdir, readdir, rm } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, teamManifestNamesRepo } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -1367,13 +1367,27 @@ async function main() {
     try {
       const teamPath = join(dataDir, "teams", assignmentId, `${teamSlug}.json`);
       if (existsSync(teamPath)) {
+        const manifest = JSON.parse(await readFile(teamPath, "utf-8"));
         // `owner/name` on disk against a bare `targetRepo`: compared with `===`
         // this was never true, and every second member of a team was refused.
-        ownGroupRepo = teamManifestNamesRepo(
-          JSON.parse(await readFile(teamPath, "utf-8"))?.repo_name,
-          org,
-          targetRepo,
-        );
+        ownGroupRepo =
+          teamManifestNamesRepo(manifest?.repo_name, org, targetRepo) ||
+          // A teammate already admitted into this team: their run created (or
+          // was allowed to reuse) the repository at this name and has not
+          // written it onto the manifest yet. Asking GitHub here refused the
+          // second of two students creating a team at the same moment.
+          teammateAlreadyAdmitted({
+            members: manifest?.members,
+            login,
+            teamSlug,
+            acceptanceOf: (member) => {
+              try {
+                return JSON.parse(readFileSync(join(acceptDir, `${member}.json`), "utf-8"));
+              } catch {
+                return null;
+              }
+            },
+          });
       }
     } catch {
       // Unreadable manifest: fall through and ask GitHub, which is the

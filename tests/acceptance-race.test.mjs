@@ -16,11 +16,29 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { flaky, hubRun, lostAnswer, remoteDir, remoteJson, remoteWith, checkout } from "./fixtures/control-remote.mjs";
+import { flaky, hubRun as runHub, lostAnswer, remoteDir, remoteJson, remoteWith, checkout } from "./fixtures/control-remote.mjs";
 import { startRepoProbe } from "./fixtures/repo-probe.mjs";
 
 const probe = await startRepoProbe();
 Object.assign(process.env, probe.env);
+
+// GitHub, as far as accept.mjs can ask it: a repository exists once a run's
+// provisioning stand-in has created it, and before its record names it - the
+// window that hid a defect from the first version of these tests.
+let created = {};
+const hubRun = (args) =>
+  runHub({
+    ...args,
+    onProvisioned: (repo) => {
+      created = { ...created, [repo]: { rulesets: [] } };
+      probe.setRepos(created);
+    },
+  });
+// Every test starts with no repositories on "GitHub".
+const fresh = () => {
+  created = {};
+  probe.setRepos({});
+};
 
 const ORG = "TestOrg";
 const ID = "lab";
@@ -96,8 +114,12 @@ function assertConsistent(remote, { group = true } = {}) {
   return { teams, acceptances, repositories };
 }
 
-const groupRemote = (teams) =>
-  remoteWith({
+function groupRemote(teams) {
+  // A seeded team has its repository already, and the manifest names it.
+  fresh();
+  for (const slug of Object.keys(teams)) created[`grp-${slug}`] = { rulesets: [] };
+  probe.setRepos(created);
+  return remoteWith({
     "students/roster.yml": ROSTER,
     [`assignments/${ID}.yml`]: GROUP_YAML,
     ...Object.fromEntries(Object.entries(teams).map(([slug, members]) => [`teams/${ID}/${slug}.json`, team(slug, members)])),
@@ -105,6 +127,43 @@ const groupRemote = (teams) =>
       Object.entries(teams).flatMap(([slug, members]) => members.map((m) => [`acceptances/${ID}/${m}.json`, seedAcceptance(m, slug)])),
     ),
   });
+}
+
+test("two students create one new team at the same moment: both are in it", { timeout: 300_000 }, async () => {
+  // Measured live on pxl-classroom-testbed, 2026-10-02: the second run decided
+  // again after the first saved, met the repository the first had just
+  // created, and - with no record naming it yet - refused it as a stranger's.
+  for (let round = 0; round < 3; round++) {
+    const remote = groupRemote({});
+    const results = await Promise.all(
+      ["student1", "student2"].map((login, i) =>
+        hubRun({ remote, org: ORG, assignmentId: ID, login, githubId: idOf(login), issue: 900 + i, team: "alpha", action: "create" }),
+      ),
+    );
+    assert.deepEqual(
+      results.map((r) => r.outcome),
+      ["accepted", "accepted"],
+      results.map((r) => r.log).join("\n---\n"),
+    );
+    const { teams } = assertConsistent(remote);
+    assert.deepEqual([...teams.alpha.members].sort(), ["student1", "student2"]);
+  }
+});
+
+test("a seeded team's first joiner still refuses a stranger's repository at its name", { timeout: 120_000 }, async () => {
+  // The case the refusal exists for, which the teammate rule must not open:
+  // a previous year's `grp-legacy`, and a team seeded with members nobody has
+  // accepted as yet.
+  const remote = remoteWith({
+    "students/roster.yml": ROSTER,
+    [`assignments/${ID}.yml`]: GROUP_YAML,
+    [`teams/${ID}/legacy.json`]: { schema_version: 1, assignment_id: ID, team_slug: "legacy", team_name: "legacy", members: ["student5", "student6"], max_members: MAX },
+  });
+  fresh();
+  probe.setRepos({ "grp-legacy": { rulesets: [] } });
+  const r = await hubRun({ remote, org: ORG, assignmentId: ID, login: "student5", githubId: idOf("student5"), issue: 950, team: "legacy" });
+  assert.equal(r.outcome, "rejected:repo-exists", r.log);
+});
 
 test("eight students join one team at the same moment: exactly the free seats are taken", { timeout: 300_000 }, async () => {
   const remote = groupRemote({ fullhouse: ["seed"] });
@@ -190,6 +249,7 @@ test("a push that lands with its answer lost is recognised, not decided twice", 
 });
 
 test("an individual burst: nobody decides again because somebody else accepted", { timeout: 300_000 }, async () => {
+  fresh();
   const remote = remoteWith({ "students/roster.yml": ROSTER, [`assignments/${ID}.yml`]: INDIVIDUAL_YAML });
   const results = await Promise.all(
     STUDENTS.slice(0, 10).map((login, i) => hubRun({ remote, org: ORG, assignmentId: ID, login, githubId: idOf(login), issue: 700 + i })),
