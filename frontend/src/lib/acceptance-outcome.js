@@ -82,6 +82,16 @@ export const REJECTION_MESSAGE =
   'Your acceptance was turned away. Your lecturer can see the reason and can tell you what to do next.'
 
 /**
+ * The same refusal, still said after **Back**. Back used to forget it: the
+ * student landed on the controls as if nothing had happened, and they offered
+ * the very action that had just been refused (testbed, 2026-10-03: refused,
+ * Back, offered a one-click join into the team the refused attempt had named,
+ * refused again). Shown until the next attempt is sent, on both pages.
+ */
+export const REFUSED_EARLIER_MESSAGE =
+  'Your last attempt was turned away. Your lecturer can see the reason and can tell you what to do next.'
+
+/**
  * What the student can read out to their lecturer: WHICH attempt, never the
  * reason (the page does not have it and must not guess). Every part is
  * already public on the student's own acceptance issue.
