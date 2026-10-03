@@ -156,6 +156,10 @@ editor's card, reloaded on every click and still carried the old Admin layout.
   rather than saving them silently with it.
 - Fixed as bugs: signing out cleared the sign-in before asking about unsaved
   edits; Regenerate link made an untouched form read as edited.
+- **A one-time "New look" card for lecturers** above the Assignments list:
+  five lines on where things moved, *Got it* to dismiss. Remembered per
+  browser on the live app; on beta per session, so it shows on every visit.
+  Not a dialog, no link to documentation, never shown to a student.
 
 ## Open
 

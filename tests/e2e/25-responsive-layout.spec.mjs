@@ -327,7 +327,9 @@ test.describe('25 - Responsive layout', () => {
     const gutterAt = async (width) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/dashboard/${ORG}`);
-      await page.waitForTimeout(600);
+      // For the element, not a fixed pause: 600ms was not always enough under
+      // a full parallel run, and an absent element read as NaN.
+      await page.locator('main.container').first().waitFor({ timeout: 15000 });
       return page.evaluate(() => {
         const main = document.querySelector('main.container');
         return main ? parseFloat(getComputedStyle(main).paddingLeft) : NaN;

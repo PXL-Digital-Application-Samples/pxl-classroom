@@ -41,6 +41,12 @@
         </div>
       </div>
 
+      <!-- "New look", once. Staff only, and only once the page has established
+           it: a student whose installation reaches this org must never be told
+           about a lecturer's screens. Above every state of the page, so a
+           lecturer in a course with no assignments yet is told too. -->
+      <WhatsNewCard v-if="user && staffVerdict === true" />
+
       <!-- Not authenticated -->
       <AuthCard v-if="!user" title="Sign in to access the dashboard" @authenticated="onAuthenticated">
         Sign in with a GitHub account that owns an organization with PXL Classroom installed.
@@ -487,6 +493,7 @@ import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
+import WhatsNewCard from '../components/WhatsNewCard.vue'
 import { config } from '../lib/config.js'
 import { assignmentStateLabel } from '../lib/status-labels.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
