@@ -14,6 +14,7 @@
 
 import { gh, ghAll } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
+import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 
 const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts";
 const DEDUP_MARKER = "<!-- pxl-watchdog-dedup:";
@@ -30,6 +31,35 @@ const notifyLogins = rawLogins
   .map((s) => s.trim().replace(/^@/, ""))
   .filter(Boolean);
 
+/**
+ * Whether a run belongs to the pipeline at all.
+ *
+ * The registry branch holds one YAML file and runs nothing of ours, but it is
+ * protected, and GitHub's code scanning analyses every protected branch on
+ * push. So each new org registration fails there once - "no source code seen
+ * during build" - which happened 8 times between 2026-09-17 and 2026-10-03,
+ * and became an email the day this watchdog started reporting every failure.
+ * Not a pipeline failure, so not an alert, a stuck run or a cancel.
+ */
+export function watchedRun(run) {
+  return run?.head_branch !== REGISTRY_BRANCH;
+}
+
+/**
+ * How long a finished run RAN, in words - or null when GitHub did not say.
+ *
+ * The alert said "failed after 46 minutes" over a run that took 31 seconds:
+ * the number was how long ago it failed, taken when the watchdog happened to
+ * look. A message no branch computed is a guess (CLAUDE.md).
+ */
+export function ranFor(run) {
+  const start = Date.parse(run?.run_started_at || run?.created_at);
+  const end = Date.parse(run?.updated_at);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  const seconds = Math.round((end - start) / 1000);
+  return seconds < 120 ? `${seconds} seconds` : `${Math.round(seconds / 60)} minutes`;
+}
+
 export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, notifyLogins }) {
   if (alertLevel === "off") {
     console.log("Pipeline alerts are disabled (alertLevel=off). Exiting.");
@@ -45,8 +75,11 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     gh("GET", `/repos/${owner}/${repo}/actions/runs?status=completed&per_page=20`, null, ghOpts),
   ]);
 
+  /** One page of runs, without the ones that are not the pipeline's (watchedRun). */
+  const runsOf = (res) => (Array.isArray(res.data?.workflow_runs) ? res.data.workflow_runs.filter(watchedRun) : []);
+
   const stuckRuns = [];
-  const waitingRuns = Array.isArray(waitingRes.data?.workflow_runs) ? waitingRes.data.workflow_runs : [];
+  const waitingRuns = runsOf(waitingRes);
   for (const r of waitingRuns) {
     const ageMs = now - new Date(r.created_at).getTime();
     if (ageMs > 15 * 60 * 1000) {
@@ -59,7 +92,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     }
   }
 
-  const runningRuns = Array.isArray(inProgressRes.data?.workflow_runs) ? inProgressRes.data.workflow_runs : [];
+  const runningRuns = runsOf(inProgressRes);
   for (const r of runningRuns) {
     const ageMs = now - new Date(r.created_at).getTime();
     if (ageMs > 45 * 60 * 1000) {
@@ -73,7 +106,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   }
 
   const failedRuns = [];
-  const completedRuns = Array.isArray(completedRes.data?.workflow_runs) ? completedRes.data.workflow_runs : [];
+  const completedRuns = runsOf(completedRes);
   for (const r of completedRuns) {
     if (r.conclusion === "failure") {
       const ageMs = now - new Date(r.updated_at || r.created_at).getTime();
@@ -196,10 +229,11 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
       continue;
     }
 
+    const ran = ranFor(r);
     const commentBody =
       `${DEDUP_MARKER}${dedupKey}-->\n` +
       `### [ERROR] Pipeline Run Failed: ${r.name || "Workflow"} (#${r.id})\n\n` +
-      `${mentions ? `${mentions} - ` : ""}Workflow run **#${r.id}** failed after ${r.durationMin} minutes.\n\n` +
+      `${mentions ? `${mentions} - ` : ""}Workflow run **#${r.id}** failed${ran ? ` after running for ${ran}` : ""}.\n\n` +
       `- **Workflow:** [${r.name}](${r.html_url})\n` +
       `- **Event:** \`${r.event}\`\n` +
       `- **Conclusion:** \`${r.conclusion}\`\n` +
