@@ -430,7 +430,7 @@ import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
-import { normalizeRosterMode } from '../../../lib/roster-mode.mjs'
+import { claimRequired } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
@@ -449,10 +449,19 @@ const props = defineProps({
 // does - the claim binds the ACCOUNT to a person and is org-scoped, so it is
 // orthogonal to which team they join.
 const claim = ref(null)
-const needsClaim = computed(() => normalizeRosterMode(props.assignment?.roster_mode) === 'claim')
+// lib/roster-mode.mjs decides, the same as the individual page and the hub.
+// This asked `=== 'claim'` alone, so an open group assignment with "confirm
+// their email address" ticked never showed the field and the hub refused every
+// student as rejected:no-claim.
+const needsClaim = computed(() => claimRequired(props.assignment))
 const claimKeyReady = computed(() => Boolean(hubClaimKey()))
 const claimBlocked = computed(() => needsClaim.value && (!claim.value || !claimKeyReady.value))
-const claimToken = ref('')
+// Read at setup, not in onMounted: ClaimAddressCard is a child, and a child's
+// onMounted runs BEFORE its parent's - so it asked GitHub for the student's
+// addresses with an empty token, judged them unreadable, and offered only the
+// typed (never verified) fallback. Unseen while the group page asked for an
+// address under `claim` only, which no course used.
+const claimToken = ref(getToken() || '')
 
 const tabMode = ref('join')
 const teamSearchQuery = ref('')

@@ -571,7 +571,7 @@ import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
-import { normalizeRosterMode, rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { normalizeRosterMode, rosterMatchesLogin, claimRequired } from '../../../lib/roster-mode.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 
 const props = defineProps({
@@ -681,9 +681,8 @@ const authToken = ref('')
 // accident is the opposite of the point. Ticked, the address becomes required
 // to accept, which is what makes reconciling logins to students possible
 // afterwards instead of merely hoped for.
-const needsClaim = computed(() =>
-  rosterMode.value === 'claim' ||
-  (rosterMode.value === 'open' && assignment.value?.require_claim === true))
+// lib/roster-mode.mjs decides, for this page, the group page and the hub alike.
+const needsClaim = computed(() => claimRequired(assignment.value))
 const claimKeyReady = computed(() => Boolean(hubClaimKey()))
 
 async function checkRosterStatus() {

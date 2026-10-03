@@ -24,6 +24,7 @@ import {
   recentAttempt,
   RECENT_ATTEMPT_MS,
 } from "../frontend/src/lib/broker-teams.js";
+import { REJECTED_LABEL, INVITED_LABEL } from "../lib/acceptance-labels.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = readFileSync(join(ROOT, "acceptance/broker-workflow.yml"), "utf8");
@@ -103,6 +104,23 @@ test("the member is the issue's AUTHOR, never a login the body claims", () => {
     },
   ]);
   assert.deepEqual(rows[0].members, ["attacker"]);
+});
+
+test("a refused attempt forms no team; an invited one and one still in flight do", () => {
+  // THE REGRESSION (testbed, 2026-10-03). A lecturer's attempt was refused as
+  // rejected:no-claim; the page then listed them as the only member of
+  // "team-1", which exists nowhere, and offered a one-click join into it.
+  // Labels as GitHub sends them (objects) and as strings, through the same
+  // constants the hub writes with.
+  const body = teamBody("team-1", "team 1");
+  const rows = teamsFromBrokerIssues([
+    { title: "Acceptance (processed)", body, user: { login: "refused-one" }, labels: [{ name: REJECTED_LABEL }] },
+    { title: "Acceptance (processed)", body, user: { login: "refused-two" }, labels: [REJECTED_LABEL] },
+    { title: "Acceptance (processed)", body, user: { login: "invited" }, labels: [{ name: INVITED_LABEL }] },
+    { title: "Acceptance (processed)", body, user: { login: "in-flight" }, labels: [] },
+    { title: "Acceptance (processed)", body, user: { login: "no-labels-field" } },
+  ]);
+  assert.deepEqual(rows.map((r) => r.members[0]), ["invited", "in-flight", "no-labels-field"]);
 });
 
 test("an issue that names no team contributes nothing", () => {
