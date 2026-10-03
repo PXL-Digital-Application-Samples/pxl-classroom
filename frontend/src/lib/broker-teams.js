@@ -35,6 +35,16 @@
 
 import { parseTeamPayload } from '../../../lib/team-payload.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
+import { REJECTED_LABEL } from '../../../lib/acceptance-labels.mjs'
+
+/**
+ * Did the hub refuse this attempt? Read from the outcome label, the one thing
+ * the hub says in public about an acceptance (lib/acceptance-labels.mjs).
+ * GitHub sends labels as objects; a string is accepted too.
+ */
+function refused(issue) {
+  return (issue?.labels || []).some((l) => (typeof l === 'string' ? l : l?.name) === REJECTED_LABEL)
+}
 
 /**
  * Team rows visible in a broker's issue list.
@@ -49,6 +59,12 @@ import { sameLogin } from '../../../lib/github-login.mjs'
 export function teamsFromBrokerIssues(issues) {
   const rows = []
   for (const issue of issues || []) {
+    // A REFUSED ATTEMPT FORMED NO TEAM. Counted, it put the refused student on
+    // screen as the member of a team that exists nowhere - no team file, no
+    // repository - and their next visit offered "You are already listed in
+    // team-1" with a one-click join into it (testbed, 2026-10-03). An attempt
+    // with no label yet still counts: in flight is what this fallback is for.
+    if (refused(issue)) continue
     const { team_slug: slug, team_name: name } = parseTeamPayload({
       body: issue?.body,
       title: issue?.title,

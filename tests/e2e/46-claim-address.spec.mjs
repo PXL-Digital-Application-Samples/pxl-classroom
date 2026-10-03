@@ -225,6 +225,37 @@ test.describe('46 - What the page says when it cannot know', () => {
   });
 });
 
+test.describe('46 - A team assignment open to anyone, with the address asked', () => {
+  // THE REGRESSION (testbed, 2026-10-03). The group page decided whether to
+  // ask for the address with `roster_mode === 'claim'` alone, so "Anyone with
+  // the link" + "confirm their email address" on a TEAM assignment never showed
+  // the field, posted no claim, and the hub refused every student as
+  // rejected:no-claim. The individual page and the hub had it right.
+  test('the address is asked, the team cannot be created without it, and it is sealed into the body', async ({ page }) => {
+    const bodies = await student(page, {
+      assignment: claimAssignment({
+        assignment_type: 'group',
+        roster_mode: 'open',
+        require_claim: true,
+        repository_name_pattern: `${ID}-{team_slug}`,
+        group_config: { max_team_size: 3, min_team_size: 1, formation_mode: 'self-service', allow_team_creation: true },
+      }),
+      emails: [{ email: 'alice.peeters@student.pxl.be', verified: true, primary: true }],
+    });
+
+    await expect(page.locator('.claim-card')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('alice.peeters@student.pxl.be')).toBeVisible();
+
+    await page.getByRole('button', { name: /Create a new team instead/i }).click();
+    await page.getByPlaceholder('e.g. The Code Crusaders').fill('Team One');
+    await page.getByRole('button', { name: /Create & Join Team/i }).click();
+
+    await expect.poll(() => bodies.length, { timeout: 15000 }).toBe(1);
+    const claim = await openClaim(bodies[0]);
+    expect(claim.email).toBe('alice.peeters@student.pxl.be');
+  });
+});
+
 test.describe('46 - A non-claim assignment is untouched', () => {
   test('enforced mode asks for no address and posts an empty body', async ({ page }) => {
     const bodies = await student(page, {

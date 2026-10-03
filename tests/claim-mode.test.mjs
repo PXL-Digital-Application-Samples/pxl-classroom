@@ -27,10 +27,39 @@ import {
   requiresAcceptanceCap,
   rosterGatesAcceptance,
   rosterMatchesLogin,
+  claimRequired,
 } from "../lib/roster-mode.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
+
+test("when an address is required, in every corner", () => {
+  assert.equal(claimRequired({ roster_mode: "claim" }), true, "claim: always");
+  assert.equal(claimRequired({ roster_mode: "claim", require_claim: false }), true);
+  assert.equal(claimRequired({ roster_mode: "open", require_claim: true }), true, "open + ticked");
+  assert.equal(claimRequired({ roster_mode: "open", require_claim: false }), false);
+  assert.equal(claimRequired({ roster_mode: "open" }), false, "open, never asked: optional");
+  assert.equal(claimRequired({ roster_mode: "enforced", require_claim: true }), false, "enforced keys on the login");
+  assert.equal(claimRequired({ roster_mode: "garbage", require_claim: true }), false, "fails closed to enforced");
+  assert.equal(claimRequired(null), false);
+});
+
+test("both student pages and the hub ask claimRequired, and nothing spells it by hand", () => {
+  // THE REGRESSION (testbed, 2026-10-03). The group page asked
+  // `=== 'claim'` alone, so an open group assignment with the box ticked never
+  // showed the address field and the hub refused every student as
+  // rejected:no-claim. Three spellings of one rule; now one.
+  const read = (p) => readFileSync(join(root, p), "utf8");
+  const group = read("frontend/src/components/GroupAcceptanceCard.vue");
+  const individual = read("frontend/src/views/AssignmentView.vue");
+  const hub = read("acceptance/accept.mjs");
+  assert.match(group, /const needsClaim = computed\(\(\) => claimRequired\(props\.assignment\)\)/);
+  assert.match(individual, /const needsClaim = computed\(\(\) => claimRequired\(assignment\.value\)\)/);
+  assert.match(hub, /required: claimRequired\(assignment\)/);
+  for (const [name, src] of [["group", group], ["individual", individual]]) {
+    assert.ok(!/require_claim === true/.test(src), `${name} page spells the rule by hand again`);
+  }
+});
 
 test("claim is a mode, and the gate still fails closed", () => {
   assert.ok(ROSTER_MODES.includes("claim"));

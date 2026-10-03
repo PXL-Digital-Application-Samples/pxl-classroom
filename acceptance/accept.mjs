@@ -18,7 +18,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
 import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
-import { normalizeRosterMode, rosterGatesAcceptance } from "../lib/roster-mode.mjs";
+import { normalizeRosterMode, rosterGatesAcceptance, claimRequired } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
@@ -941,7 +941,9 @@ async function main() {
     // anyone can skip is not a gate.
     claimResult = await recordClaim({
       assignment, assignmentId, roster, login, githubId: Number(githubId), dataDir, now,
-      required: assignment?.require_claim === true,
+      // The pages ask the same function whether to show the address field,
+      // so what they ask for and what this refuses cannot drift apart.
+      required: claimRequired(assignment),
     });
   } else if (rosterMode === "claim") {
     if (!roster) {

@@ -29,6 +29,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GENERATE = readFileSync(join(ROOT, "pages", "generate.mjs"), "utf8");
 const ACCEPT = readFileSync(join(ROOT, "acceptance", "accept.mjs"), "utf8");
 const VIEW = readFileSync(join(ROOT, "frontend", "src", "views", "AssignmentView.vue"), "utf8");
+const GROUP = readFileSync(join(ROOT, "frontend", "src", "components", "GroupAcceptanceCard.vue"), "utf8");
+const ROSTER_MODE = readFileSync(join(ROOT, "lib", "roster-mode.mjs"), "utf8");
 
 /**
  * Assignment fields the STUDENT PAGE reads to decide what to ask for, which the
@@ -63,8 +65,16 @@ test("require_claim is enforced by the hub, read by the page, and published", ()
   // /require_claim/ and passed against the comment block explaining the bug -
   // it would have reported all three parties in agreement while the field was
   // unpublished, which is precisely the state it exists to detect.
-  assert.match(ACCEPT, /\?\.require_claim|assignment\?\.require_claim|\brequire_claim\s*===/, "accept.mjs no longer READS require_claim");
-  assert.match(VIEW, /\brequire_claim\s*===/, "AssignmentView no longer READS require_claim");
+  //
+  // The hub and both student pages read it through ONE function since
+  // 2026-10-03 (`claimRequired`, lib/roster-mode.mjs): the team page had its own
+  // spelling, which left the field out, and every student of an open team
+  // assignment with it ticked was refused. So the read is asserted once, in
+  // that function, and each party is asserted to ask it.
+  assert.match(ROSTER_MODE, /\brequire_claim\s*===\s*true/, "claimRequired no longer READS require_claim");
+  assert.match(ACCEPT, /\bclaimRequired\(assignment\)/, "accept.mjs no longer asks claimRequired");
+  assert.match(VIEW, /\bclaimRequired\(assignment\.value\)/, "AssignmentView no longer asks claimRequired");
+  assert.match(GROUP, /\bclaimRequired\(props\.assignment\)/, "the team page no longer asks claimRequired");
   assert.match(GENERATE, /^\s*require_claim:/m, "generate.mjs no longer PUBLISHES require_claim");
 });
 
