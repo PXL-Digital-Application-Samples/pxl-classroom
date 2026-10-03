@@ -44,8 +44,9 @@
       <!-- HANDING THE LINK TO STUDENTS IS WHAT THIS PAGE IS FOR before anyone
            has accepted, and ARCHITECTURE §10.6 requires it never to vanish.
            DESIGN.md §1.2 names it the view's one solid button; the Copy inside
-           the popover is secondary. Under the editor, Save is the solid one
-           and this steps down. Offered for a draft too: it has no link yet,
+           the popover is secondary. On Settings it steps down only while Save
+           is the solid one: once a field is edited, or wherever saving is the
+           next step anyway (a draft). Offered for a draft too: it has no link yet,
            and the popover says so and why, which an absent button cannot
            (DESIGN.md §1.5). -->
       <div class="dropdown-container" ref="inviteMenuRef">
@@ -82,10 +83,15 @@
            router ignores the query when it decides a link is the current page,
            so every tab was marked `aria-current="page"` at once. Which tab is
            current is this component's to say, from `current`. -->
+      <!-- Settings carries a dot while it holds unsaved edits: the editor is
+           kept on a look at another tab, and without this nothing there says
+           the edits are still waiting. -->
       <template v-for="t in tabs" :key="t.key">
-        <span v-if="t.key === current" class="primer-tab active" aria-current="page">{{ t.label }}</span>
+        <!-- The label is written flush against its tags: a line break there is
+             a space in the text, and the tab's name is matched on that text. -->
+        <span v-if="t.key === current" class="primer-tab active" aria-current="page">{{ t.label }}<template v-if="t.key === 'settings' && settingsUnsaved"><span class="status-dot dot-warning" title="Unsaved changes" aria-hidden="true"></span><span class="sr-only"> (unsaved changes)</span></template></span>
         <router-link v-else :to="t.to" custom v-slot="{ href, navigate }">
-          <a :href="href" class="primer-tab" @click="navigate($event)">{{ t.label }}</a>
+          <a :href="href" class="primer-tab" @click="navigate($event)">{{ t.label }}<template v-if="t.key === 'settings' && settingsUnsaved"><span class="status-dot dot-warning" title="Unsaved changes" aria-hidden="true"></span><span class="sr-only"> (unsaved changes)</span></template></a>
         </router-link>
       </template>
     </nav>
@@ -118,6 +124,8 @@ const props = defineProps({
   primaryInvite: { type: Boolean, default: true },
   /** An invitation secret just regenerated away, not to be offered again. */
   retiredInviteKey: { type: String, default: '' },
+  /** The Settings tab holds edits nobody has saved yet. */
+  settingsUnsaved: { type: Boolean, default: false },
 })
 const emit = defineEmits(['state-action'])
 

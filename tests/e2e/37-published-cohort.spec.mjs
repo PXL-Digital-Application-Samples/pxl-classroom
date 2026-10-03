@@ -11,16 +11,6 @@
 // The plan numbered this spec 31; that number was taken by WS1's, so it is 37.
 
 import { test, expect } from '@playwright/test';
-
-// The repository name pattern is a line with Edit until somebody asks for the
-// box (DESIGN.md §1.8); typing into it starts by asking, as a lecturer would.
-async function patternBox(page) {
-  const line = page.locator('[data-derived="pattern"]');
-  const box = page.getByPlaceholder('linux-processes-{github_login}');
-  await expect(line.or(box)).toBeVisible({ timeout: 15000 });
-  if (await line.isVisible()) await line.getByRole('button', { name: 'Edit' }).click();
-  return box;
-}
 import {
   ORG,
   LECTURER,
@@ -104,11 +94,35 @@ test.describe('37 - Settings is the form, under the assignment\'s own header', (
     await expect(page.getByRole('link', { name: /Track roster (&|and) progress/i })).toHaveCount(0);
     await expect(page.getByText('Course roster')).toHaveCount(0);
 
-    // The form is folded on a published assignment, and the fold opens.
-    const details = page.locator('details.settings-disclosure');
-    await expect(details).toHaveJSProperty('open', false);
-    await details.locator('> summary').click();
+    // The form is open straight away: no "Edit settings" fold in front of it.
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue(TITLE);
+    await expect(page.getByText('Edit settings')).toHaveCount(0);
+  });
+
+  test('A list of the sections sits beside the form, and jumps to each', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
+    const nav = page.getByRole('navigation', { name: 'Settings sections' });
+    await expect(nav.getByRole('link')).toHaveText(['Basics', 'Schedule', 'Students', 'Grading', 'Advanced', 'Broker']);
+    await expect(nav.getByRole('link', { name: 'Basics' })).toHaveAttribute('aria-current', 'true');
+
+    await nav.getByRole('link', { name: 'Grading' }).click();
+    await expect(nav.getByRole('link', { name: 'Grading' })).toHaveAttribute('aria-current', 'true');
+    // Landed below the sticky header, not under it.
+    const top = await page.locator('#settings-grading').evaluate((el) => el.getBoundingClientRect().top);
+    const header = await page.locator('.app-header').evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(top).toBeGreaterThanOrEqual(header);
+
+    // Advanced is a disclosure; jumping to it opens it.
+    await nav.getByRole('link', { name: 'Advanced' }).click();
+    await expect(page.locator('#settings-advanced')).toHaveJSProperty('open', true);
+  });
+
+  test('No room for the list on a narrow window, and the form still fits', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Settings sections' })).toBeHidden();
   });
 
   test('Regenerate link is in the Invite link menu, and asks with the box ticked', async ({ page }) => {
@@ -131,89 +145,66 @@ test.describe('37 - Settings is the form, under the assignment\'s own header', (
     await expect(page.getByRole('button', { name: /^Save$/ })).toHaveCount(1);
   });
 
-  test('A draft still opens on the form', async ({ page }) => {
-    // Defining it IS the job there. The disclosure exists so there is one
-    // markup path, but its summary must not be on screen.
+  test('Invite link stays the solid button until a field is edited, then Save is', async ({ page }) => {
+    // DESIGN.md §1.2: one solid button. With nothing edited there is nothing to
+    // save, so the header keeps the look it has on every other tab.
+    await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
+    const invite = page.getByRole('button', { name: /Invite link/ });
+    const save = page.locator('.editor-action-bar').getByRole('button', { name: /^Save$/ });
+    await expect(invite).toHaveClass(/btn-primary/);
+    await expect(save).not.toHaveClass(/btn-primary/);
+
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill(`${TITLE} (edited)`);
+    await expect(save).toHaveClass(/btn-primary/);
+    await expect(invite).not.toHaveClass(/btn-primary/);
+
+    // Putting it back is nothing to save again.
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill(TITLE);
+    await expect(invite).toHaveClass(/btn-primary/);
+  });
+
+  test('A draft opens on the form, and publishing is the solid button', async ({ page }) => {
     const draft = assignment({ state: 'draft' });
     delete draft.invite_token;
     delete draft.invite_nonce;
     await openEditor(page, { asgn: draft });
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
-    await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Save & publish' })).toHaveClass(/btn-primary/);
+    await expect(page.getByRole('button', { name: /Invite link/ })).not.toHaveClass(/btn-primary/);
   });
 
-  test('Reverting to draft gives the form back', async ({ page }) => {
-    // `settingsOpen` is per-assignment state a lecturer owns, so a published
-    // assignment they left collapsed and then reverted would otherwise render
-    // a shut <details> whose summary is display:none - a form with no control
-    // to open it.
+  test('Reverting to draft keeps the form', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    await expect(page.locator('details.settings-disclosure')).toHaveJSProperty('open', false);
 
     page.on('dialog', (d) => d.accept());
     await chooseState(page, 'Back to draft');
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
-  });
-
-  test('A closed assignment keeps the form folded too', async ({ page }) => {
-    // Nobody opens a closed assignment to change its repository name pattern.
-    await openEditor(page, {
-      asgn: assignment({ state: 'closed' }),
-      extra: { reports: { dashboard: { ...dashboard(47), assignments: { [ID]: { ...dashboard(47).assignments[ID], state: 'closed' } } } } },
-    });
-    await expect(page.locator('details.settings-disclosure')).toHaveJSProperty('open', false);
+    await expect(page.getByRole('button', { name: 'Save & publish' })).toBeVisible();
   });
 });
 
-// ======================================================= the disclosure
+// ============================================ a problem is never out of sight
 
-test.describe('37 - A validation problem cannot hide behind the disclosure', () => {
-  test('An assignment that loads broken opens expanded, and says how many', async ({ page }) => {
-    // A hand-edited YAML with no template is the realistic case: the panel
-    // cannot save it, and collapsing the only field that would fix it leaves
-    // a disabled Save with no explanation.
+test.describe('37 - A validation problem is on screen', () => {
+  test('An assignment that loads broken shows the field to fix, and Save says why it is grey', async ({ page }) => {
+    // A hand-edited YAML with no template is the realistic case: the form
+    // cannot save it, and the only field that would fix it is right there.
     const broken = assignment();
     delete broken.template;
     await openEditor(page, { asgn: broken });
 
-    await expect(page.locator('details.settings-disclosure')).toHaveJSProperty('open', true);
-    await expect(page.locator('.settings-problems')).toContainText('1 field needs fixing');
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
-  });
-
-  test('The count stays on screen after the disclosure is closed again', async ({ page }) => {
-    // The guarantee is not that the disclosure refuses to close - that would
-    // be a dead control - but that shutting it does not take the problem with
-    // it. Save is disabled and the summary says how many, from outside.
-    await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    const details = page.locator('details.settings-disclosure');
-    await expect(details).toHaveJSProperty('open', false);
-    await expect(page.locator('.settings-problems')).toHaveCount(0);
-
-    await details.locator('> summary').click();
-    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('');
-    await expect(page.locator('.settings-problems')).toContainText('1 field needs fixing');
-    await (await patternBox(page)).fill('no-placeholder-here');
-    await expect(page.locator('.settings-problems')).toContainText('2 fields need fixing');
-
-    await details.locator('> summary').click();
-    await expect(details, 'a lecturer who has seen the count may still close it').toHaveJSProperty('open', false);
-    await expect(page.locator('.settings-problems')).toBeVisible();
-    await expect(page.locator('.settings-problems')).toContainText('2 fields need fixing');
+    await expect(page.locator('.field-error-msg').first()).toBeVisible();
     await expect(page.getByRole('button', { name: /^Save$/ })).toBeDisabled();
   });
 
-  test('Fixing the fields clears the count', async ({ page }) => {
+  test('Fixing the fields enables Save', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    const details = page.locator('details.settings-disclosure');
-    await details.locator('> summary').click();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('');
-    await expect(page.locator('.settings-problems')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Save$/ })).toBeDisabled();
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill(TITLE);
-    await expect(page.locator('.settings-problems')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Save$/ })).toBeEnabled();
   });
 });
@@ -373,17 +364,18 @@ test.describe('37 - The editor has one solid button', () => {
       .map((b) => b.textContent.trim().replace(/\s+/g, ' ').slice(0, 40));
   };
 
-  test('Opening an assignment leaves exactly one, and it is Save', async ({ page }) => {
+  test('Opening a live assignment leaves exactly one: Invite link, then Save once edited', async ({ page }) => {
     // Five before this workstream: `New assignment`, `Save & publish` twice
     // (the form repeated its actions top and bottom), `Grant extension` and
-    // `Retry acceptance`. tests/e2e/22 scoped its admin check to the published
-    // banner until WS5 decided which survives.
+    // `Retry acceptance`. With nothing edited there is nothing to save, so the
+    // header's Invite link keeps the solid look it has on every tab
+    // (2026-10-03); an edit hands it to Save. One at a time, either way.
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
-    expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['Save']);
-
-    // Still one with the settings open - that is where the duplicate row was.
     await expandSettings(page);
-    expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['Save']);
+    expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['Invite link']);
+
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill(`${TITLE} (edited)`);
+    await expect.poll(() => page.evaluate(VISIBLE_PRIMARIES)).toEqual(['Save']);
   });
 
   test('On the list of assignments, New assignment is the one', async ({ page }) => {

@@ -143,7 +143,9 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says when the accept link is live.
 
-Once it is published, its **Settings** tab - the last tab of the assignment's page - has the six fieldsets folded behind **Edit settings**, and a *Broker* section below them holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
+Once it is published, its **Settings** tab - the last tab of the assignment's page - is the same form, with a list of its sections on the left to jump between them, and a *Broker* section at the end holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings.
+
+**Is it saved?** Nothing you change is saved until you press **Save**. While something is waiting, the bar says *Unsaved changes* and the Settings tab has a yellow dot, also when you are looking at Progress or Grading; your edits stay there until you come back. A new assignment's bar says *Not saved yet* until its first save. (*Draft* is something else: a saved assignment that students cannot open yet.) Leaving the assignment, switching organization or signing out with unsaved changes asks first, and *Cancel* in that question keeps you where you were with your edits. **Stop accepting**, **Back to draft** and **Archive** will not run while changes are unsaved - save or cancel them first - so a state change never saves something you did not mean to save. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
 
 **Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
 
@@ -1116,7 +1118,7 @@ Changing **Template repository** in the editor, and publishing again, changes on
 
 #### Changed the Student permission after students accepted
 
-**Edit settings → Advanced → Student permission** is what a student is given when they accept. A new assignment starts at `maintain`; one without the setting is `admin`. Measured on GitHub, with a student's own account:
+**Settings → Advanced → Student permission** is what a student is given when they accept. A new assignment starts at `maintain`; one without the setting is `admin`. Measured on GitHub, with a student's own account:
 
 | A student can… | push / maintain | admin |
 |---|---|---|

@@ -200,6 +200,11 @@
      sizes itself from the same value, and two places holding one measure is
      how they come to disagree. */
   --form-measure: 640px;
+  /* Where content stops under the sticky app header: the settings section
+     list sticks here, and a section jumped to lands here rather than under
+     the header. The header's one-row height plus a gap; the list is only shown
+     at widths where the header is one row. */
+  --sticky-top: 88px;
 
   /* ---- Border radius — tight & consistent ---- */
   --radius-xs: 4px;

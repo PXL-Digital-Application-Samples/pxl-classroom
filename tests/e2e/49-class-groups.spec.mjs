@@ -216,9 +216,6 @@ test.describe('49 - picking who an assignment is for', () => {
       },
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
-    // A published assignment leads with its cohort card and keeps the settings
-    // behind a disclosure - the picker is inside it.
-    await page.locator(".settings-disclosure > summary").click();
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
 
     // The two already in it are ticked and not yours to untick.
@@ -241,11 +238,10 @@ test.describe('49 - picking who an assignment is for', () => {
     await expect(guardrails(page)).not.toContainText('Every student on the roster may accept');
   });
 
-  test('Add students opens the picker from the cohort card', async ({ page }) => {
-    // THE CAPABILITY EXISTED AND NOTHING POINTED AT IT. A published assignment
-    // leads with its cohort card and keeps the settings shut, so adding a late
-    // enroller meant knowing to open "Edit settings" first - and MANUAL.md told
-    // lecturers to use an "Add students" action that did not exist.
+  test('Add students goes to the picker', async ({ page }) => {
+    // THE CAPABILITY EXISTED AND NOTHING POINTED AT IT. The picker is the
+    // sixth section down a long form, and MANUAL.md told lecturers to use an
+    // "Add students" action that did not exist.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -265,13 +261,10 @@ test.describe('49 - picking who an assignment is for', () => {
 
     const add = page.getByRole('button', { name: 'Add students' });
     await expect(add).toBeVisible({ timeout: 15000 });
-    // Reachable without opening anything first: the picker is shut behind the
-    // disclosure until this is pressed. Not COUNT - a closed <details> keeps its
-    // contents in the DOM and merely hides them, so the question is visibility.
-    await expect(page.locator('.cohort-list')).not.toBeVisible();
-
+    // Pressing it brings the picker into view, wherever on the form the
+    // lecturer was.
     await add.click();
-    await expect(page.locator('.cohort-list')).toBeVisible();
+    await expect(page.locator('.cohort-list')).toBeInViewport();
     await expect(guardrails(page)).toContainText('2 of 5 selected');
     // It lands where you type, because the reason to open it is to find someone.
     await expect(guardrails(page).getByPlaceholder('Search name, number or username')).toBeFocused();
@@ -300,7 +293,7 @@ test.describe('49 - picking who an assignment is for', () => {
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
     // Positive first, so a count of zero is an absence and not an unrendered page.
-    await expect(page.locator('details.settings-disclosure > summary')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: 'Add students' })).toHaveCount(0);
   });
 
@@ -498,7 +491,6 @@ test.describe('49 - edges the happy path hides', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, roster, assignments: { 'lab-3': assignment } });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
-    if (assignment.state !== 'draft') await page.locator('.settings-disclosure > summary').click();
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
   }
 

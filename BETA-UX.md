@@ -138,9 +138,24 @@ editor's card, reloaded on every click and still carried the old Admin layout.
 - **Settings stops showing** the *Published & Verified* panel (its *Regenerate
   link* moves into the Invite link menu; a one-line status stays while a publish
   is going live), the accepted/deadline card with *Track roster & progress*,
-  and the *Course roster* line. The *Edit settings* fold stays.
+  and the *Course roster* line. ~~The *Edit settings* fold stays.~~ Reversed
+  the same day, on a second look: the fold goes, the form is always open.
 - **Teams stays group-only**, as decided: an individual assignment has no Teams
   tab.
+
+### Second look (decided 2026-10-03)
+
+- **The form keeps its readable width; a list of its sections fills the rest**
+  (left, sticky, jumps to each section, lights the one on screen). Hidden on a
+  narrow window.
+- **Invite link stays blue on Settings until a field is edited**; then Save is
+  the blue one. Still one solid button at a time.
+- **Unsaved edits are said**: *Unsaved changes* in the bottom bar and a dot on
+  the Settings tab; *Not saved yet* on a new assignment.
+- **A state change with unsaved edits is refused** (save or cancel first),
+  rather than saving them silently with it.
+- Fixed as bugs: signing out cleared the sign-in before asking about unsaved
+  edits; Regenerate link made an untouched form read as edited.
 
 ## Open
 

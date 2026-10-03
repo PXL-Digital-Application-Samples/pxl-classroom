@@ -90,20 +90,11 @@ test.describe('25 - Responsive layout', () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-      await expect(page.locator('details.settings-disclosure')).toBeVisible({ timeout: 15000 });
-      await page.waitForTimeout(500);
-
-      let m = await page.evaluate(MEASURE);
-      expect(
-        m.scrollsSideways,
-        `admin editor (collapsed) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
-      ).toBe(false);
-
-      // And with the six fieldsets on screen, which is where the combobox,
-      // the datetime inputs and the autograde summary live.
+      // The fieldsets are always on screen, which is where the combobox, the
+      // datetime inputs, the autograde summary and the section list live.
       await expandSettings(page);
-      await page.waitForTimeout(300);
-      m = await page.evaluate(MEASURE);
+      await page.waitForTimeout(500);
+      const m = await page.evaluate(MEASURE);
       expect(
         m.scrollsSideways,
         `admin editor (settings open) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,

@@ -31,7 +31,23 @@
          accept. The header - state button, deadline, Invite link, tabs - is
          the assignment page's, which this editor sits inside as its Settings
          tab (`embedded`); a new assignment has nothing for it to say yet. -->
-    <div class="admin-layout">
+    <div class="admin-layout" :class="{ 'has-section-nav': formShown }">
+      <!-- THE FORM'S SECTIONS, beside it (2026-10-03). The form keeps its
+           reading measure (DESIGN.md §1.8), and the page's width goes to a
+           list that jumps to each section and says which one is on screen - the
+           layout of GitHub's own settings pages. Hidden on a narrow window,
+           where there is no width to give it. -->
+      <nav v-if="formShown" class="settings-nav" aria-label="Settings sections">
+        <a
+          v-for="s in sectionNav"
+          :key="s.id"
+          :href="'#' + s.id"
+          class="settings-nav-link"
+          :class="{ active: currentSection === s.id }"
+          :aria-current="currentSection === s.id ? 'true' : null"
+          @click.prevent="scrollToSection(s.id)"
+        >{{ s.label }}</a>
+      </nav>
       <main class="editor-pane">
 
         <div v-if="loadingList" class="list-loading"><div class="spinner"></div></div>
@@ -205,8 +221,7 @@
                2026-10-03): the header and the Progress tab say both. ADD
                STUDENTS STAYS. The cohort is a snapshot, so a student imported
                next week is not in an assignment made today, and the picker that
-               fixes that is inside the settings fold, which is shut on a
-               published assignment - without this nothing points at it. -->
+               fixes that is the sixth section down - this is the way to it. -->
           <div v-if="cohortFirst && showAddStudents" class="settings-quick-actions">
             <button type="button" class="btn btn-secondary btn-sm btn-with-icon" @click="openAddStudents">
               <Icon name="users" :size="13" />
@@ -214,25 +229,11 @@
             </button>
           </div>
 
-          <!-- The six fieldsets, collapsed once the assignment is out. The
-               summary carries the field-error count so a validation problem is
-               visible from outside the disclosure even when it is shut. -->
-          <details
-            class="settings-disclosure"
-            :class="{ 'is-static': !cohortFirst }"
-            :open="settingsExpanded"
-            @toggle="settingsOpen = $event.target.open"
-          >
-            <summary>
-              <!-- `display: flex` on a <summary> removes the native disclosure
-                   triangle, so the control has to bring its own or it reads as
-                   a heading nobody would click. -->
-              <Icon name="chevron-down" :size="14" class="settings-caret" />
-              <span>Edit settings</span>
-              <span v-if="fieldErrorCount" class="settings-problems">
-                {{ fieldErrorCount }} field{{ fieldErrorCount === 1 ? '' : 's' }} need{{ fieldErrorCount === 1 ? 's' : '' }} fixing
-              </span>
-            </summary>
+          <!-- The six fieldsets, always open. They used to fold away once the
+               assignment was out, under an "Edit settings" summary; on the
+               Settings tab the form is the whole point of being there, so the
+               fold was one more click in front of it (2026-10-03). -->
+          <div class="settings-fields">
 
           <!-- `touchedFields.X || !isNew` on every field error below.
                `touched` exists so a form you are still filling in does not
@@ -257,7 +258,7 @@
                The two became one because both answered "what is this assignment
                and what is it called", and a border around each half of one
                question is the box prison DESIGN.md 1.1 names. -->
-          <fieldset>
+          <fieldset id="settings-basics">
             <legend>Basics</legend>
 
             <!-- SLUG, KEPT OUT OF THE WAY. It is derived, it is locked after
@@ -763,7 +764,7 @@
                the dates differ on every assignment (DESIGN.md §1.8). It took in
                the old Assignment Type fieldset - one radio row was a whole box -
                and the who controls from Guardrails, a grab-bag of nine. -->
-          <fieldset>
+          <fieldset id="settings-students">
             <legend>Students</legend>
             <div class="field">
               <!-- "TEAM", NOT "GROUP". This was the one place in the whole flow
@@ -1211,7 +1212,7 @@
           </fieldset>
 
           <!-- ADVANCED -->
-          <details class="advanced">
+          <details id="settings-advanced" class="advanced">
             <summary>Advanced</summary>
             <div class="field">
               <label>Student permission</label>
@@ -1273,11 +1274,11 @@
                  select was a decision the lecturer could not make. The field is
                  still written by buildDoc() and published on the card. -->
           </details>
-          </details>
+          </div>
 
-          <!-- VALIDATION ERRORS - outside the disclosure on purpose. Save is
-               disabled by them, so hiding them behind a collapsed section is
-               how a lecturer ends up with a dead button and no explanation. -->
+          <!-- VALIDATION ERRORS. Save is disabled by them, so they are listed
+               together here as well as beside each field: a lecturer at the
+               bottom bar sees why the button is dead without scrolling up. -->
           <div v-if="validationErrors.length" class="validation-errors">
             <strong>Fix these before saving:</strong>
             <ul>
@@ -1358,6 +1359,14 @@
             <p v-if="saveBlockers.length && !saving" class="save-blockers">
               Still needed: {{ saveBlockers.join(', ') }}
             </p>
+            <!-- WHETHER WHAT IS ON SCREEN IS SAVED. Not the assignment's state:
+                 a draft is saved, it is just not open to students. These are
+                 edits that exist in this tab only, until Save. Said only when
+                 true; a saved form says nothing. -->
+            <span v-if="isNew || unsaved" class="unsaved-note" data-unsaved>
+              <span class="status-dot dot-warning" aria-hidden="true"></span>
+              {{ isNew ? 'Not saved yet' : 'Unsaved changes' }}
+            </span>
             <div class="editor-action-buttons">
               <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
               <button
@@ -1368,7 +1377,7 @@
                 :disabled="saving || !canSave"
               >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
               <button
-                class="btn btn-primary"
+                :class="['btn', saveIsPrimary ? 'btn-primary' : '']"
                 type="button"
                 @click="saveAndPublish"
                 :disabled="saving || !canSave"
@@ -1590,7 +1599,7 @@ const props = defineProps({
 // published), so the page around the editor reads it again for its header.
 // `regenerated`: the invitation secret passed with it was just retired; the
 // page's Invite link must stop offering it until the new one is written.
-const emit = defineEmits(['changed', 'regenerated'])
+const emit = defineEmits(['changed', 'regenerated', 'save-primary', 'unsaved'])
 const route = useRoute()
 const router = useRouter()
 
@@ -1703,17 +1712,27 @@ const form = ref(emptyForm())
 // Snapshot of the form as of the last load/save. Anything different means
 // unsaved edits - guard list navigation and Cancel against silent loss.
 const savedSnapshot = ref('')
-function snapshotForm() {
-  savedSnapshot.value = JSON.stringify(form.value)
+// What a lecturer can edit, and nothing else. The `invite_*` fields are the
+// publish workflow's: no control writes them, and Regenerate clears them in the
+// form so the retired link cannot be copied - which made an untouched form
+// read as edited, so leaving asked "discard?" about nothing and Save lit up.
+function editableFingerprint(f) {
+  const own = {}
+  for (const [k, v] of Object.entries(f)) if (!k.startsWith('invite_')) own[k] = v
+  return JSON.stringify(own)
 }
-function confirmDiscard() {
-  if (!editing.value) return true
-  if (JSON.stringify(form.value) === savedSnapshot.value) return true
-  return window.confirm('Discard unsaved changes to this assignment?')
+function snapshotForm() {
+  savedSnapshot.value = editableFingerprint(form.value)
 }
 function hasUnsavedEdits() {
-  return !!editing.value && JSON.stringify(form.value) !== savedSnapshot.value
+  return !!editing.value && editableFingerprint(form.value) !== savedSnapshot.value
 }
+function confirmDiscard() {
+  if (!hasUnsavedEdits()) return true
+  return window.confirm('Discard unsaved changes to this assignment?')
+}
+// Reactive, for what the screen says about it (the bar, the tab's dot).
+const unsaved = computed(() => hasUnsavedEdits())
 
 // Publishing dispatches a workflow and returns; whether the broker, the
 // invitation and the acceptance card have actually appeared is a poll, and it
@@ -1768,9 +1787,8 @@ const showCohortPicker = computed(() =>
 const showAddStudents = computed(() =>
   cohortFirst.value && showCohortPicker.value && (form.value.cohort || []).length > 0)
 
-/** Open the settings, put the picker on screen, and land in the search box. */
+/** Put the picker on screen and land in the search box. */
 async function openAddStudents() {
-  settingsOpen.value = true
   await nextTick()
   const list = document.querySelector('.cohort-list')
   // Scroll the LIST, not the field: the field's label is what a browser lands
@@ -2134,12 +2152,34 @@ function onBeforeUnload(e) {
 
 const isNew = computed(() => editing.value && editing.value.__new === true)
 
+// WHICH BUTTON IS THE SOLID ONE (DESIGN.md §1.2: one per view). On the
+// Settings tab of a live assignment with nothing edited there is nothing to
+// save, and handing out the link is still the thing to do - so the header's
+// Invite link stays solid, as on every other tab, and Save takes over the
+// moment a field changes. Anywhere else (a new assignment, a draft, a closed
+// one) saving or publishing is the next step whether or not anything changed.
+const saveIsPrimary = computed(() =>
+  !props.embedded || isNew.value || form.value.state !== 'published' || unsaved.value)
+watch(saveIsPrimary, (primary) => emit('save-primary', primary), { immediate: true })
+// The assignment page marks its Settings tab with it, so an edit left behind
+// on a look at Progress is visible from there.
+watch(unsaved, (u) => emit('unsaved', u), { immediate: true })
+
 // The assignment page's state button (lib/state-actions.js), arriving as
 // `?action=` (applyRouteIntent). Every one of these was a button in this
 // editor's Lifecycle section and still runs the same function, with its own
 // confirmation. "Lock everyone out now" is the Progress tab's own dialog and
 // never comes here. `regenerate` is the Invite link menu's Regenerate link.
 function runStateAction(key) {
+  // A state change writes the document, and the document is built from the
+  // form - so with edits pending it saved them too, behind a confirm that
+  // asked only about the state. One thing at a time: the edits are saved or
+  // cancelled first, by the bar right below (decided 2026-10-03). Publishing
+  // is not refused: it is "Save & publish", saving is what it says.
+  if (['close', 'draft', 'archive'].includes(key) && hasUnsavedEdits()) {
+    toast.error('You have unsaved changes in Settings. Save or cancel them first, then change the state.')
+    return
+  }
   switch (key) {
     case 'regenerate':
       return openRegenerate()
@@ -2162,12 +2202,77 @@ function runStateAction(key) {
   }
 }
 
-// A fieldset of the form, brought into view with the settings unfolded.
+// A fieldset of the form, brought into view. Advanced is a disclosure, and
+// jumping to it shut would land on one line with nothing under it.
 async function scrollToSection(id) {
-  settingsOpen.value = true
   await nextTick()
-  document.getElementById(id)?.scrollIntoView({ block: 'start' })
+  const el = document.getElementById(id)
+  if (!el) return
+  if (el.tagName === 'DETAILS') el.open = true
+  el.scrollIntoView({ block: 'start' })
+  currentSection.value = id
+  // The section asked for stays the lit one until the lecturer scrolls: one
+  // near the end cannot reach the top of the window, and the page's own
+  // reading of where it stands would light a neighbour instead.
+  jumpedTo = id
 }
+
+// --- the section list beside the form ---------------------------------------
+
+const formShown = computed(() =>
+  !!editing.value && !loadingList.value && !assignmentsError.value)
+
+// In the order the form renders them. Broker is there only where the form
+// draws it (a published assignment), so the list never names a section that
+// is not on the page.
+const sectionNav = computed(() => [
+  { id: 'settings-basics', label: 'Basics' },
+  { id: 'settings-schedule', label: 'Schedule' },
+  { id: 'settings-students', label: 'Students' },
+  { id: 'settings-grading', label: 'Grading' },
+  { id: 'settings-advanced', label: 'Advanced' },
+  ...(!isNew.value && form.value.state === 'published' ? [{ id: 'settings-lifecycle', label: 'Broker' }] : []),
+])
+
+// The section on screen: the last one whose top has scrolled past the sticky
+// header. Read from the page on scroll, never stored per section, so a section
+// that appears or goes (Broker) cannot leave a stale answer behind.
+const currentSection = ref('settings-basics')
+let sectionFrame = 0
+let jumpedTo = ''
+// A scroll the lecturer makes (wheel, touch, keys) ends a jump's hold; the
+// scroll a jump itself causes does not.
+function releaseJump() { jumpedTo = '' }
+const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown']
+function trackSection() {
+  if (jumpedTo || sectionFrame) return
+  sectionFrame = requestAnimationFrame(() => {
+    sectionFrame = 0
+    // The Settings tab is kept mounted and hidden on the other tabs, where
+    // every section measures zero and would all count as scrolled past.
+    if (!document.getElementById(sectionNav.value[0]?.id)?.offsetParent) return
+    const line = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top')) || 0
+    let current = sectionNav.value[0]?.id
+    for (const s of sectionNav.value) {
+      const el = document.getElementById(s.id)
+      if (el && el.getBoundingClientRect().top <= line + 8) current = s.id
+    }
+    // At the bottom of the page the last section may never reach the line.
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+      current = sectionNav.value.at(-1)?.id
+    }
+    if (current) currentSection.value = current
+  })
+}
+onMounted(() => {
+  window.addEventListener('scroll', trackSection, { passive: true })
+  for (const ev of USER_SCROLL_EVENTS) window.addEventListener(ev, releaseJump, { passive: true })
+})
+onUnmounted(() => {
+  window.removeEventListener('scroll', trackSection)
+  for (const ev of USER_SCROLL_EVENTS) window.removeEventListener(ev, releaseJump)
+  if (sectionFrame) cancelAnimationFrame(sectionFrame)
+})
 
 // Where a delete, and Cancel on a new assignment, leave: the list.
 function leaveEditor() {
@@ -2196,16 +2301,6 @@ function goToSavedAssignment({ publishing = false } = {}) {
 const cohortFirst = computed(() =>
   !isNew.value && (form.value.state === 'published' || form.value.state === 'closed')
 )
-
-// Whether the six fieldsets are expanded. Seeded per assignment on load - an
-// assignment that arrives with a validation problem opens expanded - and
-// owned by the lecturer after that.
-const settingsOpen = ref(true)
-// A draft has no disclosure at all - the summary is hidden and the fieldsets
-// are the page. Binding `open` through this is what stops a published
-// assignment reverted to draft from rendering a collapsed, uncloseable form.
-const settingsExpanded = computed(() => settingsOpen.value || !cohortFirst.value)
-
 
 // The one republish that CANNOT keep the links alive, and it is not optional.
 //
@@ -2382,15 +2477,6 @@ const fieldErrors = computed(() => {
 
   return errors
 })
-
-// Rendered on the disclosure's summary, so a validation problem is stated
-// whether the fieldsets are open or shut. That - not forcing the disclosure
-// open - is what stops one hiding behind it: a <details> that refuses to
-// close is a dead control, and every field that can carry an error is inside
-// this one, so there is no way to introduce a problem while it is collapsed.
-// The only entry point that can is loading an assignment, and
-// `editAssignment` seeds `settingsOpen` from exactly this count.
-const fieldErrorCount = computed(() => Object.keys(fieldErrors.value).length)
 
 // The pattern's box comes out when it carries an error a lecturer has to fix
 // (`patternEditing` above). Defined after fieldErrors, which a watch reads at
@@ -3135,8 +3221,6 @@ function newAssignment({ confirmed = false } = {}) {
   brokerExists.value = null
   pagesLive.value = null
   liveCheckLoading.value = false
-  // A new assignment is nothing but its settings.
-  settingsOpen.value = true
 
   snapshotForm()
 }
@@ -3279,10 +3363,6 @@ function editAssignment(a, { confirmed = false } = {}) {
     deadline_at: false,
     max_acceptances: false,
   }
-  // Collapsed once the assignment is out - unless it arrives with a problem,
-  // which a hand-edited YAML can, and then hiding the fields would hide the
-  // only thing there is to do.
-  settingsOpen.value = !cohortFirst.value || fieldErrorCount.value > 0
   // Pin the editing template into the dropdown even if it lives in a different
   // org than the assignment org. Drop any synthetic entry from a previous edit.
   templates.value = templates.value.filter(t => !t._foreign)
@@ -5109,6 +5189,47 @@ watch(
   gap: var(--space-sm);
 }
 
+/* The section list, the form's left neighbour. Its marker is the tabs' own -
+   the active one in orange, standing on a side instead of underneath - so it
+   reads as navigation of the same family (DESIGN.md §1.4). */
+.settings-nav { display: none; }
+@media (min-width: 960px) {
+  .admin-layout.has-section-nav {
+    grid-template-columns: 11rem minmax(0, 1fr);
+    column-gap: var(--space-xl);
+  }
+  .settings-nav {
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: var(--sticky-top);
+    align-self: start;
+    border-left: 1px solid var(--border-muted);
+  }
+}
+.settings-nav-link {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  padding: 6px var(--space-md);
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  text-decoration: none;
+}
+.settings-nav-link:hover {
+  color: var(--text-primary);
+  border-left-color: var(--border-default);
+  text-decoration: none;
+}
+.settings-nav-link.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-left-color: var(--accent-orange);
+}
+/* A section jumped to lands below the sticky header, not under it. */
+.editor-form fieldset,
+.editor-form .advanced,
+.editor-form .lifecycle { scroll-margin-top: var(--sticky-top); }
+
 .admin-layout {
   display: grid;
   /* `minmax(0, 1fr)`, never a bare `1fr`. A `1fr` track's automatic minimum is
@@ -5240,6 +5361,13 @@ watch(
 /* Beside the buttons it explains. */
 .save-blockers {
   margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.unsaved-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
@@ -5731,36 +5859,9 @@ details .field { padding: 0 var(--space-sm); }
   flex-wrap: wrap;
 }
 
-/* Not a box: the editor pane already draws one and every fieldset inside
-   draws another, so a third would be DESIGN.md §1.1's prison. A single-side
-   rule is a divider, which is fine. */
-.settings-disclosure {
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  border-top: 1px solid var(--border-muted);
-  margin-bottom: 0;
-}
-.settings-disclosure > summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: var(--space-md) 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-.settings-disclosure[open] > summary { margin-bottom: var(--space-sm); }
-.settings-caret { transition: transform 0.15s ease; }
-.settings-disclosure:not([open]) .settings-caret { transform: rotate(-90deg); }
-/* A draft has nothing to disclose - the fieldsets ARE the page, and the
-   details element is only here so there is one markup path. */
-.settings-disclosure.is-static { border-top: none; margin-bottom: 0; }
-.settings-disclosure.is-static > summary { display: none; }
-.settings-problems {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--accent-red);
-}
+/* The fields kept the inset they had inside the old fold (`details .field`),
+   so removing it moved nothing. */
+.settings-fields .field { padding: 0 var(--space-sm); }
 
 .published-header {
   display: flex;

@@ -547,31 +547,30 @@ test("only a published or closed assignment leads with the cohort", () => {
   assert.ok(!/'archived'/.test(body), "an archived assignment opens on the form");
 });
 
-test("the settings disclosure cannot leave a draft collapsed and uncloseable", () => {
-  // `settingsOpen` is seeded per assignment and then owned by the lecturer, so
-  // reverting a published assignment to draft would otherwise leave a shut
-  // <details> whose summary is display:none - a form with no way to open it.
+test("the settings are never folded away", () => {
+  // The "Edit settings" fold over a live assignment's fieldsets went on
+  // 2026-10-03: on the Settings tab the form is the only thing there is to do,
+  // and a fold that could be shut is also where a validation problem hid.
   const src = adminSrc();
-  const start = src.indexOf("const settingsExpanded = computed(");
-  assert.ok(start > 0, "settingsExpanded must exist");
-  const body = src.slice(start, src.indexOf(")\n", start));
-  assert.match(body, /settingsOpen\.value \|\| !cohortFirst\.value/);
-  assert.match(src, /:open="settingsExpanded"/, "the <details> must bind the computed, not the raw ref");
+  assert.ok(!src.includes("settings-disclosure"), "no fold over the fieldsets");
+  assert.ok(!/\bsettingsOpen\b/.test(src), "no open/shut state left to seed");
+  assert.match(src, /<div class="settings-fields">/);
 });
 
-test("a field error is counted on the summary, and opens the settings on load", () => {
-  // A validation problem must never hide behind a disclosure. Every field
-  // that can carry one is INSIDE it, so the only entry point that can produce
-  // a problem behind a shut disclosure is loading an assignment - which opens
-  // it. After that the count on the summary, which is outside, is what keeps
-  // the problem stated while the lecturer has it shut.
+test("a state change does not write unsaved edits along with it", () => {
+  // setState builds its document from the form, so with edits waiting a
+  // "Close X?" confirm saved them too, unannounced. Refused instead; publish is
+  // "Save & publish" and is not in the list.
   const src = adminSrc();
-  assert.match(src, /v-if="fieldErrorCount"/, "the summary carries the count");
-  assert.match(
-    src,
-    /settingsOpen\.value = !cohortFirst\.value \|\| fieldErrorCount\.value > 0/,
-    "an assignment that loads with a problem opens expanded"
-  );
+  const start = src.indexOf("function runStateAction(key) {");
+  assert.ok(start > 0, "runStateAction must exist");
+  const head = src.slice(start, src.indexOf("switch (key)", start));
+  assert.match(head, /\['close', 'draft', 'archive'\]\.includes\(key\) && hasUnsavedEdits\(\)/);
+  assert.match(head, /return/);
+  // And an edit is what a person can edit: the workflow's invite_* fields,
+  // which Regenerate clears in the form, are not one.
+  assert.match(src, /if \(!k\.startsWith\('invite_'\)\) own\[k\] = v/);
+  assert.match(src, /function hasUnsavedEdits\(\) \{\s*return !!editing\.value && editableFingerprint\(form\.value\)/);
 });
 
 test("the editor no longer runs per-student operations", () => {

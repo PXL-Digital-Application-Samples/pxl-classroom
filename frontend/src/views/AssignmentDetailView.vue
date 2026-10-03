@@ -184,7 +184,8 @@
           :is-group="isGroupAssignment"
           :accepted-count="reportError ? null : acceptedStudentsCount"
           :busy="freezingNow"
-          :primary-invite="activeTab !== 'settings'"
+          :primary-invite="activeTab !== 'settings' || !settingsSavePrimary"
+          :settings-unsaved="settingsUnsaved"
           :retired-invite-key="retiredInviteKey"
           @state-action="onStateAction"
         />
@@ -1246,6 +1247,8 @@
             :assignment-id="assignmentId"
             @changed="reloadAssignment"
             @regenerated="(key) => { retiredInviteKey = key }"
+            @save-primary="(primary) => { settingsSavePrimary = primary }"
+            @unsaved="(u) => { settingsUnsaved = u }"
           />
         </div>
       </div>
@@ -1500,6 +1503,12 @@ const activeTab = computed(() => {
 const settingsOpened = ref(false)
 // The invitation secret Settings just regenerated away (AssignmentHeader.vue).
 const retiredInviteKey = ref('')
+// Whether Settings' Save is the solid button right now (AdminView decides:
+// only once something is edited, on a live assignment). Until then the header's
+// Invite link keeps it, on Settings as on every other tab.
+const settingsSavePrimary = ref(false)
+// Whether Settings holds unsaved edits: its tab carries a dot (on every tab).
+const settingsUnsaved = ref(false)
 watch(activeTab, (tab) => { if (tab === 'settings') settingsOpened.value = true }, { immediate: true })
 const editorRef = ref(null)
 

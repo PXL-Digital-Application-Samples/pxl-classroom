@@ -93,12 +93,20 @@ watch(() => route.fullPath, () => {
   if (!user.value && getUser()) refreshUser()
 })
 
-function handleLogout() {
-  clearAuth()
-  forgetOrgSession()
-  // In the app, not a page load: the sign-in page is a route, and a reload
-  // would only re-read what was just cleared.
-  router.push({ name: 'home' })
+// In the app, not a page load: the sign-in page is a route. The sign-in is
+// cleared once the way out is CONFIRMED, never before it is asked for: a page
+// with unsaved edits asks "Discard?" on leaving, and clearing first meant
+// Cancel there left the lecturer signed out over edits they could no longer
+// save. `beforeResolve` runs after every leave guard has said yes; an answer
+// of no never reaches it.
+async function handleLogout() {
+  const signOut = router.beforeResolve(() => {
+    signOut()
+    clearAuth()
+    forgetOrgSession()
+  })
+  await router.push({ name: 'home' })
+  signOut()
 }
 </script>
 

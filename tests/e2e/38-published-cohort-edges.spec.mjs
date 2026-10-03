@@ -83,7 +83,9 @@ async function open(page, { assignments, edit = A, extra = {} } = {}) {
   if (edit) await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 }
 
-const details = (page) => page.locator('details.settings-disclosure');
+// The form's sections, always open since the "Edit settings" fold went
+// (2026-10-03). Specs that once checked the fold opened now check this shows.
+const details = (page) => page.locator('.settings-fields');
 
 // "What the cohort card will and will not claim" and "The countdown at its
 // edges" lived here. The editor's cohort card (accepted / cap / time left)
@@ -115,11 +117,13 @@ test.describe('38 - Unsaved settings: kept across tabs, asked about on the way o
     page.on('dialog', (d) => { asked.push(d.message()); d.dismiss(); });
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}$`));
-    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    // /^Settings/, not /^Settings$/: with an edit waiting the tab also says so
+    // ("Settings (unsaved changes)" to a screen reader, a dot on screen).
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings/ }).click();
 
     expect(asked, 'switching tabs is not leaving').toEqual([]);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
-    await expect(details(page), 'the disclosure the edit is inside must not shut').toHaveJSProperty('open', true);
+    await expect(details(page)).toBeVisible();
   });
 
   test('Leaving the assignment asks, and a dismissed prompt keeps the edit', async ({ page }) => {
@@ -141,7 +145,7 @@ test.describe('38 - Unsaved settings: kept across tabs, asked about on the way o
 // ============================================ transitions change which layout applies
 
 test.describe('38 - A state transition changes the layout under the lecturer', () => {
-  test('Stopping acceptance keeps the folded layout - closed is still a cohort', async ({ page }) => {
+  test('Stopping acceptance keeps the form, and is not offered again', async ({ page }) => {
     const contentWrites = [];
     await open(page, {
       assignments: { [A]: assignment(A) },
@@ -151,7 +155,7 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
     await chooseState(page, 'Stop accepting');
 
     await expect(page.locator('[data-state-menu]')).toContainText('Closed', { timeout: 15000 });
-    await expect(details(page)).toHaveJSProperty('open', false);
+    await expect(details(page)).toBeVisible();
     await page.locator('[data-state-menu]').click();
     await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Stop accepting');
   });
@@ -168,15 +172,12 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
     await chooseState(page, 'Archive');
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('details.settings-disclosure > summary')).toBeHidden();
     await page.locator('[data-state-menu]').click();
     await expect(page.locator('.state-menu'), 'and it is not offered again').not.toContainText('Archive');
   });
 
-  test('Publishing a draft flips to the folded layout without yanking the form away', async ({ page }) => {
-    // The lecturer was mid-form a second ago. Collapsing the settings out
-    // from under the click that published would be the opposite of helpful,
-    // so `settingsOpen` is the lecturer's and survives the transition.
+  test('Publishing a draft does not yank the form away', async ({ page }) => {
+    // The lecturer was mid-form a second ago.
     const draft = assignment(A, { state: 'draft' });
     delete draft.invite_token;
     delete draft.invite_nonce;
@@ -185,10 +186,9 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
 
     await page.getByRole('button', { name: /^Save & publish$/ }).click();
 
-    await expect(page.locator('details.settings-disclosure > summary'), 'published: the folded layout').toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-state-menu]')).toContainText('Accepting', { timeout: 15000 });
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026'), 'the form the lecturer was in stays open')
       .toBeVisible();
-    await expect(details(page)).toHaveJSProperty('open', true);
   });
 });
 
@@ -275,8 +275,7 @@ test.describe('38 - Every validation still reaches the lecturer', () => {
       assignments: { [A]: assignment(A, overrides) },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(details(page), 'a problem on load opens the settings').toHaveJSProperty('open', true);
-    await expect(page.locator('.settings-problems')).toBeVisible();
+    await expect(details(page)).toBeVisible();
     await expect(page.locator('.field-error-msg', { hasText: message })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Save$/ })).toBeDisabled();
   };
@@ -289,7 +288,7 @@ test.describe('38 - Every validation still reaches the lecturer', () => {
       assignments: { [A]: a },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(details(page)).toHaveJSProperty('open', true);
+    await expect(details(page)).toBeVisible();
     await expect(page.locator('.field-error-msg', { hasText: /Open enrollment requires a cap/i })).toBeVisible();
   });
 
@@ -311,8 +310,7 @@ test.describe('38 - Every validation still reaches the lecturer', () => {
       },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(details(page)).toHaveJSProperty('open', true);
-    await expect(page.locator('.settings-problems')).toContainText('1 field needs fixing');
+    await expect(details(page)).toBeVisible();
     await expect(page.locator('.field-error-msg', { hasText: /needs a script/i })).toBeVisible();
   });
 
@@ -327,12 +325,11 @@ test.describe('38 - Every validation still reaches the lecturer', () => {
 
 // ================================== saving from a pane whose form was never opened
 
-test.describe('38 - Save without ever opening the settings', () => {
-  test('One click from a collapsed pane rebuilds the whole document, losing nothing', async ({ page }) => {
+test.describe('38 - Save without touching a field', () => {
+  test('One click rebuilds the whole document, losing nothing', async ({ page }) => {
     // buildDoc reconstructs the YAML field by field, so anything it does not
-    // carry through is deleted - and WS5 made that reachable without the
-    // lecturer ever seeing the fields. Everything the assignment had must
-    // still be there.
+    // carry through is deleted. Everything the assignment had must still be
+    // there after a Save nobody edited anything for.
     const contentWrites = [];
     const rich = assignment(A, {
       description: 'Processes, signals and job control.',
@@ -354,7 +351,7 @@ test.describe('38 - Save without ever opening the settings', () => {
       assignments: { [A]: rich },
       extra: { contentWrites, reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    await expect(details(page)).toHaveJSProperty('open', false);
+    await expect(details(page)).toBeVisible();
 
     await page.getByRole('button', { name: /^Save$/ }).click();
     await expect.poll(
@@ -405,39 +402,10 @@ test.describe('38 - Save without ever opening the settings', () => {
 
 // ================================================================ the control itself
 
-test.describe('38 - The disclosure is a control, and behaves like one', () => {
-  test('It is reachable and operable from the keyboard', async ({ page }) => {
-    await open(page, {
-      assignments: { [A]: assignment(A) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    const summary = page.locator('details.settings-disclosure > summary');
-    await summary.focus();
-    await expect(summary).toBeFocused();
-    await page.keyboard.press('Enter');
-    await expect(details(page)).toHaveJSProperty('open', true);
-    await page.keyboard.press('Enter');
-    await expect(details(page)).toHaveJSProperty('open', false);
-  });
-
-  test('It carries a marker, because flex removes the native one', async ({ page }) => {
-    // Setting any display other than list-item on a <summary> silently drops
-    // the disclosure triangle. The control still toggles; it just stops
-    // looking like a control.
-    await open(page, {
-      assignments: { [A]: assignment(A) },
-      extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
-    });
-    const caret = page.locator('.settings-disclosure .settings-caret');
-    await expect(caret).toBeVisible();
-    const closed = await caret.evaluate((el) => getComputedStyle(el).transform);
-    expect(closed, 'rotated while shut').not.toBe('none');
-
-    await page.locator('details.settings-disclosure > summary').click();
-    await expect.poll(() => caret.evaluate((el) => getComputedStyle(el).transform)).toBe('none');
-  });
-
-  test('The collapsed pane fits a phone without scrolling sideways', async ({ page }) => {
+// The keyboard and marker tests for the "Edit settings" fold went with the fold
+// (2026-10-03). What is left of this describe is the width check.
+test.describe('38 - The settings pane on a phone', () => {
+  test('It fits a phone without scrolling sideways', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await open(page, {
       assignments: { [A]: assignment(A) },

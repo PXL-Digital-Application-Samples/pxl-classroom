@@ -73,16 +73,6 @@ async function setDeadlineAndSave(page, whenMs) {
   const value =
     `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}` +
     `T${pad(local.getHours())}:${pad(local.getMinutes())}`;
-  // The schedule lives inside the settings disclosure, which is collapsed for
-  // a published assignment with a cohort - so a test that just fills the field
-  // fails on "element is not visible" rather than on anything it meant to say.
-  const disclosure = page.locator('details.settings-disclosure');
-  if (await disclosure.count()) {
-    const summary = disclosure.locator('> summary');
-    if ((await summary.isVisible()) && !(await disclosure.evaluate((d) => d.open))) {
-      await summary.click();
-    }
-  }
   const field = page.locator('input[type="datetime-local"]').nth(1);
   await field.fill(value);
   await saveBtn(page).click();

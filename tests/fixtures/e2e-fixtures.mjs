@@ -401,22 +401,15 @@ export function confirmUrl(org, assignmentId) {
 }
 
 /**
- * Expand the Admin Panel's "Edit settings" disclosure and wait for the form.
+ * Wait for the settings form.
  *
- * A published or closed assignment opens on its cohort, with the six
- * fieldsets collapsed (ARCHITECTURE §10.1.1). A draft renders them directly - there
- * the summary is `display: none` and the <details> is already open, so this is
- * a no-op that still waits for the form. One implementation, because every
- * spec that edits an assignment needs the same three lines.
+ * The fieldsets used to fold away under "Edit settings" once an assignment was
+ * published; since 2026-10-03 they are always open, so this only waits. Kept
+ * as one helper because every spec that edits an assignment calls it.
  */
 export async function expandSettings(page) {
-  const details = page.locator('details.settings-disclosure');
-  await details.waitFor({ state: 'attached', timeout: 15000 });
-  if (!(await details.evaluate((el) => el.open))) {
-    await details.locator('> summary').click();
-  }
   await page.getByPlaceholder('e.g. Linux Processes 2026')
-    .waitFor({ state: 'visible', timeout: 10000 });
+    .waitFor({ state: 'visible', timeout: 15000 });
 }
 
 /**

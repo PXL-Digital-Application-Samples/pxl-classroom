@@ -178,9 +178,10 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   // to the tracking view, and `New assignment` yields while an assignment is
   // open - so the check is the whole view now, like every other route here.
   // The editor is the assignment page's Settings tab now (2026-10-03) and the
-  // published banner is gone; what stays is the whole view's count: the
-  // header's Invite link steps down there, and Save is the one solid button.
-  test('Settings tab: Save is the one solid button, folded and open', async ({ page }) => {
+  // published banner is gone; what stays is the whole view's count. With
+  // nothing edited the header's Invite link is the solid one, as on every tab;
+  // an edit hands it to Save. Exactly one either way.
+  test('Settings tab: one solid button, before and after an edit', async ({ page }) => {
     const base = {
       schema_version: 1,
       id: 'lab',
@@ -205,14 +206,14 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       userRepos: [{ name: 'broker-lab', full_name: `${ORG}/broker-lab` }],
     });
     await page.goto(`/dashboard/${ORG}/lab?tab=settings`);
-    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveText('Save', { timeout: 15000 });
-
-    // And the whole view, collapsed and expanded - the duplicate action row
-    // lived below the fieldsets, so counting only the collapsed state would
-    // pass against a form nobody had opened.
-    await conforms(page, 'admin editor / published, settings collapsed');
     await expandSettings(page);
-    await conforms(page, 'admin editor / published, settings open');
+    await expect(page.getByRole('button', { name: /Invite link/ })).toHaveClass(/btn-primary/);
+    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveCount(0);
+    await conforms(page, 'admin editor / published, nothing edited');
+
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab, edited');
+    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveText('Save');
+    await conforms(page, 'admin editor / published, edited');
   });
 
   // And the detail page in the state a lecturer sees first: published, with

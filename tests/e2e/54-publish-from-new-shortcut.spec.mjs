@@ -112,7 +112,6 @@ test.describe('54 - the + Assignment shortcut', () => {
     await page.goto(`/dashboard/${ORG}/other-one?tab=settings`);
     await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
     const title = page.getByPlaceholder('e.g. Linux Processes 2026');
-    if (!(await title.isVisible())) await page.locator('details.settings-disclosure > summary').click();
     await title.fill('Changed my mind');
     page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /^Cancel$/ }).click();
