@@ -195,6 +195,74 @@ test.describe('56 - An announced invitation', () => {
     await expect(state).not.toContainText(/roster|frozen|deadline|cap|claim|rejected:/i);
   });
 
+  test('Back after a refusal still says it was refused, until the next attempt', async ({ page }) => {
+    // Back used to forget the refusal: the student landed on the Accept button
+    // as if nothing had happened (testbed, 2026-10-03).
+    await acceptWith(page, [REJECTED_LABEL]);
+    await expect(page.locator('.timeout-state')).toBeVisible({ timeout: 30000 });
+    await page.getByRole('button', { name: 'Back' }).click();
+
+    const notice = page.locator('.refused-earlier');
+    await expect(notice).toContainText('Your last attempt was turned away');
+    await expect(notice).toContainText(`@${STUDENT_1.login}`);
+    await expect(notice, 'still never the reason').not.toContainText(/roster|frozen|deadline|cap|claim|rejected:/i);
+
+    await page.getByRole('button', { name: /Accept assignment/i }).click();
+    await expect(notice, 'a new attempt is the news now').toHaveCount(0);
+  });
+
+  test('a refused team student: the heading names what failed, Back keeps the refusal, and the refused attempt is no team', async ({ page }) => {
+    // The testbed sequence of 2026-10-03: create a team, refused; Back showed
+    // the team list with no word of the refusal, and the refused attempt itself
+    // listed as "You are already listed in team-1", a team that existed nowhere.
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: {
+        [GROUP_ID]: {
+          id: GROUP_ID,
+          title: 'Announced Group Invitation',
+          organization: ORG,
+          state: 'published',
+          assignment_type: 'group',
+          roster_mode: 'open',
+          group_config: { max_team_size: 3, formation_mode: 'self-service', allow_team_creation: true },
+          repository_name_pattern: `${GROUP_ID}-{team_slug}`,
+          broker_repo: `broker-${GROUP_ID}`,
+        },
+      },
+      // The refused attempt, as the broker lists it once the hub has answered.
+      brokerIssues: [{
+        number: 7,
+        title: `pxl-accept:sometoken team:team-one`,
+        body: JSON.stringify({ team_slug: 'team-one', team_name: 'Team One', team_action: 'create' }),
+        user: { login: STUDENT_1.login },
+        labels: [{ name: REJECTED_LABEL }],
+        created_at: new Date(Date.now() - 3600_000 * 2).toISOString(),
+      }],
+      brokerIssueLabels: [REJECTED_LABEL],
+    });
+    await page.route(`**/api.github.com/repos/${ORG}/${GROUP_ID}-team-one`, (route) =>
+      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    await page.route('**/api.github.com/user/repository_invitations*', (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([]) }));
+
+    await page.goto(inviteUrl(ORG, GROUP_ID));
+    await expect(page.getByRole('heading', { name: /Team Selection/ })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('You are already listed in'), 'a refused attempt formed no team').toHaveCount(0);
+
+    await page.getByRole('button', { name: /Create a new team instead/i }).click();
+    await page.getByPlaceholder('e.g. The Code Crusaders').fill('Team One');
+    await page.getByRole('button', { name: /Create & Join Team/i }).click();
+
+    const refused = page.locator('.timeout-state');
+    await expect(refused.getByRole('heading', { name: 'Your team was not created' })).toBeVisible({ timeout: 30000 });
+
+    await refused.getByRole('button', { name: 'Back' }).click();
+    await expect(page.locator('.refused-earlier')).toContainText('Your last attempt was turned away');
+    await expect(page.getByText('You are already listed in')).toHaveCount(0);
+  });
+
   test('a group student is told too', async ({ page }) => {
     // The group card is a second reader of the same labels, and it was the
     // copy that would have been left behind: it had no outcome reading at all,

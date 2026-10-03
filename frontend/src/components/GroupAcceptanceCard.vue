@@ -146,7 +146,7 @@
          student watched the spinner, then got a guessed link that 404s. -->
     <div v-else-if="acceptState === 'rejected'" class="timeout-state text-center">
       <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
-      <h2>You were not able to join this team</h2>
+      <h2>{{ refusedHeading }}</h2>
       <p class="text-secondary">{{ REJECTION_MESSAGE }}</p>
       <p v-if="rejectionReference" class="text-muted">
         Tell them: <strong>{{ rejectionReference }}</strong>
@@ -228,6 +228,14 @@
           You are signed in as <strong>@{{ user.login }}</strong>.
           Join an existing team or create a new team for this assignment (max {{ maxTeamSize }} members).
         </p>
+      </div>
+
+      <!-- The refusal, still said after Back, until the next attempt is sent.
+           Back used to forget it, and the list below offered the same action
+           that had just been refused. -->
+      <div v-if="refusedEarlier" class="refused-earlier" role="status">
+        <p><strong>{{ REFUSED_EARLIER_MESSAGE }}</strong></p>
+        <p v-if="rejectionReference" class="text-secondary">Tell them: <strong>{{ rejectionReference }}</strong></p>
       </div>
 
       <!-- Asked once, above the team UI. The claim binds the ACCOUNT and is
@@ -441,6 +449,7 @@ import {
   announcesInvitation,
   isRejection,
   REJECTION_MESSAGE,
+  REFUSED_EARLIER_MESSAGE,
   formatRejectionReference,
 } from '../lib/acceptance-outcome.js'
 import {
@@ -651,11 +660,24 @@ function adoptTargetTeam() {
   }
 }
 
-/** Back to the team list after a refusal, re-read so it reflects what the hub wrote. */
+/**
+ * Back to the team list after a refusal, re-read so it reflects what the hub
+ * wrote - and still saying that it was refused (`refusedEarlier`).
+ */
 async function backToTeams() {
+  refusedEarlier.value = acceptState.value === 'rejected' || refusedEarlier.value
   acceptState.value = 'ready'
   await loadTeams()
 }
+
+// Set by Back from a refusal, cleared when the next attempt is sent.
+const refusedEarlier = ref(false)
+// What the refused attempt was doing (`lastJoin`, below), so the heading names
+// it: a team that was never created is not one the student "was not able to
+// join".
+const refusedHeading = computed(() => lastJoin.value?.action === 'create'
+  ? 'Your team was not created'
+  : `You were not able to join ${targetTeamName.value || 'this team'}`)
 
 /** What the hub said, if anything. Null when it has not answered or we cannot read. */
 async function readTeamAcceptanceOutcome() {
@@ -1055,6 +1077,8 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     acceptanceIssueCreatedAt.value = issueRes.data?.created_at ?? new Date().toISOString()
     targetTeamSlug.value = teamSlug
     lastJoin.value = { slug: teamSlug, name: teamName, action: teamAction }
+    // A new attempt is on its way; the old refusal is no longer the news.
+    refusedEarlier.value = false
 
     acceptState.value = 'pending'
     startPolling(teamSlug)

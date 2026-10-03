@@ -1477,6 +1477,19 @@ a.export-dropdown-item:hover {
   color: var(--accent-red);
   margin: var(--space-sm) 0 0;
 }
+/* A refusal still said after Back, above the controls that would try again
+   (REFUSED_EARLIER_MESSAGE). Both acceptance flows, so global. */
+.refused-earlier {
+  background: var(--tint-attention-subtle);
+  border: 1px solid var(--tint-attention-emphasis);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-md);
+  font-size: 0.88rem;
+  text-align: left;
+}
+.refused-earlier p { margin: 0; }
+.refused-earlier p + p { margin-top: 4px; }
 
 .invitation-hint {
   display: flex;

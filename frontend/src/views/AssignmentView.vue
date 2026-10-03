@@ -156,6 +156,12 @@
                 You're signed in as <strong>{{ user.login }}</strong>.
                 Click below to accept this assignment and get your repository.
               </p>
+              <!-- The refusal, still said after Back, until the next attempt
+                   is sent. Back used to forget it. -->
+              <div v-if="refusedEarlier" class="refused-earlier" role="status">
+                <p><strong>{{ REFUSED_EARLIER_MESSAGE }}</strong></p>
+                <p v-if="rejectionReference" class="text-secondary">Tell them: <strong>{{ rejectionReference }}</strong></p>
+              </div>
               <!-- Under `claim` the address IS the enrolment, so it is asked
                    for before the button rather than behind it. -->
               <ClaimAddressCard
@@ -437,7 +443,7 @@
               Tell them: <strong>{{ rejectionReference }}</strong>
             </p>
             <div class="flex justify-center gap-sm mt-md">
-              <button class="btn btn-primary" @click="acceptState = 'ready'">Back</button>
+              <button class="btn btn-primary" @click="refusedEarlier = true; acceptState = 'ready'">Back</button>
               <button class="btn btn-secondary" @click="checkAgain" :disabled="checkingAgain">
                 {{ checkingAgain ? 'Checking…' : 'Check again' }}
               </button>
@@ -584,6 +590,7 @@ import {
   announcesInvitation,
   isRejection,
   REJECTION_MESSAGE,
+  REFUSED_EARLIER_MESSAGE,
   formatRejectionReference,
 } from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
@@ -665,6 +672,9 @@ const rejectionMessage = computed(() => REJECTION_MESSAGE)
 
 /** When this attempt was refused. Set beside every `acceptState = 'rejected'`. */
 const rejectedAt = ref(null)
+// Set by Back from a refusal, cleared when the next attempt is sent: the
+// refusal stays said above the Accept button (REFUSED_EARLIER_MESSAGE).
+const refusedEarlier = ref(false)
 
 /**
  * What the student can read out to their lecturer.
@@ -1179,6 +1189,8 @@ async function acceptAssignment() {
 
     acceptanceIssue.value = res.data?.number ?? null
     attemptSentAt.value = Date.parse(res.data?.created_at || '') || Date.now()
+    // A new attempt is on its way; the old refusal is no longer the news.
+    refusedEarlier.value = false
     acceptState.value = 'pending'
     startPolling()
   } catch (e) {
