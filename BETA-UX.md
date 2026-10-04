@@ -26,6 +26,17 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   2026-10-02. The form chooses the students (who may accept); the Teams tab
   chooses the teams and only ever offers those students (first item). Nothing
   stored twice, no merged table, and the teams never decide who may accept.
+- **Students with no GitHub username yet: confirm first, then make teams.**
+  Decided 2026-10-03; not built. Teams store usernames, so an address-only
+  roster row cannot be placed. The Teams tab's pickers list such students
+  greyed, *no GitHub username yet*, with one line above: *N students can't be
+  placed yet. Send them the confirm-email link; they appear here as soon as
+  they confirm*, and a *Copy confirm link* button. The pickers read
+  confirmations (`students/claims/`) directly, so a student is placeable right
+  after confirming, not after the nightly folds it into the roster. No change to
+  how teams are stored or to acceptance; reserving a place by address was
+  considered and declined (it changes the team file, acceptance, team-size
+  counting, lockdown and grading).
 
 ### The assignment page (decided 2026-10-02; built 2026-10-02)
 
@@ -163,7 +174,7 @@ editor's card, reloaded on every click and still carried the old Admin layout.
 
 ## Open
 
-- A roster student whose GitHub username is not known yet (they confirm their
-  email address when they accept) cannot be placed in a team in advance: team
-  membership is stored by username. Say so where a lecturer would try, or find
-  another way - not yet decided.
+- **Assignments list, section titles** (noted 2026-10-03, not built): when
+  there are drafts, both groups get a title - *Drafts* (a bit bigger than now)
+  and one over the normal cards - so the two read as distinct. With no drafts,
+  no section titles at all.
