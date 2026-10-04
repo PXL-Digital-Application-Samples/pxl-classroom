@@ -1097,12 +1097,24 @@ select:focus {
   border-width: 2px;
 }
 
+/* NO `forwards`. With it the last keyframe stays applied for ever, and its
+   identity translate is still a transform: it makes the element the containing
+   block for every `position: fixed` descendant, so a dialog inside it is placed
+   against the element instead of the window. `.report-content` carries
+   `fade-in` and holds the Teams tab, so its dialogs opened 113px down the page,
+   and further once it was scrolled, with their buttons below the bottom of a
+   short window (testbed, 2026-10-05). Ending the keyframe on `transform: none`
+   does not help: interpolating to `none` yields identity functions, so the fill
+   is `translateY(0)` all the same. Without a fill the element returns to its
+   own style when the animation ends - opacity 1, no transform - which is what
+   the last keyframe says anyway. `.admin-view` was the same trap in 2026-09 and
+   lost the class; this ends it for every user of the class (tests/e2e/47). */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .fade-in {
-  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .mono {

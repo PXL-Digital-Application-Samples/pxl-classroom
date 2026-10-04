@@ -112,6 +112,63 @@ test.describe('47 - a dialog opens inside the viewport', () => {
     expect(box.y).toBeLessThan(viewport.height);
   });
 
+  test('a Teams dialog covers the window, on a scrolled page, with its buttons on screen', async ({ page }) => {
+    // The THIRD time. The Teams tab renders inside `.report-content fade-in`,
+    // and `fadeIn` ended on `translateY(0)`, so every dialog the tab opens was
+    // placed against that wrapper: 113px down an unscrolled page, its Create
+    // button below the bottom of a 560px window (testbed, 2026-10-05). The
+    // keyframe now ends on `transform: none`, which ends it for every user of
+    // the class rather than for one wrapper.
+    const ID = 'teams-in-viewport';
+    await page.setViewportSize({ width: 1280, height: 560 });
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        [ID]: {
+          schema_version: 1, id: ID, title: 'Teams In Viewport', organization: ORG,
+          assignment_type: 'group', roster_mode: 'enforced', state: 'published',
+          template: { owner: ORG, repository: 'group-template' },
+          repository_name_pattern: `${ID}-{team_slug}`,
+          opens_at: '2026-08-01T08:00:00.000Z', deadline_at: '2026-12-31T22:00:00.000Z',
+          group_config: { max_team_size: 3, min_team_size: 2 },
+        },
+      },
+      roster: Array.from({ length: 24 }, (_, i) => ({ student_number: String(100 + i), full_name: `Student ${i}`, github_login: `stu${i}` })),
+      reports: {
+        [ID]: {
+          schema_version: 1, assignment_id: ID, generated_at: '2026-09-01T10:00:00.000Z', students: [],
+          teams: Array.from({ length: 12 }, (_, i) => ({ team_slug: `t${i}`, team_name: `Team ${i}`, members: [`stu${i}`], submission_status: 'no-submission' })),
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    await expect(page.locator('.data-table tbody tr')).toHaveCount(12, { timeout: 15000 });
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.locator('tr', { hasText: 'Team 11' }).getByRole('button', { name: 'Manage' }).click();
+
+    const overlay = page.locator('.modal-overlay');
+    await expect(overlay).toBeVisible();
+    const culprits = await page.evaluate(() => {
+      const out = [];
+      for (let n = document.querySelector('.modal-overlay')?.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (cs.transform !== 'none' || cs.filter !== 'none' || cs.perspective !== 'none' || cs.willChange !== 'auto' || cs.contain !== 'none') {
+          out.push(`${n.tagName}.${n.className} transform=${cs.transform} filter=${cs.filter} will-change=${cs.willChange} contain=${cs.contain}`);
+        }
+      }
+      return out;
+    });
+    expect(culprits, 'an ancestor of the Teams dialog traps fixed positioning').toEqual([]);
+    // The overlay's own fade starts 4px low; measure where it comes to rest.
+    await overlay.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    const box = await overlay.boundingBox();
+    expect(Math.round(box.y), 'the overlay starts at the top of the window, not of a wrapper').toBe(0);
+    expect(Math.round(box.height)).toBe(560);
+    await expect(overlay.locator('.modal-foot').getByRole('button', { name: /Save Changes/ })).toBeInViewport({ ratio: 1 });
+    await expect(overlay.locator('.modal-head h3')).toBeInViewport({ ratio: 1 });
+  });
+
   test('no page wrapper carries a class that traps fixed positioning', async ({ page }) => {
     // Generic, and the reason this catches the NEXT one rather than only this
     // one: whatever holds a modal must not establish a containing block.

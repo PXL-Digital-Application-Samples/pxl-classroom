@@ -252,8 +252,8 @@ test.describe('96 - The Teams tab says what is true', () => {
     await expect(modal).toBeVisible();
 
     const create = modal.locator('.modal-foot').getByRole('button', { name: 'Create Team' });
-    await expect(create).toBeInViewport();
-    await expect(modal.locator('.modal-head h3')).toBeInViewport();
+    await expect(create).toBeInViewport({ ratio: 1 });
+    await expect(modal.locator('.modal-head h3')).toBeInViewport({ ratio: 1 });
     const { body, whole } = await modal.evaluate((el) => {
       const b = el.querySelector('.modal-body');
       return {
