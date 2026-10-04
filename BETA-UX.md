@@ -37,6 +37,12 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   how teams are stored or to acceptance; reserving a place by address was
   considered and declined (it changes the team file, acceptance, team-size
   counting, lockdown and grading).
+- **The Assignments list titles its two groups when there are drafts:
+  *Drafts* and *Published*.** Noted 2026-10-03, the second title decided
+  2026-10-04; not built. *Drafts* a bit bigger than now, *Published* the same
+  size, over the accepting and closed cards - everything below it has been
+  published, which is the distinction the titles exist to make. With no drafts,
+  no group titles at all.
 
 ### The assignment page (decided 2026-10-02; built 2026-10-02)
 
@@ -174,7 +180,4 @@ editor's card, reloaded on every click and still carried the old Admin layout.
 
 ## Open
 
-- **Assignments list, section titles** (noted 2026-10-03, not built): when
-  there are drafts, both groups get a title - *Drafts* (a bit bigger than now)
-  and one over the normal cards - so the two read as distinct. With no drafts,
-  no section titles at all.
+Nothing open right now.
