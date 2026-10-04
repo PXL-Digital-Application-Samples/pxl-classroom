@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runWatchdog, ranFor, watchedRun } from "../scripts/pipeline-watchdog.mjs";
+import { runWatchdog, ranFor, watchedRun, RUN_LIST_CAP } from "../scripts/pipeline-watchdog.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 
 test("runWatchdog - skips when alertLevel is off", async () => {
@@ -263,4 +263,85 @@ test("watchedRun - the registry branch is not the pipeline; every other branch i
   assert.equal(watchedRun({ head_branch: "main" }), true);
   assert.equal(watchedRun({ head_branch: "beta" }), true);
   assert.equal(watchedRun({}), true, "a run with no branch is still watched");
+});
+
+// One page was the whole read: 20 finished runs every 30 minutes, while an
+// acceptance burst finishes more (38 runs between 09:55 and 10:40 UTC on
+// 2026-10-02). A fake GitHub that pages like the real one, Link header and all.
+function pagingGitHub({ completedPages, calls }) {
+  const json = (body, status = 200, headers = {}) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  return async (url, opts) => {
+    const u = new URL(String(url));
+    const method = opts?.method || "GET";
+    calls.push({ method, url: u.href, body: opts?.body ? JSON.parse(opts.body) : null });
+    if (u.pathname.endsWith("/actions/runs") && u.searchParams.get("status") === "completed") {
+      const page = Number(u.searchParams.get("page") || 1);
+      const next = new URL(u.href);
+      next.searchParams.set("page", String(page + 1));
+      const link = page < completedPages.length ? { link: `<${next.href}>; rel="next"` } : {};
+      return json({ total_count: completedPages.flat().length, workflow_runs: completedPages[page - 1] || [] }, 200, link);
+    }
+    if (u.pathname.endsWith("/actions/runs")) return json({ total_count: 0, workflow_runs: [] });
+    if (u.pathname.endsWith("/issues") && method === "GET") return json([{ number: 30, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
+    if (u.pathname.endsWith("/issues/30/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);
+    return json({});
+  };
+}
+
+const finished = (id, conclusion, minsAgo) => ({
+  id, name: `Accept assignment`, event: "repository_dispatch", head_branch: "main", status: "completed", conclusion,
+  created_at: new Date(Date.now() - (minsAgo + 1) * 60_000).toISOString(),
+  run_started_at: new Date(Date.now() - (minsAgo + 1) * 60_000).toISOString(),
+  updated_at: new Date(Date.now() - minsAgo * 60_000).toISOString(),
+});
+
+test("runWatchdog - a failure on the SECOND page of finished runs is reported", async () => {
+  const calls = [];
+  const pageOne = Array.from({ length: 100 }, (_, i) => finished(5000 + i, "success", 2));
+  const pageTwo = [finished(6001, "failure", 25), finished(6002, "success", 26)];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = pagingGitHub({ completedPages: [pageOne, pageTwo], calls });
+  try {
+    const res = await runWatchdog({
+      owner: "hub-owner", repo: "hub-repo", token: "mock-token",
+      alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: ["tomcoolpxl"],
+    });
+    assert.deepEqual(res.failedRuns.map((r) => r.id), [6001]);
+    assert.equal(res.outcome, "notified");
+
+    // It asked for finished runs CREATED within six hours: a run is listed by
+    // when it started, and the deadline sentinel can run for 4h45m before it
+    // fails. The hour that is reported is judged on when the run finished.
+    const first = new URL(calls.find((c) => c.url.includes("status=completed")).url);
+    const since = Date.parse(first.searchParams.get("created").replace(/^>=/, ""));
+    assert.ok(Math.abs(Date.now() - 6 * 3600_000 - since) < 60_000, `created filter was ${first.searchParams.get("created")}`);
+    assert.equal(first.searchParams.get("per_page"), "100");
+    assert.equal(calls.filter((c) => c.url.includes("status=completed")).length, 2, "both pages were read");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runWatchdog - a list at GitHub's cap is not an all-clear, at any alert level", async () => {
+  const calls = [];
+  const capped = Array.from({ length: RUN_LIST_CAP }, (_, i) => finished(7000 + i, "success", 5));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = pagingGitHub({ completedPages: [capped], calls });
+  try {
+    // critical_only would say nothing about failures at all - and still has
+    // to say that it could not see.
+    const res = await runWatchdog({
+      owner: "hub-owner", repo: "hub-repo", token: "mock-token",
+      alertLevel: "critical_only", autoCancel: true, notifyLogins: ["tomcoolpxl"],
+    });
+    assert.equal(res.outcome, "incomplete");
+    assert.deepEqual(res.capped, ["finished"]);
+    const posted = calls.filter((c) => c.method === "POST" && c.url.includes("/issues/30/comments"));
+    assert.equal(posted.length, 1);
+    assert.match(posted[0].body.body, /could not read every run/);
+    assert.match(posted[0].body.body, /pxl-watchdog-dedup:incomplete-\d{4}-\d\d-\d\dT\d\d-->/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -12,7 +12,7 @@
 // Inputs via env:
 //   GITHUB_TOKEN, HUB_OWNER, HUB_REPO, ALERT_LEVEL, AUTO_CANCEL, NOTIFY_LOGINS
 
-import { gh, ghAll } from "../lib/gh.mjs";
+import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 
@@ -60,6 +60,21 @@ export function ranFor(run) {
   return seconds < 120 ? `${seconds} seconds` : `${Math.round(seconds / 60)} minutes`;
 }
 
+/**
+ * How far back the finished-run walk reaches. A run is listed by when it was
+ * CREATED, and a failure is reported when it FINISHED in the last hour - and
+ * the longest job here waits up to 4h45m (deadline-sentinel.yml). So the walk
+ * reaches back six hours, and the hour is judged on `updated_at` below.
+ */
+const LOOKBACK_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * GitHub returns at most this many runs for a list filtered by `status` or
+ * `created` (REST "List workflow runs for a repository"). A walk that reaches
+ * it has not seen the whole list, so it cannot be read as "nothing failed".
+ */
+export const RUN_LIST_CAP = 1000;
+
 export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, notifyLogins }) {
   if (alertLevel === "off") {
     console.log("Pipeline alerts are disabled (alertLevel=off). Exiting.");
@@ -69,17 +84,26 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   const ghOpts = { token, throwOnError: true };
   const now = Date.now();
 
-  const [waitingRes, inProgressRes, completedRes] = await Promise.all([
-    gh("GET", `/repos/${owner}/${repo}/actions/runs?status=waiting&per_page=30`, null, ghOpts),
-    gh("GET", `/repos/${owner}/${repo}/actions/runs?status=in_progress&per_page=30`, null, ghOpts),
-    gh("GET", `/repos/${owner}/${repo}/actions/runs?status=completed&per_page=20`, null, ghOpts),
+  // EVERY PAGE, not the first. This read one page - 20 finished runs, 30 of
+  // each other kind - every 30 minutes, and an acceptance burst finishes more
+  // than that between two scans (38 runs in 45 minutes on 2026-10-02), so a
+  // failure inside one could fall off the page before any scan saw it. A page
+  // that cannot be read throws, which fails this job where it is seen.
+  const since = new Date(now - LOOKBACK_MS).toISOString();
+  const listRuns = (query) =>
+    ghAllItems(`/repos/${owner}/${repo}/actions/runs?${query}&per_page=100`, "workflow_runs", ghOpts);
+  const [waitingAll, inProgressAll, completedAll] = await Promise.all([
+    listRuns("status=waiting"),
+    listRuns("status=in_progress"),
+    listRuns(`status=completed&created=${encodeURIComponent(`>=${since}`)}`),
   ]);
-
-  /** One page of runs, without the ones that are not the pipeline's (watchedRun). */
-  const runsOf = (res) => (Array.isArray(res.data?.workflow_runs) ? res.data.workflow_runs.filter(watchedRun) : []);
+  // A list that reached GitHub's cap is not the whole list (RUN_LIST_CAP).
+  const capped = [["waiting", waitingAll], ["running", inProgressAll], ["finished", completedAll]]
+    .filter(([, runs]) => runs.length >= RUN_LIST_CAP)
+    .map(([name]) => name);
 
   const stuckRuns = [];
-  const waitingRuns = runsOf(waitingRes);
+  const waitingRuns = waitingAll.filter(watchedRun);
   for (const r of waitingRuns) {
     const ageMs = now - new Date(r.created_at).getTime();
     if (ageMs > 15 * 60 * 1000) {
@@ -92,7 +116,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     }
   }
 
-  const runningRuns = runsOf(inProgressRes);
+  const runningRuns = inProgressAll.filter(watchedRun);
   for (const r of runningRuns) {
     const ageMs = now - new Date(r.created_at).getTime();
     if (ageMs > 45 * 60 * 1000) {
@@ -106,7 +130,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   }
 
   const failedRuns = [];
-  const completedRuns = runsOf(completedRes);
+  const completedRuns = completedAll.filter(watchedRun);
   for (const r of completedRuns) {
     if (r.conclusion === "failure") {
       const ageMs = now - new Date(r.updated_at || r.created_at).getTime();
@@ -122,6 +146,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   }
 
   console.log(`Watchdog scan: ${stuckRuns.length} stuck run(s), ${failedRuns.length} recent failure(s).`);
+  if (capped.length) console.warn(`Not every run could be read: the ${capped.join(", ")} list reached ${RUN_LIST_CAP}.`);
 
   // Auto-cancel zombie runs waiting > 20m
   const cancelledRuns = [];
@@ -162,9 +187,13 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     );
   }
 
+  // A scan that could not read every run cannot be an all-clear, at any alert
+  // level: what it did not read may be exactly the failure it exists to report.
+  if (capped.length) shouldNotify = true;
+
   if (!shouldNotify) {
     console.log("No alerting conditions met for configured alert level.");
-    return { outcome: "ok", stuckRuns, failedRuns, cancelledRuns };
+    return { outcome: "ok", stuckRuns, failedRuns, cancelledRuns, capped };
   }
 
   // Find or create tracking issue
@@ -243,7 +272,24 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     console.log(`Posted failed run alert for #${r.id} to issue #${issue.number}.`);
   }
 
-  return { outcome: "notified", stuckRuns, failedRuns, cancelledRuns };
+  // Once an hour at most: every scan in a long burst would otherwise say it.
+  if (capped.length) {
+    const dedupKey = `incomplete-${new Date(now).toISOString().slice(0, 13)}`;
+    if (comments.some((c) => c.body?.includes(`${DEDUP_MARKER}${dedupKey}-->`))) {
+      console.log("Incomplete-scan warning already posted this hour, skipping.");
+    } else {
+      const commentBody =
+        `${DEDUP_MARKER}${dedupKey}-->\n` +
+        `### [WARNING] Pipeline Watchdog could not read every run\n\n` +
+        `${mentions ? `${mentions} - ` : ""}GitHub lists at most ${RUN_LIST_CAP} runs per query, and the ` +
+        `${capped.join(", ")} list reached that, so this scan cannot say that nothing failed or got stuck. ` +
+        `Check the repository's Actions tab.\n`;
+      await gh("POST", `/repos/${owner}/${repo}/issues/${issue.number}/comments`, { body: commentBody }, ghOpts);
+      console.log(`Posted incomplete-scan warning to issue #${issue.number}.`);
+    }
+  }
+
+  return { outcome: capped.length ? "incomplete" : "notified", stuckRuns, failedRuns, cancelledRuns, capped };
 }
 
 // CLI entry point
