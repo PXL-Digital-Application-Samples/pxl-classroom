@@ -18,8 +18,12 @@ test.describe('95 - New look, once', () => {
     await page.goto(`/dashboard/${ORG}`);
 
     await expect(card(page)).toBeVisible({ timeout: 20000 });
-    await expect(card(page).getByRole('heading', { name: 'New look' })).toBeVisible();
-    await expect(card(page).locator('li')).toHaveCount(5);
+    await expect(card(page).getByRole('heading', { name: 'This page changed.' })).toBeVisible();
+    // Which part saves on Save and which saves at once: the five bullets this
+    // replaced said "only when you press Save", true of the Settings tab alone.
+    await expect(card(page)).toContainText('which saves when you press Save');
+    await expect(card(page)).toContainText('saves as soon as you act');
+    await expect(card(page).locator('li')).toHaveCount(0);
     // Not a second solid button beside New assignment (DESIGN.md §1.2).
     await expect(card(page).locator('.btn-primary')).toHaveCount(0);
     // And it points at the screen, never at documentation (DESIGN.md §1.6).

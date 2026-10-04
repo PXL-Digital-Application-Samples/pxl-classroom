@@ -6,14 +6,17 @@
        not a dialog, so someone who came to do one quick thing is not stopped.
        The page shows it to staff only (DashboardView's `staffVerdict`). -->
   <section v-if="open" class="whats-new card" aria-labelledby="whats-new-title">
-    <h3 id="whats-new-title" class="whats-new-title">New look</h3>
-    <ul class="whats-new-list">
-      <li>Each course has three tabs at the top: Assignments, Roster and Organization.</li>
-      <li>An assignment is one page. Progress, Grading and Settings are tabs on it (and Teams for group work).</li>
-      <li>To stop accepting, reopen or archive, use the button at the top left that shows the assignment's state.</li>
-      <li>The link for students is under Invite link, top right.</li>
-      <li>Changes are saved only when you press Save. A dot on Settings means something is not saved yet.</li>
-    </ul>
+    <!-- Three plain sentences (decided 2026-10-05), replacing five bullets.
+         The fifth bullet said "Changes are saved only when you press Save",
+         which is true of the Settings tab alone: a team, a move, a copy, the
+         state button and the roster save as soon as the lecturer acts. Saying
+         which is which is the one thing here a lecturer can get wrong. -->
+    <h3 id="whats-new-title" class="whats-new-title">This page changed.</h3>
+    <p class="whats-new-text">
+      Admin is gone: each assignment now has its own tabs, and its settings are
+      on the Settings tab, which saves when you press Save. Everything else -
+      teams, the state button at the top left, the roster - saves as soon as you act.
+    </p>
     <div class="whats-new-actions">
       <button class="btn btn-secondary btn-sm" type="button" @click="dismiss">Got it</button>
     </div>
@@ -45,13 +48,10 @@ function dismiss() {
   margin: 0 0 var(--space-xs) 0;
   font-size: 1rem;
 }
-.whats-new-list {
+.whats-new-text {
   margin: 0;
-  padding-left: 1.2em;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   font-size: 0.88rem;
+  line-height: 1.5;
   max-width: var(--form-measure);
 }
 .whats-new-actions {

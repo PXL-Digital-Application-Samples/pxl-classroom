@@ -174,7 +174,10 @@ editor's card, reloaded on every click and still carried the old Admin layout.
 - Fixed as bugs: signing out cleared the sign-in before asking about unsaved
   edits; Regenerate link made an untouched form read as edited.
 - **A one-time "New look" card for lecturers** above the Assignments list:
-  five lines on where things moved, *Got it* to dismiss. Remembered per
+  three plain sentences under *This page changed.* - Admin is gone, settings
+  are on each assignment's Settings tab and save on Save, everything else saves
+  as soon as you act - with *Got it* to dismiss (five bullets until
+  2026-10-05, the last of which said everything waits for Save). Remembered per
   browser on the live app; on beta per session, so it shows on every visit.
   Not a dialog, no link to documentation, never shown to a student.
 
