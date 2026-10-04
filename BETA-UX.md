@@ -27,7 +27,9 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   chooses the teams and only ever offers those students (first item). Nothing
   stored twice, no merged table, and the teams never decide who may accept.
 - **Students with no GitHub username yet: confirm first, then make teams.**
-  Decided 2026-10-03; not built. Teams store usernames, so an address-only
+  Decided 2026-10-03; built 2026-10-05 (`teamCandidates` `waiting`; the line
+  says "they appear here once they confirm", since the tab re-reads
+  confirmations on load and does not watch for them). Teams store usernames, so an address-only
   roster row cannot be placed. The Teams tab's pickers list such students
   greyed, *no GitHub username yet*, with one line above: *N students can't be
   placed yet. Send them the confirm-email link; they appear here as soon as
@@ -43,6 +45,26 @@ project are in [OPEN-ITEMS.md](OPEN-ITEMS.md), not here.
   size, over the accepting and closed cards - everything below it has been
   published, which is the distinction the titles exist to make. With no drafts,
   no group titles at all.
+
+### The Teams tab, from the live test (decided 2026-10-04; built 2026-10-05)
+
+- **The table follows the team files**, not the report a minute behind them
+  (`frontend/src/lib/team-rows.js`).
+- **A move says what it does to that student**, computed per case; moving into
+  a team with no repository is allowed and says they must accept again.
+- **Every dialog keeps its title and buttons; only the body scrolls.**
+- **The Teams tab asks in its own dialog** (`ConfirmDialog.vue`): Move, Delete
+  team, Undo copy. The row's red Delete went; an empty team is deleted from
+  Manage. Remove in Manage is a plain button.
+- **No GitHub username yet**: the item above.
+- **Each member in Manage says where they stand** (has the team repository /
+  has not accepted yet); a username does not wrap.
+- **Wording**: assignment titles, not ids; no "control repository"; the
+  name clash names the other assignment and the names it makes.
+- **The tab bar draws its line inside itself** (no 1px scroll).
+- **Capacity dots**: amber below the minimum, green otherwise.
+- **A username that is not a GitHub account** is said as such on removal, and
+  the Roster asks GitHub before storing one.
 
 ### The assignment page (decided 2026-10-02; built 2026-10-02)
 

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { injectAuth,
   setupStandardMockRoutes,
+  answerConfirm,
   LECTURER,
   STUDENT_1, inviteUrl } from '../fixtures/e2e-fixtures.mjs';
 
@@ -85,17 +86,28 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     await expect(phoenixRow).toBeVisible();
     await expect(activeRow).toBeVisible();
 
-    // Verify Phoenix is marked vacant and shows Delete button
+    // Verify Phoenix is marked vacant. No row carries a Delete button: a
+    // destructive action is not a bare button in a table (DESIGN.md §1.2), so
+    // an empty team is deleted from Manage, where its emptiness is on screen.
     await expect(phoenixRow).toContainText('No members (vacant)');
-    const deleteBtn = phoenixRow.getByRole('button', { name: /Delete/i });
-    await expect(deleteBtn).toBeVisible();
+    await expect(phoenixRow.getByRole('button', { name: /Delete/i })).toHaveCount(0);
+    await expect(activeRow.getByRole('button', { name: /Delete/i })).toHaveCount(0);
 
-    // Active team has active members and does NOT show Delete button in row
-    await expect(activeRow.getByRole('button', { name: /Delete/i })).not.toBeVisible();
+    // A team with members offers no delete in Manage either.
+    await activeRow.getByRole('button', { name: /Manage/i }).click();
+    await expect(page.locator('.modal.card', { hasText: 'Manage Team Active' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete team' })).toHaveCount(0);
+    await page.locator('.modal-foot').getByRole('button', { name: 'Close' }).click();
 
-    // Handle confirm dialog and delete vacant team
-    page.on('dialog', (dialog) => dialog.accept());
-    await deleteBtn.click();
+    await phoenixRow.getByRole('button', { name: /Manage/i }).click();
+    await page.getByRole('button', { name: 'Delete team' }).click();
+
+    // The page's own question, naming the team and the action.
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Delete team Team Phoenix?');
+    await expect(ask).toContainText('Team Phoenix has no members. It is removed from this assignment.');
+    await expect(ask).not.toContainText('control repo');
+    await answerConfirm(page);
 
     // Verify success toast
     await expect(page.locator('.toast', { hasText: /deleted successfully/i })).toBeVisible();
@@ -228,7 +240,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     // Click Manage on Team Apollo
     await apolloRow.getByRole('button', { name: /Manage/i }).click();
 
-    const manageModal = page.locator('.modal.card', { hasText: 'Manage: Team Apollo' });
+    const manageModal = page.locator('.modal.card', { hasText: 'Manage Team Apollo' });
     await expect(manageModal).toBeVisible();
 
     // Verify student-dev1 is in current members

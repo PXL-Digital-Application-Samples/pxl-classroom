@@ -105,7 +105,9 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
           organization: ORG,
           state: 'published',
           assignment_type: 'group',
-          group_config: { max_team_size: 3 },
+          // The minimum the report measures "under capacity" against; without
+          // one it marks no team under capacity (report.mjs).
+          group_config: { max_team_size: 3, min_team_size: 2 },
         },
       },
       reports: {

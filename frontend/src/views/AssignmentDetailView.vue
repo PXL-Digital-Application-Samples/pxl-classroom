@@ -941,7 +941,7 @@
             :teams="report.teams || []"
             :assignment="assignment"
             :org="org"
-            :roster="roster"
+            :roster="rosterRows"
             :students="report.students || []"
             @refresh="loadAll"
           />
@@ -1454,6 +1454,8 @@ import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
+import { teamRows } from '../lib/team-rows.js'
+import { minTeamSize } from '../../../lib/group-config.mjs'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { teamRepresentative } from '../../../lib/team-representative.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -2329,7 +2331,10 @@ const overridesByLogin = ref(new Map())
 // under a hand-in cap depends on it (loadOverrides).
 const overridesProblem = ref(null)
 const rosterByLogin = ref(new Map())
-const roster = computed(() => Array.from(rosterByLogin.value.values()))
+// Every row, including the ones with no GitHub login yet. The Teams tab needs
+// those: they are this assignment's students who cannot be placed in a team
+// until they confirm their address, and leaving them out made them invisible.
+const rosterRows = ref([])
 const userProfilesByLogin = ref(new Map())
 
 
@@ -2924,64 +2929,42 @@ watch(() => [route.query.sync, route.query.action], () => {
 
 
 // teams/<id>/<slug>.json is the authoritative membership; reports/<id>.json is a
-// snapshot the nightly or a dashboard regeneration writes. Two cases would
-// otherwise show an empty Teams tab: a grouping seeded seconds ago (the
-// regeneration is still running) and any team on a DRAFT assignment, which
-// never gets an interim report at all - so "seed, review, then publish" would
-// have had nothing to review.
+// snapshot the nightly or a dashboard regeneration writes. The rows are built
+// from the files, every load, and take only the work (repository, commits,
+// status, score) from the report - lib/team-rows.js says why. It used to read
+// a file only for a team the report did not list yet, so after a save, a move
+// or a delete the table showed the old state until the regeneration finished.
 async function mergeTeamManifests(token) {
-  if (assignment.value?.assignment_type !== 'group') return
+  if (assignment.value?.assignment_type !== 'group' || !report.value) return
 
-  let files = []
+  let listing = []
   try {
-    files = await listRepoDir(token, props.org, config.controlRepo, teamsDir(props.assignmentId))
+    listing = await listRepoDir(token, props.org, config.controlRepo, teamsDir(props.assignmentId))
   } catch (e) {
-    if (e.status !== 404) console.warn('Could not list team manifests:', e.message)
+    if (e.status === 404) {
+      // No team directory: there are no teams, whatever the report says.
+      report.value.teams = teamRows(report.value.teams, { listed: true, files: [] })
+      return
+    }
+    // Unreadable is not evidence: keep the report's rows as they are.
+    console.warn('Could not list team manifests:', e.message)
     return
   }
-  const manifests = files
-    .filter((f) => f.type === 'file' && f.name.endsWith('.json'))
-    .map((f) => ({ slug: f.name.replace(/\.json$/, ''), path: f.path }))
-  if (manifests.length === 0) return
-
-  if (!report.value) return
-
-  const known = new Set((report.value.teams || []).map((t) => String(t.team_slug).toLowerCase()))
-  const missing = manifests.filter((m) => !known.has(m.slug.toLowerCase()))
-  if (missing.length === 0) return
-
-  const minSize = Number(assignment.value?.group_config?.min_team_size) || 0
-  const docs = await Promise.all(
-    missing.map(async (m) => {
-      try {
-        const text = await getRepoContent(token, props.org, config.controlRepo, m.path)
-        return text ? JSON.parse(text) : null
-      } catch {
-        return null
-      }
-    })
+  const files = await Promise.all(
+    listing
+      .filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+      .map(async (f) => {
+        try {
+          const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+          return { slug: f.name.replace(/\.json$/, ''), doc: text ? JSON.parse(text) : null }
+        } catch {
+          return { slug: f.name.replace(/\.json$/, ''), doc: null }
+        }
+      })
   )
-
-  const extra = docs
-    .filter((d) => d && d.team_slug && d.vacant !== true)
-    .map((d) => ({
-      team_slug: d.team_slug,
-      team_name: d.team_name || d.team_slug,
-      members: d.members || [],
-      repo_name: d.repo_name || null,
-      repo_url: d.repo_url || null,
-      submission_status: 'no-submission',
-      commit_count: null,
-      under_capacity: minSize > 0 && (d.members || []).length < minSize,
-      ...(d.seeded_from ? { seeded_from: d.seeded_from } : {}),
-      warnings: [],
-    }))
-
-  if (extra.length) {
-    report.value.teams = [...(report.value.teams || []), ...extra].sort((a, b) =>
-      String(a.team_slug).localeCompare(String(b.team_slug))
-    )
-  }
+  report.value.teams = teamRows(report.value.teams, { listed: true, files }, {
+    minTeamSize: minTeamSize(assignment.value?.group_config),
+  })
 }
 
 // The shape reports/<id>.json has before anything has been generated. Used for
@@ -3141,11 +3124,13 @@ async function loadAll() {
     // An unreadable assignment is a genuine load failure and belongs in the
     // error branch - which is exactly what the comment below already assumed
     // was happening.
+    //
+    // Said without a file path or "control repository" (DESIGN.md §1.6): the
+    // lecturer reading it opened a link to an assignment, and the three things
+    // that can be wrong are all things they can recognise.
     if (!assignment.value) {
       loadError.value =
-        `Could not read assignments/${props.assignmentId}.yml in ` +
-        `${props.org}/${config.controlRepo}. It may have been renamed or removed, ` +
-        `or this account may not have access to that control repository.`
+        'This assignment was not found. It may have been deleted or renamed, or you cannot see this course.'
       return
     }
 
@@ -3175,6 +3160,7 @@ async function loadAll() {
           if (s.github_login) map.set(s.github_login.toLowerCase(), s)
         }
         rosterByLogin.value = map
+        rosterRows.value = list
       } catch (e) {
         console.warn('Failed to parse roster:', e)
       }

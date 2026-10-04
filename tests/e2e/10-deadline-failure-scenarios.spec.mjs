@@ -356,8 +356,12 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
           state: 'published',
           assignment_type: 'group',
           deadline_at: pastDeadline,
+          // A minimum, because "under capacity" is measured against one: the
+          // report never marks a team under capacity without it (report.mjs),
+          // and the Teams tab now recomputes it from the team files.
           group_config: {
             max_team_size: 3,
+            min_team_size: 2,
             formation_mode: 'self-service',
           },
         },

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, expandSettings } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, expandSettings, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 // Carrying groups forward from one assignment to the next: the lecturer seeds
 // teams from a previous grouping, and the student confirms the group they
@@ -625,9 +625,8 @@ test.describe('26 - Carrying groups forward between assignments', () => {
   // A bulk write needs a bulk undo: deleting 33 teams one at a time is ~100
   // clicks, and deleteVacantTeam refuses any team that still has members.
 
-  /** Open the Teams tab, answering the next window.confirm. */
-  async function openTeamsTab(page, assignmentId, { acceptConfirm = true } = {}) {
-    page.on('dialog', (d) => (acceptConfirm ? d.accept() : d.dismiss()));
+  /** Open the Teams tab. The confirmation is the page's own (answerConfirm). */
+  async function openTeamsTab(page, assignmentId) {
     await page.goto(`/dashboard/${ORG}/${assignmentId}`);
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
     await page.waitForTimeout(300);
@@ -667,6 +666,15 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     const undo = page.locator('button', { hasText: /Undo copy/ });
     await expect(undo).toContainText('Undo copy (2)');
     await undo.click();
+    // The question names what goes, by the assignment's title, and says the
+    // students' repositories are not touched - no control-repository talk.
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Remove 2 copied teams from');
+    await expect(ask).toContainText('Alpha Team (1 member)');
+    await expect(ask).toContainText('No student repository is touched.');
+    await expect(ask).not.toContainText('control repository');
+    await expect(ask.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await answerConfirm(page);
     await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
 
     // A multi-file DELETE: one commit, null content per path.
@@ -702,6 +710,8 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await openTeamsTab(page, NEXT);
     await expect(page.locator('button', { hasText: /Undo copy/ })).toContainText('Undo copy (1)');
     await page.locator('button', { hasText: /Undo copy/ }).click();
+    await expect(page.locator('.confirm-dialog')).toContainText('1 copied team is kept: a member has already accepted into it.');
+    await answerConfirm(page);
     await expect.poll(() => gitCommits.length, { timeout: 10000 }).toBe(1);
     expect(gitCommits[0].files.map((f) => f.path)).toEqual([`teams/${NEXT}/beta.json`]);
   });
@@ -757,8 +767,9 @@ test.describe('26 - Carrying groups forward between assignments', () => {
       },
     });
 
-    await openTeamsTab(page, NEXT, { acceptConfirm: false });
+    await openTeamsTab(page, NEXT);
     await page.locator('button', { hasText: /Undo copy/ }).click();
+    await answerConfirm(page, { accept: false });
     await page.waitForTimeout(600);
     expect(gitCommits).toHaveLength(0);
     await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
@@ -1116,7 +1127,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await page.locator('.modal-foot .btn-primary').click();
 
     await expect(page.locator('.toast-success')).toHaveCount(1, { timeout: 10000 });
-    await expect(page.locator('.toast-success')).toContainText('Seeded 1 team');
+    await expect(page.locator('.toast-success')).toContainText('Copied 1 team with');
   });
 
   test('The modal fits a phone without scrolling sideways', async ({ page }) => {

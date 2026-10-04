@@ -9,7 +9,7 @@
 // manifests merged onto what was stored (so created_by, repo_id and seeded_from
 // survive), in a single commit, with the emptied team marked vacant.
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'move-student-demo';
 
@@ -121,7 +121,7 @@ async function openManageAlpha(page, captured) {
   const alphaRow = page.locator('tr', { hasText: 'Alpha' });
   await expect(alphaRow).toBeVisible();
   await alphaRow.getByRole('button', { name: /Manage/i }).click();
-  await expect(page.locator('.modal.card', { hasText: 'Manage: Alpha' })).toBeVisible();
+  await expect(page.locator('.modal.card', { hasText: 'Manage Alpha' })).toBeVisible();
 }
 
 test.describe('48 - Moving a student between teams', () => {
@@ -129,9 +129,9 @@ test.describe('48 - Moving a student between teams', () => {
     const captured = { blobs: [], trees: [], collab: [] };
     await openManageAlpha(page, captured);
 
-    page.on('dialog', (d) => d.accept());
-    const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
     await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
     await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toBeVisible();
 
     // ONE tree carrying BOTH team paths. Two trees would be two commits, with a
@@ -191,9 +191,9 @@ test.describe('48 - Moving a student between teams', () => {
     });
     await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
     await page.locator('tr', { hasText: 'Alpha' }).getByRole('button', { name: /Manage/i }).click();
-    page.on('dialog', (d) => d.accept());
-    const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
     await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
     await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toBeVisible();
 
     const move = gitCommits.find((c) => c.files.some((f) => f.path.endsWith('beta.json')));
@@ -211,10 +211,10 @@ test.describe('48 - Moving a student between teams', () => {
   test('repository access follows the student in both directions', async ({ page }) => {
     const captured = { blobs: [], trees: [], collab: [] };
     await openManageAlpha(page, captured);
-    page.on('dialog', (d) => d.accept());
 
-    const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
     await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
     await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toBeVisible();
 
     expect(captured.collab.some((c) => c.startsWith('DELETE') && c.includes('-alpha'))).toBe(true);
@@ -237,7 +237,7 @@ test.describe('48 - Moving a student between teams', () => {
     const alphaRow = page.locator('tr', { hasText: 'Alpha' });
     await alphaRow.getByRole('button', { name: /Manage/i }).click();
 
-    const modal = page.locator('.modal.card', { hasText: 'Manage: Alpha' });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
     const select = modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select');
     // Beta is at 3/3, so it must not be an option. With no destinations at all
     // the control is not rendered - an empty picker is not a control.

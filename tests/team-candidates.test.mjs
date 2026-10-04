@@ -53,6 +53,29 @@ test("a row without a GitHub login cannot be placed in a team, and members are n
   assert.deepEqual(logins(unassigned), ["kim", "old"]);
 });
 
+test("a cohort row with no login is not dropped: it waits, named, until a login exists", () => {
+  const { all, waiting } = teamCandidates({ assignment: { roster_mode: "claim" }, roster });
+  assert.ok(!logins(all).includes(undefined));
+  assert.deepEqual(waiting, [{ full_name: "No Login Yet", student_number: "5", email: "no.login@student.pxl.be" }]);
+});
+
+test("a row a claim has bound is placeable under the claimed login", () => {
+  const loginFor = (row) => (row.email === "no.login@student.pxl.be" ? "nolo-gh" : null);
+  const { unassigned, waiting } = teamCandidates({ assignment: { roster_mode: "claim" }, roster, loginFor });
+  assert.ok(logins(unassigned).includes("nolo-gh"));
+  assert.deepEqual(waiting, []);
+});
+
+test("a row's own login wins over whatever a claim says", () => {
+  const loginFor = () => "someone-else";
+  const { all } = teamCandidates({ assignment: { roster_mode: "enforced", cohort: ["num:1"] }, roster, loginFor });
+  assert.deepEqual(logins(all), ["ann"]);
+});
+
+test("under open enrolment nobody waits: the roster is not the population", () => {
+  assert.deepEqual(teamCandidates({ assignment: { roster_mode: "open" }, roster }).waiting, []);
+});
+
 test("one login is one candidate, whatever its case", () => {
   const { all } = teamCandidates({
     assignment: { roster_mode: "enforced", cohort: ["num:1"] },

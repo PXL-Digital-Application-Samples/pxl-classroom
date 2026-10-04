@@ -178,27 +178,26 @@
             </div>
           </div>
         </div>
-
-        <!-- Action Buttons -->
-        <div class="modal-actions-box flex justify-between items-center flex-wrap gap-sm pt-sm">
-          <div class="flex gap-xs">
-            <button class="btn btn-sm btn-secondary" type="button" @click="copyReport">
-              Copy Report
-            </button>
-            <a
-              href="https://github.com/notifications"
-              target="_blank"
-              rel="noopener"
-              class="btn btn-sm btn-secondary"
-            >
-              GitHub Notifications
-            </a>
-          </div>
-          <button class="btn btn-sm btn-secondary" type="button" @click="handleSwitchAccount">
-            Sign in with different account
-          </button>
-        </div>
       </div>
+
+      <footer class="modal-foot flex justify-between items-center flex-wrap gap-sm">
+        <div class="flex gap-xs">
+          <button class="btn btn-sm btn-secondary" type="button" @click="copyReport">
+            Copy Report
+          </button>
+          <a
+            href="https://github.com/notifications"
+            target="_blank"
+            rel="noopener"
+            class="btn btn-sm btn-secondary"
+          >
+            GitHub Notifications
+          </a>
+        </div>
+        <button class="btn btn-sm btn-secondary" type="button" @click="handleSwitchAccount">
+          Sign in with different account
+        </button>
+      </footer>
     </div>
   </div>
 </template>
@@ -355,8 +354,4 @@ async function copyReport() {
    values are unchanged - but it takes them off the undeclared-class register
    and puts the appearance where DESIGN.md says it belongs.
    ------------------------------------------------------------------------ */
-
-.modal-actions-box {
-  border-top: 1px solid var(--border-default);
-}
 </style>

@@ -6,7 +6,7 @@
              deliberate step rather than something that happens. That is the
              sentence the topic opens with, and this modal is where somebody
              first wonders about it. -->
-        <h3 id="seed-modal-title">Copy teams into {{ assignment.id }} <HelpButton topic="group-assignments" label="how teams work" /></h3>
+        <h3 id="seed-modal-title">Copy teams into {{ targetTitle }} <HelpButton topic="group-assignments" label="how teams work" /></h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -32,7 +32,7 @@
                 {{ a.title || a.id }}
               </option>
             </optgroup>
-            <option value="roster">The roster’s team_slug / team_name columns</option>
+            <option value="roster">The Team column of the imported roster</option>
           </select>
           <small class="form-hint">
             <template v-if="loadingSources">Looking for group assignments in {{ org }}…</template>
@@ -111,7 +111,7 @@
             <!-- Everything in the source is already covered here -->
             <p v-if="plan.teams.length === 0" class="seed-footnote">
               Nothing left to copy: every team from this source already exists in
-              <code>{{ assignment.id }}</code>, or its members have joined other teams here.
+              {{ targetTitle }}, or its members have joined other teams here.
             </p>
 
             <!-- Preview -->
@@ -135,8 +135,14 @@
             </div>
 
             <p v-if="plan.teams.length" class="seed-footnote">
-              Teams are written to the control repository now and become visible to students when
-              the assignment is published. Nothing is provisioned until a student accepts.
+              <template v-if="assignment.state === 'published'">
+                The teams are saved now and students see them right away; no repository is created
+                until a student accepts.
+              </template>
+              <template v-else>
+                The teams are saved now. Students see them once the assignment is published; no
+                repository is created until a student accepts.
+              </template>
             </p>
           </template>
         </template>
@@ -196,6 +202,11 @@ const loading = ref(false)
 const loadError = ref(null)
 const plan = ref(null)
 const applying = ref(false)
+
+// The assignment by its title: the id is a slug only this system uses
+// (DESIGN.md §1.6), and the lecturer named the assignment themselves.
+const targetTitle = computed(() => props.assignment?.title || props.assignment?.id || 'this assignment')
+const countOf = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`
 
 const sourceAssignments = computed(() => {
   const list = (props.assignments || []).length ? props.assignments : discovered.value
@@ -416,7 +427,7 @@ async function apply() {
     const published = await republishStudentPages({
       token,
       org: props.org,
-      failure: `Seeded ${fresh.stats.teams} team(s), but publishing them to students failed`,
+      failure: `Copied ${countOf(fresh.stats.teams, 'team')}, but publishing them to students failed`,
     })
     if (!published) {
       emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
@@ -425,7 +436,7 @@ async function apply() {
     }
 
     toast.success(
-      `Seeded ${fresh.stats.teams} team(s) with ${fresh.stats.students} student(s) into ${props.assignment.id}.`
+      `Copied ${countOf(fresh.stats.teams, 'team')} with ${countOf(fresh.stats.students, 'student')} into ${targetTitle.value}.`
     )
     emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
     emit('close')
@@ -528,12 +539,13 @@ function close() {
   margin-bottom: var(--space-xs);
 }
 
+/* No height of its own: the dialog's body scrolls (style.css, `.modal`), and
+   a 260px list scrolling inside it was a second scrollbar around the very
+   rows the lecturer is reading before copying them. */
 .seed-preview-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 260px;
-  overflow-y: auto;
   background: var(--bg-inset);
   border-radius: var(--radius-sm);
 }

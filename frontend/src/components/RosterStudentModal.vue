@@ -12,7 +12,7 @@
         <button class="modal-close" type="button" :disabled="saving" aria-label="Close" @click="close">×</button>
       </header>
 
-      <section class="modal-section">
+      <section class="modal-section modal-body">
         <div class="field">
           <label for="rsm-number">Student number</label>
           <input id="rsm-number" v-model="form.student_number" class="form-control" placeholder="e.g. 0123456" />

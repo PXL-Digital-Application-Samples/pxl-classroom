@@ -13,6 +13,7 @@
         <button class="modal-close" type="button" @click="requestClose" :disabled="busy" aria-label="Close">×</button>
       </header>
 
+      <div class="modal-body flex flex-col gap-md">
       <section class="modal-section">
         <h4>Grant deadline extension</h4>
         <p v-if="extension" class="text-secondary">
@@ -273,6 +274,7 @@
           <span>View Preserved Code in Archive</span>
         </a>
       </section>
+      </div>
     </div>
   </div>
 </template>

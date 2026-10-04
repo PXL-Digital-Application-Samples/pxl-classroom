@@ -414,6 +414,49 @@ because `lib/effective-deadline.mjs` decides what "later than the current
 deadline" means. A dialog that re-derived either would be the second
 implementation those modules exist to prevent.
 
+### Only the body of a dialog scrolls
+
+A dialog's title and its buttons stay on screen; the part between them scrolls.
+Until 2026-10-04 the whole `.modal` scrolled at 90vh, so a long member list
+pushed *Save* below the fold and the only sign was a scrollbar down the dialog's
+edge, read as "it does not fit". Primer's Dialog does it this way, and so does
+every dialog here now: `.modal` is a flex column, `.modal-head` and
+`.modal-foot` (or `.modal-actions`) do not shrink, and `.modal-body` takes what
+is left and scrolls (`style.css`).
+
+* **The head, the body and the foot are the dialog's direct children.** A
+  footer inside the body scrolls away with it; six dialogs had theirs there.
+  A form that must hold its submit button wraps body and foot in `.modal-form`,
+  which carries the same layout one level down, so Enter still submits.
+* **Nothing inside the body scrolls on its own.** A 260px list inside a body
+  that scrolls is two scrollbars for one list; the copy-teams preview, the
+  regrade commit list and the team pickers lost theirs.
+* `overflow-y: auto` stays on `.modal` as the fallback, so a dialog built some
+  other way still scrolls whole rather than clipping.
+
+`tests/e2e/96-teams-tab-truth.spec.mjs` opens one at 520px tall and checks that
+the buttons are in view and the body, not the dialog, is what scrolls.
+
+### A confirmation is asked in the page, and its button says what it does
+
+`window.confirm()` cannot name its button - it says OK whatever is about to
+happen - and cannot be styled, so on the Teams tab *Move*, *Delete* and *Undo
+copy* were confirmed by a grey system box beside a page that otherwise speaks in
+sentences. `ConfirmDialog.vue` asks instead, after Primer's ConfirmationDialog:
+
+* the title is the question (*Move @ann to Bravo?*) and the button is the
+  action (*Move @ann*, *Delete team*), never *OK* or *Yes*;
+* a destructive answer is the solid `.btn-danger` (§3: the destruction is the
+  point of that view) and **Cancel has the focus**, so the Enter a lecturer
+  presses out of habit is the harmless one; otherwise the action is
+  `.btn-primary` and has it;
+* the body is computed from the case in hand, never one sentence for all
+  cases (`frontend/src/lib/team-edit.js`), because it is what a lecturer reads
+  to decide whether to warn a student.
+
+The Teams tab's three use it. The other confirmations in the app are still the
+browser's own.
+
 ## 7. Shared Component Vocabulary
 
 Vue `<style scoped>` **does not leak**. A class declared in one component's scoped

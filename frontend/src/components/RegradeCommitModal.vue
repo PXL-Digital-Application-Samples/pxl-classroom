@@ -13,6 +13,7 @@
         <button class="modal-close" type="button" @click="requestClose" :disabled="saving" aria-label="Close">×</button>
       </header>
 
+      <div class="modal-body flex flex-col gap-md">
       <section class="modal-section">
         <p class="text-secondary">
           <template v-if="marker">Every hand-in ("{{ marker.value }}") this student made, newest first.</template>
@@ -92,16 +93,18 @@
           <textarea id="regrade-reason" v-model="reason" rows="2" placeholder="The wifi dropped during hand-in 4 / late by agreement"></textarea>
         </div>
         <p v-if="problem && reason.trim() && selected" class="form-hint text-danger">{{ problem }}</p>
-        <div class="regrade-actions">
-          <button class="btn" type="button" :disabled="saving" @click="requestClose">Cancel</button>
-          <button
-            class="btn btn-primary"
-            type="button"
-            :disabled="saving || !selectedRow || !!problem"
-            @click="emit('choose', { sha: selected, reason: reason.trim(), runId: selectedRow.runId ?? null })"
-          >{{ saving ? 'Saving…' : selectedRow ? `Grade on ${selectedRow.number ? '#' + selectedRow.number : selectedRow.sha.slice(0, 7)} (${selectedRow.result.earned}/${selectedRow.result.total})` : 'Pick a commit with a result' }}</button>
-        </div>
       </section>
+      </div>
+
+      <footer class="modal-foot">
+        <button class="btn" type="button" :disabled="saving" @click="requestClose">Cancel</button>
+        <button
+          class="btn btn-primary"
+          type="button"
+          :disabled="saving || !selectedRow || !!problem"
+          @click="emit('choose', { sha: selected, reason: reason.trim(), runId: selectedRow.runId ?? null })"
+        >{{ saving ? 'Saving…' : selectedRow ? `Grade on ${selectedRow.number ? '#' + selectedRow.number : selectedRow.sha.slice(0, 7)} (${selectedRow.result.earned}/${selectedRow.result.total})` : 'Pick a commit with a result' }}</button>
+      </footer>
     </div>
   </div>
 </template>
@@ -424,12 +427,12 @@ onUnmounted(() => {
 .regrade-commit {
   max-width: 760px;
 }
+/* No height of its own: the dialog's body scrolls, and a list scrolling
+   inside a body that scrolls is two scrollbars for one list. */
 .commit-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 50vh;
-  overflow-y: auto;
 }
 .commit-row {
   padding: var(--space-xs) 0;
@@ -464,10 +467,5 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: var(--space-sm);
   align-items: center;
-}
-.regrade-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm);
 }
 </style>

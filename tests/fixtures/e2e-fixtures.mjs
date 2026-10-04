@@ -442,6 +442,20 @@ export async function chooseRosterMode(page, mode) {
   await page.getByRole('radio', { name: mode === 'claim' ? /confirm their .* email address/ : 'just click Accept' }).check();
 }
 
+/**
+ * Answer the page's own confirmation (components/ConfirmDialog.vue), which
+ * replaced `window.confirm()` on the Teams tab: a `page.on('dialog')` handler
+ * sees nothing now. Waits for it, then presses the button that names the
+ * action, or Cancel.
+ */
+export async function answerConfirm(page, { accept = true } = {}) {
+  const dialog = page.locator('.confirm-dialog');
+  await dialog.waitFor({ state: 'visible', timeout: 10000 });
+  if (accept) await dialog.locator('.modal-foot .btn').last().click();
+  else await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'detached', timeout: 10000 });
+}
+
 export async function injectAuth(page, user) {
   const authData = JSON.stringify({
     access_token: user.token,
@@ -538,6 +552,10 @@ export async function setupStandardMockRoutes(page, {
   gitTrees = {},
   usageReports = {},
   currentUser = STUDENT_2,
+  // Usernames that are NOT GitHub accounts: `GET /users/{login}` answers 404
+  // for these, and DELETE of one as a collaborator answers 403 "Resource not
+  // accessible by integration", which is what GitHub does (testbed, 2026-10-04).
+  notAccounts = [],
   userRepos = [],
   invitations = [],
   brokerIssues = [],
@@ -708,6 +726,38 @@ export async function setupStandardMockRoutes(page, {
   for (const [asgnId, list] of Object.entries(controlTeams)) {
     for (const team of list) {
       dynamicFiles.set(`teams/${asgnId}/${team.team_slug}.json`, JSON.stringify(team, null, 2));
+    }
+  }
+  // A REPORT'S TEAMS HAVE FILES. The report is derived from teams/<id>/, so a
+  // report fixture listing teams describes a control repo holding them - and
+  // the Teams tab now reads the files for membership (frontend/src/lib/
+  // team-rows.js), dropping a report row whose file is gone. A spec that names
+  // `controlTeams` for an assignment says exactly which files exist (that is
+  // how "deleted, the report has not caught up" is set up); otherwise the
+  // files are the report's teams, in the shape the app writes.
+  for (const [asgnId, rep] of Object.entries(reports || {})) {
+    if (Object.prototype.hasOwnProperty.call(controlTeams, asgnId)) continue;
+    for (const t of Array.isArray(rep?.teams) ? rep.teams : []) {
+      if (!t?.team_slug) continue;
+      const members = Array.isArray(t.members) ? t.members : [];
+      const repoId = Number.isInteger(t.repo_id)
+        ? t.repo_id
+        : t.repo_name ? 100000 + [...String(t.repo_name)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 900000, 0) : null;
+      const doc = {
+        schema_version: 1,
+        assignment_id: asgnId,
+        team_slug: t.team_slug,
+        team_name: t.team_name || t.team_slug,
+        members,
+        ...(Number.isInteger(t.max_members) ? { max_members: t.max_members } : {}),
+        created_at: '2026-02-01T09:00:00Z',
+        created_by: members[0] || 'lecturer',
+        ...(t.repo_name ? { repo_name: t.repo_name, repo_id: repoId } : {}),
+        ...(t.repo_url ? { repo_url: t.repo_url } : {}),
+        ...(members.length === 0 ? { vacant: true } : {}),
+        ...(t.seeded_from ? { seeded_from: t.seeded_from } : {}),
+      };
+      dynamicFiles.set(`teams/${asgnId}/${t.team_slug}.json`, JSON.stringify(doc, null, 2));
     }
   }
   const unreadableAcceptances = new Set();
@@ -965,6 +1015,10 @@ export async function setupStandardMockRoutes(page, {
       // the `/user` branch below before this existed, which answered every
       // lookup with the CURRENT user's id.
       const login = decodeURIComponent(url.match(/\/users\/([^/?#]+)/)[1]);
+      if (notAccounts.some((n) => n.toLowerCase() === login.toLowerCase())) {
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      }
       await route.fulfill({ status: 200, body: JSON.stringify({ login, id: personaId(login) }) });
     } else if (url.includes('/user')) {
       await route.fulfill({
@@ -1153,10 +1207,20 @@ export async function setupStandardMockRoutes(page, {
       }
 
       if (url.includes('/collaborators/')) {
+        const who = decodeURIComponent((url.match(/\/collaborators\/([^/?#]+)/) || [])[1] || '');
+        const noAccount = notAccounts.some((n) => n.toLowerCase() === who.toLowerCase());
         if (method === 'PUT') {
+          if (noAccount) {
+            await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+            return;
+          }
           await route.fulfill({ status: 201, body: JSON.stringify({ id: 101, permissions: 'admin' }) });
           return;
         } else if (method === 'DELETE') {
+          if (noAccount) {
+            await route.fulfill({ status: 403, body: JSON.stringify({ message: 'Resource not accessible by integration' }) });
+            return;
+          }
           await route.fulfill({ status: 204, body: '' });
           return;
         }

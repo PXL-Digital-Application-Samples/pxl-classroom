@@ -190,6 +190,11 @@ test("changing repository access reports what actually happened", () => {
       "thing as the access changing",
   );
   // 404 on a removal means they were not a collaborator: the end state is the
-  // one we wanted, so it is not a failure to report.
-  assert.match(body, /status !== 404/, "a removal that was already absent is not a failure");
+  // one we wanted, so it is not a failure to report. The rule lives in
+  // revokeOutcome (frontend/src/lib/team-edit.js, tests/team-edit.test.mjs),
+  // which also knows a 403 on a username that is no account; this pins that
+  // the save asks it and reports only what it calls a failure.
+  assert.match(body, /revokeAccess\(/, "removals go through the one rule");
+  assert.match(body, /outcome === 'failed'\) accessFailures\.push/, "only a real failure is reported as one");
+  assert.match(src, /outcome: revokeOutcome\(res, exists\)/, "revokeAccess decides by revokeOutcome");
 });

@@ -428,14 +428,26 @@ a:hover {
 /* ==========================================================================
    Navigation Tabs (GitHub Primer Underline Style)
    ========================================================================== */
+/* The bar's line is an INSET shadow, not a border, and the tabs no longer hang
+   1px below the bar to sit on it. With a border, each tab's `margin-bottom:
+   -1px` put its underline 1px outside the bar - and `overflow-x: auto` makes
+   `overflow-y` compute to auto as well (DESIGN.md §7), so that pixel drew a
+   vertical scrollbar beside the tabs on every assignment page (Windows,
+   2026-10-04). Drawn inside, the active tab's underline paints over the line
+   exactly as before, and nothing overflows. Sideways scrolling stays for a
+   window too narrow for the tabs. */
 .primer-tabs {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  border-bottom: 1px solid var(--border-muted);
+  box-shadow: inset 0 -1px 0 var(--border-muted);
   margin-bottom: var(--space-lg);
   padding: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+}
+.primer-tabs .primer-tab {
+  margin-bottom: 0;
 }
 
 .primer-tab {
@@ -656,6 +668,13 @@ a:hover {
   animation: fadeIn 0.15s ease forwards;
 }
 
+/* A dialog's title and buttons stay put and only its body scrolls (DESIGN.md
+   §6, "Only the body of a dialog scrolls"). The whole dialog used to scroll, so a long body pushed the buttons
+   below the fold and the only sign was a scrollbar on the dialog's edge - read
+   as "it does not fit" (Teams, 2026-10-04). Primer's Dialog does the same.
+   The head, the foot and a form wrapping body + foot are the dialog's direct
+   children; `overflow-y: auto` on `.modal` itself stays as the fallback for a
+   dialog built some other way, which still scrolls whole rather than clip. */
 .modal {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
@@ -665,6 +684,27 @@ a:hover {
   overflow-y: auto;
   width: 100%;
   max-width: 520px;
+  display: flex;
+  flex-direction: column;
+}
+.modal > .modal-head,
+.modal > .modal-foot,
+.modal > .modal-actions,
+.modal-form > .modal-foot { flex: none; }
+.modal > .modal-body,
+.modal-form > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* A form holding the body and the buttons, so Enter submits and the footer is
+   still outside the part that scrolls. */
+.modal > .modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
 }
 
 .modal-head {

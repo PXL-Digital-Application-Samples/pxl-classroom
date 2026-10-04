@@ -6,7 +6,7 @@
         <button class="modal-close" type="button" @click="requestClose" :disabled="busy" aria-label="Close">×</button>
       </header>
 
-      <section class="modal-section">
+      <section class="modal-section modal-body">
         <p>
           This creates a dedicated <strong>Draft Pull Request</strong> (comparing <code>main</code> against the frozen <code>{{ baselineBranch }}</code> branch) in student repositories that have pushed commits.
         </p>

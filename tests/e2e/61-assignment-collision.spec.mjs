@@ -518,7 +518,7 @@ test.describe('the name is taken', () => {
     });
     await fillNew(page, { title: 'Lab 3 New', slug: 'lab-3-new', pattern: 'lab-3-{github_login}' });
 
-    await expect(refusal(page)).toContainText('"lab-3-old" already uses this repository name pattern');
+    await expect(refusal(page)).toContainText('lab-3-old makes repositories named lab-3-…, so these names could collide');
     await expectNoWrite(page, writes);
   });
 
@@ -529,7 +529,7 @@ test.describe('the name is taken', () => {
       assignments: { 'lab-3-groups': liveAssignment('lab-3-groups', 'lab-3-{team_slug}') },
     });
     await fillNew(page, { title: 'Lab 3 Solo', slug: 'lab-3-solo', pattern: 'lab-3-{github_login}' });
-    await expect(refusal(page)).toContainText('"lab-3-groups"');
+    await expect(refusal(page)).toContainText('lab-3-groups makes repositories named lab-3-…');
   });
 
   test('a surviving archive blocks even when every repository is gone', async ({ page }) => {
@@ -565,7 +565,7 @@ test.describe('the name is taken', () => {
     await fillNew(page);
 
     const err = refusal(page);
-    await expect(err).toContainText('"lab-3-old"');
+    await expect(err).toContainText('lab-3-old makes repositories named lab-3-…');
     await expect(err).toContainText('the archive still exists');
     // TWO blockers now, not three. The existing repositories are a note, and
     // the retired record never blocked - the remedies say "delete the archive",
@@ -629,7 +629,7 @@ test.describe('the name is taken', () => {
     await expect(err).not.toContainText('Recommended');
     // The finding names the pattern, so the field to change is identified
     // without a second remedy saying the same thing as the first.
-    await expect(err).toContainText('already uses this repository name pattern');
+    await expect(err).toContainText('makes repositories named lab-3-…');
   });
 
   test('the delete option says what it costs, in the same breath', async ({ page }) => {
@@ -889,7 +889,7 @@ test.describe('an existing assignment', () => {
     await (await patternBox(page)).fill('other-{github_login}');
 
     await saveDraft(page).click();
-    await expect(refusal(page)).toContainText('"other" already uses this repository name pattern');
+    await expect(refusal(page)).toContainText('other makes repositories named other-…');
     expect(writes.filter((w) => w.path.startsWith('assignments/'))).toHaveLength(0);
   });
 

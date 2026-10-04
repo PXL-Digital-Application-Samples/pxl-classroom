@@ -107,7 +107,7 @@ Students should not have to re-form the same teams for every group assignment. S
 2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Copy teams**.
 3. Pick a source:
    - **A previous group assignment** - the normal choice. It carries the *final* membership, including switches and dropouts, so always seed from the most recent grouping rather than from the first one.
-   - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster page's CSV import (§6.4) first.
+   - **The Team column of the imported roster** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster page's CSV import (§6.4) first.
 4. Review the plan. It lists every team and its members before anything is written, and refuses outright if:
    - a team is larger than the new assignment's maximum team size (raise the maximum or split the team - members are never dropped silently);
    - the new assignment shares a repository name pattern with the source. **Fix this one before anything else**: both assignments would resolve to the same repository names, and provisioning would hand students the previous assignment's locked-down repository instead of a fresh one;
@@ -117,9 +117,16 @@ Students should not have to re-form the same teams for every group assignment. S
 **Under `pre-assigned`, seeding is not optional.** Acceptance reads the team manifests and nothing else - not the roster's `team_slug` column, which carries no assignment and would otherwise pre-assign a student in December because of a September import. A pre-assigned assignment published without seeded teams turns everyone away with `rejected:no-assigned-team`, unless you ticked *Let students with no assigned team form their own*.
 6. Applying writes every team in one commit and dispatches `regenerate-dashboard.yml`, which is what makes the teams visible to students. Nothing is published while the assignment is still a draft, so seed, review in the Teams tab, adjust, and publish.
 
-Afterwards the Teams tab shows a "carried over from …" line, a standing "N students on the roster have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
+Afterwards the Teams tab shows a "carried over from …" line, a standing "N students of this assignment have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
 
 **Seeded the wrong source?** The Teams tab's **Undo copy (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+
+**Changing a team by hand.** On the Teams tab, **Manage** opens a team; under each member it says whether they *have the team repository* or *have not accepted yet*.
+
+- **Move to…** puts one student in another team in one step. The question before it says what happens to their access in this case: they lose the old team's repository at once, and get an invitation to the new one that they accept on GitHub. **Moving someone into a team that has no repository yet leaves them with none** until they open the invitation link and accept again - tell them. A student who never accepted has nothing to lose.
+- **Remove** takes a member off the list; nothing changes until **Save Changes**. An empty team is deleted from the same dialog (**Delete team**).
+- A student whose roster row has **no GitHub username yet** (only an email address) cannot be placed, because a team stores usernames. They are listed greyed, and the tab offers **Copy confirm-email link**: once they confirm their address, they can be placed (press Refresh). On a draft there is no link yet; it exists once the assignment is published.
+- A member whose username is **not a GitHub account** (a typo) had no access to remove, and removing them says so rather than reporting a failure. The Roster tab asks GitHub before storing a username: **Add student** refuses one that is not an account, and a CSV import marks it before you commit.
 
 Headless equivalent:
 
