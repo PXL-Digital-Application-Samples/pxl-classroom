@@ -8,11 +8,13 @@
     <div class="assignment-head flex items-center justify-between flex-wrap gap-sm">
       <div class="flex items-center gap-sm flex-wrap">
         <!-- The way back to the cards, first in the row (style.css,
-             `.page-back-link`). -->
-        <router-link :to="{ name: 'dashboard', params: { org } }" class="page-back-link">
+             `.back-to-list`), and set apart from the assignment's own
+             controls by a rule: it leaves this page, they act on it. -->
+        <router-link :to="{ name: 'dashboard', params: { org } }" class="btn btn-ghost btn-sm btn-with-icon back-to-list">
           <Icon name="arrow-left" :size="13" />
           <span>Assignments</span>
         </router-link>
+        <span class="assignment-head-rule" aria-hidden="true"></span>
         <div class="dropdown-container" ref="stateMenuRef">
           <button
             class="btn btn-secondary btn-sm btn-with-icon"
@@ -210,6 +212,9 @@ onUnmounted(() => {
 <style scoped>
 .assignment-head { margin-bottom: var(--space-sm); }
 .assignment-head-deadline { display: flex; align-items: baseline; gap: var(--space-xs); flex-wrap: wrap; min-width: 0; }
+/* A divider, not a box (DESIGN.md §1.1): between the way out and the
+   assignment's own controls, the height of the buttons' text. */
+.assignment-head-rule { width: 1px; height: 16px; background: var(--border-default); }
 .assignment-tabs { margin-bottom: var(--space-md); }
 .state-menu { left: 0; right: auto; }
 </style>

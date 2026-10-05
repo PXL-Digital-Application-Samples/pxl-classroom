@@ -33,7 +33,7 @@
          tab (`embedded`); a new assignment has nothing for it to say yet. -->
     <!-- The way back to the cards. The Settings tab has its own in the
          assignment's header row; a new assignment has no header, so here. -->
-    <router-link v-if="!embedded" :to="{ name: 'dashboard', params: { org } }" class="page-back-link new-assignment-back">
+    <router-link v-if="!embedded" :to="{ name: 'dashboard', params: { org } }" class="btn btn-ghost btn-sm btn-with-icon back-to-list new-assignment-back">
       <Icon name="arrow-left" :size="13" />
       <span>Assignments</span>
     </router-link>

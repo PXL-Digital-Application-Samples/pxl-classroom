@@ -59,20 +59,25 @@ test.describe('88 - Assignments, Roster, Organization', () => {
       await page.goto(`/dashboard/${ORG}${path}`);
       await expect(page.locator('.app-header-crumbs .app-header-heading')).toHaveText(here, { timeout: 15000 });
       await expect(page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments' })).toHaveCount(0);
-      const back = page.locator('.page-back-link');
+      const back = page.locator('.back-to-list');
       await expect(back).toHaveCount(1);
       await expect(back).toHaveText('Assignments');
       await expect(back).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
     }
     await page.goto(`/dashboard/${ORG}/${ID}`);
-    const back = page.locator('.page-back-link');
+    const back = page.locator('.back-to-list');
     // First in the assignment's header row, before the state button.
     const [link, state] = await Promise.all([back.boundingBox(), page.locator('[data-state-menu]').boundingBox()]);
     expect(link.x).toBeLessThan(state.x);
+    // One row of one kind of control: a ghost button the state button's
+    // height, on its line (DESIGN.md §3), not loose text beside a button.
+    expect(Math.abs(link.height - state.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs((link.y + link.height / 2) - (state.y + state.height / 2))).toBeLessThanOrEqual(1);
+    await expect(back).toHaveClass(/btn-ghost/);
     await back.click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
     await expect(page.getByRole('link', { name: 'New assignment' })).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('.page-back-link')).toHaveCount(0);
+    await expect(page.locator('.back-to-list')).toHaveCount(0);
   });
 
   test('a long title gives way in the bar instead of running under the tabs', async ({ page }) => {

@@ -186,7 +186,7 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 | :--- | :--- |
 | `.btn-primary` | The single solid CTA per view (§1.2). |
 | `.btn-secondary` | Neutral toolbar and standard actions. |
-| `.btn-ghost` | Utility, no fill; pairs with `.btn-icon`. |
+| `.btn-ghost` | Utility, no fill; pairs with `.btn-icon`. Also the way back to the cards, *← Assignments* (§6). |
 | `.btn-link` | Reads as a link, behaves as a button. **Never `.link-btn`** (§7). |
 | `.btn-danger` / `.btn-danger-outline` | Destructive. Outline in a toolbar, solid where the destruction is the point of the view. |
 | `.btn-success` | Solid green. One use - the student's accepted state - and it should stay that way: success is normally a status dot (§4), not a button. |
@@ -340,10 +340,14 @@ org picker is wider than a crumb.
   still leading back to the list.
 * **The way back is "← Assignments" at the start of the page.** Lit on every assignment, the
   centre tab read as where you are rather than as a way back, and a lecturer could not find
-  the cards again (2026-10-05). The link (`.page-back-link`) is the first thing in the
-  assignment's header row, before the state button, and above the New assignment form. It
-  was tried in the trail first (org / Assignments / title) and rejected the same day: the
-  trail grew too long for its column and ran under the tabs.
+  the cards again (2026-10-05). It is the first thing in the assignment's header row, then a
+  thin rule, then the state button; and above the New assignment form. It is a **ghost
+  button** (`.btn .btn-ghost .btn-sm`, §3) rather than loose text, so it has the state
+  button's height and line, a hover fill and the focus ring; `.back-to-list` only pulls it
+  left by its padding so the arrow sits on the page's edge. The rule separates the way out
+  from the controls that act on the assignment. It was tried in the trail first (org /
+  Assignments / title) and rejected the same day: the trail grew too long for its column
+  and ran under the tabs.
 * **The trail is org / the assignment's title**, never its slug: the page below tells the bar
   the title once it has read it (`lib/assignment-crumb.js`), and until then it has only the
   slug. The left column fills its track (`justify-self: stretch`) so a long title ends in "…"

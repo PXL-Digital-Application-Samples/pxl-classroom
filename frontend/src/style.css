@@ -917,23 +917,19 @@ a:hover {
   min-width: 0;
 }
 
-/* The way back to the assignment cards, at the start of an assignment's own
-   header row (AssignmentHeader.vue) and above the New assignment form
-   (AdminView.vue). Top-left of the page is where a lecturer looks for "back";
-   the centre tab Assignments also leads there, but lit on every assignment it
-   reads as where you are (2026-10-05). Quiet, like a crumb: it is a way out,
-   not an action. */
-.page-back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  text-decoration: none;
-  white-space: nowrap;
+/* The way back to the assignment cards, "← Assignments", at the start of an
+   assignment's header row (AssignmentHeader.vue) and above the New assignment
+   form (AdminView.vue). Top-left of the page is where a lecturer looks for
+   "back"; the centre tab Assignments also leads there, but lit on every
+   assignment it reads as where you are (2026-10-05).
+   It is `.btn .btn-ghost .btn-sm` (DESIGN.md §3), so it has the state
+   button's height, a hover fill and the focus ring, and is not a variant:
+   this class only pulls it left by its own padding, so the arrow lines up
+   with the page's left edge while the hover fill reaches into the gutter. */
+.back-to-list {
+  margin-left: -9px;
 }
-.page-back-link:hover {
-  color: var(--accent-blue);
+.back-to-list:hover {
   text-decoration: none;
 }
 /* The ONE definition. AdminView and AssignmentDetailView each carried a scoped
