@@ -12,6 +12,14 @@
             <img :src="logoUrl" alt="" class="header-logo" />
           </router-link>
           <OrgPicker v-if="user" :org="org" />
+          <!-- The way back to the assignment cards, where a lecturer looks for
+               "up": the centre tab Assignments also leads there, but lit on
+               every assignment it reads as where you are, not as a link
+               (2026-10-05). -->
+          <template v-if="belowList && showTabs">
+            <span class="app-header-sep">/</span>
+            <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">Assignments</router-link>
+          </template>
           <template v-if="crumb">
             <span class="app-header-sep">/</span>
             <h1 class="app-header-heading" :title="crumb">{{ crumb }}</h1>
@@ -40,6 +48,7 @@ import OrgSwitch from '../components/OrgSwitch.vue'
 import logoUrl from '../assets/logo.png'
 import { clearAuth, getToken, getUser, onAuthChange } from '../lib/auth.js'
 import { forgetOrgSession, knownStaff, loadOrgs } from '../lib/org-session.js'
+import { assignmentTitle } from '../lib/assignment-crumb.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,7 +69,7 @@ const current = computed(() => {
 // Where you are below the organization, when the tab does not say it already.
 const crumb = computed(() => {
   const name = String(route.name || '')
-  if (name === 'assignment-detail') return assignmentId.value
+  if (name === 'assignment-detail') return assignmentTitle(org.value, assignmentId.value) || assignmentId.value
   if (name === 'assignment-new') return 'New assignment'
   if (name === 'usage-org') return 'Usage'
   return ''

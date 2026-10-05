@@ -1458,6 +1458,7 @@ import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { teamRows } from '../lib/team-rows.js'
+import { rememberAssignmentTitle } from '../lib/assignment-crumb.js'
 import { minTeamSize } from '../../../lib/group-config.mjs'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { teamRepresentative } from '../../../lib/team-representative.mjs'
@@ -1476,6 +1477,13 @@ const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
+// The org bar's breadcrumb names the assignment by its title once it is read
+// here; until then it has only the slug (lib/assignment-crumb.js).
+watch(
+  () => assignment.value?.title,
+  (title) => rememberAssignmentTitle(props.org, props.assignmentId, title),
+  { immediate: true },
+)
 
 // The share block (in AssignmentHeader.vue) gets the assignment YAML plus the
 // live accepted count, which is what makes its status line ("cap reached")

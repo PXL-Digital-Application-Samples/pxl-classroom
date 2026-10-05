@@ -42,11 +42,30 @@ test.describe('88 - Assignments, Roster, Organization', () => {
 
     await assignmentTabs(page).filter({ hasText: /^Settings$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`));
-    await expect(page.locator('.app-header-heading')).toHaveText(ID);
+    // Its title, not its slug (lib/assignment-crumb.js).
+    await expect(page.locator('.app-header-heading')).toHaveText('Lab Switch');
     await expect(page.locator('.assignment-tabs [aria-current="page"]')).toHaveText('Settings');
 
     await assignmentTabs(page).filter({ hasText: /^Progress$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));
+  });
+
+  test('the breadcrumb leads back to the assignment cards: org / Assignments / the assignment', async ({ page }) => {
+    // The centre tab lit on every assignment read as "where you are", not as a
+    // way back (2026-10-05). The way back is in the trail, where "up" is.
+    await setup(page);
+    for (const [path, here] of [[`/${ID}?tab=settings`, 'Lab Switch'], ['/new', 'New assignment']]) {
+      await page.goto(`/dashboard/${ORG}${path}`);
+      const crumbs = page.locator('.app-header-crumbs');
+      await expect(crumbs.locator('.app-header-heading')).toHaveText(here, { timeout: 15000 });
+      const back = crumbs.getByRole('link', { name: 'Assignments', exact: true });
+      await expect(back).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
+    }
+    await page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
+    await expect(page.getByRole('link', { name: 'New assignment' })).toBeVisible({ timeout: 15000 });
+    // On the list itself there is no step back to take.
+    await expect(page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments', exact: true })).toHaveCount(0);
   });
 
   test('inside an assignment Assignments stays lit, and leads back to the list', async ({ page }) => {

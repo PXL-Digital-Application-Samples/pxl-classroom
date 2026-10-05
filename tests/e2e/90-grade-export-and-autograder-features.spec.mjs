@@ -225,7 +225,9 @@ async function setup(page, options = {}) {
 
   // Everything about scores is the Grading tab's (BETA-UX.md, 2026-10-02).
   await page.goto(`/dashboard/${ORG}/${ID}${options.tab ? `?tab=${options.tab}` : ''}`);
-  await expect(page.getByRole('heading', { name: ID, level: 1 })).toBeVisible({ timeout: 15000 });
+  // The bar names the assignment by its title once the page has read it
+  // (lib/assignment-crumb.js): waiting for the title is waiting for the load.
+  await expect(page.getByRole('heading', { name: 'Programming Exam', level: 1 })).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }
 
