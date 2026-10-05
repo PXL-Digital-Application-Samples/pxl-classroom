@@ -822,7 +822,11 @@ a:hover {
      running into them. */
   column-gap: var(--space-xl);
 }
-.app-header-bar.has-center .app-header-left { justify-self: start; }
+/* STRETCH, not start: a grid item aligned to start is as wide as its content,
+   whatever the track, so the trail never met the column's edge and a long
+   title ran under the tabs. Filling the track gives the heading something to
+   shrink against; the trail is a flex row, so its content still sits left. */
+.app-header-bar.has-center .app-header-left { justify-self: stretch; }
 .app-header-bar.has-center .app-header-right { justify-self: end; }
 .app-header-center { justify-self: center; }
 /* Too narrow for three: the tabs take their own row under the other two. */
@@ -905,6 +909,32 @@ a:hover {
 /* Breadcrumb variant: back-link / org / page. */
 .app-header-crumbs {
   min-width: 0;
+}
+/* The heading is the part that gives way. A flex item will not shrink below
+   its own text unless told to, so a long assignment title ran under the
+   centred tabs instead of ending in "…" (testbed, 1024px, 2026-10-05). */
+.app-header-crumbs .app-header-heading {
+  min-width: 0;
+}
+
+/* The way back to the assignment cards, at the start of an assignment's own
+   header row (AssignmentHeader.vue) and above the New assignment form
+   (AdminView.vue). Top-left of the page is where a lecturer looks for "back";
+   the centre tab Assignments also leads there, but lit on every assignment it
+   reads as where you are (2026-10-05). Quiet, like a crumb: it is a way out,
+   not an action. */
+.page-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.page-back-link:hover {
+  color: var(--accent-blue);
+  text-decoration: none;
 }
 /* The ONE definition. AdminView and AssignmentDetailView each carried a scoped
    copy of this, both setting the same 0.85rem, which is the fork CLAUDE.md

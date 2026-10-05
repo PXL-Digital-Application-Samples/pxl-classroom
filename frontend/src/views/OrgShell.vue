@@ -12,14 +12,6 @@
             <img :src="logoUrl" alt="" class="header-logo" />
           </router-link>
           <OrgPicker v-if="user" :org="org" />
-          <!-- The way back to the assignment cards, where a lecturer looks for
-               "up": the centre tab Assignments also leads there, but lit on
-               every assignment it reads as where you are, not as a link
-               (2026-10-05). -->
-          <template v-if="belowList && showTabs">
-            <span class="app-header-sep">/</span>
-            <router-link :to="{ name: 'dashboard', params: { org } }" class="crumb-link">Assignments</router-link>
-          </template>
           <template v-if="crumb">
             <span class="app-header-sep">/</span>
             <h1 class="app-header-heading" :title="crumb">{{ crumb }}</h1>

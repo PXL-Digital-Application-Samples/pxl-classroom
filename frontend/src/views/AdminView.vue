@@ -31,6 +31,12 @@
          accept. The header - state button, deadline, Invite link, tabs - is
          the assignment page's, which this editor sits inside as its Settings
          tab (`embedded`); a new assignment has nothing for it to say yet. -->
+    <!-- The way back to the cards. The Settings tab has its own in the
+         assignment's header row; a new assignment has no header, so here. -->
+    <router-link v-if="!embedded" :to="{ name: 'dashboard', params: { org } }" class="page-back-link new-assignment-back">
+      <Icon name="arrow-left" :size="13" />
+      <span>Assignments</span>
+    </router-link>
     <div class="admin-layout" :class="{ 'has-section-nav': formShown }">
       <!-- THE FORM'S SECTIONS, beside it (2026-10-03). The form keeps its
            reading measure (DESIGN.md §1.8), and the page's width goes to a
@@ -5160,6 +5166,9 @@ watch(
   padding-top: var(--space-xl);
   padding-bottom: var(--space-2xl);
   max-width: 1400px;
+}
+.new-assignment-back {
+  margin-bottom: var(--space-md);
 }
 /* `.back-link` lives in style.css - it is on two views, so a scoped copy here
    was a fork with a second chance to drift. */

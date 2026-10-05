@@ -50,22 +50,47 @@ test.describe('88 - Assignments, Roster, Organization', () => {
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));
   });
 
-  test('the breadcrumb leads back to the assignment cards: org / Assignments / the assignment', async ({ page }) => {
+  test('"← Assignments" leads back to the cards, from every tab and from New assignment', async ({ page }) => {
     // The centre tab lit on every assignment read as "where you are", not as a
-    // way back (2026-10-05). The way back is in the trail, where "up" is.
+    // way back (2026-10-05). The way back is at the start of the page, where
+    // "back" is looked for; the bar's trail stays org / title.
     await setup(page);
-    for (const [path, here] of [[`/${ID}?tab=settings`, 'Lab Switch'], ['/new', 'New assignment']]) {
+    for (const [path, here] of [[`/${ID}`, 'Lab Switch'], [`/${ID}?tab=settings`, 'Lab Switch'], ['/new', 'New assignment']]) {
       await page.goto(`/dashboard/${ORG}${path}`);
-      const crumbs = page.locator('.app-header-crumbs');
-      await expect(crumbs.locator('.app-header-heading')).toHaveText(here, { timeout: 15000 });
-      const back = crumbs.getByRole('link', { name: 'Assignments', exact: true });
+      await expect(page.locator('.app-header-crumbs .app-header-heading')).toHaveText(here, { timeout: 15000 });
+      await expect(page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments' })).toHaveCount(0);
+      const back = page.locator('.page-back-link');
+      await expect(back).toHaveCount(1);
+      await expect(back).toHaveText('Assignments');
       await expect(back).toHaveAttribute('href', new RegExp(`/dashboard/${ORG}$`));
     }
-    await page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments', exact: true }).click();
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    const back = page.locator('.page-back-link');
+    // First in the assignment's header row, before the state button.
+    const [link, state] = await Promise.all([back.boundingBox(), page.locator('[data-state-menu]').boundingBox()]);
+    expect(link.x).toBeLessThan(state.x);
+    await back.click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
     await expect(page.getByRole('link', { name: 'New assignment' })).toBeVisible({ timeout: 15000 });
-    // On the list itself there is no step back to take.
-    await expect(page.locator('.app-header-crumbs').getByRole('link', { name: 'Assignments', exact: true })).toHaveCount(0);
+    await expect(page.locator('.page-back-link')).toHaveCount(0);
+  });
+
+  test('a long title gives way in the bar instead of running under the tabs', async ({ page }) => {
+    // Measured on the testbed at 1024px: the trail needed 468px of a 331px
+    // column and the title ran under the centred tabs.
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await injectAuth(page, LECTURER);
+    const long = 'A very long assignment title that cannot possibly fit beside the organization';
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: { ...ASSIGNMENTS[ID], title: long } },
+      reports: REPORTS,
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    const heading = page.locator('.app-header-crumbs .app-header-heading');
+    await expect(heading).toHaveText(long, { timeout: 15000 });
+    const [h, tabs] = await Promise.all([heading.boundingBox(), page.locator('.app-header-switch').boundingBox()]);
+    expect(h.x + h.width, 'the title ends before the tabs begin').toBeLessThanOrEqual(tabs.x);
   });
 
   test('inside an assignment Assignments stays lit, and leads back to the list', async ({ page }) => {

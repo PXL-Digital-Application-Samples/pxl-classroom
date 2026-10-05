@@ -338,12 +338,16 @@ org picker is wider than a crumb.
 * An assignment's own views (Progress, Teams, Grading, Settings) are not here: they are the
   tabs under its header (`AssignmentHeader.vue`), and Assignments stays lit on all of them,
   still leading back to the list.
-* **The way back is in the trail too: org / Assignments / the assignment's title.** Lit on
-  every assignment, the centre tab read as where you are rather than as a way back, and a
-  lecturer could not find the cards again (2026-10-05). *Assignments* in the trail is a
-  `.crumb-link` to the list, shown below the list only (an assignment, *New assignment*) and
-  only where the tabs are. The trail names the assignment by its title, which the page below
-  tells the bar once it has read it (`lib/assignment-crumb.js`); until then, the slug.
+* **The way back is "← Assignments" at the start of the page.** Lit on every assignment, the
+  centre tab read as where you are rather than as a way back, and a lecturer could not find
+  the cards again (2026-10-05). The link (`.page-back-link`) is the first thing in the
+  assignment's header row, before the state button, and above the New assignment form. It
+  was tried in the trail first (org / Assignments / title) and rejected the same day: the
+  trail grew too long for its column and ran under the tabs.
+* **The trail is org / the assignment's title**, never its slug: the page below tells the bar
+  the title once it has read it (`lib/assignment-crumb.js`), and until then it has only the
+  slug. The left column fills its track (`justify-self: stretch`) so a long title ends in "…"
+  before the tabs.
 * **One route told apart by a query is not N current pages.** The assignment tabs are
   `?tab=`, and the router ignores the query when it decides a link is current - so every
   tab was announced as `aria-current="page"` at once. Those tabs render their links with

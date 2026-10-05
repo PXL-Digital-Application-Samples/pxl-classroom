@@ -7,6 +7,12 @@
   <div>
     <div class="assignment-head flex items-center justify-between flex-wrap gap-sm">
       <div class="flex items-center gap-sm flex-wrap">
+        <!-- The way back to the cards, first in the row (style.css,
+             `.page-back-link`). -->
+        <router-link :to="{ name: 'dashboard', params: { org } }" class="page-back-link">
+          <Icon name="arrow-left" :size="13" />
+          <span>Assignments</span>
+        </router-link>
         <div class="dropdown-container" ref="stateMenuRef">
           <button
             class="btn btn-secondary btn-sm btn-with-icon"

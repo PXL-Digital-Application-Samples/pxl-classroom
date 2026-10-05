@@ -50,9 +50,10 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
 
     await page.goto(`/dashboard/${ORG}/group-hw`);
 
-    // Verify detail header
+    // Verify detail header: the bar names the assignment by its title once
+    // read (lib/assignment-crumb.js), the slug only until then.
     const heading = page.locator('.app-header-crumbs h1');
-    await expect(heading).toContainText('group-hw');
+    await expect(heading).toContainText('Group Assignment HW');
 
     // Switch to Teams tab if present
     // Precise: the toolbar's "Seed teams" button also matches a loose /Teams/i.
