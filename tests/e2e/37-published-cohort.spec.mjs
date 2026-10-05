@@ -390,6 +390,38 @@ test.describe('37 - The editor has one solid button', () => {
     expect(await page.evaluate(VISIBLE_PRIMARIES)).toEqual(['New assignment']);
   });
 
+  test('With drafts the list has two titled halves, Drafts and Published; without, no titles', async ({ page }) => {
+    // BETA-UX, decided 2026-10-04: everything under Published has been
+    // published, which is the difference the titles exist to show.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment(), 'a-draft': assignment({ id: 'a-draft', title: 'A Draft', state: 'draft' }) },
+      reports: { dashboard: dashboard(47) },
+    });
+    await page.goto(`/dashboard/${ORG}`);
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1, { timeout: 15000 });
+    await expect(page.locator('.assignment-group-title')).toHaveText(['Drafts', 'Published']);
+    const sizes = await page.locator('.assignment-group-title').evaluateAll((els) => els.map((e) => getComputedStyle(e).fontSize));
+    expect(sizes[0], 'the two titles are one size').toBe(sizes[1]);
+    // The Published title sits above the cards, across the grid.
+    const title = await page.locator('.assignment-grid-title').boundingBox();
+    const card = await page.locator('.assignment-card').first().boundingBox();
+    expect(title.y + title.height).toBeLessThanOrEqual(card.y);
+  });
+
+  test('With no drafts there are no group titles at all', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: { dashboard: dashboard(47) },
+    });
+    await page.goto(`/dashboard/${ORG}`);
+    await expect(page.locator('.assignment-card').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.assignment-group-title')).toHaveCount(0);
+  });
+
   test('A draft editor is one too, and it is Save & publish', async ({ page }) => {
     const draft = assignment({ state: 'draft' });
     delete draft.invite_token;

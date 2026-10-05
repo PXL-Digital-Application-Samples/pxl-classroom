@@ -380,7 +380,7 @@
         <!-- Drafts first and apart: nothing to track yet, so a name and a
              deadline, and a click opens the settings, where a draft's work is. -->
         <section v-if="drafts.length" class="drafts-row" aria-label="Drafts">
-          <h3 class="drafts-row-title text-secondary text-sm">Drafts</h3>
+          <h3 class="assignment-group-title">Drafts</h3>
           <div class="drafts-row-list">
             <router-link
               v-for="d in drafts"
@@ -402,6 +402,11 @@
           No active assignments right now.
         </div>
         <div v-else class="assignment-grid">
+          <!-- Titled only when there are drafts above, to tell the two apart:
+               everything from here down has been published (BETA-UX,
+               decided 2026-10-04). With no drafts there is nothing to tell
+               apart, and no titles at all. Inside the grid, across it. -->
+          <h3 v-if="drafts.length" class="assignment-group-title assignment-grid-title">Published</h3>
           <router-link
             v-for="a in visibleAssignments"
             :key="a.id"
@@ -1424,7 +1429,15 @@ main {
 }
 
 .drafts-row { margin: var(--space-md) 0; }
-.drafts-row-title { margin: 0 0 var(--space-xs) 0; font-weight: 600; }
+/* Drafts and Published, one size: a step up from the small grey label Drafts
+   was, so the two groups read as the page's two halves (decided 2026-10-04). */
+.assignment-group-title {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.assignment-grid-title { grid-column: 1 / -1; margin-bottom: 0; }
 .drafts-row-list { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
 .draft-chip {
   display: inline-flex;
