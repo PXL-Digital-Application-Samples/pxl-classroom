@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runWatchdog } from "../scripts/pipeline-watchdog.mjs";
+import { runWatchdog, ranFor, watchedRun, RUN_LIST_CAP } from "../scripts/pipeline-watchdog.mjs";
+import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 
 test("runWatchdog - skips when alertLevel is off", async () => {
   const result = await runWatchdog({
@@ -187,6 +188,159 @@ test("runWatchdog - deduplicates alerts when marker is already present", async (
     assert.equal(res.outcome, "notified");
     const postedComment = calls.find((c) => c.method === "POST" && c.url.includes("/issues/10/comments"));
     assert.equal(postedComment, undefined, "Should not have posted duplicate comment");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// 2026-10-03, run 37158975135: GitHub's code scanning on the registry branch,
+// after Setup Organization registered PXL-3TIN-SE-26-27. The branch holds one
+// YAML file, so CodeQL found no source and failed in 31 seconds, as it had on
+// every registration since 2026-09-17 - and the alert said "failed after 46
+// minutes". Replayed here beside a real failure on main.
+test("runWatchdog - ignores the registry branch, and a failure says how long the run ran", async () => {
+  const calls = [];
+  const at = (minsAgo, plusSeconds = 0) => new Date(Date.now() - minsAgo * 60_000 + plusSeconds * 1000).toISOString();
+
+  const codeqlOnRegistry = {
+    id: 37158975135, name: `Push on ${REGISTRY_BRANCH}`, path: "dynamic/github-code-scanning/codeql",
+    event: "dynamic", head_branch: REGISTRY_BRANCH, status: "completed", conclusion: "failure",
+    created_at: at(46), run_started_at: at(46), updated_at: at(46, 31),
+  };
+  const deployOnMain = {
+    id: 111222, name: "Deploy frontend to Pages", event: "push", head_branch: "main",
+    status: "completed", conclusion: "failure",
+    created_at: at(46), run_started_at: at(46), updated_at: at(46, 31),
+  };
+  const stuckOnRegistry = {
+    id: 333444, name: `Push on ${REGISTRY_BRANCH}`, event: "dynamic", head_branch: REGISTRY_BRANCH,
+    status: "waiting", created_at: at(25),
+  };
+
+  const originalFetch = globalThis.fetch;
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (url, opts) => {
+    const urlStr = String(url);
+    const method = opts?.method || "GET";
+    calls.push({ method, url: urlStr, body: opts?.body ? JSON.parse(opts.body) : null });
+    if (urlStr.includes("/actions/runs?status=waiting")) return json({ workflow_runs: [stuckOnRegistry] });
+    if (urlStr.includes("/actions/runs?status=in_progress")) return json({ workflow_runs: [] });
+    if (urlStr.includes("/actions/runs?status=completed")) return json({ workflow_runs: [codeqlOnRegistry, deployOnMain] });
+    if (urlStr.includes("/issues?labels=pxl-tracking")) return json([{ number: 20, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
+    if (urlStr.includes("/issues/20/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);
+    return json({});
+  };
+
+  try {
+    const res = await runWatchdog({
+      owner: "hub-owner", repo: "hub-repo", token: "mock-token",
+      alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: ["tomcoolpxl"],
+    });
+
+    assert.deepEqual(res.failedRuns.map((r) => r.id), [111222], "only the failure on main is the pipeline's");
+    assert.deepEqual(res.stuckRuns, [], "a run on the registry branch is not stuck pipeline either");
+    assert.ok(!calls.some((c) => c.method === "POST" && c.url.includes("/cancel")), "and it is never cancelled");
+
+    const posted = calls.filter((c) => c.method === "POST" && c.url.includes("/issues/20/comments"));
+    assert.equal(posted.length, 1);
+    assert.match(posted[0].body.body, /#111222\*\* failed after running for 31 seconds\./);
+    assert.doesNotMatch(posted[0].body.body, /46 minutes/, "how long ago it failed is not how long it ran");
+    assert.doesNotMatch(posted[0].body.body, /37158975135/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ranFor - the run's own duration, or nothing when GitHub did not say", () => {
+  assert.equal(ranFor({ run_started_at: "2026-10-03T22:35:38Z", updated_at: "2026-10-03T22:36:09Z" }), "31 seconds");
+  assert.equal(ranFor({ created_at: "2026-10-03T22:00:00Z", updated_at: "2026-10-03T22:46:00Z" }), "46 minutes");
+  assert.equal(ranFor({ updated_at: "2026-10-03T22:36:09Z" }), null);
+  assert.equal(ranFor({ run_started_at: "2026-10-03T22:36:09Z", updated_at: "2026-10-03T22:35:38Z" }), null);
+});
+
+test("watchedRun - the registry branch is not the pipeline; every other branch is", () => {
+  assert.equal(watchedRun({ head_branch: REGISTRY_BRANCH }), false);
+  assert.equal(watchedRun({ head_branch: "main" }), true);
+  assert.equal(watchedRun({ head_branch: "beta" }), true);
+  assert.equal(watchedRun({}), true, "a run with no branch is still watched");
+});
+
+// One page was the whole read: 20 finished runs every 30 minutes, while an
+// acceptance burst finishes more (38 runs between 09:55 and 10:40 UTC on
+// 2026-10-02). A fake GitHub that pages like the real one, Link header and all.
+function pagingGitHub({ completedPages, calls }) {
+  const json = (body, status = 200, headers = {}) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  return async (url, opts) => {
+    const u = new URL(String(url));
+    const method = opts?.method || "GET";
+    calls.push({ method, url: u.href, body: opts?.body ? JSON.parse(opts.body) : null });
+    if (u.pathname.endsWith("/actions/runs") && u.searchParams.get("status") === "completed") {
+      const page = Number(u.searchParams.get("page") || 1);
+      const next = new URL(u.href);
+      next.searchParams.set("page", String(page + 1));
+      const link = page < completedPages.length ? { link: `<${next.href}>; rel="next"` } : {};
+      return json({ total_count: completedPages.flat().length, workflow_runs: completedPages[page - 1] || [] }, 200, link);
+    }
+    if (u.pathname.endsWith("/actions/runs")) return json({ total_count: 0, workflow_runs: [] });
+    if (u.pathname.endsWith("/issues") && method === "GET") return json([{ number: 30, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
+    if (u.pathname.endsWith("/issues/30/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);
+    return json({});
+  };
+}
+
+const finished = (id, conclusion, minsAgo) => ({
+  id, name: `Accept assignment`, event: "repository_dispatch", head_branch: "main", status: "completed", conclusion,
+  created_at: new Date(Date.now() - (minsAgo + 1) * 60_000).toISOString(),
+  run_started_at: new Date(Date.now() - (minsAgo + 1) * 60_000).toISOString(),
+  updated_at: new Date(Date.now() - minsAgo * 60_000).toISOString(),
+});
+
+test("runWatchdog - a failure on the SECOND page of finished runs is reported", async () => {
+  const calls = [];
+  const pageOne = Array.from({ length: 100 }, (_, i) => finished(5000 + i, "success", 2));
+  const pageTwo = [finished(6001, "failure", 25), finished(6002, "success", 26)];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = pagingGitHub({ completedPages: [pageOne, pageTwo], calls });
+  try {
+    const res = await runWatchdog({
+      owner: "hub-owner", repo: "hub-repo", token: "mock-token",
+      alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: ["tomcoolpxl"],
+    });
+    assert.deepEqual(res.failedRuns.map((r) => r.id), [6001]);
+    assert.equal(res.outcome, "notified");
+
+    // It asked for finished runs CREATED within six hours: a run is listed by
+    // when it started, and the deadline sentinel can run for 4h45m before it
+    // fails. The hour that is reported is judged on when the run finished.
+    const first = new URL(calls.find((c) => c.url.includes("status=completed")).url);
+    const since = Date.parse(first.searchParams.get("created").replace(/^>=/, ""));
+    assert.ok(Math.abs(Date.now() - 6 * 3600_000 - since) < 60_000, `created filter was ${first.searchParams.get("created")}`);
+    assert.equal(first.searchParams.get("per_page"), "100");
+    assert.equal(calls.filter((c) => c.url.includes("status=completed")).length, 2, "both pages were read");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runWatchdog - a list at GitHub's cap is not an all-clear, at any alert level", async () => {
+  const calls = [];
+  const capped = Array.from({ length: RUN_LIST_CAP }, (_, i) => finished(7000 + i, "success", 5));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = pagingGitHub({ completedPages: [capped], calls });
+  try {
+    // critical_only would say nothing about failures at all - and still has
+    // to say that it could not see.
+    const res = await runWatchdog({
+      owner: "hub-owner", repo: "hub-repo", token: "mock-token",
+      alertLevel: "critical_only", autoCancel: true, notifyLogins: ["tomcoolpxl"],
+    });
+    assert.equal(res.outcome, "incomplete");
+    assert.deepEqual(res.capped, ["finished"]);
+    const posted = calls.filter((c) => c.method === "POST" && c.url.includes("/issues/30/comments"));
+    assert.equal(posted.length, 1);
+    assert.match(posted[0].body.body, /could not read every run/);
+    assert.match(posted[0].body.body, /pxl-watchdog-dedup:incomplete-\d{4}-\d\d-\d\dT\d\d-->/);
   } finally {
     globalThis.fetch = originalFetch;
   }
