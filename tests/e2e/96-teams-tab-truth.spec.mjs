@@ -164,6 +164,39 @@ test.describe('96 - The Teams tab says what is true', () => {
     await expect(pending.getByRole('button', { name: 'Remove' })).toHaveClass(/btn-secondary/);
   });
 
+  test('a member is named by their email address where one is known, the username on hover', async ({ page }) => {
+    // Asked 2026-10-05: the address is how a lecturer knows a student.
+    await openTeams(page, {
+      assignments: { [ID]: assignment() },
+      reports: {
+        [ID]: report([], [
+          accepted('stud1', 'alpha'),
+          { ...accepted('stud2', 'alpha'), claimed_email: 'bo.peeters@student.pxl.be' },
+        ]),
+      },
+      controlTeams: { [ID]: [teamFile('alpha', 'Alpha', ['stud1', 'stud2', 'stud3'], { ...repo('alpha'), repo_id: 4001 })] },
+      roster: [
+        { student_number: '1', full_name: 'Ann Smets', github_login: 'stud1', email: 'ann.smets@student.pxl.be' },
+        { student_number: '2', full_name: 'Bo Peeters', github_login: 'stud2' },
+        { student_number: '3', full_name: 'Cas Wouters', github_login: 'stud3' },
+      ],
+    });
+
+    const pills = page.locator('tr', { hasText: 'Alpha' }).locator('.member-pill');
+    // The roster's address; else the confirmed one; else the username.
+    await expect(pills).toHaveText(['ann.smets@student.pxl.be', 'bo.peeters@student.pxl.be', '@stud3']);
+    await expect(pills.first()).toHaveAttribute('title', /Ann Smets · 1 · @stud1/);
+
+    // Filtering finds a team by an address too.
+    await page.getByLabel('Filter teams or members').fill('ann.smets');
+    await expect(page.locator('.data-table tbody tr')).toHaveCount(1);
+    await page.getByLabel('Filter teams or members').fill('');
+
+    const modal = await openManage(page, 'Alpha');
+    await expect(modal.locator('.member-manage-row').first().locator('.member-login')).toHaveText('ann.smets@student.pxl.be');
+    await expect(modal.locator('.member-manage-row').nth(2).locator('.member-login')).toHaveText('@stud3');
+  });
+
   test('a student with no GitHub username is named, greyed, and the confirm-email link is beside it', async ({ page }) => {
     await openTeams(page, {
       assignments: { [ID]: assignment({ roster_mode: 'claim', invite_key: inviteToken(ORG, ID) }) },

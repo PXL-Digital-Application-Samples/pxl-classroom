@@ -179,7 +179,7 @@
                     :class="{ 'member-pending': isPending(m) }"
                     :title="memberTitle(m)"
                   >
-                    @{{ m }}
+                    {{ memberLabel(m) }}
                   </span>
                 </div>
                 <span v-else class="text-muted text-xs">No members (vacant)</span>
@@ -371,8 +371,8 @@
                      dimmed pills, said in words, because this is where a
                      lecturer decides whether moving them costs anything. -->
                 <div class="member-manage-who">
-                  <div class="flex items-center gap-xs">
-                    <span class="member-login mono font-semibold">@{{ m }}</span>
+                  <div class="flex items-center gap-xs flex-wrap">
+                    <span class="member-login font-semibold" :class="{ mono: !memberEmail(m) }" :title="resolveMemberTooltip(m)">{{ memberLabel(m) }}</span>
                     <span v-if="resolveMemberDisplayName(m)" class="text-secondary text-xs">({{ resolveMemberDisplayName(m) }})</span>
                   </div>
                   <span v-if="memberStatusFor(m)" class="status-indicator text-xs" data-member-status>
@@ -647,7 +647,7 @@ function pendingCount(team) {
 }
 
 const unassignedPreview = computed(() => {
-  const logins = unassignedStudents.value.map((s) => `@${s.github_login}`)
+  const logins = unassignedStudents.value.map((s) => memberLabel(s.github_login))
   const shown = logins.slice(0, 8)
   const rest = logins.length - shown.length
   return rest > 0 ? `${shown.join(', ')} and ${rest} more` : shown.join(', ')
@@ -823,7 +823,7 @@ const filteredTeams = computed(() => {
       (t) =>
         t.team_name?.toLowerCase().includes(q) ||
         t.team_slug?.toLowerCase().includes(q) ||
-        (t.members || []).some((m) => m.toLowerCase().includes(q))
+        (t.members || []).some((m) => m.toLowerCase().includes(q) || memberEmail(m).toLowerCase().includes(q))
     )
   }
   if (teamStatusFilter.value) {
@@ -836,16 +836,44 @@ const filteredTeams = computed(() => {
   return list
 })
 
-function resolveMemberTooltip(login) {
-  const r = (props.roster || []).find((s) => s.github_login?.toLowerCase() === login.toLowerCase())
-  if (r) {
-    return `${r.full_name || login} (${r.student_number || r.email || ''})`
+// The roster row behind each member: by the row's own login, or by the login
+// a claim binds to a row that has none - a student placed after confirming
+// their address is in a team under a login the roster does not carry.
+const rosterByLogin = computed(() => {
+  const map = new Map()
+  for (const row of props.roster || []) {
+    const login = row?.github_login || loginFor(row)
+    if (login) map.set(String(login).toLowerCase(), row)
   }
-  return `@${login}`
+  return map
+})
+const studentByLogin = computed(
+  () => new Map((props.students || []).filter((s) => s?.github_login).map((s) => [s.github_login.toLowerCase(), s])),
+)
+const rosterRowOf = (login) => rosterByLogin.value.get(String(login || '').toLowerCase()) || null
+
+/**
+ * A member is named by their email address where one is known (asked
+ * 2026-10-05): the address is how a lecturer knows a student, the GitHub
+ * username often is not. The roster's address first; else the one the student
+ * confirmed. The username stays in the title, and is the name where there is
+ * no address.
+ */
+function memberEmail(login) {
+  const k = String(login || '').toLowerCase()
+  return rosterByLogin.value.get(k)?.email || studentByLogin.value.get(k)?.claimed_email || ''
+}
+function memberLabel(login) {
+  return memberEmail(login) || `@${login}`
+}
+
+function resolveMemberTooltip(login) {
+  const r = rosterRowOf(login)
+  return [r?.full_name, r?.student_number, `@${login}`].filter(Boolean).join(' · ')
 }
 
 function resolveMemberDisplayName(login) {
-  const r = (props.roster || []).find((s) => s.github_login?.toLowerCase() === login?.toLowerCase())
+  const r = rosterRowOf(login)
   if (r && r.full_name && r.full_name.toLowerCase() !== login?.toLowerCase()) {
     return r.student_number ? `${r.full_name} · ${r.student_number}` : r.full_name
   }
@@ -1464,6 +1492,8 @@ async function deleteVacantTeam(team) {
   flex-wrap: wrap;
 }
 
+/* An address is longer than a username: one too long for the cell ends in
+   "…", and the whole of it, with the username, is in the title. */
 .member-pill {
   font-size: 0.75rem;
   background: var(--bg-secondary);
@@ -1471,6 +1501,10 @@ async function deleteVacantTeam(team) {
   padding: 1px 6px;
   border-radius: 4px;
   color: var(--text-secondary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Seeded but not yet accepted: dimmed rather than badged, because a whole
@@ -1533,6 +1567,9 @@ async function deleteVacantTeam(team) {
 .member-login {
   color: var(--text-primary);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .current-members-section {
