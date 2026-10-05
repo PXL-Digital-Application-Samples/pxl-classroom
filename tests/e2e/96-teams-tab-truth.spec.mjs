@@ -266,6 +266,18 @@ test.describe('96 - The Teams tab says what is true', () => {
   });
 });
 
+test.describe('96 - An assignment that is not there', () => {
+  test('says so in words a lecturer has, not a file path or "report"', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
+    await page.goto(`/dashboard/${ORG}/no-such-assignment`);
+    const card = page.locator('.center-card', { hasText: 'Could not open this assignment' });
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card).toContainText('This assignment was not found. It may have been deleted or renamed, or you cannot see this course.');
+    await expect(card).not.toContainText(/control repo|\.yml|report/i);
+  });
+});
+
 test.describe('96 - A username is asked about before the roster stores it', () => {
   test('Add student refuses a username that is no GitHub account', async ({ page }) => {
     const contentWrites = [];

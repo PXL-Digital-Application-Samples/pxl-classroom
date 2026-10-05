@@ -19,8 +19,11 @@
       </div>
 
       <!-- Load Error -->
+      <!-- "Could not open this assignment", not "Failed to load report": this
+           branch is the whole page failing, most often an assignment that does
+           not exist, and the sentence under it says which. -->
       <div v-else-if="loadError" class="center-card fade-in">
-        <h2 class="text-danger">Failed to load report</h2>
+        <h2 class="text-danger">Could not open this assignment</h2>
         <p class="text-secondary">{{ loadError }}</p>
         <button class="btn btn-primary" type="button" @click="loadAll">Retry</button>
       </div>
