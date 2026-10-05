@@ -90,9 +90,12 @@
                 <span class="seed-stat-value">{{ plan.stats.unplaced }}</span>
                 <span class="seed-stat-label">still without a team</span>
               </div>
+              <!-- "Ready" only when there is something to copy: it read "Ready,
+                   with notes" over a plan of nothing, beside a disabled
+                   "Nothing to copy" (testbed, 2026-10-05). -->
               <span class="status-indicator seed-summary-note">
-                <span class="status-dot" :class="plan.warnings.length ? 'dot-warning' : 'dot-success'"></span>
-                <span>{{ plan.warnings.length ? 'Ready, with notes' : 'Ready to seed' }}</span>
+                <span class="status-dot" :class="!plan.teams.length ? 'dot-neutral' : plan.warnings.length ? 'dot-warning' : 'dot-success'"></span>
+                <span>{{ !plan.teams.length ? 'Nothing to copy' : plan.warnings.length ? 'Ready, with notes' : 'Ready to copy' }}</span>
               </span>
             </div>
 
@@ -380,6 +383,7 @@ async function computePlan() {
       now: new Date().toISOString(),
       actor: getUser()?.login || 'lecturer',
       source: sourceKey.value === 'roster' ? 'roster' : 'assignment',
+      forScreen: true,
     })
   }
 }

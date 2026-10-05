@@ -4718,13 +4718,16 @@ async function publishExisting({ regenerate = false } = {}) {
 
 async function deleteDraft() {
   if (form.value.state !== 'draft') return
-  if (!window.confirm(`Delete draft "${form.value.id}"? This removes assignments/${form.value.id}.yml from the control repo.`)) return
+  // Said by the assignment's title and in what it means to the lecturer, not
+  // by its id and the file it lives in (DESIGN.md §1.6).
+  const name = form.value.title || form.value.id
+  if (!window.confirm(`Delete the draft "${name}"? Nobody can have accepted it, so no student repository exists.`)) return
   deleting.value = true
   try {
     const token = getToken()
     const res = await deleteFile(token, props.org, config.controlRepo, assignmentPath(form.value.id), `Delete draft assignment ${form.value.id}`)
     if (res.ok) {
-      toast.success(`Deleted draft ${form.value.id}`)
+      toast.success(`Deleted the draft "${name}".`)
       editing.value = null
       await leaveEditor({ deleted: true })
     } else {

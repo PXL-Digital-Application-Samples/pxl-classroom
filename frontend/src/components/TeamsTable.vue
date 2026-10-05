@@ -296,8 +296,9 @@
         <form @submit.prevent="submitCreateTeam" class="modal-form">
           <div class="modal-body flex flex-col gap-md">
             <div class="form-group">
-              <label>Team Name <span class="req">*</span></label>
+              <label for="create-team-name">Team Name <span class="req">*</span></label>
               <input
+                id="create-team-name"
                 v-model="newTeamForm.name"
                 type="text"
                 class="form-control"
