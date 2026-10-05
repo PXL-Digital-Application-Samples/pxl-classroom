@@ -57,8 +57,7 @@ const assignment = (over = {}) => ({
 async function openNewForm(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 10000 });
 }
 

@@ -95,8 +95,7 @@ async function openRoster(page, {
     });
   }
 
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   return { contentWrites, reads };
 }

@@ -90,20 +90,11 @@ test.describe('25 - Responsive layout', () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-      await expect(page.locator('.cohort-card')).toBeVisible({ timeout: 15000 });
-      await page.waitForTimeout(500);
-
-      let m = await page.evaluate(MEASURE);
-      expect(
-        m.scrollsSideways,
-        `admin editor (collapsed) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
-      ).toBe(false);
-
-      // And with the six fieldsets on screen, which is where the combobox,
-      // the datetime inputs and the autograde summary live.
+      // The fieldsets are always on screen, which is where the combobox, the
+      // datetime inputs, the autograde summary and the section list live.
       await expandSettings(page);
-      await page.waitForTimeout(300);
-      m = await page.evaluate(MEASURE);
+      await page.waitForTimeout(500);
+      const m = await page.evaluate(MEASURE);
       expect(
         m.scrollsSideways,
         `admin editor (settings open) @${width}px scrolls sideways. Overflowing: ${m.overflowing.join(', ') || 'unknown'}`,
@@ -162,7 +153,7 @@ test.describe('25 - Responsive layout', () => {
       const students = await page.evaluate(MEASURE);
       expect(students.scrollsSideways, `students view at ${width}px: ${students.overflowing.join(', ')}`).toBe(false);
 
-      await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+      await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
       await page.waitForTimeout(300);
 
       const teams = await page.evaluate(MEASURE);
@@ -225,8 +216,7 @@ test.describe('25 - Responsive layout', () => {
 
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/dashboard/${ORG}/admin`);
-      await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+      await page.goto(`/dashboard/${ORG}/roster`);
       await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
       // The hints arrive after the roster, so waiting on the table alone would
       // measure the tab without the content this test exists for.
@@ -337,7 +327,9 @@ test.describe('25 - Responsive layout', () => {
     const gutterAt = async (width) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/dashboard/${ORG}`);
-      await page.waitForTimeout(600);
+      // For the element, not a fixed pause: 600ms was not always enough under
+      // a full parallel run, and an absent element read as NaN.
+      await page.locator('main.container').first().waitFor({ timeout: 15000 });
       return page.evaluate(() => {
         const main = document.querySelector('main.container');
         return main ? parseFloat(getComputedStyle(main).paddingLeft) : NaN;

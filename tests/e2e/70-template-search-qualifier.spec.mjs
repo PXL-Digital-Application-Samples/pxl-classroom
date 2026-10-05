@@ -83,8 +83,7 @@ async function openCreateForm(page, repos, opts) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
   await searchLikeGitHub(page, repos, { onQuery: (q) => seen.push(q), ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
   return { seen };
 }
 
@@ -154,8 +153,7 @@ test.describe('70 - the qualifiers hold each other up', () => {
         }),
       });
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateBox(page)).toHaveValue(`${ORG}/really-a-template`, { timeout: 5000 });
     await templateBox(page).fill('');
@@ -221,8 +219,7 @@ test.describe('70 - one page is not the list', () => {
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await routeSearchPages(page, many(150));
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 5000 });
   });
 
@@ -234,8 +231,7 @@ test.describe('70 - one page is not the list', () => {
     await routeSearchPages(page, many(150), { failPage: 2 });
     await routeOrgReposFallback(page, many(150));
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('text=Found 100 template repositories')).toHaveCount(0);
   });
@@ -250,8 +246,7 @@ test.describe('70 - one page is not the list', () => {
     await routeSearchPages(page, many(120), { omitLink: true });
     await routeOrgReposFallback(page, many(120));
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 120 template repositories')).toBeVisible({ timeout: 5000 });
   });
 
@@ -264,8 +259,7 @@ test.describe('70 - one page is not the list', () => {
     await routeSearchPages(page, many(150), { endless: true });
     await routeOrgReposFallback(page, many(150));
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(page.locator('text=Found 150 template repositories')).toBeVisible({ timeout: 15000 });
   });
 
@@ -278,8 +272,7 @@ test.describe('70 - one page is not the list', () => {
     await routeSearchPages(page, many(150), { failPage: 2 });
     await routeOrgReposFallback(page, [], { status: 503 });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page), 'we never established that it has none').toHaveCount(0);
     await expect(page.locator('text=Found 100 template repositories')).toHaveCount(0);
@@ -310,8 +303,7 @@ test.describe('70 - the narrower query can still say "none"', () => {
     await page.route(`**/orgs/${ORG}/repos*`, (route) =>
       route.fulfill({ status: 503, body: JSON.stringify({ message: 'nope' }) }));
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(templateEmpty(page), 'we do not know that it has none').toHaveCount(0);
   });

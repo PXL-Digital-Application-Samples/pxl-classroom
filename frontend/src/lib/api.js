@@ -180,6 +180,29 @@ export async function removeCollaborator(token, owner, repo, username) {
 }
 
 /**
+ * Whether `login` is a GitHub account: true, false, or null when GitHub did not
+ * say. Only a 404 is "no such account" - a rate limit or a timeout is not
+ * evidence either way.
+ *
+ * Asked because a username that is not an account fails in a way that looks
+ * like something else: removing it as a collaborator answers 403 "Resource not
+ * accessible by integration", not 404 (measured on the testbed, 2026-10-04),
+ * which read as this App lacking a permission.
+ */
+export async function githubAccountExists(token, login) {
+  const name = String(login || '').trim()
+  if (!name) return false
+  try {
+    const res = await ghApi(token, 'GET', `/users/${encodeURIComponent(name)}`)
+    if (res.ok) return true
+    if (res.status === 404) return false
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Check if a repo exists and is accessible to the user.
  */
 export async function getRepo(token, owner, repo) {

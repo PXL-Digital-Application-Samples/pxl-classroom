@@ -109,9 +109,18 @@ async function openActions(page) {
   await expect(actions(page)).toBeVisible();
 }
 
+// The autograder table is the Grading tab's. Waiting on the table itself keeps
+// an absence assertion below from passing over a tab that never rendered.
+async function toGrading(page) {
+  if (await actions(page).isVisible()) await actions(page).locator('.modal-close').click();
+  await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
+  await expect(panel(page).locator('table')).toBeVisible();
+}
+
 test.describe('83 - A cap on hand-ins, and the exception that raises it', () => {
   test('the panel shows used / allowed, and names the hand-in that was not graded', async ({ page }) => {
     await setup(page);
+    await toGrading(page);
     await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toBeVisible();
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 5');
     const ignored = panel(page).locator('.autograde-ignored');
@@ -126,10 +135,11 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     assignment.submission_marker = { type: 'commit_message', value: MSG, multiple: true };
     try {
       await setup(page, { summary: plain });
-      await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toHaveCount(0);
-      await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
       await openActions(page);
       await expect(handSection(page)).toHaveCount(0);
+      await toGrading(page);
+      await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toHaveCount(0);
+      await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
     } finally {
       assignment.submission_marker = { type: 'commit_message', value: MSG, multiple: true, max_hand_ins: 5 };
     }
@@ -166,6 +176,7 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     const row = summary.students.find((s) => s.login === LOGIN);
     expect(row.earned_points).toBe(6);
     expect(row.hand_ins).toMatchObject({ used: 6, allowed: 6, extra: 1, graded_number: 6, ignored: [] });
+    await toGrading(page);
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 6 (+1)');
     await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
   });
@@ -221,8 +232,8 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
 
   test('an override file that cannot be read stops grading under the cap, and says why', async ({ page }) => {
     const { contentWrites } = await setup(page, { malformedOverride: true });
-    await page.getByRole('button', { name: /More/ }).first().click();
-    await page.locator('[role="menuitem"]', { hasText: /scores|Re-grade|Read/i }).first().click();
+    await toGrading(page);
+    await page.locator('.grading-actions').getByRole('button', { name: /Read (all )?scores/ }).click();
     await expect(page.locator('.toast', { hasText: "Could not read the students' overrides" }).first()).toBeVisible();
     await expect(page.locator('.toast', { hasText: 'extra hand-ins that were not read would count against the student' }).first()).toBeVisible();
     expect(lastWrite(contentWrites, summaryPath)).toBeUndefined();

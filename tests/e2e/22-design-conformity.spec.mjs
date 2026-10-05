@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken, expandSettings } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, inviteToken, expandSettings, openSystemHealth } from '../fixtures/e2e-fixtures.mjs';
 
 // DESIGN.md §1 is the half of the design system no static test can check: the
 // rules are about what is VISIBLE at once, and most of these views render their
@@ -154,7 +154,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       reports: { g: GROUP_REPORT },
     });
     await page.goto(`/dashboard/${ORG}/g`);
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
     await page.waitForTimeout(400);
   }
 
@@ -177,7 +177,11 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   // all five - the duplicate row is gone, the two per-student operations moved
   // to the tracking view, and `New assignment` yields while an assignment is
   // open - so the check is the whole view now, like every other route here.
-  test('Admin editor: the published banner adds no solid button of its own', async ({ page }) => {
+  // The editor is the assignment page's Settings tab now (2026-10-03) and the
+  // published banner is gone; what stays is the whole view's count. With
+  // nothing edited the header's Invite link is the solid one, as on every tab;
+  // an edit hands it to Save. Exactly one either way.
+  test('Settings tab: one solid button, before and after an edit', async ({ page }) => {
     const base = {
       schema_version: 1,
       id: 'lab',
@@ -201,21 +205,15 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
       assignments: { lab: base },
       userRepos: [{ name: 'broker-lab', full_name: `${ORG}/broker-lab` }],
     });
-    await page.goto(`/dashboard/${ORG}/admin?edit=lab`);
-    await expect(page.locator('.published-info-card.is-success')).toBeVisible({ timeout: 15000 });
-
-    const solid = page.locator('.published-info-card .btn-primary');
-    expect(
-      await solid.count(),
-      'DESIGN.md §1.2: the editor\'s one solid button is Save; the banner must not add another',
-    ).toBe(0);
-
-    // And the whole view, collapsed and expanded - the duplicate action row
-    // lived below the fieldsets, so counting only the collapsed state would
-    // pass against a form nobody had opened.
-    await conforms(page, 'admin editor / published, settings collapsed');
+    await page.goto(`/dashboard/${ORG}/lab?tab=settings`);
     await expandSettings(page);
-    await conforms(page, 'admin editor / published, settings open');
+    await expect(page.getByRole('button', { name: /Invite link/ })).toHaveClass(/btn-primary/);
+    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveCount(0);
+    await conforms(page, 'admin editor / published, nothing edited');
+
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Lab, edited');
+    await expect(page.locator('.editor-action-bar .btn-primary')).toHaveText('Save');
+    await conforms(page, 'admin editor / published, edited');
   });
 
   // And the detail page in the state a lecturer sees first: published, with
@@ -258,7 +256,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
     await conforms(page, 'Manage Team modal');
     await page.locator('.modal-foot button', { hasText: 'Close' }).click();
 
-    await page.locator('button', { hasText: 'Seed teams' }).first().click();
+    await page.locator('button', { hasText: 'Copy teams' }).first().click();
     await expect(page.locator('.seed-modal')).toBeVisible();
     await conforms(page, 'Seed Teams modal');
   });
@@ -316,7 +314,7 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER });
     await page.goto(`/dashboard/${ORG}`);
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
     await expect(page.locator('.diagnostic-modal')).toBeVisible();
     await expect(page.locator('.modal-head .btn')).toBeEnabled({ timeout: 15000 });
     await conforms(page, 'System Health modal');

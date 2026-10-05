@@ -20,7 +20,7 @@
 // the two apart.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'draft-one';
 
@@ -39,7 +39,7 @@ const draft = () => ({
   deadline_at: '2026-12-30T20:00:00Z',
 });
 
-test.describe('55 - the lifecycle Publish button', () => {
+test.describe('55 - Publish on the state button', () => {
   test('an edit on screen is committed before the publish is dispatched', async ({ page }) => {
     const writes = [];
     const dispatches = [];
@@ -59,9 +59,8 @@ test.describe('55 - the lifecycle Publish button', () => {
     // document and is trivially greppable in the committed YAML.
     await title.fill('Edited Before Publishing');
 
-    const publish = page.getByRole('button', { name: /Publish \(create broker/ });
-    await expect(publish).toBeVisible();
-    await publish.click();
+    // Publish is the state button's, at the top of the page.
+    await chooseState(page, 'Publish');
 
     await expect
       .poll(() => dispatches.filter((d) => d.workflow === 'publish-assignment.yml').length, { timeout: 15000 })

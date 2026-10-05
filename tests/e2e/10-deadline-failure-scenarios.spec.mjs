@@ -356,8 +356,12 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
           state: 'published',
           assignment_type: 'group',
           deadline_at: pastDeadline,
+          // A minimum, because "under capacity" is measured against one: the
+          // report never marks a team under capacity without it (report.mjs),
+          // and the Teams tab now recomputes it from the team files.
           group_config: {
             max_team_size: 3,
+            min_team_size: 2,
             formation_mode: 'self-service',
           },
         },
@@ -409,7 +413,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
       },
     });
 
-    await page.goto(`/dashboard/${ORG}/group-deadline-states`);
+    await page.goto(`/dashboard/${ORG}/group-deadline-states?tab=teams`);
 
     // In Teams View:
     // Team Alpha has 1/3 members with warning badge
@@ -421,7 +425,7 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     await expect(betaRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
 
     // Switch to Students View and verify propagation
-    await page.locator('.tab-pill', { hasText: 'Students View' }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
     const betaStudentRow = page.locator('tr', { hasText: 'student-beta1' });
     await expect(betaStudentRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
   });

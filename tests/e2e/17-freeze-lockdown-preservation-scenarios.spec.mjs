@@ -81,7 +81,8 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     //    preservation strip only renders once the assignment is closed, so an
     //    assignment past its deadline while still Accepting would otherwise
     //    have no route to freezing at all.
-    await page.locator('button:has(span:text-is("More"))').click();
+    // On the state button now, the lifecycle's one place on every tab.
+    await page.locator('[data-state-menu]').click();
     const freezeBtn = page.locator('button', { hasText: 'Lock everyone out now' });
     await expect(freezeBtn).toBeVisible();
 
@@ -263,7 +264,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
       currentUser: LECTURER,
     });
 
-    await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+    await page.goto(`/dashboard/${ORG}/${assignmentId}?tab=teams`);
     // Wait for the assignment to actually be loaded before touching a menu.
     // The freeze item is gated on the deadline having passed, which cannot be
     // known until the assignment YAML has arrived - clicking More before that
@@ -347,7 +348,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
     // Click Freeze, from the More menu
-    await page.locator('button:has(span:text-is("More"))').click();
+    await page.locator('[data-state-menu]').click();
     await page.locator('button', { hasText: 'Lock everyone out now' }).click();
 
     // Click Confirm in modal
@@ -415,7 +416,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     // Choosing the item closes the More menu, as every menu here does, so each
     // attempt goes back in through it.
     const openFreeze = async () => {
-      await page.locator('button:has(span:text-is("More"))').click();
+      await page.locator('[data-state-menu]').click();
       await page.locator('button', { hasText: 'Lock everyone out now' }).click();
     };
     const modal = page.locator('.modal-consequences');

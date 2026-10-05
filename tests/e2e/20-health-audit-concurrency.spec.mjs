@@ -8,7 +8,13 @@ import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/
 // component is never unmounted (only its inner v-if content is), so state
 // persisted across open/close.
 
-const HEALTH_BTN = 'button[aria-label="System health check"]';
+// System health is a fold on the Organization tab; once open, its button stays
+// on screen behind the modal, so it can be pressed again and again.
+const HEALTH_BTN = 'details.org-fold button:has-text("Run the checks")';
+async function toHealth(page) {
+  await page.goto(`/dashboard/${ORG}/organization`);
+  await page.locator('details.org-fold summary', { hasText: 'System health' }).click();
+}
 
 /**
  * Make every GitHub call take `ms`, so a pass is still in flight while the test
@@ -42,7 +48,7 @@ test.describe('20 - System Health audit concurrency', () => {
   test('Reopening mid-pass does not stack another diagnostic pass', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER });
-    await page.goto(`/dashboard/${ORG}`);
+    await toHealth(page);
     await expect(page.locator(HEALTH_BTN)).toBeVisible();
 
     // Baseline cost of exactly one pass, measured at full speed.
@@ -81,7 +87,7 @@ test.describe('20 - System Health audit concurrency', () => {
   test('The re-run button is inert while a pass is in flight', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER });
-    await page.goto(`/dashboard/${ORG}`);
+    await toHealth(page);
 
     await page.locator(HEALTH_BTN).click();
     const rerun = page.locator('.modal-head .btn');
@@ -110,7 +116,7 @@ test.describe('20 - System Health audit concurrency', () => {
     // pass answer the wrong question, so it has to start and supersede.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER });
-    await page.goto(`/dashboard/${ORG}`);
+    await toHealth(page);
 
     await page.locator(HEALTH_BTN).click();
     await expect(page.locator('.diagnostic-modal')).toBeVisible();
@@ -136,7 +142,7 @@ test.describe('20b - Read timeouts', () => {
       await new Promise(() => {});
     });
 
-    await page.goto(`/dashboard/${ORG}`);
+    await toHealth(page);
     const started = Date.now();
     await page.locator(HEALTH_BTN).click();
     await expect(page.locator('.diagnostic-modal')).toBeVisible();

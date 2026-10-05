@@ -54,7 +54,7 @@
       <div class="toolbar-actions flex items-center gap-sm">
         <button class="btn btn-sm btn-secondary btn-with-icon" @click="showSeedModal = true" title="Carry an existing grouping into this assignment">
           <Icon name="users" :size="14" />
-          <span>Seed teams</span>
+          <span>Copy teams</span>
         </button>
         <button class="btn btn-sm btn-secondary btn-with-icon" @click="openCreateTeamModal">
           <Icon name="plus" :size="14" />
@@ -70,7 +70,7 @@
           title="Delete the carried-over teams nobody has accepted into yet"
         >
           <Icon name="x-circle" :size="14" />
-          <span>Undo seed ({{ removableSeededTeams.length }})</span>
+          <span>Undo copy ({{ removableSeededTeams.length }})</span>
         </button>
 
         <div class="toolbar-stats text-secondary text-sm">
@@ -87,14 +87,34 @@
     <p v-if="unassignedStudents.length" class="seeded-note">
       <Icon name="alert-circle" :size="13" />
       <span>
-        {{ unassignedStudents.length }} student{{ unassignedStudents.length === 1 ? '' : 's' }} on the
-        roster {{ unassignedStudents.length === 1 ? 'has' : 'have' }} no team:
+        {{ unassignedStudents.length }} student{{ unassignedStudents.length === 1 ? '' : 's' }} of this
+        assignment {{ unassignedStudents.length === 1 ? 'has' : 'have' }} no team:
         {{ unassignedPreview }}
       </span>
     </p>
+    <!-- Students the roster admits who have no GitHub username yet. A team
+         stores usernames, so they cannot be placed; they are named here and in
+         the pickers rather than left out, and the one thing that fixes it is
+         offered beside the sentence (BETA-UX.md, decided 2026-10-04). -->
+    <p v-if="waitingStudents.length" class="seeded-note" data-note="waiting">
+      <Icon name="mail" :size="13" />
+      <span>
+        {{ waitingStudents.length }} student{{ waitingStudents.length === 1 ? '' : 's' }}
+        can't be placed yet: no GitHub username.
+        <template v-if="confirmLink">
+          Send them the confirm-email link; they appear here once they confirm.
+        </template>
+        <template v-else>
+          Their confirm-email link exists once the assignment is published.
+        </template>
+      </span>
+      <button v-if="confirmLink" type="button" class="btn-link" @click="copyConfirmLink">
+        {{ confirmCopied ? 'Copied' : 'Copy confirm-email link' }}
+      </button>
+    </p>
     <p v-if="assignment?.state === 'draft' && teams.length" class="seeded-note">
       <Icon name="eye-off" :size="13" />
-      <span>Draft — students cannot see these teams until the assignment is published.</span>
+      <span>Draft: students cannot see these teams until the assignment is published.</span>
     </p>
 
     <!-- Empty state -->
@@ -102,12 +122,12 @@
       <Icon name="users" :size="40" class="status-icon" />
       <template v-if="teams.length === 0">
         <p class="text-secondary">
-          No teams yet. Students form their own when they accept — or start from the groups they
-          already worked in.
+          No teams yet. Copy the teams of an earlier assignment, so students keep the group they
+          already worked in, or let students form their own when they accept.
         </p>
         <div class="flex gap-sm justify-center" style="margin-top: 8px;">
           <button class="btn btn-secondary btn-sm" @click="showSeedModal = true">
-            Seed teams from a previous assignment
+            Copy the teams of an earlier assignment
           </button>
           <button class="btn btn-secondary btn-sm" @click="openCreateTeamModal">
             Create a team
@@ -133,7 +153,6 @@
             <th>Repository</th>
             <th>Commits</th>
             <th>Status</th>
-            <th v-if="ciStatusColumn">CI Status</th>
             <th v-if="autogradeEnabled">Score</th>
             <th>Preserved</th>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
@@ -171,10 +190,13 @@
               </div>
             </td>
 
-            <!-- Capacity column -->
+            <!-- Capacity column. Amber below the minimum size ("needs a look"),
+                 green otherwise (DESIGN.md §4: "the state you wanted"). A full
+                 team was grey, which §4 keeps for "not started, unknown" -
+                 and that it is full is what "3/3" already says. -->
             <td>
               <span class="status-indicator">
-                <span class="status-dot" :class="team.under_capacity ? 'dot-warning' : ((team.members?.length || 0) >= maxTeamSize ? 'dot-neutral' : 'dot-success')"></span>
+                <span class="status-dot" :class="team.under_capacity ? 'dot-warning' : 'dot-success'"></span>
                 <span class="mono text-xs">{{ team.members ? team.members.length : 0 }}/{{ maxTeamSize }}<template v-if="team.under_capacity"> (low)</template></span>
               </span>
             </td>
@@ -209,21 +231,8 @@
               </span>
             </td>
 
-            <!-- CI Status column (Autograding) -->
-            <td v-if="ciStatusColumn">
-              <button
-                v-if="team.ci_status"
-                type="button"
-                :class="['badge', team.ci_status === 'success' ? 'badge-success' : team.ci_status === 'failure' ? 'badge-error' : 'badge-warning']"
-                @click="openTeamAutogradeModal(team)"
-                title="Click to view team test breakdown"
-                style="cursor: pointer; border: none;"
-              >
-                {{ team.ci_status }}
-              </button>
-              <span v-else class="text-muted text-xs">-</span>
-            </td>
-
+            <!-- No CI status column: the run's status is on the Grading tab,
+                 and the score below opens the team's results. -->
             <!-- Score column (Autograding) -->
             <td v-if="autogradeEnabled">
               <button
@@ -259,27 +268,18 @@
               <span v-else class="text-muted text-xs">-</span>
             </td>
 
-            <!-- Actions column -->
+            <!-- Actions column. One button: an empty team is deleted from
+                 Manage, where its emptiness is on screen. A solid red Delete on
+                 every empty row was a destructive action as a bare button,
+                 which DESIGN.md §1.2 keeps out of tables. -->
             <td class="col-actions">
-              <div class="flex gap-xs justify-end items-center">
-                <button
-                  class="btn btn-sm btn-secondary"
-                  type="button"
-                  @click="openManageTeamModal(team)"
-                  title="Manage team members"
-                >
-                  Manage
-                </button>
-                <button
-                  v-if="!team.members || team.members.length === 0"
-                  class="btn btn-sm btn-danger"
-                  type="button"
-                  @click="deleteVacantTeam(team)"
-                  title="Delete vacant team"
-                >
-                  Delete
-                </button>
-              </div>
+              <button
+                class="btn btn-sm btn-secondary"
+                type="button"
+                @click="openManageTeamModal(team)"
+              >
+                Manage
+              </button>
             </td>
           </tr>
         </tbody>
@@ -290,47 +290,58 @@
     <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
       <div class="modal card">
         <header class="modal-head flex justify-between items-center">
-          <h3>Create Team - {{ assignment.id }}</h3>
+          <h3>Create a team in {{ assignmentTitle }}</h3>
           <button class="modal-close" type="button" @click="showCreateModal = false" aria-label="Close">×</button>
         </header>
-        <form @submit.prevent="submitCreateTeam" class="modal-body flex flex-col gap-md">
-          <div class="form-group">
-            <label>Team Name <span class="req">*</span></label>
-            <input
-              v-model="newTeamForm.name"
-              type="text"
-              class="form-control"
-              placeholder="e.g. Team Phoenix"
-              required
-            />
-            <span class="form-hint text-xs text-muted">
-              Team slug: <code>{{ computedNewSlug || 'team-slug' }}</code>
-            </span>
-          </div>
-
-          <div class="form-group">
-            <label>Assign Students (Optional)</label>
-            <div class="unassigned-students-list">
-              <label
-                v-for="s in unassignedStudents"
-                :key="s.github_login"
-                class="student-check-item flex items-center gap-xs text-sm"
-              >
-                <input
-                  type="checkbox"
-                  :value="s.github_login"
-                  v-model="newTeamForm.members"
-                  :disabled="newTeamForm.members.length >= maxTeamSize && !newTeamForm.members.includes(s.github_login)"
-                />
-                <span>@{{ s.github_login }} ({{ s.full_name || s.student_number }})</span>
-              </label>
-              <div v-if="unassignedStudents.length === 0" class="text-muted text-xs">
-                No unassigned students available in roster.
-              </div>
+        <form @submit.prevent="submitCreateTeam" class="modal-form">
+          <div class="modal-body flex flex-col gap-md">
+            <div class="form-group">
+              <label for="create-team-name">Team Name <span class="req">*</span></label>
+              <input
+                id="create-team-name"
+                v-model="newTeamForm.name"
+                type="text"
+                class="form-control"
+                placeholder="e.g. Team Phoenix"
+                required
+              />
+              <span class="form-hint text-xs text-muted">
+                Team slug: <code>{{ computedNewSlug || 'team-slug' }}</code>
+              </span>
             </div>
-            <span class="form-hint text-xs text-secondary">
-              Selected {{ newTeamForm.members.length }}/{{ maxTeamSize }} members
-            </span>
+
+            <div class="form-group">
+              <label>Assign Students (Optional)</label>
+              <div class="unassigned-students-list">
+                <label
+                  v-for="s in unassignedStudents"
+                  :key="s.github_login"
+                  class="student-check-item flex items-center gap-xs text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    :value="s.github_login"
+                    v-model="newTeamForm.members"
+                    :disabled="newTeamForm.members.length >= maxTeamSize && !newTeamForm.members.includes(s.github_login)"
+                  />
+                  <span>@{{ s.github_login }} ({{ s.full_name || s.student_number }})</span>
+                </label>
+                <label
+                  v-for="s in waitingStudents"
+                  :key="waitingKey(s)"
+                  class="student-check-item student-waiting flex items-center gap-xs text-sm"
+                >
+                  <input type="checkbox" disabled />
+                  <span>{{ waitingName(s) }} <span class="text-xs">no GitHub username yet</span></span>
+                </label>
+                <div v-if="unassignedStudents.length === 0 && waitingStudents.length === 0" class="text-muted text-xs">
+                  Every student of this assignment is already in a team.
+                </div>
+              </div>
+              <span class="form-hint text-xs text-secondary">
+                Selected {{ newTeamForm.members.length }}/{{ maxTeamSize }} members
+              </span>
+            </div>
           </div>
 
           <footer class="modal-foot flex justify-end gap-sm">
@@ -347,7 +358,7 @@
     <div v-if="managingTeam" class="modal-overlay" @click.self="managingTeam = null">
       <div class="modal card">
         <header class="modal-head flex justify-between items-center">
-          <h3>Manage: {{ managingTeam.team_name }} (<code>{{ managingTeam.team_slug }}</code>)</h3>
+          <h3>Manage {{ managingTeam.team_name }}</h3>
           <button class="modal-close" type="button" @click="managingTeam = null" aria-label="Close">×</button>
         </header>
         <div class="modal-body flex flex-col gap-md">
@@ -355,10 +366,19 @@
           <div class="current-members-section">
             <label class="section-label">Current Members ({{ manageMembers.length }}/{{ maxTeamSize }})</label>
             <div v-if="manageMembers.length" class="members-manage-list">
-              <div v-for="m in manageMembers" :key="m" class="member-manage-row flex justify-between items-center">
-                <div class="flex items-center gap-xs">
-                  <span class="mono font-semibold" style="color: var(--text-primary);">@{{ m }}</span>
-                  <span v-if="resolveMemberDisplayName(m)" class="text-secondary text-xs">({{ resolveMemberDisplayName(m) }})</span>
+              <div v-for="m in manageMembers" :key="m" class="member-manage-row flex justify-between items-center gap-sm">
+                <!-- Who, then where they stand: the same rule as the table's
+                     dimmed pills, said in words, because this is where a
+                     lecturer decides whether moving them costs anything. -->
+                <div class="member-manage-who">
+                  <div class="flex items-center gap-xs">
+                    <span class="member-login mono font-semibold">@{{ m }}</span>
+                    <span v-if="resolveMemberDisplayName(m)" class="text-secondary text-xs">({{ resolveMemberDisplayName(m) }})</span>
+                  </div>
+                  <span v-if="memberStatusFor(m)" class="status-indicator text-xs" data-member-status>
+                    <span class="status-dot" :class="`dot-${memberStatusFor(m).tone}`"></span>
+                    <span>{{ memberStatusFor(m).text }}</span>
+                  </span>
                 </div>
                 <div class="flex gap-xs items-center">
                   <!-- One gesture, both manifests. Removing here and adding in
@@ -376,7 +396,9 @@
                       {{ t.team_name }} ({{ (t.members || []).length }}/{{ maxTeamSize }})
                     </option>
                   </select>
-                  <button class="btn btn-xs btn-danger" type="button" @click="removeMemberFromTeam(m)">
+                  <!-- Plain, not red: it takes them off the list below and
+                       nothing happens until Save. -->
+                  <button class="btn btn-xs btn-secondary" type="button" @click="removeMemberFromTeam(m)">
                     Remove
                   </button>
                 </div>
@@ -396,6 +418,9 @@
                 <option v-for="s in unassignedStudents" :key="s.github_login" :value="s.github_login">
                   @{{ s.github_login }} ({{ s.full_name || s.student_number }})
                 </option>
+                <option v-for="s in waitingStudents" :key="waitingKey(s)" disabled>
+                  {{ waitingName(s) }} - no GitHub username yet
+                </option>
               </select>
               <button
                 class="btn btn-sm btn-secondary"
@@ -407,29 +432,34 @@
               </button>
             </div>
           </div>
-
-          <footer class="modal-foot flex justify-between items-center gap-sm">
-            <button
-              v-if="manageMembers.length === 0"
-              class="btn btn-danger btn-sm"
-              type="button"
-              :disabled="saving"
-              @click="deleteVacantTeam(managingTeam)"
-            >
-              Delete Vacant Team
-            </button>
-            <div class="flex gap-sm" style="margin-left: auto;">
-              <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
-              <button class="btn btn-primary" type="button" :disabled="saving" @click="saveTeamMembers">
-                {{ saving ? 'Saving…' : 'Save Changes' }}
-              </button>
-            </div>
-          </footer>
         </div>
+
+        <footer class="modal-foot flex justify-between items-center gap-sm">
+          <!-- Only an empty team can be deleted, and only from here, where its
+               emptiness is on screen. A subtle outline, confirmed in a dialog
+               (DESIGN.md §1.2). Judged on the STORED members, not the list
+               being edited: emptying the list and deleting before Save would
+               delete a team whose file still names students. -->
+          <button
+            v-if="!(managingTeam.members || []).length && manageMembers.length === 0"
+            class="btn btn-danger-outline btn-sm"
+            type="button"
+            :disabled="saving"
+            @click="deleteVacantTeam(managingTeam)"
+          >
+            Delete team
+          </button>
+          <div class="flex gap-sm" style="margin-left: auto;">
+            <button class="btn btn-secondary" type="button" @click="managingTeam = null">Close</button>
+            <button class="btn btn-primary" type="button" :disabled="saving" @click="saveTeamMembers">
+              {{ saving ? 'Saving…' : 'Save Changes' }}
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
 
-    <!-- Modal: Seed teams from an existing grouping -->
+    <!-- Modal: Copy teams from an existing grouping -->
     <SeedTeamsModal
       v-if="showSeedModal"
       :org="org"
@@ -453,25 +483,63 @@
         Team Autograding: <strong>{{ activeTeamAutograde.team_name }}</strong> (<code>{{ activeTeamAutograde.team_slug }}</code>)
       </template>
     </AutogradeResultsModal>
+
+    <!-- LAST, so it stacks over Manage: a move is asked from inside that
+         dialog, and two overlays at one z-index stack by document order. -->
+    <ConfirmDialog
+      v-if="confirmState"
+      :title="confirmState.title"
+      :confirm-label="confirmState.confirmLabel"
+      :destructive="confirmState.destructive"
+      @confirm="answerConfirm(true)"
+      @cancel="answerConfirm(false)"
+    >
+      <p v-for="(p, i) in confirmState.paragraphs" :key="i">{{ p }}</p>
+      <ul v-if="confirmState.list?.length">
+        <li v-for="(item, i) in confirmState.list" :key="i">{{ item }}</li>
+      </ul>
+      <p v-for="(p, i) in confirmState.after || []" :key="`after-${i}`">{{ p }}</p>
+    </ConfirmDialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { teamPath, repositoryPath, acceptancePath } from '../../../lib/control-layout.mjs'
-import { planMemberRecordChanges } from '../../../lib/team-member-records.mjs'
+import { planMemberRecordChanges, teamRepository } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { submissionLabel } from '../lib/status-labels.js'
-import { commitFile, commitFiles, deleteFile, getRepoContent, addCollaborator, removeCollaborator } from '../lib/api.js'
+import {
+  commitFile,
+  commitFiles,
+  deleteFile,
+  getRepoContent,
+  addCollaborator,
+  removeCollaborator,
+  githubAccountExists,
+  listClaims,
+} from '../lib/api.js'
+import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
+import { confirmationUrl, linkSecretFrom } from '../lib/invite.js'
+import { copyText } from '../lib/clipboard.js'
+import {
+  moveConfirmation,
+  deleteConfirmation,
+  memberStatus,
+  revokeOutcome,
+  notAnAccountNote,
+} from '../lib/team-edit.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { validateAgainst } from '../lib/validate.js'
 import { config } from '../lib/config.js'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { toast } from '../lib/toast.js'
 import { planUnseed } from '../../../lib/seed-teams.mjs'
+import { teamCandidates } from '../../../lib/team-candidates.mjs'
 import { archiveBranchUrl } from '../lib/archive-repo.js'
 
 const props = defineProps({
@@ -528,15 +596,6 @@ const studentPermission = computed(() => props.assignment?.student_permission ||
 // column that can only ever be blank is C4.
 const hasGrades = computed(() => (props.teams || []).some((t) => t.earned_points != null))
 const autogradeEnabled = computed(() => hasGrades.value)
-
-// Whether the assignment declares Actions-run autograding here - which is what
-// makes `refreshLiveStatus` fill ci_status, independently of any score. So the
-// CI column has two ways to be populated and the Score column has one.
-const isGitHubActionsAutograde = computed(
-  () => props.assignment?.autograde?.enabled === true &&
-        props.assignment?.autograde?.execution_environment === 'github_actions'
-)
-const ciStatusColumn = computed(() => hasGrades.value || isGitHubActionsAutograde.value)
 
 const activeTeamAutograde = ref(null)
 
@@ -642,21 +701,119 @@ const computedNewSlug = computed(() => {
     .replace(/^-+|-+$/g, '')
 })
 
-const assignedLogins = computed(() => {
-  const set = new Set()
-  for (const t of props.teams) {
-    for (const m of t.members || []) {
-      set.add(m.toLowerCase())
-    }
+// Who confirmed which address, read only when somebody in this assignment's
+// cohort has no GitHub username on the roster: the confirm-email link records
+// the username in a claim and leaves the roster row as it was, so without this
+// a student who confirmed would still be "no GitHub username yet" here.
+// A failed read leaves them waiting, which is where they were.
+//
+// Read again on every load of the page's data (the roster prop is a new array
+// each time), so Refresh is what "they appear here once they confirm" means.
+// Read once per visit, it would have promised that and not done it (DESIGN.md
+// §1.5).
+const claimIndex = ref(null)
+let claimsRead = 0
+async function loadClaims() {
+  if (!(props.roster || []).some((r) => !r?.github_login && r?.email)) return
+  const token = getToken()
+  if (!token) return
+  const mine = ++claimsRead
+  try {
+    const { records } = await listClaims(token, props.org, config.controlRepo)
+    if (mine === claimsRead) claimIndex.value = indexClaims(records)
+  } catch {
+    // Keep what was known: a failed read is not "nobody confirmed".
   }
-  return set
-})
+}
+onMounted(loadClaims)
+watch(() => props.roster, loadClaims)
 
-const unassignedStudents = computed(() =>
-  (props.roster || []).filter(
-    (s) => s.github_login && !assignedLogins.value.has(s.github_login.toLowerCase())
-  )
+const loginFor = (row) => (claimIndex.value ? bindingForEntry(row, claimIndex.value).login : null)
+
+// THIS ASSIGNMENT'S students, never the whole roster: the roster is the
+// organization's, and offering all of it let a lecturer place someone in a team
+// who was then refused at acceptance (lib/team-candidates.mjs).
+const candidates = computed(() =>
+  teamCandidates({
+    assignment: props.assignment,
+    roster: props.roster,
+    accepted: props.students,
+    teams: props.teams,
+    loginFor,
+  })
 )
+const unassignedStudents = computed(() => candidates.value.unassigned)
+const waitingStudents = computed(() => candidates.value.waiting)
+const waitingName = (s) => s.full_name || s.email || s.student_number || 'A student'
+const waitingKey = (s) => `${s.email || ''}|${s.student_number || ''}|${s.full_name || ''}`
+
+const assignmentTitle = computed(() => props.assignment?.title || props.assignment?.id || 'this assignment')
+
+// The confirm-email link is minted with the invitation, at publish; a draft
+// has none. Read from the assignment, never fetched in the click: a copy after
+// an `await` is refused by Firefox (CLAUDE.md, the clipboard rule).
+const confirmLink = computed(() => {
+  if (props.assignment?.state !== 'published') return null
+  const secret = linkSecretFrom(props.assignment)
+  return secret ? confirmationUrl(props.org, secret) : null
+})
+const confirmCopied = ref(false)
+let confirmCopiedTimer = null
+async function copyConfirmLink() {
+  if (!confirmLink.value) return
+  if (!(await copyText(confirmLink.value))) {
+    toast.error('Could not copy the link')
+    return
+  }
+  confirmCopied.value = true
+  clearTimeout(confirmCopiedTimer)
+  confirmCopiedTimer = setTimeout(() => { confirmCopied.value = false }, 2000)
+  toast.success('Confirm-email link copied')
+}
+onBeforeUnmount(() => clearTimeout(confirmCopiedTimer))
+
+// One question at a time, asked in the page (ConfirmDialog) and answered by a
+// promise, so the actions below read top to bottom as they did with confirm().
+const confirmState = ref(null)
+function askConfirm(question) {
+  return new Promise((resolve) => {
+    confirmState.value = { ...question, resolve }
+  })
+}
+function answerConfirm(yes) {
+  const state = confirmState.value
+  confirmState.value = null
+  state?.resolve(yes)
+}
+
+function memberStatusFor(login) {
+  return memberStatus({
+    draft: props.assignment?.state === 'draft',
+    known: (props.students || []).length > 0,
+    accepted: hasAccepted(login),
+    teamHasRepo: Boolean(teamRepository(managingTeam.value, props.org)),
+  })
+}
+
+/**
+ * Remove one collaborator and say how it ended (lib team-edit.js
+ * `revokeOutcome`). GitHub answers a username that is not an account with 403,
+ * the same as a missing permission, so a 403 asks GitHub whether the account
+ * exists before it is reported as a failure.
+ */
+async function revokeAccess(token, repo, login) {
+  const res = await removeCollaborator(token, props.org, repo, login)
+  const exists = res?.status === 403 ? await githubAccountExists(token, login) : null
+  return { outcome: revokeOutcome(res, exists), status: res?.status }
+}
+
+/** A failed grant, named for what it is when the username is not an account. */
+async function grantProblem(token, repo, login, res) {
+  const exists = await githubAccountExists(token, login)
+  return exists === false
+    ? `@${login} is not a GitHub account, so ${repo} could not be shared with them`
+    : `could not give @${login} access to ${repo} (HTTP ${res?.status ?? '?'})`
+}
 
 const filteredTeams = computed(() => {
   let list = props.teams
@@ -734,15 +891,24 @@ async function removeSeededTeams() {
   if (removable.length === 0) return
 
   const kept = keptSeededTeams.value
-  const message =
-    `Remove ${removable.length} carried-over team(s) from ${props.assignment.id}?\n\n` +
-    removable.map((t) => `- ${t.team_name} (${(t.members || []).length} member(s))`).join('\n') +
-    (kept.length
-      ? `\n\n${kept.length} carried-over team(s) will be kept: a member has already accepted into them.`
-      : '') +
-    `\n\nThis deletes the team files from the control repository. No student repository is touched.`
-
-  if (!window.confirm(message)) return
+  const n = removable.length
+  const yes = await askConfirm({
+    title: `Remove ${n} copied team${n === 1 ? '' : 's'} from ${assignmentTitle.value}?`,
+    confirmLabel: `Remove ${n} team${n === 1 ? '' : 's'}`,
+    destructive: true,
+    paragraphs: [],
+    list: removable.map((t) => {
+      const m = (t.members || []).length
+      return `${t.team_name} (${m} member${m === 1 ? '' : 's'})`
+    }),
+    after: [
+      ...(kept.length
+        ? [`${kept.length} copied team${kept.length === 1 ? ' is' : 's are'} kept: a member has already accepted into ${kept.length === 1 ? 'it' : 'them'}.`]
+        : []),
+      'No student repository is touched.',
+    ],
+  })
+  if (!yes) return
 
   saving.value = true
   try {
@@ -845,17 +1011,27 @@ async function moveMemberTo(login, targetSlug) {
   const target = (props.teams || []).find((t) => t.team_slug === targetSlug)
   if (!target) return
 
-  if (!window.confirm(
-    `Move @${login} from "${managingTeam.value.team_name}" to "${target.team_name}"?\n\n` +
-    `Their access to the ${managingTeam.value.team_name} repository is revoked and they are ` +
-    `granted access to the ${target.team_name} repository.`
-  )) return
+  // Written from the case in hand (lib team-edit.js): whether they accepted,
+  // and whether each team has a repository. One sentence for every case said
+  // "granted access to the Bravo repository" over a team that had none.
+  const yes = await askConfirm(moveConfirmation({
+    login,
+    from: managingTeam.value,
+    to: target,
+    org: props.org,
+    accepted: hasAccepted(login),
+    draft: props.assignment?.state === 'draft',
+  }))
+  if (!yes || !managingTeam.value) return
 
   saving.value = true
   try {
     const token = getToken()
-    const sourcePath = `teams/${props.assignment.id}/${sourceSlug}.json`
-    const targetPath = `teams/${props.assignment.id}/${targetSlug}.json`
+    // lib/control-layout.mjs, never spelled here. These two were spelled by
+    // hand and the guard never saw them: it pairs backticks across the whole
+    // file, and a comment's inline code had shifted the pairing.
+    const sourcePath = teamPath(props.assignment.id, sourceSlug)
+    const targetPath = teamPath(props.assignment.id, targetSlug)
 
     // Read BOTH before touching anything: a move that can only half-apply is
     // worse than one that does not start.
@@ -946,17 +1122,23 @@ async function moveMemberTo(login, targetSlug) {
     // between teams could silently keep access to the old team's repository and
     // have none on the new one, while the lecturer read "@login moved to X".
     const problems = []
+    const notAccounts = []
     if (sourceRepo) {
-      const res = await removeCollaborator(token, props.org, sourceRepo, login)
-      // 404 means they were not a collaborator there: the end state is the one
-      // we wanted, so it is not a problem to report.
-      if (!res?.ok && res?.status !== 404) {
-        problems.push(`revoke on ${sourceRepo} (HTTP ${res?.status ?? '?'})`)
-      }
+      // 404 means they were not a collaborator there, and a 403 on a username
+      // that is not an account means there was never any access: both are the
+      // end state we wanted (revokeAccess).
+      const { outcome, status } = await revokeAccess(token, sourceRepo, login)
+      if (outcome === 'not-an-account') notAccounts.push(login)
+      else if (outcome === 'failed') problems.push(`revoke on ${sourceRepo} (HTTP ${status ?? '?'})`)
     }
     if (targetRepo) {
-      const res = await addCollaborator(token, props.org, targetRepo, login, studentPermission.value)
-      if (!res?.ok) problems.push(`grant on ${targetRepo} (HTTP ${res?.status ?? '?'})`)
+      if (notAccounts.length) {
+        // Already known; inviting a username that is no account only fails.
+        problems.push(`@${login} is not a GitHub account, so ${targetRepo} could not be shared with them`)
+      } else {
+        const res = await addCollaborator(token, props.org, targetRepo, login, studentPermission.value)
+        if (!res?.ok) problems.push(await grantProblem(token, targetRepo, login, res))
+      }
     }
 
     await republishTeams(token)
@@ -966,7 +1148,8 @@ async function moveMemberTo(login, targetSlug) {
         problems.join('; ')
       )
     } else {
-      toast.success(`@${login} moved to "${target.team_name}".`)
+      const note = notAnAccountNote(notAccounts)
+      toast.success(`@${login} moved to "${target.team_name}".${note ? ` ${note}` : ''}`)
     }
     managingTeam.value = null
     emit('refresh')
@@ -1051,7 +1234,7 @@ async function saveTeamMembers() {
     // change therefore wrote a manifest that FAILS its own schema (created_by
     // is required) and silently dropped `repo_id` and `seeded_from`. Losing
     // seeded_from is the one a lecturer would feel: planUnseed and the
-    // "Undo seed" button both key on it, so editing one member of a seeded team
+    // "Undo copy" button both key on it, so editing one member of a seeded team
     // quietly removed it from the bulk undo.
     //
     // Merge, never replace - the same rule promote-roster follows. Reading
@@ -1128,21 +1311,20 @@ async function saveTeamMembers() {
     // be REMOVED silently kept admin on a repository they are no longer part of,
     // which on an exam is the sharper half.
     const accessFailures = []
+    const notAccounts = []
     if (token && repoName) {
       for (const m of removed) {
-        const res = await removeCollaborator(token, props.org, repoName, m)
-        // 204 is the success shape; 404 means they were not a collaborator, so
-        // the end state is the one we wanted and it is not a failure.
-        if (!res?.ok && res?.status !== 404) {
-          accessFailures.push(`could not remove @${m} (HTTP ${res?.status ?? '?'})`)
-        }
+        // 204 is the success shape; 404 means they were not a collaborator, and
+        // a 403 on a username that is not an account means there never was
+        // access - both are the end state we wanted (revokeAccess).
+        const { outcome, status } = await revokeAccess(token, repoName, m)
+        if (outcome === 'not-an-account') notAccounts.push(m)
+        else if (outcome === 'failed') accessFailures.push(`could not remove @${m} (HTTP ${status ?? '?'})`)
       }
       for (const m of added) {
         const res = await addCollaborator(token, props.org, repoName, m, studentPermission.value)
         // 201 is "invitation created", 204 is "already a collaborator".
-        if (!res?.ok) {
-          accessFailures.push(`could not give @${m} access (HTTP ${res?.status ?? '?'})`)
-        }
+        if (!res?.ok) accessFailures.push(await grantProblem(token, repoName, m, res))
       }
     }
 
@@ -1159,13 +1341,15 @@ async function saveTeamMembers() {
       // truth and a later reconcile can repair access - but "updated
       // successfully" over a student who cannot reach the repository is the
       // lecturer finding out from the student instead.
+      const note = notAnAccountNote(notAccounts)
       if (accessFailures.length) {
         toast.error(
           `Team "${managingTeam.value.team_name}" was saved, but repository access did not all change: ` +
-            `${accessFailures.join('; ')}. Fix the access on GitHub, or re-open this dialog and save again.`,
+            `${accessFailures.join('; ')}. Fix the access on GitHub, or re-open this dialog and save again.` +
+            (note ? ` ${note}` : ''),
         )
       } else {
-        toast.success(`Team "${managingTeam.value.team_name}" updated successfully.`)
+        toast.success(`Team "${managingTeam.value.team_name}" updated successfully.${note ? ` ${note}` : ''}`)
       }
       managingTeam.value = null
       emit('refresh')
@@ -1194,9 +1378,7 @@ async function deleteVacantTeam(team) {
     toast.error('Cannot delete team with active members. Remove all members first.')
     return
   }
-  if (!window.confirm(`Delete vacant team "${team.team_name || team.team_slug}"? This removes teams/${props.assignment.id}/${team.team_slug}.json from the control repo.`)) {
-    return
-  }
+  if (!(await askConfirm(deleteConfirmation(team)))) return
   saving.value = true
   try {
     const token = getToken()
@@ -1317,18 +1499,40 @@ async function deleteVacantTeam(team) {
   color: var(--text-secondary);
 }
 
+/* No height of its own: the dialog's body scrolls (style.css, `.modal`).
+   A recessed well, not an outlined box: the dialog is the box and its
+   checkboxes are controls, and a border here made the third (DESIGN.md §1.1).
+   `--bg-inset` because it differs from the dialog in both themes;
+   `--bg-secondary` is the dialog's own white. */
 .unassigned-students-list {
-  max-height: 180px;
-  overflow-y: auto;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px;
-  background: var(--bg-secondary);
+  background: var(--bg-inset);
 }
 
 .student-check-item {
   padding: 4px;
   cursor: pointer;
+}
+
+/* On the list, greyed: a student this assignment admits who cannot be placed
+   until they have a GitHub username (the note above the table says how). */
+.student-check-item.student-waiting {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.member-manage-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* A username is one word: wrapped at its hyphen it reads as two people. */
+.member-login {
+  color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .current-members-section {
@@ -1342,14 +1546,15 @@ async function deleteVacantTeam(team) {
   font-size: 0.85rem;
 }
 
+/* A well, for the same reason as the list above: a row here holds a select and
+   a button, and an outline around them inside the dialog's was three boxes. */
 .members-manage-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: var(--bg-secondary);
+  background: var(--bg-inset);
   padding: 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
 }
 
 .member-manage-row {

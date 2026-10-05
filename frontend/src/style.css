@@ -200,6 +200,11 @@
      sizes itself from the same value, and two places holding one measure is
      how they come to disagree. */
   --form-measure: 640px;
+  /* Where content stops under the sticky app header: the settings section
+     list sticks here, and a section jumped to lands here rather than under
+     the header. The header's one-row height plus a gap; the list is only shown
+     at widths where the header is one row. */
+  --sticky-top: 88px;
 
   /* ---- Border radius — tight & consistent ---- */
   --radius-xs: 4px;
@@ -423,14 +428,26 @@ a:hover {
 /* ==========================================================================
    Navigation Tabs (GitHub Primer Underline Style)
    ========================================================================== */
+/* The bar's line is an INSET shadow, not a border, and the tabs no longer hang
+   1px below the bar to sit on it. With a border, each tab's `margin-bottom:
+   -1px` put its underline 1px outside the bar - and `overflow-x: auto` makes
+   `overflow-y` compute to auto as well (DESIGN.md §7), so that pixel drew a
+   vertical scrollbar beside the tabs on every assignment page (Windows,
+   2026-10-04). Drawn inside, the active tab's underline paints over the line
+   exactly as before, and nothing overflows. Sideways scrolling stays for a
+   window too narrow for the tabs. */
 .primer-tabs {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  border-bottom: 1px solid var(--border-muted);
+  box-shadow: inset 0 -1px 0 var(--border-muted);
   margin-bottom: var(--space-lg);
   padding: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+}
+.primer-tabs .primer-tab {
+  margin-bottom: 0;
 }
 
 .primer-tab {
@@ -651,6 +668,13 @@ a:hover {
   animation: fadeIn 0.15s ease forwards;
 }
 
+/* A dialog's title and buttons stay put and only its body scrolls (DESIGN.md
+   §6, "Only the body of a dialog scrolls"). The whole dialog used to scroll, so a long body pushed the buttons
+   below the fold and the only sign was a scrollbar on the dialog's edge - read
+   as "it does not fit" (Teams, 2026-10-04). Primer's Dialog does the same.
+   The head, the foot and a form wrapping body + foot are the dialog's direct
+   children; `overflow-y: auto` on `.modal` itself stays as the fallback for a
+   dialog built some other way, which still scrolls whole rather than clip. */
 .modal {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
@@ -660,6 +684,27 @@ a:hover {
   overflow-y: auto;
   width: 100%;
   max-width: 520px;
+  display: flex;
+  flex-direction: column;
+}
+.modal > .modal-head,
+.modal > .modal-foot,
+.modal > .modal-actions,
+.modal-form > .modal-foot { flex: none; }
+.modal > .modal-body,
+.modal-form > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* A form holding the body and the buttons, so Enter submits and the footer is
+   still outside the part that scrolls. */
+.modal > .modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
 }
 
 .modal-head {
@@ -763,6 +808,33 @@ a:hover {
 .app-header-right {
   flex-shrink: 0;
   min-width: 0;
+}
+
+/* A bar with a centre (OrgShell's tabs): three columns, the outer two equal,
+   so the middle one is centred on the WINDOW whatever the breadcrumb on the
+   left or the account on the right happen to measure. A flex row centres
+   nothing - the tabs started wherever the left side ended, and moved from one
+   page to the next (reported 2026-10-03). */
+.app-header-bar.has-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* A long assignment name truncates before it reaches the tabs, rather than
+     running into them. */
+  column-gap: var(--space-xl);
+}
+.app-header-bar.has-center .app-header-left { justify-self: start; }
+.app-header-bar.has-center .app-header-right { justify-self: end; }
+.app-header-center { justify-self: center; }
+/* Too narrow for three: the tabs take their own row under the other two. */
+@media (max-width: 900px) {
+  .app-header-bar.has-center {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "left right" "center center";
+    row-gap: var(--space-xs);
+  }
+  .app-header-bar.has-center .app-header-left { grid-area: left; }
+  .app-header-bar.has-center .app-header-right { grid-area: right; }
+  .app-header-bar.has-center .app-header-center { grid-area: center; justify-self: start; }
 }
 
 /* Below this the actions cannot fit beside a long org name, so the bar wraps
@@ -871,22 +943,16 @@ a:hover {
   color: var(--accent-blue);
   text-decoration: none;
 }
-/* The two views of one assignment - Overview and Admin - switched from inside
-   the breadcrumb trail rather than from a second tab row. AdminView already
-   carries page-level `.primer-tabs` (Assignments / Roster), and a second
-   full-width row above them would read as competing navigation.
+/* An organization's three views - Assignments, Roster, Organization
+   (OrgSwitch.vue) - in the centre of the shared top bar (OrgShell.vue).
    The ITEMS are `.primer-tab`, because DESIGN.md §1.4 asks for underline tabs
    with an active bottom border and this is section switching; only the
    container differs, since `.primer-tabs` carries a full-width bottom border
-   and a 24px margin meant for a page body. The left rule is a divider, which
-   §1.1 allows. */
+   and a 24px margin meant for a page body. */
 .app-header-switch {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
-  margin-left: var(--space-sm);
-  padding-left: var(--space-sm);
-  border-left: 1px solid var(--border-muted);
 }
 .app-header-switch .primer-tab {
   padding: 4px 8px;
@@ -903,10 +969,7 @@ a:hover {
     flex-wrap: wrap;
   }
   .app-header-switch {
-    flex-basis: 100%;
-    margin-left: 0;
-    padding-left: 0;
-    border-left: none;
+    flex-wrap: wrap;
   }
 }
 .app-header-sep {
@@ -1034,12 +1097,27 @@ select:focus {
   border-width: 2px;
 }
 
+/* NO `forwards`. With it the last keyframe stays applied for ever, and its
+   identity translate is still a transform: it makes the element the containing
+   block for every `position: fixed` descendant, so a dialog inside it is placed
+   against the element instead of the window. The assignment page's
+   report-content wrapper carries fade-in and holds the Teams tab, so its
+   dialogs opened 113px down the page, and further once it was scrolled, with
+   their buttons below the bottom of a short window (testbed, 2026-10-05).
+   Ending the keyframe on `transform: none` does not help: interpolating to
+   `none` yields identity functions, so the fill is `translateY(0)` all the
+   same. Without a fill the element returns to its own style when the animation
+   ends - opacity 1, no transform - which is what the last keyframe says
+   anyway. The admin page's wrapper was the same trap in 2026-09 and lost the
+   class; this ends it for every user of the class (tests/e2e/47). Class names
+   in this comment are written without their dot on purpose: the undeclared-
+   class scan reads a dotted name in a stylesheet as a declaration. */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .fade-in {
-  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .mono {
@@ -1172,6 +1250,61 @@ select:focus {
 /* InvitationShare.vue - used by AdminView, DashboardView and
    AssignmentDetailView, so per DESIGN.md §7 its vocabulary lives here. A
    scoped block in the component would not reach any of them. */
+/* A dropdown menu and its anchor. The assignment page's Export, More and
+   preservation menus, and the assignment header's state and Invite link menus
+   (AssignmentHeader.vue) - two components, so here (DESIGN.md §7). */
+.dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.export-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  /* Anchored to the trigger's RIGHT edge, because these triggers live in a
+     right-aligned toolbar. With `left: 0` the 270px menu grew towards the
+     viewport edge and stayed on screen only because another button happened to
+     sit to its right - remove that button and the More menu's own centre fell
+     outside the window (tests/e2e/21-org-dropdown.spec.mjs). A menu whose
+     trigger sits on the left overrides this (the state menu). */
+  right: 0;
+  z-index: 100;
+  min-width: 270px;
+  background: var(--bg-surface);
+  /* An OPEN MENU has to read as a separate surface floating over the page.
+     --border-default is #30363d in dark, barely a step from the surface behind
+     it, so the menu's edge was hard to find at all - reported 2026-09-02.
+     --border-strong is DESIGN.md's "emphasised outlines" and moves the right
+     way in both themes: darker than default in light, lighter in dark. */
+  border: 1px solid var(--border-strong);
+  /* No inline fallback after the comma: --radius-md is defined, and a fallback
+     only hides a typo (DESIGN.md §5 rule 2). */
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px var(--shadow-color-lg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* ...and `keepMenuInView()` (lib/menu-position.js) shifts it back when that
+   would put it off screen - see the note there for why this cannot be a media
+   query. */
+
+/* The Invite link menu. Its padding, border and shadow are the other menus';
+   InvitationShare pads the link box and the status like a row, so they line
+   up the same way. Compounded with .export-dropdown-menu so it wins whatever
+   the order.
+   A WIDTH, not a min-width: the link box is one unbreakable line, and as a
+   min-width the menu grew to fit the whole URL - about 650px on the real
+   site, whose address carries the Pages path and the organization. The box
+   cuts it off with an ellipsis instead; Copy and Open are how the link is
+   used. The cap keeps the 8px keepMenuInView() leaves on a 320px phone. */
+.export-dropdown-menu.invite-menu {
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  display: block;
+}
+
 /* A menu row: an icon, a bold title and a grey line saying what it does. The
    assignment page's Export, More and Invite link menus are built from these,
    and the Invite link one is drawn by InvitationShare - two components, so the

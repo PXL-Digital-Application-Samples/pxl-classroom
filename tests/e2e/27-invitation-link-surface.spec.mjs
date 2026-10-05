@@ -62,11 +62,8 @@ async function openEditor(page, assignment, extra = {}) {
     userRepos: [brokerRepo],
     ...extra,
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/${ID}/settings`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 15000 });
-  await page.locator('.assignment-row, .assignment-item, li', { hasText: 'Linux Processes 2026' })
-    .first()
-    .click();
   // The editor is open once the Title field is on screen. A bare
   // `textarea, input` match resolves to the roster tab's hidden file input.
   // A published assignment collapses the fieldsets behind the settings
@@ -82,6 +79,8 @@ test.describe('27 - The invitation link, end to end', () => {
   test('A published assignment shows its invitation link, and Copy works', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await openEditor(page, publishedAssignment());
+    // The link is the header's Invite link menu, on every tab.
+    await page.getByRole('button', { name: /Invite link/ }).click();
 
     const linkText = page.locator('.invitation-link').first();
     await expect(linkText).toBeVisible({ timeout: 15000 });
@@ -158,17 +157,21 @@ test.describe('27 - The invitation link, end to end', () => {
       });
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=settings`);
     await expandSettings(page);
 
-    // Nothing to copy yet, and it says so rather than copying "null".
+    // Nothing to copy yet, and it says so rather than copying "null". The link
+    // is the header's Invite link menu (the editor's banner went 2026-10-03).
+    const inviteButton = page.getByRole('button', { name: /Invite link/ });
+    await inviteButton.click();
     await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(page.locator('.toast', { hasText: /No invitation link yet/i })).toBeVisible({ timeout: 10000 });
+    await page.keyboard.press('Escape');
 
-    // The workflow finishes.
+    // The workflow finishes. Opening the menu again reads the assignment
+    // again, which is where a freshly minted link has to come from.
     tokenMinted = true;
-    await page.locator('button', { hasText: /Check status/i }).first().click();
+    await inviteButton.click();
 
     // The box used to be observed through its `title`, which held the whole
     // link. It no longer holds any of it, so the observation is the pair that
@@ -195,6 +198,7 @@ test.describe('27 - The invitation link, end to end', () => {
     delete noToken.invite_key;
     delete noToken.invite_nonce;
     await openEditor(page, noToken);
+    await page.getByRole('button', { name: /Invite link/ }).click();
 
     await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(page.locator('.toast', { hasText: /No invitation link yet/i })).toBeVisible({ timeout: 10000 });
@@ -223,8 +227,7 @@ test.describe('27 - The invitation link, end to end', () => {
       route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }),
     );
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
 
     await expect(
       page.locator('.published-info-card.is-success'),
@@ -243,8 +246,7 @@ test.describe('27 - The invitation link, end to end', () => {
       userRepos: [brokerRepo],
       workflowDispatches: dispatches,
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
 
     await page.locator('button', { hasText: 'Republish broker' }).first().click();
     const modal = page.locator('.republish-modal');
@@ -271,8 +273,7 @@ test.describe('27 - The invitation link, end to end', () => {
       userRepos: [brokerRepo],
       workflowDispatches: dispatches,
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
 
     await page.locator('button', { hasText: 'Republish broker' }).first().click();
     const modal = page.locator('.republish-modal');
@@ -302,8 +303,7 @@ test.describe('27 - The invitation link, end to end', () => {
       assignments: { [ID]: publishedAssignment() },
       userRepos: [brokerRepo],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
 
     await page.locator('button', { hasText: 'Republish broker' }).first().click();
     const modal = page.locator('.republish-modal');
@@ -311,6 +311,10 @@ test.describe('27 - The invitation link, end to end', () => {
     await modal.locator('.modal-foot button').last().click();
     await expect(modal).toBeHidden({ timeout: 10000 });
 
+    // The header's Invite link reads the STORED assignment, which still holds
+    // the retired secret until the workflow writes the new one - it must not
+    // offer it in the meantime.
+    await page.getByRole('button', { name: /Invite link/ }).click();
     await page.locator('.invitation-share button', { hasText: /Copy/ }).first().click();
     await expect(
       page.locator('.toast', { hasText: /No invitation link yet/i }),
@@ -323,8 +327,7 @@ test.describe('27 - The invitation link, end to end', () => {
   test('An email address in the description is refused where it can be fixed', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Linux Processes 2026');
     // By placeholder: the first textarea on the page belongs to the roster tab.
@@ -353,8 +356,7 @@ test.describe('27 - The invitation link, end to end', () => {
   test('Ordinary prose in a description is not flagged', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Linux Processes 2026');
     await page.getByRole('button', { name: 'Add a description' }).click();
@@ -373,8 +375,7 @@ test.describe('27 - The invitation link, end to end', () => {
       assignments: { [ID]: publishedAssignment() },
       userRepos: [brokerRepo],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
     await page.locator('button', { hasText: 'Republish broker' }).first().click();
 
     const modal = page.locator('.republish-modal');
@@ -398,14 +399,15 @@ test.describe('27 - The invitation link, end to end', () => {
         assignments: { [ID]: publishedAssignment() },
         userRepos: [brokerRepo],
       });
-      await page.goto(`/dashboard/${ORG}/admin?theme=${theme}`);
-      await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+      await page.goto(`/dashboard/${ORG}/${ID}/settings?theme=${theme}`);
 
+      // The link is the header's Invite link menu; its Copy is a menu row.
+      await page.getByRole('button', { name: /Invite link/ }).click();
       const copy = page.locator('.invitation-share button', { hasText: /Copy/ }).first();
       await expect(copy).toBeVisible({ timeout: 15000 });
       const cls = (await copy.getAttribute('class')) ?? '';
       expect(cls, `${theme}: btn-warning is declared nowhere`).not.toContain('btn-warning');
-      expect(cls, `${theme}: it must use a declared §3 variant`).toContain('btn-secondary');
+      expect(cls, `${theme}: it is a declared menu row`).toContain('export-dropdown-item');
     }
   });
 });

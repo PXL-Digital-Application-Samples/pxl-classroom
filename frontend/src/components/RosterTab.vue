@@ -648,6 +648,7 @@
               <li v-for="s in diff.added" :key="rosterKey(s)">
                 {{ describeRosterEntry(s) }}
                 <span v-if="s.class_group"> · {{ s.class_group }}</span>
+                <span v-if="isNotAccount(s.github_login)" class="text-danger text-xs"> · no GitHub account with this name</span>
               </li>
             </ul>
           </details>
@@ -658,6 +659,7 @@
               <li v-for="u in diff.updated" :key="rosterKey(u.after)">
                 {{ describeRosterEntry(u.after) }}
                 <span class="changed-fields">[{{ changedFields(u).join(', ') }}]</span>
+                <span v-if="isNotAccount(u.after.github_login)" class="text-danger text-xs"> · no GitHub account with this name</span>
               </li>
             </ul>
           </details>
@@ -675,6 +677,13 @@
           <div v-if="diff.added.length + diff.updated.length + diff.removed.length === 0" class="diff-empty">
             Roster matches what's already committed. Nothing to do.
           </div>
+
+          <p v-if="importedNotAccounts.length" class="text-danger text-sm" data-note="not-accounts">
+            No GitHub account with this name:
+            {{ importedNotAccounts.map((l) => `@${l}`).join(', ') }}.
+            Fix the file and import it again, or leave the column empty: it is filled in when they
+            accept or confirm their address.
+          </p>
 
           <div class="actions">
             <button
@@ -701,7 +710,8 @@
           <h3 style="margin: 0;">Add Student to Roster</h3>
           <button class="modal-close" type="button" @click="showQuickAddModal = false" aria-label="Close">×</button>
         </header>
-        <form @submit.prevent="submitQuickAddStudent" class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
+        <form @submit.prevent="submitQuickAddStudent" class="modal-form">
+        <div class="modal-body flex flex-col gap-md" style="padding: var(--space-md);">
           <div v-if="quickAddError" class="validation-errors" style="margin-bottom: 0;">
             <p style="margin: 0;">{{ quickAddError }}</p>
           </div>
@@ -771,13 +781,14 @@
               />
             </div>
           </div>
+        </div>
 
-          <footer class="modal-foot flex justify-end gap-sm">
-            <button class="btn btn-secondary" type="button" @click="showQuickAddModal = false">Cancel</button>
-            <button class="btn btn-primary" type="submit" :disabled="quickAddSaving">
-              {{ quickAddSaving ? 'Adding…' : 'Add Student' }}
-            </button>
-          </footer>
+        <footer class="modal-foot flex justify-end gap-sm">
+          <button class="btn btn-secondary" type="button" @click="showQuickAddModal = false">Cancel</button>
+          <button class="btn btn-primary" type="submit" :disabled="quickAddSaving">
+            {{ quickAddSaving ? 'Adding…' : 'Add Student' }}
+          </button>
+        </footer>
         </form>
       </div>
     </div>
@@ -838,14 +849,14 @@
             Changing it here updates {{ reidentify.plan.affected.length === 1 ? 'that assignment' : 'those assignments' }}
             too, so they keep the same students. Their repositories and work are not touched.
           </p>
-          <div class="flex gap-sm justify-end">
-            <button class="btn btn-secondary" type="button" @click="decideReidentify(false)">Cancel</button>
-            <button class="btn btn-primary" type="button" @click="decideReidentify(true)">
-              Change it and update
-              {{ reidentify.plan.affected.length === 1 ? 'the assignment' : `all ${reidentify.plan.affected.length}` }}
-            </button>
-          </div>
         </div>
+        <footer class="modal-foot flex justify-end gap-sm">
+          <button class="btn btn-secondary" type="button" @click="decideReidentify(false)">Cancel</button>
+          <button class="btn btn-primary" type="button" @click="decideReidentify(true)">
+            Change it and update
+            {{ reidentify.plan.affected.length === 1 ? 'the assignment' : `all ${reidentify.plan.affected.length}` }}
+          </button>
+        </footer>
       </div>
     </div>
   </section>
@@ -857,6 +868,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { csvToRoster, diffRosters, rosterKey, describeRosterEntry } from '../lib/csv.js'
 import { validateAgainst } from '../lib/validate.js'
 import { ROSTER_PATH } from '../lib/roster.js'
+import { readRoster } from '../lib/roster-read.js'
 import { REPORTS_DIR, assignmentPath } from '../../../lib/control-layout.mjs'
 // An address is the only identity a person TYPES, so it is the only one that can
 // change under a row. This says which assignments would stop matching if it did.
@@ -867,7 +879,7 @@ import { rosterClassGroups, classGroupChips, studentInClassGroup } from '../lib/
 import { assignmentStateLabel } from '../lib/status-labels.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
-import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile, ghApi } from '../lib/api.js'
+import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile, ghApi, githubAccountExists } from '../lib/api.js'
 // The one join between a claim and a roster entry. See lib/claim-bindings.mjs.
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { normalizeEmail, domainAllowed, resolveAddressFormat } from '../lib/claim.js'
@@ -1299,6 +1311,22 @@ async function submitQuickAddStudent() {
   if (clash) {
     quickAddError.value = `That ${clash[0]} is already on the roster.`
     return
+  }
+
+  // A USERNAME IS ASKED ABOUT BEFORE IT IS WRITTEN. One that is not a GitHub
+  // account matches no acceptance, and the first sign of it was a team change
+  // failing with a 403 that read as a missing permission (2026-10-04). Only a
+  // definite "no such account" refuses; GitHub not answering is not evidence.
+  if (login) {
+    quickAddSaving.value = true
+    const exists = await githubAccountExists(getToken(), login)
+    quickAddSaving.value = false
+    if (exists === false) {
+      quickAddError.value =
+        `There is no GitHub account named @${login}. Check the spelling, or leave the field empty: ` +
+        `it is filled in when they accept or confirm their address.`
+      return
+    }
   }
 
   // ONLY WHAT WAS FILLED IN. `student_number`, `full_name` and `email` all
@@ -2023,6 +2051,44 @@ const canCommit = computed(() =>
   && validationErrors.value.length === 0
   && diff.value.added.length + diff.value.updated.length + diff.value.removed.length > 0)
 
+// Usernames the import would ADD, asked of GitHub before the commit. One that
+// is no account matches no acceptance, and the first sign of it used to be a
+// team change answering 403 as if a permission were missing (2026-10-04).
+// Flagged, not refused: a CSV is a batch, and the lecturer decides whether to
+// fix the file first. Only a definite 404 is flagged; not answering is not
+// evidence. Cached per login, so editing the file does not ask again.
+const accountChecks = ref(new Map())
+const importedLogins = computed(() => {
+  const out = new Map()
+  const take = (login) => {
+    const l = typeof login === 'string' ? login.trim() : ''
+    if (l) out.set(l.toLowerCase(), l)
+  }
+  for (const s of diff.value.added) take(s.github_login)
+  for (const u of diff.value.updated) {
+    const before = String(u.before?.github_login || '').toLowerCase()
+    if (String(u.after?.github_login || '').toLowerCase() !== before) take(u.after?.github_login)
+  }
+  return [...out.values()]
+})
+watch(importedLogins, async (logins) => {
+  const token = getToken()
+  if (!token) return
+  const todo = logins.filter((l) => !accountChecks.value.has(l.toLowerCase()))
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < todo.length) {
+      const login = todo[cursor++]
+      const exists = await githubAccountExists(token, login)
+      accountChecks.value = new Map(accountChecks.value).set(login.toLowerCase(), exists)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker))
+})
+const isNotAccount = (login) =>
+  typeof login === 'string' && accountChecks.value.get(login.trim().toLowerCase()) === false
+const importedNotAccounts = computed(() => importedLogins.value.filter(isNotAccount))
+
 function changedFields(u) {
   const keys = new Set([...Object.keys(u.before), ...Object.keys(u.after)])
   return [...keys].filter((k) => JSON.stringify(u.before[k]) !== JSON.stringify(u.after[k]))
@@ -2401,15 +2467,14 @@ async function loadExisting() {
   rosterReadFailed.value = false
   try {
     const token = getToken()
-    // getRepoContent resolves to null on a 404 and throws on anything else, so
-    // a falsy body here is a genuine absence.
-    const text = await getRepoContent(token, props.org, controlRepo, ROSTER_PATH)
-    existingRoster.value = text ? parseYaml(text) : null
+    // A null doc is a genuine absence; an unreadable file throws.
+    const { doc, raw } = await readRoster(token, props.org)
+    existingRoster.value = doc
     // The bytes as loaded, so an in-place edit can tell "nothing changed under
     // me" from "somebody else committed while this page was open". Comparing
     // the parsed document would not do: key order and formatting survive a
     // round trip through the API but not through parse-and-restringify.
-    rosterRaw.value = text ?? null
+    rosterRaw.value = raw
   } catch (e) {
     rosterReadFailed.value = true
     existingRoster.value = null

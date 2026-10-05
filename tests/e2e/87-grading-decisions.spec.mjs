@@ -100,7 +100,7 @@ async function setup(page, { overrides = null, cancelAll = false, startSummary =
 
 const dialog = (page) => page.getByRole('dialog', { name: `Actions for ${LOGIN}` });
 const grading = (page) => dialog(page).locator('[data-section="grading"]');
-const picker = (page) => page.getByRole('dialog', { name: `Re-grade a commit for ${LOGIN}` });
+const picker = (page) => page.getByRole('dialog', { name: `Choose the commit that counts for ${LOGIN}` });
 const lastWrite = (writes, path) => [...writes].reverse().find((w) => w.path === path);
 const lastSummary = (writes) => JSON.parse(lastWrite(writes, summaryPath).content);
 
@@ -127,7 +127,7 @@ test.describe('87 - grading decisions', () => {
     await openActions(page);
     await expect(grading(page)).toContainText('Now 5/10, on commit 05aaaaa. Graded by the rules.');
     await expect(grading(page).getByRole('button', { name: 'Read score again' })).toBeVisible();
-    await expect(grading(page).getByRole('button', { name: 'Re-grade a commit…' })).toBeVisible();
+    await expect(grading(page).getByRole('button', { name: 'Choose the commit that counts…' })).toBeVisible();
     await expect(grading(page).locator('summary', { hasText: 'Set score by hand' })).toBeVisible();
     await expect(dialog(page).getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
   });
@@ -135,7 +135,7 @@ test.describe('87 - grading decisions', () => {
   test('RE-GRADE A COMMIT: the over-limit hand-in is listed with its result, chosen with a reason, and stored', async ({ page }) => {
     const { contentWrites } = await setup(page);
     await openActions(page);
-    await grading(page).getByRole('button', { name: 'Re-grade a commit…' }).click();
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
     const rows = picker(page).locator('.commit-row');
     await expect(rows).toHaveCount(6);
     const six = rows.filter({ hasText: '#6' });
@@ -156,12 +156,12 @@ test.describe('87 - grading decisions', () => {
   test('a hand-in with NO result says why and offers to run it again - and the result, once there, can be chosen', async ({ page }) => {
     const { reruns } = await setup(page);
     await openActions(page);
-    await grading(page).getByRole('button', { name: 'Re-grade a commit…' }).click();
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
     const three = picker(page).locator('.commit-row').filter({ hasText: '#3' });
     await expect(three).toContainText('no result');
     await expect(three.getByRole('radio')).toBeDisabled();
-    await expect(three).toContainText('Runs the tests as they were at this commit');
-    await three.getByRole('button', { name: 'Run grading again' }).click();
+    await expect(three).toContainText('the tests as they were at this commit');
+    await three.getByRole('button', { name: 'Re-run its grading on GitHub' }).click();
     await expect.poll(() => reruns.length).toBe(1);
     expect(reruns[0]).toMatch(/\/actions\/runs\/103\/rerun$/);
     await expect(three).toContainText('3/10', { timeout: 20000 });
@@ -331,7 +331,7 @@ test.describe('87 - grading decisions', () => {
     const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
     await setup(page, { overrides: [manual] });
     await openActions(page);
-    await expect(grading(page).getByRole('button', { name: 'Re-grade a commit…' })).toHaveCount(0);
+    await expect(grading(page).getByRole('button', { name: 'Choose the commit that counts…' })).toHaveCount(0);
     await expect(grading(page)).toContainText('A score set by hand wins over any commit. Remove it below to grade a commit instead.');
   });
 
@@ -354,31 +354,37 @@ test.describe('87 - grading decisions', () => {
 
 // --- the Graded count (2026-09-27) ------------------------------------------
 //
-// A sixth card on the assignment page and a stat on the overview's card, shown
-// only once somebody has a score, and moved by a re-grade without a reload.
+// The Grading tab's summary line says how many students have a score (it was a
+// sixth card on the page until the tabs, 2026-10-02), and the overview's card
+// carries it too. Shown only once somebody has a score, and moved by a re-grade
+// without a reload.
 
-const gradedCard = (page) => page.locator('.summary-card', { hasText: 'Graded' });
+const gradingTab = (page) => page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ });
+const gradedLine = (page) => page.locator('.grading-actions');
 
 test.describe('87 - the Graded count', () => {
   test('the assignment page shows how many students have a score', async ({ page }) => {
     await setup(page);
-    await expect(gradedCard(page)).toBeVisible();
-    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
   });
 
-  test('NOBODY GRADED: no card - a 0 would read as graded and nobody passed', async ({ page }) => {
+  test('NOBODY GRADED: no count - a 0 would read as graded and nobody passed', async ({ page }) => {
     await setup(page, { startSummary: { ...summary, students: [] } });
-    await expect(page.locator('.summary-card', { hasText: 'No submission' })).toBeVisible();
-    await expect(gradedCard(page)).toHaveCount(0);
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText('No scores read yet');
+    await expect(gradedLine(page)).not.toContainText('have a score');
   });
 
   test('a RE-GRADE moves it at once, with no reload', async ({ page }) => {
     const { contentWrites } = await setup(page, { startSummary: { ...summary, students: [] } });
-    await expect(gradedCard(page)).toHaveCount(0);
     await openActions(page);
     await grading(page).getByRole('button', { name: 'Read score again' }).click();
     await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
-    await expect(gradedCard(page).locator('.summary-value')).toHaveText('1');
+    // The dialog may have closed itself after the read; close it if not.
+    if (await dialog(page).isVisible()) await dialog(page).locator('.modal-close').click();
+    await gradingTab(page).click();
+    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
   });
 
   test('the overview card carries it too, from the grade summary - and not where nobody is graded', async ({ page }) => {

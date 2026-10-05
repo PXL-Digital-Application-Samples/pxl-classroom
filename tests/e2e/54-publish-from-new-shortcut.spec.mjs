@@ -70,14 +70,14 @@ test.describe('54 - the + Assignment shortcut', () => {
     });
 
     await page.goto(`/dashboard/${ORG}/admin?edit=other-one`);
-    await expect(page.locator('.new-btn')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Brand New Thing');
     // The slug is derived and shown as a line rather than asked for in a box,
     // so this reads what is on screen - which is what the assertion was always
     // about: the title reached the slug.
-    await expect(page.locator('.derived-line')).toContainText('brand-new-thing');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('brand-new-thing');
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
 
     await page.getByRole('button', { name: /Save & publish/i }).first().click();
@@ -91,6 +91,33 @@ test.describe('54 - the + Assignment shortcut', () => {
       publish.inputs.assignment_id,
       'the publish must be for the assignment that was just saved, not the one ?edit= points at',
     ).toBe('brand-new-thing');
+    // Saved, a new assignment has an address: its page, on Settings - and only
+    // once the publish above has been dispatched, because moving there leaves
+    // the new-assignment page. The publish that is going live is carried over.
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/brand-new-thing\\?tab=settings$`));
+    await expect(page.locator('.publish-watch')).toBeVisible();
+  });
+
+  test('Cancel on a new assignment goes back to the list; on Settings it undoes the edit and stays', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { 'other-one': { id: 'other-one', title: 'Other One', state: 'published' } },
+    });
+    await page.goto(`/dashboard/${ORG}/new`);
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: /^Cancel$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}$`));
+
+    await page.goto(`/dashboard/${ORG}/other-one?tab=settings`);
+    await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
+    const title = page.getByPlaceholder('e.g. Linux Processes 2026');
+    await title.fill('Changed my mind');
+    page.on('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: /^Cancel$/ }).click();
+    // Settings IS the assignment's settings: there is nowhere to go back to.
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/other-one\\?tab=settings$`));
+    await expect(title).toHaveValue('Other One');
   });
 
   // TWO other tests were written for this file and deleted, both for the same

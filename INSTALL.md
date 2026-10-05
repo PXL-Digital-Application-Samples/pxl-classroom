@@ -126,7 +126,7 @@ An assignment moves across when it is next published. Nothing is automatic and n
 
 **Per published assignment:**
 
-1. Open it in the Admin Panel. If it still uses the old format, *Republish broker* carries a warning saying so - that warning is the migration flag.
+1. Open it in the editor. If it still uses the old format, *Republish broker* carries a warning saying so - that warning is the migration flag.
 2. Republish. This mints the keypair, sets `INVITE_PUBKEY` on the broker, and rewrites the broker's workflow.
 3. **Copy the new link and send it to anyone who has not accepted yet.** This is the part nothing can do for you.
 
@@ -172,7 +172,7 @@ gh api repos/PXL-Digital-Application-Samples/pxl-classroom/rulesets --jq '.[] | 
 
 ## 4. Install the App on the hub's owning org, scoped narrowly
 
-This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf - Publish, Retry acceptance and the six others the Admin Panel triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§10). Scope it tightly.
+This installation is what lets the **SPA** dispatch hub workflows on a lecturer's behalf - Publish, Retry acceptance and the six others the editor triggers with the lecturer's own user-to-server token. It is **not** what brokers mint against: they use the separate Broker App (§10). Scope it tightly.
 
 1. App settings page → **Install App** → choose `PXL-Digital-Application-Samples`.
 2. **Only select repositories** → tick `pxl-classroom` only.

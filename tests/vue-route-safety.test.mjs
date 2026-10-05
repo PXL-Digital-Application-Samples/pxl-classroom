@@ -146,10 +146,17 @@ test("every route is either linked to from somewhere, or does not ship", () => {
     [...routerSrc.matchAll(/import\.meta\.env\.DEV[\s\S]{0,200}?name:\s*'([a-z-]+)'/g)].map((m) => m[1]),
   );
 
+  const redirects = new Set(
+    [...routerSrc.matchAll(/name:\s*'([a-z-]+)',\s*\n\s*redirect:/g)].map((m) => m[1]),
+  );
+
   const orphans = [];
   for (const name of names) {
     if (ENTERED_FROM_OUTSIDE.has(name)) continue;
     if (devGated.has(name)) continue;
+    // A redirect renders nothing and is not a way in: it lands an old address
+    // (a bookmark, a link in an email) on the page that replaced it.
+    if (redirects.has(name)) continue;
     // `:to="{ name: 'usage-overview' }"`, `router.push({ name: 'setup' })`,
     // or a diagnostic action carrying `name: "setup"`.
     if (new RegExp(`name:\\s*['"]${name}['"]`).test(haystack)) continue;

@@ -1,4 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
+// Not lazy: it is the frame every organization page renders in, so loading it
+// separately would only add a step before any of them can show.
+import OrgShell from '../views/OrgShell.vue'
 
 const routes = [
   {
@@ -31,28 +34,89 @@ const routes = [
     props: true,
   },
   {
-    path: '/dashboard/:org?',
-    name: 'dashboard',
-    component: () => import('../views/DashboardView.vue'),
-    props: true,
+    // No organization chosen yet: the same shared bar, with the picker asking.
+    path: '/dashboard',
+    component: OrgShell,
+    children: [
+      { path: '', name: 'dashboard-home', component: () => import('../views/DashboardView.vue') },
+    ],
   },
   {
-    path: '/dashboard/:org/admin',
-    name: 'admin',
-    component: () => import('../views/AdminView.vue'),
+    // EVERY PAGE OF AN ORGANIZATION IS A CHILD OF ONE TOP BAR (OrgShell.vue,
+    // BETA-UX.md 2026-10-03), so moving between them swaps the page and leaves
+    // the bar - the org picker and the tabs - where it is. Static segments
+    // (`new`, `roster`, `organization`, `usage`, `admin`) outrank
+    // `:assignmentId` whatever the order.
+    path: '/dashboard/:org',
+    component: OrgShell,
     props: true,
-  },
-  {
-    path: '/dashboard/:org/:assignmentId',
-    name: 'assignment-detail',
-    component: () => import('../views/AssignmentDetailView.vue'),
-    props: true,
-  },
-  {
-    path: '/dashboard/:org/usage',
-    name: 'usage-org',
-    component: () => import('../views/UsageView.vue'),
-    props: true,
+    children: [
+      {
+        path: '',
+        name: 'dashboard',
+        component: () => import('../views/DashboardView.vue'),
+        props: true,
+      },
+      {
+        // THERE IS NO ADMIN PAGE ANY MORE (BETA-UX.md, 2026-10-02): the editor
+        // is each assignment's Settings tab, creating one is its own page, and
+        // what was the organization's is under Organization. Old links still
+        // land: `?edit=` on that assignment's settings, `?new=1` on a new one,
+        // anything else on the assignment list. Every branch names its `query`:
+        // vue-router keeps the old one on a redirect that does not, so `?new=1`
+        // would ride along.
+        path: 'admin',
+        name: 'admin',
+        redirect: (to) => {
+          const { edit, new: isNew, action, ...rest } = to.query
+          if (edit) return { name: 'assignment-detail', params: { org: to.params.org, assignmentId: String(edit) }, query: { ...rest, tab: 'settings' } }
+          if (isNew === '1' || isNew === 'true' || action === 'new') return { name: 'assignment-new', params: { org: to.params.org }, query: rest }
+          return { name: 'dashboard', params: { org: to.params.org }, query: rest }
+        },
+      },
+      {
+        // A new assignment: the editor on its own.
+        path: 'new',
+        name: 'assignment-new',
+        component: () => import('../views/AdminView.vue'),
+        props: (to) => ({ org: to.params.org, mode: 'new' }),
+      },
+      {
+        // What is the organization's own: what needs the lecturer, course
+        // activity, health, usage, connection.
+        path: 'organization',
+        name: 'organization',
+        component: () => import('../views/OrganizationView.vue'),
+        props: true,
+      },
+      {
+        // The organization's roster.
+        path: 'roster',
+        name: 'roster',
+        component: () => import('../views/RosterView.vue'),
+        props: true,
+      },
+      {
+        path: 'usage',
+        name: 'usage-org',
+        component: () => import('../views/UsageView.vue'),
+        props: true,
+      },
+      {
+        // One assignment, all its tabs - Progress, Teams, Grading and Settings -
+        // on one page, the tab in `?tab=`, so switching is instant.
+        path: ':assignmentId',
+        name: 'assignment-detail',
+        component: () => import('../views/AssignmentDetailView.vue'),
+        props: true,
+      },
+      {
+        // Settings was its own page for a day (2026-10-02); its links still land.
+        path: ':assignmentId/settings',
+        name: 'assignment-settings',
+        redirect: (to) => ({ name: 'assignment-detail', params: to.params, query: { ...to.query, tab: 'settings' } }),
+      },
+    ],
   },
   {
     path: '/setup',
@@ -114,10 +178,19 @@ router.afterEach((to) => {
       page = 'Accept assignment'
       break
     case 'dashboard':
-      page = to.params.org ? `Dashboard - ${to.params.org}` : 'Dashboard'
+      page = `Dashboard - ${to.params.org}`
       break
-    case 'admin':
-      page = `Admin Panel - ${to.params.org}`
+    case 'dashboard-home':
+      page = 'Dashboard'
+      break
+    case 'assignment-new':
+      page = `New assignment - ${to.params.org}`
+      break
+    case 'organization':
+      page = `Organization - ${to.params.org}`
+      break
+    case 'roster':
+      page = `Roster - ${to.params.org}`
       break
     case 'assignment-detail':
       page = `${to.params.assignmentId} - ${to.params.org}`

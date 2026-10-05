@@ -173,8 +173,7 @@ async function republishModal(page, assignmentDoc) {
     assignments: { [ID]: assignmentDoc },
     userRepos: [brokerRepo],
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('li, .assignment-row', { hasText: 'Shell Scripting 2026' }).first().click();
+  await page.goto(`/dashboard/${ORG}/${ID}/settings`);
   await page.locator('button', { hasText: 'Republish broker' }).first().click();
   const modal = page.locator('.republish-modal');
   await expect(modal).toBeVisible({ timeout: 15000 });
@@ -228,8 +227,7 @@ test.describe('43 - The republish that cannot keep the links', () => {
       assignments: { [ID]: unmigrated() },
       userRepos: [brokerRepo],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('li, .assignment-row', { hasText: 'Shell Scripting 2026' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
 
     const repair = page.locator('.lifecycle-repair');
     await expect(repair).toContainText(/old invitation format/i, { timeout: 15000 });

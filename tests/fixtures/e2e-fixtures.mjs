@@ -401,22 +401,15 @@ export function confirmUrl(org, assignmentId) {
 }
 
 /**
- * Expand the Admin Panel's "Edit settings" disclosure and wait for the form.
+ * Wait for the settings form.
  *
- * A published or closed assignment opens on its cohort, with the six
- * fieldsets collapsed (ARCHITECTURE §10.1.1). A draft renders them directly - there
- * the summary is `display: none` and the <details> is already open, so this is
- * a no-op that still waits for the form. One implementation, because every
- * spec that edits an assignment needs the same three lines.
+ * The fieldsets used to fold away under "Edit settings" once an assignment was
+ * published; since 2026-10-03 they are always open, so this only waits. Kept
+ * as one helper because every spec that edits an assignment calls it.
  */
 export async function expandSettings(page) {
-  const details = page.locator('details.settings-disclosure');
-  await details.waitFor({ state: 'attached', timeout: 15000 });
-  if (!(await details.evaluate((el) => el.open))) {
-    await details.locator('> summary').click();
-  }
   await page.getByPlaceholder('e.g. Linux Processes 2026')
-    .waitFor({ state: 'visible', timeout: 10000 });
+    .waitFor({ state: 'visible', timeout: 15000 });
 }
 
 /**
@@ -432,6 +425,35 @@ export function personaId(login) {
   let h = 0;
   for (const ch of String(login)) h = (h * 31 + ch.charCodeAt(0)) % 100000;
   return 800000 + h;
+}
+
+/**
+ * Set the assignment form's roster mode the way a lecturer does: two questions
+ * since 2026-10-02 (AdminView `whoMayAccept` / `acceptIdentity`), where it was
+ * one select. `open` answers only the first and leaves the address question as
+ * it was, which is what selecting `open` in the old select did.
+ */
+export async function chooseRosterMode(page, mode) {
+  if (mode === 'open') {
+    await page.getByLabel('Anyone with the link').check();
+    return;
+  }
+  await page.getByLabel('Only students on the roster').check();
+  await page.getByRole('radio', { name: mode === 'claim' ? /confirm their .* email address/ : 'just click Accept' }).check();
+}
+
+/**
+ * Answer the page's own confirmation (components/ConfirmDialog.vue), which
+ * replaced `window.confirm()` on the Teams tab: a `page.on('dialog')` handler
+ * sees nothing now. Waits for it, then presses the button that names the
+ * action, or Cancel.
+ */
+export async function answerConfirm(page, { accept = true } = {}) {
+  const dialog = page.locator('.confirm-dialog');
+  await dialog.waitFor({ state: 'visible', timeout: 10000 });
+  if (accept) await dialog.locator('.modal-foot .btn').last().click();
+  else await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'detached', timeout: 10000 });
 }
 
 export async function injectAuth(page, user) {
@@ -530,6 +552,10 @@ export async function setupStandardMockRoutes(page, {
   gitTrees = {},
   usageReports = {},
   currentUser = STUDENT_2,
+  // Usernames that are NOT GitHub accounts: `GET /users/{login}` answers 404
+  // for these, and DELETE of one as a collaborator answers 403 "Resource not
+  // accessible by integration", which is what GitHub does (testbed, 2026-10-04).
+  notAccounts = [],
   userRepos = [],
   invitations = [],
   brokerIssues = [],
@@ -700,6 +726,38 @@ export async function setupStandardMockRoutes(page, {
   for (const [asgnId, list] of Object.entries(controlTeams)) {
     for (const team of list) {
       dynamicFiles.set(`teams/${asgnId}/${team.team_slug}.json`, JSON.stringify(team, null, 2));
+    }
+  }
+  // A REPORT'S TEAMS HAVE FILES. The report is derived from teams/<id>/, so a
+  // report fixture listing teams describes a control repo holding them - and
+  // the Teams tab now reads the files for membership (frontend/src/lib/
+  // team-rows.js), dropping a report row whose file is gone. A spec that names
+  // `controlTeams` for an assignment says exactly which files exist (that is
+  // how "deleted, the report has not caught up" is set up); otherwise the
+  // files are the report's teams, in the shape the app writes.
+  for (const [asgnId, rep] of Object.entries(reports || {})) {
+    if (Object.prototype.hasOwnProperty.call(controlTeams, asgnId)) continue;
+    for (const t of Array.isArray(rep?.teams) ? rep.teams : []) {
+      if (!t?.team_slug) continue;
+      const members = Array.isArray(t.members) ? t.members : [];
+      const repoId = Number.isInteger(t.repo_id)
+        ? t.repo_id
+        : t.repo_name ? 100000 + [...String(t.repo_name)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 900000, 0) : null;
+      const doc = {
+        schema_version: 1,
+        assignment_id: asgnId,
+        team_slug: t.team_slug,
+        team_name: t.team_name || t.team_slug,
+        members,
+        ...(Number.isInteger(t.max_members) ? { max_members: t.max_members } : {}),
+        created_at: '2026-02-01T09:00:00Z',
+        created_by: members[0] || 'lecturer',
+        ...(t.repo_name ? { repo_name: t.repo_name, repo_id: repoId } : {}),
+        ...(t.repo_url ? { repo_url: t.repo_url } : {}),
+        ...(members.length === 0 ? { vacant: true } : {}),
+        ...(t.seeded_from ? { seeded_from: t.seeded_from } : {}),
+      };
+      dynamicFiles.set(`teams/${asgnId}/${t.team_slug}.json`, JSON.stringify(doc, null, 2));
     }
   }
   const unreadableAcceptances = new Set();
@@ -957,6 +1015,10 @@ export async function setupStandardMockRoutes(page, {
       // the `/user` branch below before this existed, which answered every
       // lookup with the CURRENT user's id.
       const login = decodeURIComponent(url.match(/\/users\/([^/?#]+)/)[1]);
+      if (notAccounts.some((n) => n.toLowerCase() === login.toLowerCase())) {
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        return;
+      }
       await route.fulfill({ status: 200, body: JSON.stringify({ login, id: personaId(login) }) });
     } else if (url.includes('/user')) {
       await route.fulfill({
@@ -1145,10 +1207,20 @@ export async function setupStandardMockRoutes(page, {
       }
 
       if (url.includes('/collaborators/')) {
+        const who = decodeURIComponent((url.match(/\/collaborators\/([^/?#]+)/) || [])[1] || '');
+        const noAccount = notAccounts.some((n) => n.toLowerCase() === who.toLowerCase());
         if (method === 'PUT') {
+          if (noAccount) {
+            await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+            return;
+          }
           await route.fulfill({ status: 201, body: JSON.stringify({ id: 101, permissions: 'admin' }) });
           return;
         } else if (method === 'DELETE') {
+          if (noAccount) {
+            await route.fulfill({ status: 403, body: JSON.stringify({ message: 'Resource not accessible by integration' }) });
+            return;
+          }
           await route.fulfill({ status: 204, body: '' });
           return;
         }
@@ -1655,6 +1727,25 @@ export async function openMoreActionsMenu(page) {
     await trigger.click();
   }
   await expect(page.locator('[role="menu"]').first()).toBeVisible();
+}
+
+// An assignment's lifecycle is the state button at the top of every tab
+// (AssignmentHeader.vue): Stop accepting, Back to draft, Archive, Publish,
+// Reopen, Delete. Opens the menu and picks the entry whose label matches.
+export async function chooseState(page, label) {
+  const trigger = page.locator('[data-state-menu]');
+  await expect(trigger).toBeEnabled({ timeout: 15000 });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+  await page.locator('.state-menu [role="menuitem"]').filter({ has: page.locator('.dropdown-item-title', { hasText: label }) }).click();
+}
+
+// System health is on the Organization tab (OrganizationView.vue), folded, and
+// there whatever state the rest of that page is in. Opens the modal.
+export async function openSystemHealth(page, org = ORG) {
+  await page.goto(`/dashboard/${org}/organization`);
+  const fold = page.locator('details.org-fold', { has: page.locator('summary', { hasText: 'System health' }) });
+  await fold.locator('summary').click();
+  await fold.getByRole('button', { name: 'Run the checks' }).click();
 }
 
 // Automated checks moved out of the Guardrails fieldset into a modal

@@ -56,8 +56,7 @@ async function openRoster(page, { roster = ROSTER, assignments } = {}) {
     contentWrites,
     assignments: assignments ?? { 'lab-3': assignment() },
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
   await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   return { contentWrites };
 }

@@ -19,8 +19,7 @@ import { MANUAL_TOPICS } from '../../lib/manual-topics.mjs';
 async function openForm(page) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button', { hasText: 'New assignment' }).first().click();
+  await page.goto(`/dashboard/${ORG}/new`);
 }
 
 test.describe('53 - the help drawer', () => {
@@ -34,7 +33,7 @@ test.describe('53 - the help drawer', () => {
     const drawer = page.locator('.help-drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('Who may accept');
-    await expect(drawer).toContainText('Only students you imported');
+    await expect(drawer).toContainText('Only students on the roster');
   });
 
   test('the drawer is inside the viewport, not scrolled off it', async ({ page }) => {
@@ -74,7 +73,7 @@ test.describe('53 - the help drawer', () => {
     await drawer.getByRole('button', { name: /add everyone who accepted/ }).click();
 
     await expect(drawer).toContainText('Adds the students who accepted');
-    await expect(page).toHaveURL(/\/admin/);
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/new$`));
   });
 });
 
@@ -82,14 +81,14 @@ test.describe('53 - the manual page', () => {
   test('Help in the header reaches every topic', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await page.getByRole('link', { name: 'Help' }).first().click();
     await expect(page).toHaveURL(/\/manual/);
 
     // Same source as the drawer, so if these disagree one of the two surfaces
     // has stopped rendering the compiled manual.
-    await expect(page.locator('#who-may-accept')).toContainText('Only students you imported');
+    await expect(page.locator('#who-may-accept')).toContainText('Only students on the roster');
     await expect(page.locator('#archiving')).toContainText('cannot be changed afterwards');
     // Derived, not counted by hand: the page renders one topic per `## ` in
     // MANUAL.md, and a hand-kept number goes stale the moment one is added.

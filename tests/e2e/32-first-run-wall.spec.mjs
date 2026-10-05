@@ -8,7 +8,7 @@
 //         and buries the checkbox that is the actual reason the list is empty
 //   §5.2  roster_mode: enforced makes students/roster.yml load-bearing, and the
 //         form named a tab it did not link to and a count it did not show
-//   §5.3  "Seed teams from…", permanently disabled on the create form,
+//   §5.3  "Copy teams from…", permanently disabled on the create form,
 //         explaining its own impossibility
 //   §5.4  raw AJV: /autograde/tests/0/id must match pattern "^[a-z0-9]..."
 //
@@ -18,7 +18,7 @@
 
 import { test, expect } from '@playwright/test';
 import { stringify as stringifyYaml } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
 
@@ -28,19 +28,18 @@ const rosterStatus = (page) => page.locator('.roster-status');
 // these tests are about - whether the form can answer "can anyone accept?" -
 // is unchanged; reaching it now needs one dropdown.
 const gateOn = async (page) =>
-  page.locator('select').filter({ hasText: 'only students on the roster' }).first().selectOption('enforced');
+  chooseRosterMode(page, 'enforced');
 const templateEmpty = (page) => page.locator('.template-empty');
 
 async function openAdmin(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
 }
 
 async function openNewAssignmentForm(page, opts = {}) {
   await openAdmin(page, opts);
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
@@ -84,8 +83,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const empty = templateEmpty(page);
     await expect(empty).toBeVisible();
@@ -102,8 +100,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const link = templateEmpty(page).getByRole('link', { name: /Create one on GitHub/i });
     await expect(link).toHaveAttribute('href', `https://github.com/organizations/${ORG}/repositories/new`);
@@ -118,8 +115,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await noTemplates(page);
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const input = page.getByPlaceholder('Type or select a template repository');
     await expect(input).toBeVisible();
@@ -144,8 +140,7 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
         }),
       });
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await expect(page.locator('text=Found 2 template repositories')).toBeVisible();
     await expect(templateEmpty(page)).toHaveCount(0);
@@ -164,7 +159,9 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await expect(rosterStatus(page)).toContainText('No students imported yet - nobody can accept');
     await expect(rosterStatus(page).locator('.status-dot.dot-warning')).toBeVisible();
 
-    await rosterStatus(page).getByRole('button', { name: /Import roster/ }).click();
+    page.on('dialog', (d) => d.accept());
+    await rosterStatus(page).getByRole('link', { name: /Import roster/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await expect(page.locator('.roster-tab')).toBeVisible();
   });
 
@@ -172,14 +169,15 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [student(1), student(2), student(3)] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('3 students on the roster');
     await expect(rosterStatus(page).locator('.status-dot.dot-success')).toBeVisible();
 
-    await rosterStatus(page).getByRole('button', { name: /Manage/ }).click();
+    page.on('dialog', (d) => d.accept());
+    await rosterStatus(page).getByRole('link', { name: /Manage/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await expect(page.locator('.roster-tab')).toBeVisible();
   });
 
@@ -187,8 +185,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [student(1)] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('1 student on the roster');
@@ -199,8 +196,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { students: [] });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await gateOn(page);
     await expect(rosterStatus(page)).toContainText('nobody can accept');
@@ -213,8 +209,7 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await serveRoster(page, { status: 500 });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // The neutral copy still explains that an empty roster blocks acceptance -
     // what it must not do is assert this org's roster IS empty.
@@ -229,19 +224,19 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
     await gateOn(page);
     await expect(rosterStatus(page)).toBeVisible();
 
-    await page.locator('select').filter({ hasText: 'only students on the roster' }).selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(rosterStatus(page)).toHaveCount(0);
     // It says what open enrolment means instead of going quiet. The sentence
     // used to be "Students need the link, and nothing else", which restated
     // the dropdown; the warning is the half that says something new.
-    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
+    await expect(page.locator('text=Anyone with the link can accept')).toBeVisible();
   });
 });
 
 // ========================================================== §5.3 seed teams
 
 test.describe('32 - §5.3 A control that cannot work is not on the screen', () => {
-  test('Seed teams is absent from the create form and present on a saved one', async ({ page }) => {
+  test('Copy teams is absent from the create form and present on a saved one', async ({ page }) => {
     const saved = {
       schema_version: 1,
       id: 'group-lab',
@@ -259,15 +254,15 @@ test.describe('32 - §5.3 A control that cannot work is not on the screen', () =
     await openNewAssignmentForm(page);
     await page.locator('input[type="radio"][value="group"]').check();
     await expect(page.locator('text=Starting teams')).toHaveCount(0);
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toHaveCount(0);
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toHaveCount(0);
 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { 'group-lab': saved } });
     await page.goto(`/dashboard/${ORG}/admin?edit=group-lab`);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Group Lab', { timeout: 10000 });
 
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toBeVisible();
-    await expect(page.locator('button', { hasText: 'Seed teams from…' })).toBeEnabled();
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toBeVisible();
+    await expect(page.locator('button', { hasText: 'Copy teams from…' })).toBeEnabled();
   });
 });
 

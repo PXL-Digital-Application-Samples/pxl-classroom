@@ -45,8 +45,7 @@ async function openTroubleshoot(page, brokerIssues, opts = {}) {
     brokerIssues,
     ...opts,
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('li, .assignment-row', { hasText: 'Linux Processes 2026' }).first().click();
+  await page.goto(`/dashboard/${ORG}/${ID}/settings`);
   await expandSettings(page);
   await page.locator('button', { hasText: 'Troubleshoot' }).first().click();
   const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');

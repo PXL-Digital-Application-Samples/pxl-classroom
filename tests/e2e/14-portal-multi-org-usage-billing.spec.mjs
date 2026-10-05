@@ -139,7 +139,7 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
     await page.goto(`/dashboard/${ORG}/usage`);
 
     // Verify usage page header and meta
-    await expect(page.getByRole('heading', { name: new RegExp(`Usage - ${ORG}`, 'i') })).toBeVisible();
+    await expect(page.locator('.app-header-heading')).toHaveText('Usage');
     await expect(page.locator('.report-meta')).toContainText('1 repo/SKU pair(s) over threshold');
 
     // Verify table items and over-limit alert badge

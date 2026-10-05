@@ -197,17 +197,29 @@ test.describe('58 - The dashboard refuses an account with no staff access', () =
     expect(await visiblePrimaries(page)).toHaveLength(1);
   });
 
-  test('the Admin Panel gives the same answer, and does not offer a form that cannot save', async ({ page }) => {
+  test('a new assignment gives the same answer, and does not offer a form that cannot save', async ({ page }) => {
     await asHubAdminOutsider(page, { registry: listed() });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    const box = page.locator('.error-state-box');
+    await page.goto(`/dashboard/${ORG}/new`);
+    const box = page.locator('.control-repo-unreadable');
     await expect(box).toContainText(/is set up, but not for this account/i, { timeout: 20000 });
     await expect(box).toContainText('@SamVanderstraeten');
     await expect(box).not.toContainText(/onboarded/i);
-    await expect(page.getByRole('button', { name: /New assignment/i })).toBeDisabled();
-    await expect(page.locator('.editor-pane'), 'and nothing points at the disabled button')
-      .not.toContainText(/click \+ New assignment/i);
+    await expect(page.locator('.editor-form'), 'no form whose save is refused').toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }), 'no way to a roster it cannot read')
+      .toHaveCount(0);
+  });
+
+  test('the Roster page gives the same answer, and renders no roster', async ({ page }) => {
+    // The roster moved out of the Admin Panel onto its own route, and the gate
+    // had to move with it: the roster is in the same private repository.
+    await asHubAdminOutsider(page, { registry: listed() });
+
+    await page.goto(`/dashboard/${ORG}/roster`);
+    const box = page.locator('.control-repo-unreadable');
+    await expect(box).toContainText(/is set up, but not for this account/i, { timeout: 20000 });
+    await expect(page.locator('.roster-tab')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Course views' })).toHaveCount(0);
   });
 
   test('the org admin check is a POSITIVE signal, so a failed read refuses', async ({ page }) => {

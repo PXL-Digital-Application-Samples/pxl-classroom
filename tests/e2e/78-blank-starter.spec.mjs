@@ -84,8 +84,7 @@ async function routeHeldCreate(page, reply) {
 async function openForm(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('.new-btn').click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(titleBox(page)).toBeVisible({ timeout: 10000 });
 }
 
@@ -194,8 +193,7 @@ test.describe('78 - where the offer is, and is not', () => {
     };
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: stored } });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.assignment-list li', { hasText: 'Java Lab' }).first().click();
+    await page.goto(`/dashboard/${ORG}/${ID}/settings`);
     await expect(templateBox(page)).toHaveValue(`${ORG}/java-start`, { timeout: 10000 });
 
     await expect(blankStarter(page)).toHaveCount(0);

@@ -103,7 +103,7 @@ Bursty courses (Terraform, container builds) need higher limits; size the budget
 
 ### 1.4 Grant lecturers access to the hub repo
 
-Lecturers trigger **Publish** from the Admin Panel and **Retry acceptance** from a student's row on the tracking view; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
+Lecturers trigger **Publish** from the editor and **Retry acceptance** from a student's row on the tracking view; both dispatch workflows on `PXL-Digital-Application-Samples/pxl-classroom` using the lecturer's own token. Without collaborator access to the hub repo, `workflow_dispatch` returns 403 and the SPA shows a detailed error toast (e.g. `Trigger failed (403): ... Most often: the App needs actions:write, or you're not a collaborator on the hub repo with write access`).
 
 - Add each org's lecturers as **Write** collaborators (or members of a team with write) on the hub repo.
   `workflow_dispatch` requires write - Read is not enough, and produces exactly the 403 described above.
@@ -130,7 +130,7 @@ Schema: `schemas/participating-orgs.schema.json`. See §6 for what `overrides` m
 
 ### 1.6 Give a lecturer access to a course organization
 
-A lecturer reads a course through that organization: the dashboard, the Admin Panel and the roster all read the private `pxl-classroom-control` repository **with the lecturer's own token**, and the tracking view opens each student's private repository. Access on the hub (§1.4) does not reach any of that. It lets them *publish*, and it is a separate grant.
+A lecturer reads a course through that organization: the dashboard, the editor and the roster all read the private `pxl-classroom-control` repository **with the lecturer's own token**, and the tracking view opens each student's private repository. Access on the hub (§1.4) does not reach any of that. It lets them *publish*, and it is a separate grant.
 
 Done by an **owner of the course organization**:
 
@@ -264,7 +264,7 @@ A bot fires many brokers from many accounts. A migrated broker triggers on an **
 1. Edit affected `assignments/<id>.yml` - set `state: closed`. Acceptance handler rejects new attempts on closed assignments.
 2. Optionally lower `max_acceptances` to the current accepted count.
 3. Set the broker's `INVITE_ENABLED` variable to `false`. It is read in the workflow's job-level `if`, so GitHub skips the run without allocating a runner (ARCHITECTURE §4.3.2). Archiving the broker repository also works, but the variable is reversible in one click.
-4. Reconcile in Admin Panel to identify any provisioned bot repos; delete them in bulk.
+4. Reconcile in the editor to identify any provisioned bot repos; delete them in bulk.
 
 ### 5.4 Hub workflow file was modified by a fork PR
 

@@ -15,7 +15,7 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | | |
 |---|---|
 | Create the template repository | [§1.1](#11-create-the-template-repository) |
-| Define the assignment | [§1.2](#12-define-the-assignment-in-the-admin-panel) |
+| Define the assignment | [§1.2](#12-define-the-assignment) |
 | Reuse the groups from an earlier group assignment | [§1.3](#13-reuse-the-groups-from-an-earlier-group-assignment) |
 | Publish it, and share the link | [§1.4](#14-publish), [§1.5](#15-share-the-link) |
 | Give a colleague who teaches the course access to it | [ADMIN.md §1.6](ADMIN.md#16-give-a-lecturer-access-to-a-course-organization) |
@@ -72,14 +72,13 @@ Done by a lecturer.
 
 **A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
-Step 2 is the one people miss, and it is the most common reason the Admin Panel's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
+Step 2 is the one people miss, and it is the most common reason the editor's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
 
-### 1.2 Define the assignment in the Admin Panel
+### 1.2 Define the assignment
 
 1. Open the dashboard: `https://<pages-host>/pxl-classroom/dashboard/<org>`.
 2. Sign in with device flow.
-3. Click **Admin Panel**.
-4. Click **New assignment** and fill the form:
+3. Click **New assignment** and fill the form. (Later, an assignment's settings are its **Settings** tab; a draft is in the **Drafts** row at the top of the list, and clicking it opens them.)
 
 **Pick the template first and most of the form fills itself.** The fields are in the order the values derive: the template's repository name becomes the Title, the Title becomes the slug, and the slug becomes the Repository name pattern. Each is only filled while still empty, so anything you type yourself is left alone.
 
@@ -89,28 +88,26 @@ Step 2 is the one people miss, and it is the most common reason the Admin Panel'
 | Title | shown to students. Prefilled from the template's repository name |
 | Repository name pattern | must contain `{github_login}` (individual) or `{team_slug}` (group), e.g. `linux-processes-{github_login}` or `group-project-{team_slug}`. This is the name students see, and it is the key the collision check uses (§5.1) |
 | Slug | not a field you fill in: shown under the pattern as a derived value, with **Edit** beside it. It names `assignments/<id>.yml`, the public `broker-<id>` repository students open to accept, and your own link to this assignment - so it is worth reading, and almost never worth changing. Fixed once the assignment exists, because changing it would orphan the YAML file. It is **not** in the student's invitation link, which is a token |
-| Collaboration Model | **Individual** (1 student per repository) or **Group** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
+| Students work | **Alone** (1 student per repository) or **In teams** (multi-student collaboration per repository with `max_team_size`, optional `min_team_size` under-capacity warning, and self-service team creation toggles) |
 | Opens at / Deadline | local time, automatically converted to UTC for storage. The deadline must be after the open date; a deadline in the past shows a warning (the next nightly run would finalize immediately) |
-| Who may accept | **`open` by default** - anyone with the invitation link may accept, up to the cap. This is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). Choose **`enforced`** to additionally require the login to be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** tab: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
+| Who may accept / When accepting, students | Two questions. **Who may accept**: *Anyone with the link* (default, up to the cap) or *Only students on the roster*. **When accepting, students**: *confirm their PXL email address* (default) or *just click Accept*. Stored as `roster_mode` and `require_claim`: anyone + email is `open` with `require_claim: true`, anyone + click is `open`, roster + email is `claim`, roster + click is `enforced`. *Anyone with the link* is safe because the link itself is the gate: the broker verifies the student's signed acceptance at the edge, so someone without the link gets nothing whatever this says (ARCHITECTURE §4.3.2). With the roster and *just click Accept*, the login must be in `students/roster.yml`. The form then shows the live roster count and links to the **Roster** page: `No students imported yet - nobody can accept`, `213 students on the roster`, or - when the `github_login` column is still empty - `213 students on the roster, but none has a GitHub username yet - nobody can accept`. That last one is the trap: `github_login` is optional in the CSV and is the only field acceptance matches on, so a roster imported before students hand in their usernames blocks everybody. |
 | Max acceptances | guardrail: cap on accepted students (default **50**; leave empty for **no cap at all** - nothing substitutes a number for you; 0 is rejected). Mandatory under `open`, which is the default (§6.4). |
-| After the deadline, work a student pushes | **still counts** by default. *does not count* locks the submission branch at the deadline with a repository ruleset - students keep their repository, Actions, secrets and runners, they simply cannot push to that branch. |
-| The student's repository | **stays as it is** by default. *becomes read-only* demotes them, taking Actions, secrets and runners too. This is a different question from the one above and all four combinations mean something; §3.4 is the whole picture. |
-| Lock down student repos at the deadline | **Off by default**, and opt-in on purpose: demoting to `pull` takes Actions, secrets, environments and runners away, which on these courses is the subject being taught. Preservation happens either way (§3.4). |
+| After the deadline | **Pushing stops** by default: the submission branch is locked at the deadline and students keep their repository, Actions, secrets and runners. *Nothing is locked* lets late commits count; *The repository becomes read-only* also takes Actions, secrets and runners away. Preservation happens whichever you choose. §3.4 is the whole picture. |
 | Open a draft Feedback PR for each student | optional - creates a protected `pxl-baseline` branch at provisioning (see §6.10) |
 | Autograding | optional - one line showing what is configured (`Off`, `3 checks · run on your machine`, `2 checks · run in student repos`) with **Set up** / **Edit** / **Remove** beside it. Everything else is in the modal behind it (see §6.12). |
 | Submission ref (under **Advanced**) | the branch collected, locked at the deadline and graded. Student repositories are created with the template's **default branch only**, so this must name that branch: a new assignment fills it in from the template (`refs/heads/master` for a `master` template) unless you type your own. A ref naming any other branch shows a warning under the template, and publishing refuses it. |
 
-5. The Admin Panel validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
+4. The editor validates against `assignment.schema.json` and commits `assignments/<id>.yml` to your control repo via the Contents API with your own lecturer token. **Save as draft** keeps it invisible to students.
 
 ### 1.3 Reuse the groups from an earlier group assignment
 
 Students should not have to re-form the same teams for every group assignment. Seeding copies an existing grouping into the new assignment; each student then confirms their group with one click instead of picking a team.
 
 1. Create and **save** the new group assignment first - teams are stored under its ID, and the seed reads its team size and repository pattern, so the button stays disabled while the form has unsaved edits.
-2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Seed teams**.
+2. Open the assignment's **Teams** tab (or the group section of the editor) and click **Copy teams**.
 3. Pick a source:
    - **A previous group assignment** - the normal choice. It carries the *final* membership, including switches and dropouts, so always seed from the most recent grouping rather than from the first one.
-   - **The roster's team columns** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster tab's CSV import (§6.4) first.
+   - **The Team column of the imported roster** - for the first group assignment of a course, when you already have the groups elsewhere. Fill `team_slug` / `team_name` via the Roster page's CSV import (§6.4) first.
 4. Review the plan. It lists every team and its members before anything is written, and refuses outright if:
    - a team is larger than the new assignment's maximum team size (raise the maximum or split the team - members are never dropped silently);
    - the new assignment shares a repository name pattern with the source. **Fix this one before anything else**: both assignments would resolve to the same repository names, and provisioning would hand students the previous assignment's locked-down repository instead of a fresh one;
@@ -120,9 +117,16 @@ Students should not have to re-form the same teams for every group assignment. S
 **Under `pre-assigned`, seeding is not optional.** Acceptance reads the team manifests and nothing else - not the roster's `team_slug` column, which carries no assignment and would otherwise pre-assign a student in December because of a September import. A pre-assigned assignment published without seeded teams turns everyone away with `rejected:no-assigned-team`, unless you ticked *Let students with no assigned team form their own*.
 6. Applying writes every team in one commit and dispatches `regenerate-dashboard.yml`, which is what makes the teams visible to students. Nothing is published while the assignment is still a draft, so seed, review in the Teams tab, adjust, and publish.
 
-Afterwards the Teams tab shows a "carried over from …" line, a standing "N students on the roster have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
+Afterwards the Teams tab shows a "carried over from …" line, a standing "N students of this assignment have no team" line naming who is left to place by hand, and - once the assignment is published - dimmed members with a per-team "N not accepted yet" count.
 
-**Seeded the wrong source?** The Teams tab's **Undo seed (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+**Seeded the wrong source?** The Teams tab's **Undo copy (N)** button (or `pxl-classroom teams unseed --assignment <id>`) deletes the carried-over teams in one commit. It only ever removes teams that came from a seed, have no repository, and have no member who has accepted; anything a student has already joined is kept and reported in the confirmation. On a draft that is all of them, which is why reviewing before publishing is the cheap moment to change your mind. **Seeding is not enrolment**: the repository is created when the first member accepts, and each other member only gets access once they accept too.
+
+**Changing a team by hand.** On the Teams tab, **Manage** opens a team; under each member it says whether they *have the team repository* or *have not accepted yet*.
+
+- **Move to…** puts one student in another team in one step. The question before it says what happens to their access in this case: they lose the old team's repository at once, and get an invitation to the new one that they accept on GitHub. **Moving someone into a team that has no repository yet leaves them with none** until they open the invitation link and accept again - tell them. A student who never accepted has nothing to lose.
+- **Remove** takes a member off the list; nothing changes until **Save Changes**. An empty team is deleted from the same dialog (**Delete team**).
+- A student whose roster row has **no GitHub username yet** (only an email address) cannot be placed, because a team stores usernames. They are listed greyed, and the tab offers **Copy confirm-email link**: once they confirm their address, they can be placed (press Refresh). On a draft there is no link yet; it exists once the assignment is published.
+- A member whose username is **not a GitHub account** (a typo) had no access to remove, and removing them says so rather than reporting a failure. The Roster tab asks GitHub before storing a username: **Add student** refuses one that is not an account, and a CSV import marks it before you commit.
 
 Headless equivalent:
 
@@ -144,11 +148,13 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 1.4 Publish
 
-In the editor -> click **Save & publish** in the header bar (on an existing draft, *Lifecycle -> State -> **Publish (create broker, enable nightly)*** does the same). The panel watches for the broker repo and confirms when the accept link is live.
+In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says when the accept link is live.
 
-Once it is published, opening it again leads with the invitation link, an accepted/deadline summary and a link to the tracking page; the six fieldsets move behind **Edit settings** and *Lifecycle* separates **Repair** (Republish broker) from the state transitions below it.
+Once it is published, its **Settings** tab - the last tab of the assignment's page - is the same form, with a list of its sections on the left to jump between them, and a *Broker* section at the end holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings.
 
-**Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as ticking *Ask students to confirm their email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
+**Is it saved?** Nothing you change is saved until you press **Save**. While something is waiting, the bar says *Unsaved changes* and the Settings tab has a yellow dot, also when you are looking at Progress or Grading; your edits stay there until you come back. A new assignment's bar says *Not saved yet* until its first save. (*Draft* is something else: a saved assignment that students cannot open yet.) Leaving the assignment, switching organization or signing out with unsaved changes asks first, and *Cancel* in that question keeps you where you were with your edits. **Stop accepting**, **Back to draft** and **Archive** will not run while changes are unsaved - save or cancel them first - so a state change never saves something you did not mean to save. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
+
+**Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
 
 If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see ADMIN.md §1.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
 
@@ -170,13 +176,11 @@ Publishing days or weeks ahead is safe and is the better habit for an exam: `ope
 
 The student-facing URL is the invitation link: `https://<pages-host>/pxl-classroom/<org>/i/<invite-token>`. It cannot be constructed from the assignment id - the token is minted at publish time and recorded in the control repo (ARCHITECTURE §4.3.2).
 
-**Where to find it.** The **Share with students** block appears in four places, and you never have to open the editor to reach it:
+**Where to find it.** In two places, and you never have to open the settings to reach it:
 
 | Where | What you get |
 |---|---|
-| The banner after publishing, in the Admin Panel | The link, **Copy**, **Open** (the page a student sees), and **Regenerate link →** |
-| The assignment's detail page, behind the **Invite link** button | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link** and **Copy confirm-email link** |
-| Each published row in the Admin Panel's assignment list | A copy button |
+| The **Invite link** button at the top of every tab of the assignment | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link**, **Copy confirm-email link** and, on a published assignment, **Regenerate link…** |
 | Each published card on the dashboard | A copy button |
 
 The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
@@ -227,8 +231,8 @@ To restore:
 
 ### 3.2 Grant an extension
 
-1. Open the assignment's **roster & progress** page (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
-2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the Admin Panel's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1). The Lifecycle block in the editor links here.
+1. Open the assignment's **Progress** tab (`/dashboard/<org>/<assignment-id>`) and click the **···** action on the student's row.
+2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the editor's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1).
 3. The modal shows any extension already in force, then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`), appending to the existing history rather than replacing it.
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
 
@@ -254,33 +258,30 @@ To see who is deferred, `lockdowns/<id>/lockdown-record.json` gives deferred stu
 
 ## 3.4 Deciding what happens to late work
 
-Two independent switches in **Guardrails**, and until August 2026 neither did anything - `late_policy: block` never refused a push and `lock_down_enabled` never decided anything, because lockdown demoted every student on every assignment.
+One question in the assignment form, **After the deadline**, with three answers. Each answer sets two stored fields, `late_policy` and `lock_down_enabled`; the table names both so a stored assignment can be read back.
 
-The form asks **two questions**, and they are two questions rather than one and a stronger version of it. *After the deadline, work a student pushes* decides what counts as the submission; *the student's repository* decides what they keep. All four combinations mean something.
+| Answer | Stored as | At the deadline |
+|---|---|---|
+| **Pushing stops** (default for new assignments) | `block`, `false` | The submission branch is locked with a ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. The submission is the last commit before the deadline. |
+| **Nothing is locked** | `report`, `false` | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
+| **The repository becomes read-only** | `block`, `true` | The branch is locked as above, and the student is also demoted, losing Actions, secrets, environments, runners and settings until you reopen the repository. |
 
-| Answer | At the deadline |
-|---|---|
-| **still counts** (default for new assignments) | Nothing is blocked. Late commits are part of the submission and flagged in the report. |
-| **does not count** | The submission branch is locked with a repository ruleset. Students keep their repository, Actions, secrets and runners - they simply cannot push, force-push or delete that branch. |
-| **repository stays as it is** (default) | They keep admin, and with it Actions, secrets, environments and runners. |
-| **repository becomes read-only** | The student is demoted, losing Actions and secrets too. Defaults **on** for assignments that predate this change, and resets to *stays as it is* when you pick "does not count" (the branch lock already stops pushes). |
-
-**The combination worth understanding is "still counts" with "becomes read-only".** It is not a mistake: the student loses the repository's tooling at the deadline, and work they pushed before the nightly run landed **still counts** toward the submission, because nothing reconstructs the branch under *still counts*. Both 2026 exams ran on it. If you mean the deadline to be final, answer *does not count* as well - the form says so where you choose it.
+**An older assignment may show a fourth answer, *Read-only, but late work still counts*** (`report`, `true`, which is also what an absent `lock_down_enabled` means). The student loses the repository's tooling at the deadline, and work they pushed before the lock landed **still counts**, because nothing reconstructs the branch under `report`. Both 2026 exams ran on it. The form shows it only on an assignment that already holds it, so opening and saving one changes nothing; it is not offered for new ones.
 
 Two things to tell students honestly:
 
-- **The lock fires on the first nightly run after the deadline, not at the deadline itself.** Anything pushed in between is filtered out - the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
+- **The lock lands at the deadline** - the deadline sentinel arms for every published assignment and locks at the instant - **or at the next nightly run if the sentinel misses.** Anything pushed in between is filtered out: the submission falls back to the last commit *committed* before the deadline. That date comes from the student's own machine (`GIT_COMMITTER_DATE`), so it reconstructs the ordinary case correctly and is not evidence in a dispute.
 - **A student who only pushed after the deadline has no submission.** That shows in the run as a no-submission, not an error, and does not fail the cohort's nightly.
 
-Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Does not count" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
+Check what actually applied in `lockdowns/<id>/lockdown-record.json`: `lock_method` is `org-ruleset`, `ruleset`, `demotion` or `none`, per student as well as per run. A `demotion` under "Pushing stops" means the ruleset could not be applied - the run log says why, and the old behaviour is the floor.
 
-**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and a row that also says `demoted: true` (*does not count* with *becomes read-only*) gets the ruleset released and the permission restored. It records who did it, when and why. Doing it by hand records nothing.
+**To let one student push again, use Reopen (§6.15) rather than GitHub.** It reads that student's own `lock_method` and applies the matching inverse - an organization ruleset drops their repository id, a repository ruleset is disabled, a demotion restores the assignment's student permission - and a row that also says `demoted: true` (*The repository becomes read-only*) gets the ruleset released and the permission restored. It records who did it, when and why. Doing it by hand records nothing.
 
 **Never delete a `pxl-classroom-deadline` ruleset.** Nothing in this system does, and the reason is that a ruleset re-created later without the App in `bypass_actors` locks *this system* out of the repository along with the student. `enforcement` is a flag; releasing a lock flips it back.
 
 **A student can delete a repository ruleset** - it lives in their own repository and they are its admin. Nothing is lost if they do: preservation has already pushed a copy to the assignment's archive repository, which they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not.
 
-An **organization** ruleset lives above the student's repository, so being its admin does not help - and since 2026-09-09 that is **what "does not count" does by default**. One ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. There is no control for it on the form: the deadline asks whether late work counts, and where it does not, the lock goes where the student cannot reach it.
+An **organization** ruleset lives above the student's repository, so being its admin does not help - and since 2026-09-09 that is **what "Pushing stops" does by default**. One ruleset named `pxl-classroom-deadline-<assignment-id>` covers the whole cohort, targeted by repository id, and one `PUT` releases the lot. There is no control for it on the form: where the deadline locks the branch, the lock goes where the student cannot reach it.
 
 The run says which mechanism it used and why, so a lecturer reading it can tell the default from a choice:
 
@@ -289,7 +290,7 @@ The run says which mechanism it used and why, so a lecturer reading it can tell 
 [ok] lock scope - repository scope - this assignment opts out of organization scope
 ```
 
-**To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the Admin Panel; nothing in the form can set it again, which is why it is carried rather than rebuilt.
+**To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the editor; nothing in the form can set it again, which is why it is carried rather than rebuilt.
 
 Two things to know before turning it on:
 
@@ -304,8 +305,8 @@ An organization **owner** in the cohort defeats the deadline, and *how* depends 
 
 | The deadline | What an owner in the cohort does to it |
 |---|---|
-| **becomes read-only** (demotion) | The freeze never holds for them. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false` - and nothing says so until somebody reads the record afterwards. |
-| **does not count** (organization ruleset) | The block *does* hold for them - they get the same 409 as anybody else, and the record says `verified: true`. But administering the organization's rulesets is an owner's power: they can **delete the ruleset**, and that releases **every student in the cohort at once**. |
+| **The repository becomes read-only** (demotion) | The freeze never holds for them. GitHub grants owners admin on every repository in the org, so the demotion writes `pull`, reads the permission back, gets `admin`, and records `verified: false` - and nothing says so until somebody reads the record afterwards. |
+| **Pushing stops** (organization ruleset) | The block *does* hold for them - they get the same 409 as anybody else, and the record says `verified: true`. But administering the organization's rulesets is an owner's power: they can **delete the ruleset**, and that releases **every student in the cohort at once**. |
 
 The second is the worse of the two, and it is the default. One account can undo the whole cohort's deadline in a single call, and the record will say it was locked.
 
@@ -323,7 +324,7 @@ Usually the match is you or a colleague testing the assignment - students are ad
 
 ### 3.6 Student says "I clicked Accept but nothing happened"
 
-**First, how long have they actually waited?** Provisioning is two chained Actions runs (broker → `repository_dispatch` → hub), so **20 to 40 seconds is normal** and longer is common when Actions is queued. The page says so, counts the elapsed seconds, and updates itself the moment the repository appears - a student who waits 30 seconds has waited a normal amount of time.
+**First, how long have they actually waited?** Provisioning is two chained Actions runs (broker → `repository_dispatch` → hub), so **20 to 40 seconds is normal** and longer is common when Actions is queued. The page says so, counts the elapsed seconds, and updates itself the moment the repository appears - a student who waits 30 seconds has waited a normal amount of time. It also shows which step the request is at (*Request sent*, *Invitation checked*, *Setting up*): if GitHub has not started it after three minutes it offers **Send it again**, and if GitHub stopped it, could not pass it on, or it finished with nothing set up, it says *Your request did not go through* with the same button. Sending it again is always safe - an older attempt that runs later changes nothing - so the answer to "it says did not go through" is to press it. If it keeps happening, look for their run in the hub's Actions tab (below).
 
 The page only offers a "look for a repository invitation" link when it could **not** read `/user/repository_invitations`. If it *could*, it already knows: a pending invitation puts the student in a state with an in-app **Accept invitation** button, and no invitation means there is nothing to accept. A student who is already an org member or owner is added as a direct collaborator and never receives one.
 
@@ -335,7 +336,7 @@ Possible causes:
 - **A student says the Accept button does nothing.** If the page reports "GitHub is blocking your request", their GitHub account has been flagged and its content is hidden from everyone but themselves - the acceptance issue is created and removed before the broker sees it. Confirm with `gh api users/<login>`: a flagged account returns 404 to everyone else and 200 to itself. Only GitHub Support can lift it; provision the student manually in the meantime.
   - *Lecturer Retry Flow:* the student comes from the report row, so there is no login to validate; the SPA checks whether the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run. A retry the gates refuse (a locked repository after the deadline, a student not on the roster) changes nothing: the student's acceptance and report row stay as they were.
 - **Outside `opens_at..deadline_at` or assignment closed.** The student accept card gates acceptance and displays early/closed status messages instead of the Accept button. If a student needs to accept outside the window, the lecturer must trigger a retry acceptance (which prompts to bypass window checks).
-- **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or via Admin Panel) or reject. Note the cap is a **guardrail, not an exact seat count**: acceptances are checked and recorded in parallel runs, so a simultaneous burst can land a couple over it. That is deliberate - making it exact would make every acceptance in the cohort wait on every other (ARCHITECTURE §5.4). If you need an exact number, reconcile afterwards rather than relying on the cap.
+- **`max_acceptances` reached.** SPA will say so. Either raise the cap (edit assignment YAML directly or on its Settings tab) or reject. Note the cap is a **guardrail, not an exact seat count**: acceptances are checked and recorded in parallel runs, so a simultaneous burst can land a couple over it. That is deliberate - making it exact would make every acceptance in the cohort wait on every other (ARCHITECTURE §5.4). If you need an exact number, reconcile afterwards rather than relying on the cap.
 - **The student is not on the roster.** Under `roster_mode: enforced` (not the default - new assignments are `open`) the acceptance is rejected server-side with `rejected:not-on-roster` (or `rejected:no-roster` if `students/roster.yml` is missing), and the student sits on "Setting up your repository…" until it times out - the SPA cannot read the private roster, so it can't say this directly. Confirm in the hub's Actions tab: the `Accept assignment` run for that student shows the rejection reason in its summary. Fix by importing the roster (§6.4) or, for an assignment with no fixed cohort, switching it to open enrollment (§6.4 -> *Running an assignment without a roster*).
 
 ## 3.7 Nightly finalize failed
@@ -385,11 +386,11 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 
 **Check the rate limit first, and expect it to be fine** - a near-full quota is what rules out the cause the wording implies and points at a permission instead.
 
-The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The Admin Panel authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
+The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The dashboard authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
 
 1. **App owner**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Repository permissions** -> **Checks: Read-only** -> **Save changes**. Confirm with `gh api apps/pxl-classroom-provisioner --jq .permissions.checks` (must print `read`).
 2. **Each org owner**: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve.
-3. Sign out of the Admin Panel and back in, so the device flow issues a token carrying the new permission. An existing session keeps the old one.
+3. Sign out of the dashboard and back in, so the device flow issues a token carrying the new permission. An existing session keeps the old one.
 
 `node scripts/check-app-declaration.mjs` answers step 1 immediately and needs no token; `scripts/check-installation-approvals.mjs` (the `installation-approvals` job in `weekly-usage-report.yml`) answers step 2 for every org at once.
 
@@ -446,7 +447,7 @@ Each of these takes `org` as an input, and most also take `assignment_id` for sc
 
 ### 4.1 The deadline sentinel
 
-Without it, "Late work: does not count" locks the submission branch on the **first nightly run after the deadline** and reconstructs the submission with `?until=`. With it, the branch locks at the deadline itself and the run records a five-minute `pushed_at` timeline through the critical window - GitHub's own push timestamps, which a student cannot set, and the only thing that settles an argument about when work landed.
+Without it, "Pushing stops" locks the submission branch on the **first nightly run after the deadline** and reconstructs the submission with `?until=`. With it, the branch locks at the deadline itself and the run records a five-minute `pushed_at` timeline through the critical window - GitHub's own push timestamps, which a student cannot set, and the only thing that settles an argument about when work landed.
 
 **It ships disabled.** `publish-assignment.yml` enables it the next time you publish an assignment, alongside `daily-activity.yml`. To turn it on now:
 
@@ -475,7 +476,7 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 
 The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohort is one gesture, and nothing else is in the blast radius.
 
-**Delete assignment** does the PXL Classroom half of this. It is offered on the editor's lifecycle row once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
+**Delete assignment** does the PXL Classroom half of this. It is offered on the state button once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
 
 What it does, in this order, because the order is the safety property:
 
@@ -589,7 +590,7 @@ Editing an existing assignment is checked for one thing only: repointing its pat
 
 §6.1-§6.3 install and configure the CLI, and are needed only for the CLI route. Everything from §6.4 onwards is a task, and each says which surfaces can do it.
 
-The `pxl-classroom` CLI in `cli/` is an optional power-user surface for the actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the Admin Panel.
+The `pxl-classroom` CLI in `cli/` is an optional power-user surface for the actions that scale poorly through the SPA: CSV roster import, install audits, feedback-PR orchestration, bulk submission download, and autograding. Same App, same device-flow auth, same schemas as the editor.
 
 ### 6.1 Install (from a clone of the hub)
 
@@ -630,9 +631,9 @@ Both files are JSON, chmod 0600 on POSIX. Token TTL matches the device-flow OAut
 
 ### 6.4 Importing a roster
 
-The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's Admin Panel -> **Roster** tab or the CLI imports it from CSV.
+The lecturer's roster (`students/roster.yml`) is schema v2. Either the SPA's **Roster** page (the organization's dashboard, then **Roster**) or the CLI imports it from CSV.
 
-**Putting students into a class group without a CSV.** Tick the students on the Roster tab, type the group in the bar that appears, press **Apply**. It is written in **one commit** for the whole selection, which is the point: setting the group cell by cell is one commit per student, and twenty of those seconds apart is both slow to sit through and how the Contents API comes to refuse a write with a stale sha.
+**Putting students into a class group without a CSV.** Tick the students on the Roster page, type the group in the bar that appears, press **Apply**. It is written in **one commit** for the whole selection, which is the point: setting the group cell by cell is one commit per student, and twenty of those seconds apart is both slow to sit through and how the Contents API comes to refuse a write with a stale sha.
 
 The fast route is the chips: **No group (9)** → the tick box in the table header → type the group → **Apply**. Four clicks for any number of students. The header tick box takes everything the **current filter** is showing, and there is a chip per class group, so moving a whole class from 3A to 3C is the same four clicks.
 
@@ -651,7 +652,7 @@ Class groups are a filter for finding people, never a rule about who may accept 
 | `student_number` | Yes | Institutional SIS ID; treated as a string (preserves leading zeroes). |
 | `full_name`      | Yes | Display name. |
 | `email`          | Optional | Validated against the `email` format. |
-| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** - it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. For one student, click the **Group** cell on the Roster tab rather than re-importing. |
+| `class_group`    | Optional | E.g. `3A`. One group per student. **A filter, not a gate** - it decides nothing on its own. The assignment form shows your roster and you tick who the assignment is for; this column turns the chips above that list into `3A · 20`, so taking a whole section is one click instead of twenty. Fill it in when a course runs sections; leave it empty and the picker still works, you just scroll or search instead. For one student, click the **Group** cell on the Roster page rather than re-importing. |
 | `github_login`   | Optional | If known up front; otherwise filled at acceptance. |
 | `github_id`      | Optional | Integer; pinned to survive renames. Usually filled at acceptance. |
 | `active`         | Optional | Boolean (`true`/`false`/`1`/`0`/`yes`/`no`); defaults to `true`. |
@@ -662,9 +663,9 @@ Unknown columns are rejected - the list above is `KNOWN_COLUMNS` in `lib/roster-
 
 **An import updates a student rather than replacing them.** A row is matched to a stored one on **either** identity it carries - the student number or the GitHub login - and the columns your CSV holds are written over that row while everything else stays. So importing a class list over students who were added from their acceptances keeps their GitHub logins, and a `class_group` you set in the table survives a re-import that has no such column. Before this, a CSV naming a student by number could not meet the same student stored by login: the import added one row and removed the other, and if the CSV had no `github_login` column their login was lost.
 
-A CSV **cannot clear a field** - an empty cell and an absent column are the same thing to the importer, so neither means "delete this". Removing a student entirely is what the *Removed* list in the preview is for, and both the panel and the CLI ask before committing one. To clear a single value, edit the cell on the Roster tab instead.
+A CSV **cannot clear a field** - an empty cell and an absent column are the same thing to the importer, so neither means "delete this". Removing a student entirely is what the *Removed* list in the preview is for, and both the panel and the CLI ask before committing one. To clear a single value, edit the cell on the Roster page instead.
 
-**Exporting it again.** The Roster tab's **Export CSV** writes the current roster in exactly the format above, so export → edit → import is the way to change a column across a cohort you have already imported - adding `class_group` to divide a course into sections is the usual reason. The file carries a UTF-8 BOM so Excel decodes accented names, and any value beginning `=`, `+`, `-` or `@` is written with a leading apostrophe so a spreadsheet shows it instead of running it. The importer strips that apostrophe back off, and only where the exporter would have added it - a name like `'t Hooft` is left alone (`lib/csv-cell.mjs`).
+**Exporting it again.** The Roster page's **Export CSV** writes the current roster in exactly the format above, so export → edit → import is the way to change a column across a cohort you have already imported - adding `class_group` to divide a course into sections is the usual reason. The file carries a UTF-8 BOM so Excel decodes accented names, and any value beginning `=`, `+`, `-` or `@` is written with a leading apostrophe so a spreadsheet shows it instead of running it. The importer strips that apostrophe back off, and only where the exporter would have added it - a name like `'t Hooft` is left alone (`lib/csv-cell.mjs`).
 
 **CLI flow:**
 
@@ -675,19 +676,19 @@ pxl-classroom roster import --org <org> roster.csv --force      # commit incl. r
 pxl-classroom roster list   --org <org>                          # tabular view
 ```
 
-An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Admin Panel); non-interactive runs must pass `--force` to allow removals.
+An import whose diff **removes** students prompts for confirmation on a TTY (same guard as the Roster tab); non-interactive runs must pass `--force` to allow removals.
 
 The `--org` value sticks (config remembers it) so subsequent invocations can omit the flag. When the flag is omitted, the CLI prints a reminder to stderr identifying the resolved last-used organization.
 
 All CLI commands query the control repo. If assignments or reports are queried that do not exist, the CLI catches 404 errors and displays a friendly explanation instead of raw stack traces. If repository records are empty, it handles the 404 gracefully and returns an empty list.
 
-**SPA flow:** open `/dashboard/<org>/admin#roster`, drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses - no drift between surfaces.
+**SPA flow:** open the **Roster** tab (`/dashboard/<org>/roster`), drop a CSV (or paste it), preview the added/updated/removed diff, click **Commit roster**. Schema validation runs against the same `schemas/roster.schema.json` the CLI uses - no drift between surfaces.
 
 Both surfaces commit to `<org>/pxl-classroom-control:students/roster.yml`. The CLI uses `lib/gittree.mjs` (rebase-on-non-FF retry); the SPA uses the existing single-file Contents-API `commitFile()` - both safe for one-shot writes.
 
 #### Running an assignment from a list of email addresses
 
-Set **Who may accept** to `claim` when your roster carries students' PXL email addresses but not their GitHub usernames - the ordinary case, since you are given addresses and they choose their own usernames.
+Choose **Only students on the roster** and **confirm their PXL email address** (`roster_mode: claim`) when your roster carries students' PXL email addresses but not their GitHub usernames - the ordinary case, since you are given addresses and they choose their own usernames.
 
 The student opens the invitation link, and the page shows them **their own GitHub-verified addresses** that match the allowed domains. They confirm one; the address is encrypted in the browser to the hub's public key (INSTALL.md §3.2) and only ciphertext ever travels over the public acceptance issue. The hub decrypts it, matches it to a roster entry by address, and writes the binding to `students/claims/<github_id>.json`.
 
@@ -699,11 +700,11 @@ The student opens the invitation link, and the page shows them **their own GitHu
 | Address is not on the roster | `rejected:no-claim-match` - a typo, or you registered a different address |
 | Address already claimed by another account | `rejected:claim-taken` - first come wins; unlink it if the wrong person got there first |
 | Address outside the allowed domains | `rejected:claim-domain` |
-| Five failed attempts | `rejected:claim-blocked` - the student is told to contact you. **Clear failed attempts** in any row's actions menu on the **Roster** tab (it asks for their GitHub account), or `pxl-classroom roster reset-attempts --org <org> --login <account>`. Their binding, if any, is kept |
+| Five failed attempts | `rejected:claim-blocked` - the student is told to contact you. **Clear failed attempts** in any row's actions menu on the **Roster** page (it asks for their GitHub account), or `pxl-classroom roster reset-attempts --org <org> --login <account>`. Their binding, if any, is kept |
 
 Only a guess counts as a failed attempt. A student whose address the claim gate itself admitted is never counted for being refused on the wrong assignment's link (`rejected:not-in-cohort`); a binding the confirm-email link or open enrolment wrote was never checked against the roster, so a refusal on it is counted. A successful acceptance clears the counter.
 
-**When two accounts hold one address**, the account that has held it longest **without a break** is the one admitted, and the one the Roster tab shows. An account that confirmed another address in between gave its place up. If the wrong one is first, **Forget this account** on it.
+**When two accounts hold one address**, the account that has held it longest **without a break** is the one admitted, and the one the Roster page shows. An account that confirmed another address in between gave its place up. If the wrong one is first, **Forget this account** on it.
 
 **Prerequisites, both one-off:** the claim keypair (INSTALL.md §3.2) and the App's account permission **Email addresses: Read** (INSTALL.md §2). Without the keypair the assignment fails closed with a red run rather than rejecting students. Without the permission the page cannot list a student's verified addresses - it says so honestly and offers the typed box, and every claim is then recorded `claim_verified: false`.
 
@@ -713,7 +714,7 @@ Only a guess counts as a failed attempt. A student whose address the claim gate 
 
 #### Running an assignment without a roster
 
-`open` is what a new assignment gets by default: students need the invitation link and nothing else, and `max_acceptances` is the only limit. To gate on a roster instead, set **Who may accept** to `enforced` in the Admin Panel's **Guardrails** section (equivalently, `roster_mode: enforced` in the YAML).
+`open` is what a new assignment gets by default: students need the invitation link and nothing else, and `max_acceptances` is the only limit. To gate on a roster instead, choose **Only students on the roster** under **Students** in the assignment form (with *just click Accept* that is `roster_mode: enforced` in the YAML, with *confirm their PXL email address* it is `claim`).
 
 **A roster is still useful under `open`.** It stops deciding who may accept; it does not stop being a roster. Reports and CSV exports are built from the union of the roster and the actual acceptances, so imported students appear before they accept and carry their student number, name and class group. Students who accept without being on it show up with their GitHub login only, for you to reconcile afterwards.
 
@@ -721,7 +722,7 @@ Any GitHub account can then claim a repo while the assignment is open, so the de
 
 ### 6.4.1 Correcting an email address that assignments identify a student by
 
-Editing a student's details on the **Roster** tab sometimes opens a second dialog: *"Change the email address for … ?"*, listing one or more assignments. It appears for one situation only, and it is safe to say yes to.
+Editing a student's details on the **Roster** page sometimes opens a second dialog: *"Change the email address for … ?"*, listing one or more assignments. It appears for one situation only, and it is safe to say yes to.
 
 A roster row is identified by whichever of these it carries: a student number, a GitHub account, or an email address. Most rows have a number, and their address is just a contact detail - editing it changes nothing else, and no dialog appears. A row that has **only** an address is identified *by* that address, so correcting a typo in it makes it a different row as far as anything referring to it is concerned. Assignments that were set to run for a chosen group of students refer to exactly that.
 
@@ -735,7 +736,7 @@ To avoid the dialog entirely, give such students a student number or link their 
 
 After an `open` assignment, the students who turned up are known only as GitHub logins in `acceptances/<id>/<login>.json`. Promotion copies them onto `students/roster.yml`, so the **next** assignment can run `enforced` against the cohort that actually enrolled.
 
-**SPA flow, two entry points onto the same modal.** From the **Roster** tab → **Add students who accepted**, which asks *which* assignment first - the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add students who accepted to the roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
+**SPA flow, two entry points onto the same modal.** From the **Roster** page → **Add students who accepted**, which asks *which* assignment first - the roster is org-wide while the action is per-assignment. Or from the assignment's own tracking page (`/dashboard/<org>/<id>`) → **··· More** → **Add students who accepted to the roster**, which already knows which. Either way the modal previews exactly who would be added before anything is written.
 
 Both appear only where there is something to add: an `open` assignment somebody has accepted. Under `enforced` and `claim` every acceptor was already on the roster, so the control is absent rather than present and inert.
 
@@ -769,7 +770,7 @@ Afterwards, fill in the real identities - see §6.5.1. The `source: accepted` ma
 
 A promoted row carries a GitHub login and nothing else, and **nothing fills it in later on its own**: promotion skips a login it has already seen (that is the "only adds" rule above), and a claim is matched to a roster entry *by email* - which such a row does not have. Three routes, and they compose:
 
-**What the reports already know.** Under each unidentified row, the Roster tab shows what the collector recorded as the author of that student's commits - falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. An address appears under the **Email** column and a name under **Name**, so each sits with the column it is about. Anything that merely repeats the login is left out, since it says nothing you cannot already see, and anything that is not an address - a git `user.email` holding a name, or one at `github.com`, which is not a mailbox - is kept out of the address column.
+**What the reports already know.** Under each unidentified row, the Roster page shows what the collector recorded as the author of that student's commits - falling back to their public GitHub profile, with the provisioning bot and `noreply.github.com` addresses stripped. An address appears under the **Email** column and a name under **Name**, so each sits with the column it is about. Anything that merely repeats the login is left out, since it says nothing you cannot already see, and anything that is not an address - a git `user.email` holding a name, or one at `github.com`, which is not a mailbox - is kept out of the address column.
 
 **Fill in the addresses.** When one or more of those addresses is on an allowed domain (`claim_domains` in `deployment.yml`), a **Fill in N emails from assignments** button appears and writes exactly those, into empty fields only, after showing you which. It is deliberately narrow:
 
@@ -795,7 +796,7 @@ What bounds it is the assignment: the link stops working the night that assignme
 
 Sharing it is not a leak in the way an invitation would be: whoever opens it can bind *their own* account to *their own* address and nothing else. The signed request says which of the two questions it is asking, so a confirm link cannot be turned into an acceptance.
 
-For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure - they appear on the Roster tab as *N need your decision*:
+For a promoted row this now works in the direction you need. A claim carries the student's GitHub id and login as well as the address, so it is matched to a row that has a login and no address, and the address is written in. Three cases are held for you instead, and each is a decision rather than a failure - they appear on the Roster page as *N need your decision*:
 
 | Held | Why |
 |---|---|
@@ -807,9 +808,9 @@ This does not reach a cohort that has already finished - they would have to acce
 
 ### 6.6 Seeing and undoing a claim binding
 
-Under `roster_mode: claim` the student binds themselves: they confirm one of their own GitHub-verified addresses, and the hub writes `students/claims/<github_id>.json`. That binding is **org-scoped** and lives outside `roster.yml`, so the roster's own `github_login` column is usually empty by design - which is why the Roster tab shows a **binding** rather than that column alone.
+Under `roster_mode: claim` the student binds themselves: they confirm one of their own GitHub-verified addresses, and the hub writes `students/claims/<github_id>.json`. That binding is **org-scoped** and lives outside `roster.yml`, so the roster's own `github_login` column is usually empty by design - which is why the Roster page shows a **binding** rather than that column alone.
 
-**Where to look:** Admin Panel → **Roster** tab. Each student's GitHub Account cell shows one of:
+**Where to look:** the **Roster** page (the organization's dashboard, then **Roster**). Each student's GitHub Account cell shows one of:
 
 | Shown | Means | What to do |
 |---|---|---|
@@ -823,7 +824,7 @@ A row whose **Email** cell is also empty can never be matched by an address, bec
 
 **CLI equivalent:** `pxl-classroom roster list` prints the same binding column plus a summary line, and names any orphan claims (an address on no roster entry - usually a student removed from the roster, or an address corrected after they claimed). Orphans are reported, never deleted automatically.
 
-**Undoing one**, from the row's actions menu on the Roster tab - **Forget this account**, which removes our record of which account they are and nothing on GitHub - or:
+**Undoing one**, from the row's actions menu on the Roster page - **Forget this account**, which removes our record of which account they are and nothing on GitHub - or:
 
 ```bash
 pxl-classroom roster unlink --org <org> --login <account> --dry-run   # preview
@@ -840,7 +841,7 @@ When a student **deletes and recreates their GitHub account**, their new `github
 
 **Folding claims into the roster happens by itself.** The nightly `collect` job folds every claim that needs no judgement, so a roster row's `github_login` fills in overnight with nobody running anything. What that buys is a self-contained roster: the *next* assignment can run `enforced` against a cohort whose usernames are now known, and an exported CSV carries them.
 
-**Cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, one account holding two addresses, and an address it would have to write into a row that is outside the allowed domains or not the `firstname.lastname@` form. (One address held by two accounts is not among them: the account that has held it longest without a break is folded, the same one acceptance admits.) Those are listed at the top of the **Roster** tab as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first - **Forget this account**, in that row's actions menu (above) - so the row says so instead of offering a button that would refuse.
+**Cases it will not decide**, because there is nobody present to decide them - a claim GitHub never verified (the student *typed* the address), a claim naming a different account than the roster row already holds, one account holding two addresses, and an address it would have to write into a row that is outside the allowed domains or not the `firstname.lastname@` form. (One address held by two accounts is not among them: the account that has held it longest without a break is folded, the same one acceptance admits.) Those are listed at the top of the **Roster** page as *N need your decision*, each with the reason it is waiting. Only the typed-but-unverified case offers **Link anyway**: a conflict needs the account in the way removed first - **Forget this account**, in that row's actions menu (above) - so the row says so instead of offering a button that would refuse.
 
 **Saying no is the other answer, and it is a button too.** **Discard** deletes that claim record, for the case where neither linking nor unlinking is what you want - a test account's address, or a typo you would rather the student simply re-entered. It clears the failed-attempt counter with it, for the same reason unlinking does, and the student may claim again with any allowed address; if they do, the box asks you again. Their repository and acceptance are untouched. There is no Discard on *one account holding two addresses*, because there is no single record to delete - forget the account instead. Without this the box could never be finished: a claim you had decided against stayed on the list for good.
 
@@ -864,11 +865,11 @@ claim_domains: []                     # deliberate opt-out: any domain passes th
 
 **Absent and empty are different answers.** No key means the default; an explicit `[]` means you turned the filter off on purpose. Matching is on the **whole domain label**, never a suffix - anyone can register `notstudent.pxl.be`.
 
-**The form of the address.** A student address exists as `12345678@student.pxl.be` and as `firstname.lastname@student.pxl.be`, and only the second tells you who the student is. `claim_address_format` in `deployment.yml` makes the second required: the student is offered only their name-form addresses, a typed number-form one is refused on the page, and a confirmation link refuses it too. Under `roster_mode: claim` **the roster decides instead**: an address on your roster is accepted whatever its form, so a roster that lists `12345678@` addresses still works, and a number-form address that is not on it is refused (*address does not have the required form*). A student who confirmed an address before is let in again only if that address is on your roster and in the assignment's cohort. A student who confirmed the wrong address opens the confirmation link again and confirms the right one: it replaces the old one. To accept any form on one assignment, untick **Only accept the firstname.lastname@ form of the address** under the address question in **Guardrails** (shown when the assignment asks for an address: `claim`, or `open` with an address required).
+**The form of the address.** A student address exists as `12345678@student.pxl.be` and as `firstname.lastname@student.pxl.be`, and only the second tells you who the student is. `claim_address_format` in `deployment.yml` makes the second required: the student is offered only their name-form addresses, a typed number-form one is refused on the page, and a confirmation link refuses it too. Under `roster_mode: claim` **the roster decides instead**: an address on your roster is accepted whatever its form, so a roster that lists `12345678@` addresses still works, and a number-form address that is not on it is refused (*address does not have the required form*). A student who confirmed an address before is let in again only if that address is on your roster and in the assignment's cohort. A student who confirmed the wrong address opens the confirmation link again and confirms the right one: it replaces the old one. To accept any form on one assignment, untick **Only accept the firstname.lastname@ form of the address** under **Advanced** (shown when the assignment asks for an address, that is when students *confirm their PXL email address*).
 
-**Students who confirmed the number form earlier** are flagged on the assignment page: a notice lists them (*N students confirmed an address without their name in it*, with **Copy logins**), and their Confirmed address cell reads *No name in the address*. Send them the **Confirm-email link** (under **Invite link**). They are asked again, the new address replaces the old one, the flag clears at the next report, and a roster row whose address came from their old confirmation follows them; one you typed yourself is left for you to change on the Roster tab. Their repository, acceptance and work are not touched.
+**Students who confirmed the number form earlier** are flagged on the assignment page: a notice lists them (*N students confirmed an address without their name in it*, with **Copy logins**), and their Confirmed address cell reads *No name in the address*. Send them the **Confirm-email link** (under **Invite link**). They are asked again, the new address replaces the old one, the flag clears at the next report, and a roster row whose address came from their old confirmation follows them; one you typed yourself is left for you to change on the Roster page. Their repository, acceptance and work are not touched.
 
-It is a filter, not proof. Nothing checks that a claimed address *exists*, so `asdf@student.pxl.be` passes the domain test - it is the roster match that refuses it. A student with no PXL address on their GitHub account may still type one; the binding is recorded with `claim_verified: false` and shows as *unverified* on the Roster tab. That is by design: requiring a GitHub-verified address locks out a real fraction of students and stops nothing determined, because the page is public JavaScript either way.
+It is a filter, not proof. Nothing checks that a claimed address *exists*, so `asdf@student.pxl.be` passes the domain test - it is the roster match that refuses it. A student with no PXL address on their GitHub account may still type one; the binding is recorded with `claim_verified: false` and shows as *unverified* on the Roster page. That is by design: requiring a GitHub-verified address locks out a real fraction of students and stops nothing determined, because the page is public JavaScript either way.
 
 A student who has spent their five attempts is refused with `rejected:claim-blocked` and told to contact you - deliberately without a countdown, since that is a progress bar for whoever is enumerating addresses. Clear it by unlinking them (§6.6), which removes the counter as well as any binding.
 
@@ -882,13 +883,13 @@ What you get instead is a record to read afterwards, in `reports/<id>.json` and 
 | `claim_verified` | `true` if GitHub had already verified that address for them; `false` if they typed it |
 | `claim_domain_allowed` | `false` means the address is outside `claim_domains`. **Recorded, not refused** |
 
-Two addresses confirmed by two different accounts show up as a duplicate in `pxl-classroom roster list` and on the Roster tab. Treat all of this as a review aid for an exam cohort, not as enrolment control - if you need control, `enforced` or `claim` is the mode.
+Two addresses confirmed by two different accounts show up as a duplicate in `pxl-classroom roster list` and on the Roster page. Treat all of this as a review aid for an exam cohort, not as enrolment control - if you need control, `enforced` or `claim` is the mode.
 
 Symptom this fixes: with `roster_mode: enforced` and an empty or missing `students/roster.yml`, every acceptance is rejected with `rejected:not-on-roster` / `rejected:no-roster`, and the student sits on "Setting up your repository…" until it times out. Check the `Accept assignment` run in the hub's Actions tab to confirm the rejection reason.
 
 ### 6.8 Auditing an org's install
 
-`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA runs the same checks behind **Check System Health** on the dashboard - a modal, not a panel - and on the Admin Panel for one assignment.
+`pxl-classroom audit` runs read-only health checks against an org's App installation, control repo scaffold, participating-orgs registry, and (with `--assignment`) the per-assignment lockdown/archive state. The SPA runs the same checks behind **Check System Health** on the dashboard - a modal, not a panel - and on the editor for one assignment.
 
 ```bash
 pxl-classroom audit --org PXLAutomation
@@ -916,7 +917,7 @@ The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows t
 
 ### 6.10 Feedback PRs
 
-Enable `feedback_pr: true` on the assignment (the Admin Panel's **Guardrails** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo.
+Enable `feedback_pr: true` on the assignment (the assignment form's **Grading** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo.
 
 Open the actual draft PRs lazily - at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
 
@@ -933,7 +934,7 @@ pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        #
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The Admin Panel's `AssignmentDetailView` shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
+The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The assignment page (`AssignmentDetailView`) shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
 
 `feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 
@@ -973,23 +974,23 @@ It never replaces a reading **you** made. A summary carrying your login, or one 
 | | Where | What it does |
 |---|---|---|
 | **One student** | Roster & progress → their row → **⋯** → **Grading** → *Read score again* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
-| **The whole cohort** | **More** → *Re-grade all N*, or the button on the Autograding panel | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
+| **The whole cohort** | **More** → *Read all scores again (N)*, or the button on the Autograding panel | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
 
 A student whose commit has **no grading run** is listed by name with the reason, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
 
 #### Grading one student differently from the rules
 
-The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) and in the Autograding panel, and are kept by every later *Read score again*, *Re-grade all*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.
+The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) and in the Autograding panel, and are kept by every later *Read score again*, *Read all scores again*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.
 
-- **Re-grade a commit…** lists every hand-in (with a hand-in message) or every commit on the submission branch (without one), newest first, each with the result its grading run produced - *late*, *over the limit* and *graded now* labelled. Late and over-the-limit hand-ins almost always have a result: every hand-in push was graded, and the rules only decide which one counts. Pick one and **Grade on #4 (20/20)**. On a team repository it applies to the whole team.
-- A commit **with no result** says why. Where GitHub can still help it offers **Run grading again**: a run exists for that exact commit, it is not a hand-in-gated run that skipped (it would skip again - measured), and it is under 30 days old. It re-runs the tests **as they were at that commit**, costs its usual Actions minutes, and on a cloud exam whose sandbox is gone the result will be a fail.
-- A commit with no result also offers **Grade this commit now** when the student's grading workflow can grade a chosen commit. It runs the workflow on their submission branch against the code of that commit, now: no 30-day limit, and a hand-in message does not stop it. **Tests written in the workflow are the current ones; test files in the repository are the ones at that commit.** When the dialog says the workflow *cannot grade a chosen commit yet*, the repository's workflow file lacks the entry. **Sync Starter Code** sends the *template's* workflow, so it fixes this only once the template has the entry: a workflow PXL Classroom wrote into the template has it; a template with a workflow of its own needs the three changes in AUTOGRADING.md, *Grading a commit you choose*, first, and then the sync. Where nothing can run, use a score by hand.
-- **Set score by hand** is a score and a total with a reason. It wins over any run, so while one is set **Re-grade a commit…** is not offered: remove the score first. It works for a student with no repository too (an oral exam), and the nightly keeps it.
+- **Choose the commit that counts…** lists every hand-in (with a hand-in message) or every commit on the submission branch (without one), newest first, each with the result its grading run produced - *late*, *over the limit* and *graded now* labelled. Late and over-the-limit hand-ins almost always have a result: every hand-in push was graded, and the rules only decide which one counts. Pick one and **Grade on #4 (20/20)**. On a team repository it applies to the whole team.
+- A commit **with no result** says why. Where GitHub can still help it offers **Re-run its grading on GitHub**: a run exists for that exact commit, it is not a hand-in-gated run that skipped (it would skip again - measured), and it is under 30 days old. It re-runs the tests **as they were at that commit**, costs its usual Actions minutes, and on a cloud exam whose sandbox is gone the result will be a fail.
+- A commit with no result also offers **Start a grading run on this commit** when the student's grading workflow can grade a chosen commit. It runs the workflow on their submission branch against the code of that commit, now: no 30-day limit, and a hand-in message does not stop it. **Tests written in the workflow are the current ones; test files in the repository are the ones at that commit.** When the dialog says the workflow *cannot grade a chosen commit yet*, the repository's workflow file lacks the entry. **Sync Starter Code** sends the *template's* workflow, so it fixes this only once the template has the entry: a workflow PXL Classroom wrote into the template has it; a template with a workflow of its own needs the three changes in AUTOGRADING.md, *Grading a commit you choose*, first, and then the sync. Where nothing can run, use a score by hand.
+- **Set score by hand** is a score and a total with a reason. It wins over any run, so while one is set **Choose the commit that counts…** is not offered: remove the score first. It works for a student with no repository too (an oral exam), and the nightly keeps it.
 - Going back to the rules, or removing a score by hand, when the rules find no score for that student removes their old score from the results and names the reason, rather than leaving the undone decision on record.
 - The assignment's **Export CSV** carries the graded commit and your decision - `grade_decision` (*chosen commit* or *score by hand*), who, when and why - beside the score, for a grade dispute read in a spreadsheet.
 - Two lecturers deciding about the same student at the same moment both keep their decision: a save that finds the student's file changed underneath it reads it again and adds its own entry to what is there.
 - **How many are graded** shows once at least one student has a score: a **Graded** card beside *No submission* on the assignment page, and a **Graded** figure on the assignment's card in the overview. Both count students with a score of any kind (a run or a score by hand), move as soon as a re-grade is saved, and are read from the assignment's grade summary, so the overview is current without waiting for the nightly.
-- When **Re-grade all** or the nightly cannot read some students, the message names them. A commit graded with **Grade this commit now** whose run was later deleted is refused for that one student (*no longer exists*): grade the commit again, or go back to the rules.
+- When **Read all scores again** or the nightly cannot read some students, the message names them. A commit graded with **Start a grading run on this commit** whose run was later deleted is refused for that one student (*no longer exists*): grade the commit again, or go back to the rules.
 
 The local runner (`pxl-classroom grade --runner docker|host`) grades the preserved submission only, so for a student with a chosen commit it refuses by name rather than grade something else; read that commit's result on the page instead.
 
@@ -1042,7 +1043,7 @@ Where it does inject: a `python` test becomes **two** steps - one that writes it
 
 Each grader step's result reaches the reporter through an environment variable **the reporter names, not us**: `<RUNNER-ID-UPPERCASED>_RESULTS`, with the hyphens kept. Getting that name wrong is silent - every grader step goes green and the job fails at the reporter with a message blaming its `runners` input.
 
-Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The Admin Panel cannot produce that state; only a hand-edited YAML the schema rejects can.
+Autograding on with **no** checks makes the injected workflow **fail**, saying so, rather than guessing at the student's toolchain and reporting the guess as a grade. The editor cannot produce that state; only a hand-edited YAML the schema rejects can.
 
 #### Where the number comes from
 
@@ -1120,11 +1121,11 @@ Press **Sync again** on that line, or run it again from **··· More**. Each st
 
 #### Changed the assignment's template after students accepted
 
-Changing **Template repository** in the Admin Panel, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. The Template repository field already warns while you change it, saying how many students have a repository from the current one; after the save the Admin Panel repeats it with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students get the new template's full starter code, file by file: a file that is still starter code (of either template) is replaced or removed, and a file they changed arrives as a pull request. The sync dialog names them. From then on, later changes to the template reach them like anyone else.
+Changing **Template repository** in the editor, and publishing again, changes only what students who accept **from now on** are created from. A repository that already exists keeps what it was created with; nothing is ever pushed into a student repository except by a sync. So: save the new template, then sync. The Template repository field already warns while you change it, saying how many students have a repository from the current one; after the save the editor repeats it with a **Sync Starter Code** button that opens the sync on the assignment page (it is also under **··· More** there). Those students get the new template's full starter code, file by file: a file that is still starter code (of either template) is replaced or removed, and a file they changed arrives as a pull request. The sync dialog names them. From then on, later changes to the template reach them like anyone else.
 
 #### Changed the Student permission after students accepted
 
-**Edit settings → Advanced → Student permission** is what a student is given when they accept. A new assignment starts at `maintain`; one without the setting is `admin`. Measured on GitHub, with a student's own account:
+**Settings → Advanced → Student permission** is what a student is given when they accept. A new assignment starts at `maintain`; one without the setting is `admin`. Measured on GitHub, with a student's own account:
 
 | A student can… | push / maintain | admin |
 |---|---|---|
@@ -1135,7 +1136,7 @@ Changing **Template repository** in the Admin Panel, and publishing again, chang
 
 Choose `admin` for an exercise that needs a runner or an environment.
 
-Changing it and saving applies to students who accept from then on. For students who already have a repository, the Admin Panel then says how many still have the old one, with **Apply … to N students**. A student who has not accepted their repository invitation yet gets the new permission on the invitation. **Nobody past their own deadline is changed, and no locked repository is** - counting a cohort the deadline sentinel has already stopped, before the nightly records the lock - even when an extension or a later deadline has moved the date since: a changed permission would unlock it (a student at `admin` can switch off a repository-level lock). Reopen those one by one (§6.15) instead; a repository you reopened follows the change, for every member of a team. A student whose access you removed is not re-invited: **Apply** asks GitHub whether each student is still a collaborator or still invited, and names anyone who is neither - including a student you removed in GitHub's own settings. Who is changed is worked out again when you click **Apply**, from the assignment as saved, so a notice left open across a deadline, or across a later save that moved the deadline earlier, changes nobody it no longer may, and says so.
+Changing it and saving applies to students who accept from then on. For students who already have a repository, the editor then says how many still have the old one, with **Apply … to N students**. A student who has not accepted their repository invitation yet gets the new permission on the invitation. **Nobody past their own deadline is changed, and no locked repository is** - counting a cohort the deadline sentinel has already stopped, before the nightly records the lock - even when an extension or a later deadline has moved the date since: a changed permission would unlock it (a student at `admin` can switch off a repository-level lock). Reopen those one by one (§6.15) instead; a repository you reopened follows the change, for every member of a team. A student whose access you removed is not re-invited: **Apply** asks GitHub whether each student is still a collaborator or still invited, and names anyone who is neither - including a student you removed in GitHub's own settings. Who is changed is worked out again when you click **Apply**, from the assignment as saved, so a notice left open across a deadline, or across a later save that moved the deadline earlier, changes nobody it no longer may, and says so.
 
 #### Syncing up to a commit that is not the newest
 
@@ -1149,11 +1150,11 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
 
 #### Option A: Web UI (Unified System Health Center)
 
-1. **Organization-Wide Health Check (Dashboard):**
-   - Click the pulse icon to the right of the organization selector on `DashboardView` - it is the one whose tooltip reads **System health check**.
+1. **Organization-Wide Health Check (Organization tab):**
+   - Open the **Organization** tab, unfold **System health** and click **Run the checks**. It is there whatever else on that page could or could not load, because it is the tool for exactly that.
    - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
-2. **Assignment Pre-Flight Troubleshooter (Admin Panel):**
-   - When creating or editing an assignment on `AdminView`, click the **Troubleshoot** button in the header (or click any warning banner).
+2. **Assignment Pre-Flight Troubleshooter (Settings tab):**
+   - On an assignment's **Settings** tab, click **Troubleshoot** in the bar at the bottom (or click any warning banner).
    - The troubleshooter executes a 5-tier inspection in dependency order:
      - **Tier 0:** Auth & Quota.
      - **Tier 1:** Org & GitHub App Foundation.

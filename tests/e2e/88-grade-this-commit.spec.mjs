@@ -110,12 +110,12 @@ async function setup(page, { workflow = withEntry } = {}) {
 }
 
 const dialog = (page) => page.getByRole('dialog', { name: `Actions for ${LOGIN}` });
-const picker = (page) => page.getByRole('dialog', { name: `Re-grade a commit for ${LOGIN}` });
+const picker = (page) => page.getByRole('dialog', { name: `Choose the commit that counts for ${LOGIN}` });
 const lastWrite = (writes, path) => [...writes].reverse().find((w) => w.path === path);
 
 async function openPicker(page) {
   await page.getByRole('button', { name: `Actions for ${LOGIN}` }).first().click();
-  await dialog(page).locator('[data-section="grading"]').getByRole('button', { name: 'Re-grade a commit…' }).click();
+  await dialog(page).locator('[data-section="grading"]').getByRole('button', { name: 'Choose the commit that counts…' }).click();
   await expect(picker(page).locator('.commit-row')).toHaveCount(3);
 }
 
@@ -126,7 +126,7 @@ test.describe('88 - grade this commit now', () => {
     const two = picker(page).locator('.commit-row').filter({ hasText: '#2' });
     await expect(two).toContainText('no result');
     await expect(two).toContainText('Tests written in the workflow are the current ones');
-    await two.getByRole('button', { name: 'Grade this commit now' }).click();
+    await two.getByRole('button', { name: 'Start a grading run on this commit' }).click();
     await expect.poll(() => dispatches.length).toBe(1);
     expect(dispatches).toEqual([{ ref: 'main', inputs: { grade_sha: sha(2) }, return_run_details: true }]);
     await expect(two).toContainText('grading…');
@@ -153,7 +153,7 @@ test.describe('88 - grade this commit now', () => {
     await openPicker(page);
     const two = picker(page).locator('.commit-row').filter({ hasText: '#2' });
     await expect(two).toContainText('no result');
-    await expect(two.getByRole('button', { name: 'Grade this commit now' })).toHaveCount(0);
+    await expect(two.getByRole('button', { name: 'Start a grading run on this commit' })).toHaveCount(0);
     // The TEMPLATE first, then the sync: syncing alone changes nothing when
     // the template's own workflow lacks the entry (third review, 2026-09-26).
     await expect(picker(page)).toContainText('Its template\'s grading workflow needs a workflow_dispatch input named grade_sha')

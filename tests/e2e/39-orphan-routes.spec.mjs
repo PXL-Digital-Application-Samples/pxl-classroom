@@ -18,7 +18,7 @@
 // only a number.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openSystemHealth } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
 const TITLE = 'Linux Processes 2026';
@@ -68,7 +68,8 @@ test.describe('39 - The usage panel points at its own detail view', () => {
       assignments: { [ID]: assignment() },
       reports: { dashboard },
     });
-    await page.goto(`/dashboard/${ORG}`);
+    // Usage & limits is on the Organization tab.
+    await page.goto(`/dashboard/${ORG}/organization`);
 
     const full = page.locator('.usage-panel').getByRole('link', { name: /Full report/i });
     await expect(full).toBeVisible({ timeout: 15000 });
@@ -86,7 +87,7 @@ test.describe('39 - The usage panel points at its own detail view', () => {
       assignments: { [ID]: assignment() },
       reports: { dashboard },
     });
-    await page.goto(`/dashboard/${ORG}`);
+    await page.goto(`/dashboard/${ORG}/organization`);
 
     const panel = page.locator('.usage-panel');
     await expect(panel).toBeVisible({ timeout: 15000 });
@@ -113,7 +114,7 @@ test.describe('39 - /setup is offered where somebody discovers they need it', ()
   }
 
   async function openTier1(page) {
-    await page.locator('button[aria-label="System health check"]').click();
+    await openSystemHealth(page);
     const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
     await expect(overlay.locator('.diag-banner')).toBeVisible({ timeout: 15000 });
     const tier1 = overlay.locator('.tier-card', { hasText: 'Course Organization & GitHub App' });
@@ -238,8 +239,12 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(page.locator('.students-table, table')).toBeVisible({ timeout: 15000 });
   }
 
-  const menu = async (page) => {
-    await page.locator('.export-dropdown-btn, button', { hasText: /More/i }).first().click();
+  // Refreshing them is a Grading-tab action; the column they land in is on
+  // Progress. One page, so what the refresh read is still there on the way back.
+  const refreshFeedbackPrs = async (page) => {
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
+    await page.getByRole('button', { name: /Refresh feedback PRs/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
   };
 
   test('It is a live read behind a control, not N requests on render', async ({ page }) => {
@@ -250,16 +255,14 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(page.locator('td.col-feedback-pr').first()).toContainText('#7');
     expect(sink, 'nothing fetched on render').toEqual([]);
 
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
     await expect.poll(() => sink.length, { timeout: 15000 }).toBe(1);
     expect(sink, 'only the student who HAS a PR is asked about').toEqual([7]);
   });
 
   test('State and review-comment count land in the column', async ({ page }) => {
     await open(page, { prs: { 7: { state: 'open', draft: false, review_comments: 4 } } });
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
 
     const cell = page.locator('td.col-feedback-pr').first();
     await expect(cell).toContainText('Open', { timeout: 15000 });
@@ -272,15 +275,13 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     // Every PR this system opens starts as a draft - reporting them all as
     // "Open" would make the column say the same thing for every student.
     await open(page, { prs: { 7: { state: 'open', draft: true, review_comments: 0 } } });
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
     await expect(page.locator('td.col-feedback-pr').first()).toContainText('Draft', { timeout: 15000 });
   });
 
   test('A merged PR is not reported as closed-and-abandoned', async ({ page }) => {
     await open(page, { prs: { 7: { state: 'closed', draft: false, merged_at: new Date().toISOString(), review_comments: 2 } } });
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
     const cell = page.locator('td.col-feedback-pr').first();
     await expect(cell).toContainText('Merged', { timeout: 15000 });
     await expect(cell).not.toContainText('Closed');
@@ -290,8 +291,7 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     // 404 means the PR is gone. Leaving a stale "Open" beside a dead link is
     // the report telling the lecturer to go and review nothing.
     await open(page, { prs: {} });
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
     await expect(page.locator('td.col-feedback-pr').first()).toContainText('Closed', { timeout: 15000 });
   });
 
@@ -305,16 +305,16 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(page.locator('.students-table, table')).toBeVisible({ timeout: 15000 });
 
-    await menu(page);
-    const item = page.getByRole('menuitem', { name: /Refresh feedback PR status/i });
-    await expect(item).toBeDisabled();
-    await expect(item).toContainText(/No feedback PRs have been opened yet/i);
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
+    const control = page.getByRole('button', { name: /Refresh feedback PRs/i });
+    await expect(control).toBeDisabled();
+    // The reason, on the control, rather than a button that silently does nothing.
+    await expect(control).toHaveAttribute('title', /No feedback PRs have been opened yet/i);
   });
 
   test('A student with no PR is left alone, not marked closed', async ({ page }) => {
     await open(page, { prs: { 7: { state: 'open', draft: false, review_comments: 1 } } });
-    await menu(page);
-    await page.getByRole('menuitem', { name: /Refresh feedback PR status/i }).click();
+    await refreshFeedbackPrs(page);
     await expect(page.locator('td.col-feedback-pr').first()).toContainText('Open', { timeout: 15000 });
 
     const rows = page.locator('td.col-feedback-pr');

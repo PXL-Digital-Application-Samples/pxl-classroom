@@ -1,17 +1,7 @@
 <template>
   <div class="usage-page">
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <router-link to="/" class="app-header-logo-link" aria-label="PXL Classroom home">
-          <img :src="logoUrl" alt="" class="header-logo" />
-        </router-link>
-        <h1 class="app-header-heading">Usage - {{ org }}</h1>
-      </template>
-      <template #actions>
-        <router-link :to="{ name: 'dashboard', params: { org } }" class="btn btn-secondary btn-sm">Back to dashboard</router-link>
-        <router-link to="/usage" class="btn btn-secondary btn-sm">All orgs</router-link>
-      </template>
-    </AppHeader>
+    <!-- The top bar is the organization's (OrgShell.vue); its Organization tab
+         is where this report is linked from. -->
 
     <main class="container">
       <AuthCard v-if="!user" title="Sign in to view usage" @authenticated="onAuthenticated">
@@ -122,10 +112,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
-import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
-import logoUrl from '../assets/logo.png'
 
 const SortIcon = (props) => h(Icon, {
   name: props.dir === 'asc' ? 'arrow-up' : props.dir === 'desc' ? 'arrow-down' : 'chevrons-up-down',
@@ -133,7 +121,7 @@ const SortIcon = (props) => h(Icon, {
   class: props.dir ? 'sort-glyph sort-glyph-active' : 'sort-glyph',
 })
 SortIcon.props = ['dir']
-import { isAuthenticated, getUser, getToken, clearAuth } from '../lib/auth.js'
+import { isAuthenticated, getUser, getToken } from '../lib/auth.js'
 import {
   createWorkflowRequestId,
   getRepoContent,
@@ -282,13 +270,6 @@ async function onAuthenticated(authedUser) {
   await loadReport()
 }
 
-
-function handleLogout() {
-  clearAuth()
-  user.value = null
-  report.value = null
-  stopRunPoll()
-}
 
 onMounted(async () => {
   if (isAuthenticated()) {

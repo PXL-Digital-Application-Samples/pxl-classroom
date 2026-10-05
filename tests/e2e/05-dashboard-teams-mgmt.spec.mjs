@@ -56,7 +56,7 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
 
     // Switch to Teams tab if present
     // Precise: the toolbar's "Seed teams" button also matches a loose /Teams/i.
-    const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
+    const teamsTab = page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ });
     if (await teamsTab.isVisible()) {
       await teamsTab.click();
     }
@@ -114,7 +114,7 @@ test.describe('05 - Lecturer Dashboard & Team Management', () => {
     await page.goto(`/dashboard/${ORG}/group-manage`);
 
     // Precise: the toolbar's "Seed teams" button also matches a loose /Teams/i.
-    const teamsTab = page.locator('.tab-pill', { hasText: /Teams View/i });
+    const teamsTab = page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ });
     if (await teamsTab.isVisible()) {
       await teamsTab.click();
     }

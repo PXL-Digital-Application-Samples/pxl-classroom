@@ -7,17 +7,25 @@ What each setting does, and what it changes for your students.
 - **Roster** - every student you teach. There is one roster per organisation, and everything else refers to it.
 - **Class group** - a label on a student, such as `3A`. Use it to filter the roster when you are picking students.
 - **Cohort** - the students one assignment is for, picked from the roster.
-- **Team** - students who share a repository on one assignment. Use **Seed teams from...** to reuse teams on a later assignment.
+- **Team** - students who share a repository on one assignment. Use **Copy teams from...** to reuse teams on a later assignment.
 
 A class group helps you find students on the roster. A team gives students a shared repository. They are not related.
 
 ## Who may accept
 
-Who is allowed to use the invitation link.
+Two questions, under **Students** on the assignment.
 
-- **Enforced.** Only students you imported, matched by GitHub username. Anyone else is refused. Use this when you have their usernames.
-- **Claim.** Only students you imported, matched by the institutional email address they confirm. Use this when you have addresses but not usernames.
-- **Open.** Anyone with the link, until the cap is reached. You match them to students afterwards. Needs a **Max acceptances** number; the form will not save without one.
+**Who may accept**
+
+- **Anyone with the link**, until the cap is reached. Needs a **Max acceptances** number; the form will not save without one.
+- **Only students on the roster.** Anyone else is refused.
+
+**When accepting, students**
+
+- **confirm their institutional email address.** They pick an address GitHub has verified on their account before they can accept. With *Anyone with the link* it records who they are and turns nobody away. With *Only students on the roster* it must match the roster's **Email** column. This is the default.
+- **just click Accept.** Nothing extra is asked. With *Anyone with the link* you only learn their GitHub username. With *Only students on the roster* their username must be in the roster's **GitHub Account** column, so fill that column in first.
+
+Use the roster with email when you have students' addresses but not their usernames, which is the usual case.
 
 Your roster belongs to the whole course, not to one assignment. Each assignment picks who it is for.
 
@@ -26,12 +34,12 @@ After an open assignment you can [add everyone who accepted](#adding-students-wh
 ### Good to know
 
 - The check runs on GitHub after the student clicks Accept, not in their browser. A student cannot get in by editing the page.
-- Under **Claim** the address is encrypted in the student's browser. Only PXL Classroom can read it.
-- Under **Claim**, an address that is not on your roster is refused.
+- Whenever students confirm an address, it is encrypted in their browser. Only PXL Classroom can read it.
+- With *Only students on the roster*, an address that is not on your roster is refused.
 
 ## Who is this assignment for
 
-Under **Enforced** and **Claim**, the form shows your roster and you tick the students this assignment is for.
+With *Only students on the roster*, the form shows your roster and you tick the students this assignment is for.
 
 - **Tick nobody and everyone on the roster can accept.** The form says so on screen. That is the right answer for work the whole course does.
 - **A whole class is one click.** Click the class chip to show it, then tick the box at the top of the list - it reads *Select all 20 in 3A*. You never tick students one at a time to take a class.
@@ -46,14 +54,14 @@ Under **Enforced** and **Claim**, the form shows your roster and you tick the st
 
 A class group is a label on a student, and it exists to make that list quick to filter.
 
-- Put one on each student: click the **Group** cell on the **Roster** tab and type it, a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
+- Put one on each student: click the **Group** cell on the **Roster** page and type it, a `class_group` column in the roster CSV, or the field on **Quick add**. A student is in one group at most.
 - The cell offers the groups your roster already uses, so you complete an existing one rather than typing `3a` beside `3A` and splitting a section in two. A new name is still typed freely.
-- For a whole cohort at once: **Roster** tab, **Export CSV**, fill the column in, and import it back.
+- For a whole cohort at once: **Roster** page, **Export CSV**, fill the column in, and import it back.
 - Nothing is decided by a group. It narrows the list you pick from, and the assignment remembers which groups you picked from so the overview can say **3A**.
 
 ### Good to know
 
-- Under **Open** the roster does not decide who may accept, so there is nothing to pick and the list is not shown.
+- With *Anyone with the link* the roster does not decide who may accept, so there is nothing to pick and the list is not shown.
 - Picking more students than **Max acceptances** allows means the ones past the cap are refused. The form warns you before you save.
 
 ## Confirming an email address
@@ -66,11 +74,11 @@ There are two ways to ask for it.
 
 ### At acceptance
 
-Tick **Ask students to confirm...** on the assignment. This is available under **Open** only.
+Under **When accepting, students**, choose **confirm their institutional email address**. It is the default for a new assignment.
 
 - The student confirms an address before they can accept.
-- It does not restrict who may accept. Anyone with the link still can.
-- Left unticked, you get their GitHub username and nothing else.
+- With *Anyone with the link*, it does not restrict who may accept: anyone with the link still can.
+- With **just click Accept** instead, you get their GitHub username and nothing else.
 
 ### With a link, at any time
 
@@ -83,23 +91,17 @@ Every published assignment has a **Confirm-email link** beside its invitation li
 
 ### If a student confirms the wrong address
 
-They cannot change it themselves. On the **Roster** tab, open that student's actions menu and choose **Forget this account**, then ask them to confirm again. That removes only the link on their row. Nothing on GitHub changes, and their repository and work are untouched.
+They cannot change it themselves. On the **Roster** page, open that student's actions menu and choose **Forget this account**, then ask them to confirm again. That removes only the link on their row. Nothing on GitHub changes, and their repository and work are untouched.
 
 ## Late work
 
-The deadline asks you two things, and they are two different questions.
+**After the deadline** has three answers.
 
-**After the deadline, work a student pushes…**
+- **Pushing stops.** Students can no longer push to the submission branch, and the submission is the last commit before the deadline. They keep their repository, Actions, secrets and runners. The lock sits above their repository, so they cannot lift it themselves. This is the default.
+- **Nothing is locked.** Late commits count, and are marked late in the report.
+- **The repository becomes read-only.** Pushing stops, and students also lose Actions, secrets, environments, runners and settings until you reopen the repository.
 
-- **still counts.** Late commits are collected and marked late in the report. Nothing is blocked. This is the default.
-- **does not count.** Students can no longer push after the deadline. The submission is the last commit dated before it. The block is placed above their repository, so a student cannot lift it themselves - they keep admin, Actions and secrets, and simply cannot push.
-
-**The student's repository…**
-
-- **stays as it is.** They keep admin, and with it Actions, secrets, environments and runners. This is the default.
-- **becomes read-only.** They lose admin, and with it Actions, secrets and runners, until you reopen the repository.
-
-Choosing *still counts* together with *becomes read-only* is not a mistake: the student loses the repository's tooling at the deadline, and anything they pushed before the nightly run landed still counts. If you mean the deadline to be final, answer *does not count* as well.
+An older assignment may show a fourth answer, **Read-only, but late work still counts**: students lose their tools at the deadline, and anything they pushed before the lock landed still counts. It is kept so opening that assignment changes nothing, and it is not offered for new ones.
 
 A student with an extension is judged against their own deadline.
 
@@ -107,7 +109,7 @@ A student with an extension is judged against their own deadline.
 
 - On time or late is decided by the time on the commit, not by when PXL Classroom looked at it.
 - That time comes from the student's own computer. Good enough for marking, not proof if a student disputes it.
-- The lock can land shortly after the deadline rather than on it. Work pushed in that gap does not count.
+- The lock lands at the deadline, or at the next nightly run if that is missed. Work pushed in between does not count.
 
 ## Deadlines and extensions
 
@@ -141,7 +143,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 - Set the maximum team size, and the minimum if you want the report to flag teams that are short.
 - **Self-service** lets students form their own teams. **Pre-assigned** means you seed the teams first, and you decide what happens to a student who is in none.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
-- Using the same teams again on a later assignment is a separate step, not automatic. **Seed teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
+- Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 
 ## Autograding
 
@@ -184,8 +186,8 @@ Optional. Tests that run against a student's work and give you a score per stude
 
 - **You do not have to ask for them.** Scores are read at the deadline and are in the table, and in **Export CSV**, by themselves.
 - Before the deadline, **Read scores from GitHub Actions** shows you where the cohort has got to so far.
-- **Re-grade this student** is on each student's row, under **⋯**. Use it when their run was re-run, or you fixed a check for them. Only their score changes.
-- **Re-grade all** reads the whole cohort again. It is slower, and it replaces every score, so reach for the row action when you are chasing one student.
+- **Read score again** is in each student's **⋯** dialog, under **Grading**. Use it when their run was re-run, or you fixed a check for them. Only their score changes.
+- **Read all scores again** reads the whole cohort again. It is slower, and it replaces every score, so reach for the row action when you are chasing one student.
 - Re-grading changes nothing in anybody's repository. The run has already happened; this only reads it.
 - A score you produced yourself - on your machine, or by pressing a button - is never replaced by the deadline run.
 - A student who pushes something after their hand-in commit still keeps that score.
@@ -210,7 +212,7 @@ Switched on, each student gets one of these on their own repository, kept as a d
 - It only adds. A student already on the roster is left exactly as they are.
 - It copies the GitHub username and nothing else. Names and student numbers are not guessed, because a guess would end up in a graded field.
 - Safe to run twice. The second time finds nothing to add.
-- Available on the **Roster** tab, and on the assignment itself.
+- Available on the **Roster** page, and on the assignment itself.
 
 ### Good to know
 

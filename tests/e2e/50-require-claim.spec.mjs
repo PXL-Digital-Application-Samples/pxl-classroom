@@ -6,9 +6,9 @@
 // which was a hope rather than a mechanism - nothing had been recorded to
 // reconcile against.
 //
-// `require_claim` is that mechanism, and it is OFF by default on purpose. Open
-// is the mode for a cohort nobody listed up front, most often an exam, and
-// making one identify itself by accident is the opposite of the point.
+// `require_claim` is that mechanism. The form ticks it for a new assignment
+// (2026-10-02); an assignment document without the field still asks nothing,
+// which is what every open assignment before then relies on.
 //
 // What it does NOT do is gate: anyone with the link still accepts. It records
 // who, so the reconciliation is possible.
@@ -24,7 +24,7 @@ import { test, expect } from '@playwright/test';
 const INSTITUTION_SHORT = parse(
   readFileSync(new URL('../../deployment.yml', import.meta.url), 'utf8'),
 ).institution_short;
-const ASK_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`;
+const ASK_LABEL = `confirm their ${INSTITUTION_SHORT} email address`;
 import {
   ORG,
   STUDENT_1,
@@ -70,7 +70,7 @@ async function student(page, assignment) {
 }
 
 const guardrails = (page) =>
-  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Students' }) });
 
 test.describe('50 - the student side', () => {
   test('open enrolment asks for nothing by default', async ({ page }) => {
@@ -96,32 +96,39 @@ test.describe('50 - the lecturer side', () => {
   async function newAssignment(page) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
   }
 
-  const askBox = (page) =>
-    guardrails(page).locator('label', { hasText: ASK_LABEL });
+  // An ANSWER since 2026-10-02 - "When accepting, students: confirm their ...
+  // email address / just click Accept" - where it was a checkbox.
+  const ask = (page) => guardrails(page).getByRole('radio', { name: ASK_LABEL });
+  const justClick = (page) => guardrails(page).getByRole('radio', { name: 'just click Accept' });
 
-  test('the option is offered on an open assignment, and starts off', async ({ page }) => {
-    // A new assignment defaults to open, so this is the state it opens in.
+  test('an open assignment asks for the address by default', async ({ page }) => {
+    // A new assignment defaults to open, so this is the state it opens in. On
+    // since 2026-10-02: a username alone is what nobody can reconcile later.
     await newAssignment(page);
 
-    await expect(askBox(page)).toBeVisible();
-    await expect(askBox(page).locator('input[type="checkbox"]')).not.toBeChecked();
-    await expect(guardrails(page)).toContainText('GitHub username and nothing else');
+    await expect(ask(page)).toBeChecked();
+    await expect(guardrails(page)).toContainText('it turns nobody away');
+
+    // The other answer is the anonymous assignment, and says what it costs.
+    await justClick(page).check();
+    await expect(guardrails(page)).toContainText('You will only know their GitHub username');
   });
 
-  test('ticking it says what it does and does not do', async ({ page }) => {
+  test('choosing it says what it does and does not do', async ({ page }) => {
     // Specifically that it is NOT a gate - the mode is still open, and a
     // lecturer must not read this as "only my students can accept now".
     await newAssignment(page);
-    await askBox(page).locator('input[type="checkbox"]').check();
+    await justClick(page).check();
+    await ask(page).check();
 
-    // The line beside the control, which is the one a lecturer reads without
+    // The line under the question, which is the one a lecturer reads without
     // asking for help.
-    await expect(guardrails(page)).toContainText('does not restrict who may accept');
+    await expect(guardrails(page)).toContainText('Anyone with the link can accept after confirming');
+    await expect(guardrails(page)).toContainText('it turns nobody away');
 
     // The detail moved into the drawer on 2026-09-04 - four lines under a
     // checkbox was three too many - so that is where the rest has to be, or it
@@ -130,20 +137,23 @@ test.describe('50 - the lecturer side', () => {
     const drawer = page.locator('.help-drawer');
     await expect(drawer).toContainText('confirms an address before they can accept');
     await expect(drawer).toContainText('does not restrict who may accept');
-    // The topic covers BOTH ways an address is collected now. This checkbox is
+    // The topic covers BOTH ways an address is collected now. This answer is
     // the acceptance-time one; the standalone link is the other, and a lecturer
     // opening this drawer should meet it rather than discover it by accident.
     await expect(drawer).toContainText('Confirm-email link');
   });
 
-  test('the option is absent when it would mean nothing', async ({ page }) => {
-    // Under `claim` an address is already required; under `enforced` none is
-    // collected at all. A control that changes nothing is DESIGN.md §1.5.
+  test('under the roster, the same question chooses what the roster is matched on', async ({ page }) => {
+    // It used to vanish under `enforced` and `claim`, because there the
+    // checkbox meant nothing. As a question it means something in all four
+    // corners: on the roster it is the difference between `claim` (match the
+    // confirmed address) and `enforced` (match the GitHub username).
     await newAssignment(page);
+    await guardrails(page).getByLabel('Only students on the roster').check();
 
-    for (const mode of ['enforced', 'claim']) {
-      await guardrails(page).locator('select').first().selectOption(mode);
-      await expect(askBox(page)).toHaveCount(0, { timeout: 5000 });
-    }
+    await ask(page).check();
+    await expect(guardrails(page)).toContainText("roster's Email column");
+    await justClick(page).check();
+    await expect(guardrails(page)).toContainText("roster's GitHub Account column");
   });
 });

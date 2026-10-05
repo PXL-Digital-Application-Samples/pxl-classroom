@@ -285,12 +285,25 @@ test("a long list is truncated with an ellipsis rather than printed whole", () =
   assert.match(v.findings[0].detail, /lab-3-s0, lab-3-s1, lab-3-s2, …/);
 });
 
-test("a pattern clash blocks and names the other assignment", () => {
+test("a pattern clash blocks and names the other assignment by its title and the names it makes", () => {
   const v = assignmentCollisions({
-    clashes: [{ id: "lab-3", pattern: "lab-3-{github_login}" }],
+    clashes: [{ id: "lab-3", pattern: "lab-3-{github_login}", title: "Lab 3: Processes" }],
   });
   assert.equal(v.clear, false);
-  assert.match(describeCollisions(v), /"lab-3" already uses this repository name pattern/);
+  assert.match(
+    describeCollisions(v),
+    /Lab 3: Processes makes repositories named lab-3-…, so these names could collide/,
+  );
+  assert.doesNotMatch(describeCollisions(v), /previous run|name pattern/, "no claim about a run, no internal word");
+});
+
+test("a clash with no title falls back to the quoted id, and the title travels from the list", () => {
+  const [c] = clashingAssignments("lab-3-{github_login}", [
+    { id: "lab-3", title: "  Lab Three ", repository_name_pattern: "lab-3-{team_slug}" },
+  ]);
+  assert.equal(c.title, "Lab Three");
+  const v = assignmentCollisions({ clashes: [{ id: "lab-3", pattern: "lab-3" }] });
+  assert.match(v.findings[0].detail, /^"lab-3" makes repositories named lab-3, so/);
 });
 
 test("a surviving archive blocks even when every student repository is gone", () => {

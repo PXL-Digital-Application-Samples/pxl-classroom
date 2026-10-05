@@ -10,7 +10,7 @@
 // under retired/<id>/. Nothing iterates that folder.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'retired-lab';
 
@@ -104,7 +104,7 @@ async function openClosedAssignment(
   );
 
   await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-  await expect(page.getByRole('button', { name: 'Delete assignment', exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 }
 
 const dialog = (page) => page.locator('[aria-label="Delete assignment"]');
@@ -112,7 +112,7 @@ const dialog = (page) => page.locator('[aria-label="Delete assignment"]');
 test.describe('59 - the dialog says what it costs before it can be used', () => {
   test('it leads with what is NOT deleted, and refuses until the id is typed', async ({ page }) => {
     await openClosedAssignment(page);
-    await page.getByRole('button', { name: 'Delete assignment', exact: true }).click();
+    await chooseState(page, 'Delete assignment');
 
     // The fear the word creates, answered first.
     await expect(dialog(page)).toContainText('Student repositories are untouched');
@@ -138,8 +138,9 @@ test.describe('59 - the dialog says what it costs before it can be used', () => 
       assignments: { [ID]: assignment({ state: 'published' }) },
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-    await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('button', { name: 'Delete assignment', exact: true })).toHaveCount(0);
+    await page.locator('[data-state-menu]').click();
+    await expect(page.locator('.state-menu .dropdown-item-title', { hasText: /^Archive$/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.state-menu')).not.toContainText('Delete');
   });
 });
 
@@ -152,7 +153,7 @@ test.describe('59 - what it writes and what it removes', () => {
   async function del(page, opts = {}) {
     const gitCommits = [];
     await openClosedAssignment(page, { gitCommits, ...opts });
-    await page.getByRole('button', { name: 'Delete assignment', exact: true }).click();
+    await chooseState(page, 'Delete assignment');
     await page.getByLabel(/Type .* to confirm/).fill(ID);
     await dialog(page).getByRole('button', { name: /Delete assignment/ }).click();
     return gitCommits;

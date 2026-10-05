@@ -247,6 +247,24 @@ test("drops a member who already belongs to another team in the target", () => {
   assert.deepEqual(warn.logins, ["bob"]);
 });
 
+test("on screen a message names the assignment by its title and says copy; the CLI keeps id and seed", () => {
+  const over = {
+    targetAssignment: target({ title: "Linux Networking" }),
+    existingTeams: [{ team_slug: "gamma", team_name: "Gamma", members: ["bob"] }],
+  };
+  const screen = plan({ ...over, forScreen: true }).warnings.find((w) => w.code === "member-already-teamed");
+  assert.match(screen.message, /in Linux Networking and were not copied:/);
+  const cli = plan(over).warnings.find((w) => w.code === "member-already-teamed");
+  assert.match(cli.message, /in linux-networking-2026 and were not re-seeded:/);
+
+  const clash = plan({
+    targetAssignment: target({ title: "Linux Networking", repository_name_pattern: "linux-processes-2026-{team_slug}" }),
+    forScreen: true,
+  }).errors.find((e) => e.code === "pattern-collision");
+  assert.match(clash.message, /^Linux Networking and Linux Processes share/);
+  assert.doesNotMatch(clash.message, /[Ss]eed/);
+});
+
 test("a login is never written into two team files of one assignment", () => {
   const p = plan({
     sourceTeams: [

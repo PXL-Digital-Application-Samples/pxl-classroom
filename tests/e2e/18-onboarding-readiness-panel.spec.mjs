@@ -36,7 +36,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     // 3. Verify action buttons
     const createFirstBtn = onboardingCard.getByRole('link', { name: /Create Your First Assignment/i });
     await expect(createFirstBtn).toBeVisible();
-    await expect(createFirstBtn).toHaveAttribute('href', `/dashboard/${ORG_FRESH}/admin?new=1`);
+    await expect(createFirstBtn).toHaveAttribute('href', `/dashboard/${ORG_FRESH}/new`);
 
     const healthBtn = onboardingCard.getByRole('button', { name: /Check System Health/i });
     await expect(healthBtn).toBeVisible();
@@ -47,7 +47,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     await expect(modal).toBeVisible();
   });
 
-  test('Scenario 2 (Org with Draft Assignment): Onboarding panel is hidden; shows draft notice', async ({ page }) => {
+  test('Scenario 2 (Org with Draft Assignment): Onboarding panel is hidden; the draft is in its own row', async ({ page }) => {
     const draftAssignment = {
       id: 'lab-draft-only',
       title: 'Draft Lab',
@@ -73,12 +73,13 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     const onboardingCard = page.locator('.onboarding-readiness-card');
     await expect(onboardingCard).not.toBeVisible();
 
-    // 2. Verify No dashboard data yet + draft notice
-    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
-
-    const adminLink = page.getByRole('link', { name: /Open Admin Panel/i });
-    await expect(adminLink).toBeVisible();
+    // 2. The draft is in the drafts row, and opens its settings - where a
+    //    draft's work is. Nothing published yet, and the page says so.
+    const draft = page.locator('.drafts-row .draft-chip', { hasText: 'Draft Lab' });
+    await expect(draft).toBeVisible();
+    await expect(draft).toHaveAttribute('href', `/dashboard/${ORG_ACTIVE}/lab-draft-only?tab=settings`);
+    await expect(page.getByText('Nothing published yet')).toBeVisible();
+    await expect(page.getByRole('link', { name: /^New assignment$/ })).toBeVisible();
   });
 
   test('Scenario 3 (Org with Published Assignment): Onboarding panel is hidden; shows assignment grid', async ({ page }) => {
@@ -253,10 +254,8 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
 
     await page.goto(`/dashboard/${ORG_ACTIVE}`);
 
-    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     // One draft out of three files. Counting files said three.
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
-    await expect(page.locator('text=You have 3 drafts in the Admin Panel')).not.toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
   });
 
   test('Scenario 7 (No dashboard.json, nothing in draft): says what is actually pending', async ({ page }) => {
@@ -272,7 +271,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
 
     await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     await expect(page.locator('text=Published assignments appear here once the first report is generated')).toBeVisible();
-    await expect(page.locator('text=in the Admin Panel - publish to track them here')).not.toBeVisible();
+    await expect(page.locator('.drafts-row')).toHaveCount(0);
   });
 
 });

@@ -105,7 +105,9 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
           organization: ORG,
           state: 'published',
           assignment_type: 'group',
-          group_config: { max_team_size: 3 },
+          // The minimum the report measures "under capacity" against; without
+          // one it marks no team under capacity (report.mjs).
+          group_config: { max_team_size: 3, min_team_size: 2 },
         },
       },
       reports: {
@@ -151,7 +153,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await page.goto(`/dashboard/${ORG}/group-filter-test`);
 
     // Switch to Teams View
-    await page.locator('.tab-pill', { hasText: /Teams View/i }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Teams$/ }).click();
 
     // Verify all 3 teams shown
     await expect(page.locator('tr', { hasText: 'team-alpha' })).toBeVisible();
@@ -264,7 +266,8 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     //    one a lecturer wants to freeze - would otherwise have no route to it.
     //    As a solid red button beside a plain archive LINK it also read as that
     //    link's sibling, and a lecturer could not tell which was irreversible.
-    await page.locator('button:has(span:text-is("More"))').click();
+    // On the state button now, the lifecycle's one place on every tab.
+    await page.locator('[data-state-menu]').click();
     const freezeBtn = page.locator('button', { hasText: 'Lock everyone out now' });
     await expect(freezeBtn).toBeVisible();
     await freezeBtn.click();
@@ -628,7 +631,7 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     // Choosing an item closes the menu, as every menu on this page does, so
     // each attempt goes in through Manage again.
     const openFreeze = async () => {
-      await page.locator('button:has(span:text-is("More"))').click();
+      await page.locator('[data-state-menu]').click();
       await page.locator('button', { hasText: 'Lock everyone out now' }).click();
     };
     const modal = page.locator('.modal-consequences');

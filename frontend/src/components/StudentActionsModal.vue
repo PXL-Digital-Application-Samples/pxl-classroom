@@ -13,6 +13,7 @@
         <button class="modal-close" type="button" @click="requestClose" :disabled="busy" aria-label="Close">×</button>
       </header>
 
+      <div class="modal-body flex flex-col gap-md">
       <section class="modal-section">
         <h4>Grant deadline extension</h4>
         <p v-if="extension" class="text-secondary">
@@ -207,7 +208,7 @@
             type="button"
             :disabled="busy"
             @click="emit('choose-commit')"
-          >Re-grade a commit…</button>
+          >Choose the commit that counts…</button>
         </div>
         <p v-if="student.repo_name && decision?.kind === 'score'" class="text-secondary text-sm">
           A score set by hand wins over any commit. Remove it below to grade a commit instead.
@@ -273,6 +274,7 @@
           <span>View Preserved Code in Archive</span>
         </a>
       </section>
+      </div>
     </div>
   </div>
 </template>

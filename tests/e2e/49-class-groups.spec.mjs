@@ -20,7 +20,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { parse as yamlParse } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 // Two sections and one student nobody grouped - who used to be refused by the
 // rule and is now just another row you can tick.
@@ -40,21 +40,20 @@ const UNGROUPED = ROSTER.map((s) => {
 });
 
 const guardrails = (page) =>
-  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Students' }) });
 
 const row = (page, name) => page.locator('.cohort-row', { hasText: name });
 
 async function newAssignment(page, { roster = ROSTER } = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button', { hasText: 'New assignment' }).first().click();
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
 }
 
 /** Put the roster back in charge of who may accept. */
 async function gateOnRoster(page) {
-  await guardrails(page).locator('select').first().selectOption('enforced');
+  await chooseRosterMode(page, 'enforced');
 }
 
 test.describe('49 - picking who an assignment is for', () => {
@@ -217,9 +216,6 @@ test.describe('49 - picking who an assignment is for', () => {
       },
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
-    // A published assignment leads with its cohort card and keeps the settings
-    // behind a disclosure - the picker is inside it.
-    await page.locator(".settings-disclosure > summary").click();
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
 
     // The two already in it are ticked and not yours to untick.
@@ -242,11 +238,10 @@ test.describe('49 - picking who an assignment is for', () => {
     await expect(guardrails(page)).not.toContainText('Every student on the roster may accept');
   });
 
-  test('Add students opens the picker from the cohort card', async ({ page }) => {
-    // THE CAPABILITY EXISTED AND NOTHING POINTED AT IT. A published assignment
-    // leads with its cohort card and keeps the settings shut, so adding a late
-    // enroller meant knowing to open "Edit settings" first - and MANUAL.md told
-    // lecturers to use an "Add students" action that did not exist.
+  test('Add students goes to the picker', async ({ page }) => {
+    // THE CAPABILITY EXISTED AND NOTHING POINTED AT IT. The picker is the
+    // sixth section down a long form, and MANUAL.md told lecturers to use an
+    // "Add students" action that did not exist.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -266,13 +261,10 @@ test.describe('49 - picking who an assignment is for', () => {
 
     const add = page.getByRole('button', { name: 'Add students' });
     await expect(add).toBeVisible({ timeout: 15000 });
-    // Reachable without opening anything first: the picker is shut behind the
-    // disclosure until this is pressed. Not COUNT - a closed <details> keeps its
-    // contents in the DOM and merely hides them, so the question is visibility.
-    await expect(page.locator('.cohort-list')).not.toBeVisible();
-
+    // Pressing it brings the picker into view, wherever on the form the
+    // lecturer was.
     await add.click();
-    await expect(page.locator('.cohort-list')).toBeVisible();
+    await expect(page.locator('.cohort-list')).toBeInViewport();
     await expect(guardrails(page)).toContainText('2 of 5 selected');
     // It lands where you type, because the reason to open it is to find someone.
     await expect(guardrails(page).getByPlaceholder('Search name, number or username')).toBeFocused();
@@ -301,7 +293,7 @@ test.describe('49 - picking who an assignment is for', () => {
     });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
     // Positive first, so a count of zero is an absence and not an unrendered page.
-    await expect(page.getByRole('link', { name: /Track roster/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: 'Add students' })).toHaveCount(0);
   });
 
@@ -333,8 +325,7 @@ test.describe('49 - picking who an assignment is for', () => {
     // file that silently un-groups their whole roster on the way back in.
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -365,8 +356,7 @@ test.describe('49 - setting a class group without a CSV', () => {
   async function rosterTab(page, contentWrites) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: ROSTER, contentWrites });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
     await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
   }
 
@@ -501,7 +491,6 @@ test.describe('49 - edges the happy path hides', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, roster, assignments: { 'lab-3': assignment } });
     await page.goto(`/dashboard/${ORG}/admin?edit=lab-3`);
-    if (assignment.state !== 'draft') await page.locator('.settings-disclosure > summary').click();
     await expect(guardrails(page)).toBeVisible({ timeout: 15000 });
   }
 
@@ -570,10 +559,10 @@ test.describe('49 - edges the happy path hides', () => {
     await editing(page, published({ state: 'draft', cohort: ['num:0001', 'num:0002'] }));
     await expect(guardrails(page)).toContainText('2 of 5 selected');
 
-    await guardrails(page).locator('select').first().selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(page.locator('.cohort-list')).toHaveCount(0);
 
-    await guardrails(page).locator('select').first().selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await expect(guardrails(page)).toContainText('2 of 5 selected');
   });
 
@@ -665,8 +654,7 @@ test.describe('49 - the picker at a real course size', () => {
   async function bigPicker(page) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: BIG });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button', { hasText: 'New assignment' }).first().click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await expect(guardrails(page)).toBeVisible({ timeout: 20000 });
     await gateOnRoster(page);
     await expect(page.locator('.cohort-row')).toHaveCount(200, { timeout: 20000 });

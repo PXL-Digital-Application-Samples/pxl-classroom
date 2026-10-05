@@ -51,8 +51,7 @@ async function rosterTab(page, { assignments = {} } = {}) {
     roster: ROSTER,
     claims: CLAIMS,
   });
-  await page.goto(`/dashboard/${ORG}/admin`);
-  await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+  await page.goto(`/dashboard/${ORG}/roster`);
   await expect(page.locator('.roster-table').first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -96,8 +95,7 @@ test.describe('52 - what the nightly could not decide', () => {
       roster: [ROSTER[0]],
       claims: [CLAIMS[0]],
     });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     await expect(page.locator('.roster-table').first()).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.claim-review')).toHaveCount(0);

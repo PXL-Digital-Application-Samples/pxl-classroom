@@ -72,22 +72,22 @@
             :placeholder="assignmentId"
           />
         </div>
-
-        <footer class="modal-foot flex justify-end gap-sm">
-          <button class="btn btn-secondary" type="button" @click="requestClose" :disabled="busy">
-            Cancel
-          </button>
-          <button
-            class="btn btn-danger btn-with-icon"
-            type="button"
-            :disabled="busy || !matches"
-            @click="emit('confirm')"
-          >
-            <Icon name="x-circle" :size="14" />
-            <span>{{ busy ? 'Deleting…' : 'Delete assignment' }}</span>
-          </button>
-        </footer>
       </div>
+
+      <footer class="modal-foot flex justify-end gap-sm">
+        <button class="btn btn-secondary" type="button" @click="requestClose" :disabled="busy">
+          Cancel
+        </button>
+        <button
+          class="btn btn-danger btn-with-icon"
+          type="button"
+          :disabled="busy || !matches"
+          @click="emit('confirm')"
+        >
+          <Icon name="x-circle" :size="14" />
+          <span>{{ busy ? 'Deleting…' : 'Delete assignment' }}</span>
+        </button>
+      </footer>
     </div>
   </div>
 </template>

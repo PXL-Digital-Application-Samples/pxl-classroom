@@ -85,7 +85,7 @@ async function openEditor(page, { assignment = liveAssignment(), accepted = [STU
     return route.fulfill({ status: 204, body: '' });
   });
   await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
-  await expect(page.getByText('Assignment is Published & Verified Live')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
   await expandSettings(page);
   await page.locator('details.advanced > summary').click();
   return { writes, grants };
@@ -226,8 +226,7 @@ test.describe('85 - changing Student permission after students accepted', () => 
   test('a new assignment starts at maintain', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await page.locator('details.advanced > summary').click();
     await expect(select(page)).toHaveValue('maintain');
   });

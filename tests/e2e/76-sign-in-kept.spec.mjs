@@ -90,9 +90,9 @@ test.describe('76 - Every tab follows the sign-in', () => {
 
   test('a tab with unsaved work is not reloaded, and is told what changed', async ({ context }) => {
     const first = await signedInTab(context);
-    const editor = await plainTab(context, `/dashboard/${ORG}/admin`);
-    await editor.locator('.new-btn').click({ timeout: 20000 });
+    const editor = await plainTab(context, `/dashboard/${ORG}/new`);
     const title = editor.getByPlaceholder('e.g. Linux Processes 2026');
+    await expect(title).toBeVisible({ timeout: 20000 });
     await title.fill('Half-typed assignment');
 
     await signOutButton(first).click();

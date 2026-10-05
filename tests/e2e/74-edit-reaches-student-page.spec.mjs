@@ -30,14 +30,14 @@ import {
   setupStandardMockRoutes,
   inviteToken,
   expandSettings,
-  openMoreActionsMenu,
+  chooseState,
 } from '../fixtures/e2e-fixtures.mjs';
 
 // Read, not spelled: the label names the institution from deployment.yml.
 const INSTITUTION_SHORT = parse(
   readFileSync(new URL('../../deployment.yml', import.meta.url), 'utf8'),
 ).institution_short;
-const ASK_LABEL = `Ask students to confirm their ${INSTITUTION_SHORT} email address`;
+const ASK_LABEL = `confirm their ${INSTITUTION_SHORT} email address`;
 
 const ID = 'net-advanced-labs';
 const REGENERATE = 'regenerate-dashboard.yml';
@@ -116,15 +116,13 @@ async function openLiveEditor(page, { assignment = liveAssignment(), broker = tr
   // The only answer that skips the publish is a broker positively found, so
   // wait for the panel to have looked. Clicking Save before this is the `null`
   // case, which publishes - a different test.
-  await expect(
-    page.getByText(broker ? 'Assignment is Published & Verified Live' : 'Publish Incomplete: Student Acceptance Broker Missing'),
-  ).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(`.editor-form[data-broker="${broker ? 'present' : 'missing'}"]`)).toBeVisible({ timeout: 15000 });
   await expandSettings(page);
   return { writes, dispatches };
 }
 
 const guardrails = (page) =>
-  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Guardrails' }) });
+  page.locator('fieldset', { has: page.locator('legend', { hasText: 'Students' }) });
 
 const named = (dispatches, workflow) => dispatches.filter((d) => d.workflow === workflow);
 
@@ -132,7 +130,7 @@ test.describe('74 - saving a live assignment', () => {
   test('the incident: ticking require_claim on a published assignment rebuilds the student page', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page);
 
-    await guardrails(page).locator('label', { hasText: ASK_LABEL }).locator('input[type="checkbox"]').check();
+    await guardrails(page).getByRole('radio', { name: ASK_LABEL }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
@@ -176,7 +174,7 @@ test.describe('74 - saving a live assignment', () => {
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page, { refuse: REGENERATE });
 
-    await guardrails(page).locator('label', { hasText: ASK_LABEL }).locator('input[type="checkbox"]').check();
+    await guardrails(page).getByRole('radio', { name: ASK_LABEL }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
@@ -194,7 +192,7 @@ test.describe('74 - saving a live assignment', () => {
     const { writes, dispatches } = await openLiveEditor(page);
 
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('button', { name: 'Stop accepting' }).click();
+    await chooseState(page, 'Stop accepting');
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
     expect(named(dispatches, REGENERATE)[0].writesBefore).toBeGreaterThan(0);
@@ -248,12 +246,17 @@ test.describe('74 - the cohort page', () => {
   test('re-opening acceptance rebuilds the page that says it is closed', async ({ page }) => {
     const { writes, dispatches } = await openCohort(page, liveAssignment({ state: 'closed' }), fullReport(3));
 
-    await openMoreActionsMenu(page);
+    // Reopening is the state button's, on any tab: it opens Settings, which
+    // republishes (one writer of `state`) after asking.
     page.once('dialog', (dialog) => dialog.accept());
-    await page.getByRole('menuitem', { name: /Re-open Acceptance/ }).click();
+    await chooseState(page, 'Reopen for acceptance');
 
-    await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
-    expect(named(dispatches, REGENERATE)[0].writesBefore).toBeGreaterThan(0);
-    expect(parse(writes.at(-1).content).state).toBe('published');
+    // A reopen is a publish: publish-assignment.yml sets the state, turns the
+    // broker back on and rebuilds the page - so it, not a second regeneration,
+    // is what reaches the student (`publishedSaveWorkflow`). The page's old
+    // toggle rewrote the field and left a nightly-closed broker dead.
+    await expect.poll(() => named(dispatches, 'publish-assignment.yml').length, { timeout: 15000 }).toBe(1);
+    expect(named(dispatches, REGENERATE), 'a publish regenerates; a second dispatch would race it').toHaveLength(0);
+    expect(writes.length, 'and what was on screen is saved first').toBeGreaterThan(0);
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, addCheck, CHECK_PYTHON } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, addCheck, CHECK_PYTHON, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => {
   test('Happy Path: Lecturer fills out assignment form, searches template, and previews pattern', async ({ page }) => {
@@ -9,14 +9,10 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
     const adminHeader = page.locator('.app-header-crumbs .app-header-heading');
     await expect(adminHeader).toBeVisible({ timeout: 10000 });
 
-    // Click "+ New assignment"
-    const newBtn = page.locator('.new-btn');
-    await expect(newBtn).toBeVisible();
-    await newBtn.click();
 
     // Fill Title and verify slug derivation
     const titleInput = page.getByPlaceholder('e.g. Linux Processes 2026');
@@ -25,7 +21,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
 
     // The slug is derived and SHOWN rather than asked for, so this reads the
     // line the lecturer sees. Same assertion as before: the title reached it.
-    await expect(page.locator('.derived-line')).toContainText('security-lab-assignment-1');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('security-lab-assignment-1');
 
     // Toggle to Group Assignment
     const groupRadio = page.locator('input[value="group"]');
@@ -43,9 +39,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    const newBtn = page.locator('.new-btn');
-    await newBtn.click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // With empty title, save buttons are disabled
     const saveDraftBtn = page.locator('button', { hasText: 'Save as draft' }).first();
@@ -78,9 +72,9 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     // over nothing. Changing the slug orphans assignments/<id>.yml, so on an
     // existing assignment it is a reading with no way in - which is what this
     // test is for, stated so that it can fail.
-    await expect(page.locator('.derived-line')).toContainText('existing-asgn');
+    await expect(page.locator('[data-derived="slug"]')).toContainText('existing-asgn');
     await expect(page.getByPlaceholder('linux-processes-2026')).toHaveCount(0);
-    await expect(page.locator('.derived-line').getByRole('button', { name: 'Edit' })).toHaveCount(0);
+    await expect(page.locator('[data-derived="slug"]').getByRole('button', { name: 'Edit' })).toHaveCount(0);
   });
 
   // ARCHITECTURE §5.4, on the rendered form rather than the source.
@@ -88,25 +82,23 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // `open` since 2026-08-24: signed invitations gate the broker, so the
     // roster is no longer what stands between a stranger and a repository -
     // and requiring a CSV import before anyone could accept bought nothing.
-    const rosterSelect = page.locator('select').filter({ hasText: 'only students on the roster' });
-    await expect(rosterSelect).toHaveValue('open');
+    await expect(page.getByLabel('Anyone with the link')).toBeChecked();
     // No roster status, because no gate to report on - it says what open
     // enrolment means instead.
     await expect(page.locator('.roster-status')).toHaveCount(0);
     // "Students need the link, and nothing else" came out on 2026-09-04: it
     // restated the dropdown a lecturer had just read. The warning below it is
     // the sentence that says something they did not already know.
-    await expect(page.locator('text=can claim a repo while the assignment is open')).toBeVisible();
+    await expect(page.locator('text=Anyone with the link can accept')).toBeVisible();
 
     // And the gate is one dropdown away, with its own answer to "can anyone
     // accept?" (ARCHITECTURE §10.4, covered in depth by 32-first-run-wall).
-    await rosterSelect.selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await expect(page.locator('.roster-status')).toContainText('nobody can accept');
 
     // One enum value is not a decision, so there is no control for it.
@@ -121,8 +113,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
     await openAutogradeModal(page);
     await addCheck(page, CHECK_PYTHON);
     await page.getByLabel('Check 1 Python script').fill('');
@@ -152,8 +143,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     const box = templateBox(page);
     await expect(box).toBeVisible();
@@ -174,8 +164,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await templateBox(page).fill(`https://github.com/${ORG}/linux-template/generate`);
     await expect(templateBox(page)).toHaveValue(`${ORG}/linux-template`);
@@ -187,8 +176,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('.new-btn').click();
+    await page.goto(`/dashboard/${ORG}/new`);
 
     await templateBox(page).fill('https://gitlab.com/x/y');
     await expect(templateBox(page)).toHaveValue('https://gitlab.com/x/y');

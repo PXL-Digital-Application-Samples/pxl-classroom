@@ -57,17 +57,17 @@
             </div>
           </div>
         </div>
-
-        <footer class="modal-foot flex justify-end gap-sm">
-          <button class="btn btn-secondary" type="button" @click="requestClose" :disabled="busy">
-            Cancel
-          </button>
-          <button class="btn btn-danger btn-with-icon" type="button" :disabled="busy" @click="emit('confirm')">
-            <Icon name="lock" :size="14" />
-            <span>{{ busy ? 'Executing Lockdown…' : 'Confirm Freeze &amp; Lockdown' }}</span>
-          </button>
-        </footer>
       </div>
+
+      <footer class="modal-foot flex justify-end gap-sm">
+        <button class="btn btn-secondary" type="button" @click="requestClose" :disabled="busy">
+          Cancel
+        </button>
+        <button class="btn btn-danger btn-with-icon" type="button" :disabled="busy" @click="emit('confirm')">
+          <Icon name="lock" :size="14" />
+          <span>{{ busy ? 'Executing Lockdown…' : 'Confirm Freeze &amp; Lockdown' }}</span>
+        </button>
+      </footer>
     </div>
   </div>
 </template>

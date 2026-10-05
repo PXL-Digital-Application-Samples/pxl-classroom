@@ -286,6 +286,22 @@ export function isAuthenticated() {
 export function clearAuth() {
   forgetAuthInMemory()
   clearStoredAuth(browserStores())
+  notifyAuthChange()
+}
+
+// Who is signed in changed, in THIS tab: a page's own sign-in card completed,
+// or something signed out. The org pages share one top bar (OrgShell.vue) that
+// is not the page that signed in, so it is told rather than left showing the
+// last state. Other tabs follow through storage (api.js followSignInAcrossTabs).
+const authListeners = new Set()
+export function onAuthChange(fn) {
+  authListeners.add(fn)
+  return () => authListeners.delete(fn)
+}
+function notifyAuthChange() {
+  for (const fn of authListeners) {
+    try { fn() } catch { /* one listener must not stop the others */ }
+  }
 }
 
 /**
@@ -371,6 +387,7 @@ export async function pollDeviceFlow(clientId, deviceCode, interval = 5, signal 
         user,
         expires_at: expiresAt.toISOString(),
       })
+      notifyAuthChange()
 
       return { user, token: data.access_token, expiresAt }
     }

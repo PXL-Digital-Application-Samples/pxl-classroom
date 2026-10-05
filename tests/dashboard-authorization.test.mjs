@@ -54,7 +54,7 @@ test("an unreadable control repo is not treated as an absent one", () => {
   // RUN by tests/control-repo-access.test.mjs. This guards the wiring.
   const at = code.indexOf("repoRes.status === 404");
   assert.ok(at > 0, "the 404 branch must still exist - update this guard with it");
-  const end = code.indexOf("orgStatusMap.value.set", at);
+  const end = code.indexOf("setOrgStatus(org,", at);
   assert.ok(end > at, "the 404 branch must still end by recording the org's status");
   const branch = code.slice(at, end);
 
@@ -110,21 +110,24 @@ test("hub write alone is not staff on an org that is set up", () => {
   assert.ok(!/runSetupOrg/.test(unknownBlock), "unknown is not an invitation to set up");
 });
 
-test("the Lecturer badge is not asserted for an account with no access", () => {
-  // It was unconditional. A label naming a role the system had never checked is
-  // the same class as "GitHub has no repository for you and no invitation
-  // waiting" - a confident statement about something nothing computed.
-  assert.match(
-    code,
-    /v-if="staffHere"[^>]*class="lecturer-tag/,
-    "the Lecturer tag must be gated on the account being able to read this org",
-  );
+test("the org's staff tabs are not shown to an account with no access", () => {
+  // A Lecturer tag was unconditional once: a label naming a role the system had
+  // never checked. The tag is gone; what it stood for is the org's tabs in the
+  // shared top bar (OrgShell.vue), shown only for an org this session has SEEN
+  // the account read (lib/org-session.js `knownStaff`). This page's verdict
+  // feeds that, and must withhold it for every refused state.
   const set = code.match(/const CANNOT_READ_ORG = new Set\(\[([^\]]*)\]\)/);
   assert.ok(set, "the states that withhold it must be one named set");
   for (const state of ["no-access", "no-org-access", "registry-unknown"]) {
-    assert.ok(set[1].includes(`'${state}'`), `${state} must withhold the Lecturer tag`);
+    assert.ok(set[1].includes(`'${state}'`), `${state} must withhold the staff tabs`);
   }
   assert.match(code, /const staffHere = computed\(\(\) => !CANNOT_READ_ORG\.has\(dashState\.value\)\)/);
+  const verdict = code.slice(code.indexOf("const staffVerdict"), code.indexOf("watch(staffVerdict"));
+  assert.match(verdict, /staffHere\.value/, "the verdict the tabs read is gated on staffHere");
+  assert.match(verdict, /loadedOrg\.value !== selectedOrg\.value/, "and only from a load that finished for this org");
+  const shell = readFileSync(join(root, "frontend", "src", "views", "OrgShell.vue"), "utf8");
+  assert.match(shell, /<OrgSwitch v-if="showTabs"/, "the bar shows the tabs only on that verdict");
+  assert.match(shell, /knownStaff\(org\.value\)/);
 });
 
 test("nothing staff-facing renders in the refused state", () => {
@@ -136,9 +139,10 @@ test("nothing staff-facing renders in the refused state", () => {
     /dashState === 'no-access'/,
     "there must be a dedicated refused state, not a silently empty dashboard",
   );
-  const usage = code.match(/<UsagePanel v-if="[^"]+"/);
-  assert.ok(usage, "the usage panel must still be conditional");
-  assert.match(usage[0], /&& staffHere/, "and hidden from an account that cannot read the org");
+  // The usage panel moved to the Organization tab (OrganizationView.vue),
+  // which refuses on its own read of the control repository; the dashboard
+  // no longer reads billing at all.
+  assert.doesNotMatch(code, /<UsagePanel\b/, "the dashboard reads no billing");
 
   // The refused states must come FIRST in the chain, or the onboarding branch
   // above them wins and Setup Organization is offered again.
@@ -168,8 +172,13 @@ test("the refusal explains why the org is even listed", () => {
 test("the status lamp for a refused org is a declared class", () => {
   // `lamp-${status}` composes a class name from data, and an undeclared class
   // renders unstyled with no build error and no console warning (DESIGN.md §7).
-  assert.match(SRC, /\.lamp-no-access\s*\{/, "lamp-no-access must be declared");
-  for (const fn of ["getOrgStatusTitle", "getOrgStatusLabel"]) {
+  // The lamps and their words moved with the org picker into the shared top bar
+  // (OrgPicker.vue, lib/org-session.js), 2026-10-03.
+  const picker = readFileSync(join(root, "frontend", "src", "components", "OrgPicker.vue"), "utf8");
+  assert.match(picker, /\.lamp-no-access\s*\{/, "lamp-no-access must be declared");
+  const session = readFileSync(join(root, "frontend", "src", "lib", "org-session.js"), "utf8");
+  for (const fn of ["orgStatusTitle", "orgStatusLabel"]) {
+    const code = session;
     const at = code.indexOf(`function ${fn}`);
     assert.ok(at > 0, `${fn} must exist`);
     assert.match(

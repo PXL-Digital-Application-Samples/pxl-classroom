@@ -62,20 +62,16 @@ test("Design System: Status dot indicators are used for status rendering across 
   }
 });
 
-test("Design System: Navigation tabs in AdminView use Primer underline tab classes", async () => {
-  const adminViewPath = join(FRONTEND_SRC, "views", "AdminView.vue");
-  const content = await readFile(adminViewPath, "utf8");
+// The Assignments / Roster tabs were AdminView's until the roster became an
+// org-level page; the switch between an org's two views is OrgSwitch now.
+test("Design System: an org's Assignments / Roster switch uses Primer underline tab classes", async () => {
+  const orgSwitch = await readFile(join(FRONTEND_SRC, "components", "OrgSwitch.vue"), "utf8");
+  assert.ok(orgSwitch.includes("app-header-switch"), "OrgSwitch.vue must use the header switch container");
+  assert.ok(orgSwitch.includes("primer-tab"), "OrgSwitch.vue must use .primer-tab items");
 
+  const adminView = await readFile(join(FRONTEND_SRC, "views", "AdminView.vue"), "utf8");
   assert.ok(
-    content.includes("primer-tabs"),
-    "AdminView.vue must contain container class .primer-tabs",
-  );
-  assert.ok(
-    content.includes("primer-tab"),
-    "AdminView.vue must use .primer-tab button items",
-  );
-  assert.ok(
-    !content.includes("class=\"admin-tabs\""),
+    !adminView.includes("class=\"admin-tabs\""),
     "AdminView.vue should not use legacy .admin-tabs container",
   );
 });
@@ -110,7 +106,12 @@ test("Design System: Global style.css exports all GitHub Primer surface and bord
 
 test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped More menu", async () => {
   const detailViewPath = join(FRONTEND_SRC, "views", "AssignmentDetailView.vue");
-  const content = await readFile(detailViewPath, "utf8");
+  const detail = await readFile(detailViewPath, "utf8");
+  // The header - state, deadline, Invite link, tabs - is one component shared
+  // by every tab of an assignment (BETA-UX.md, 2026-10-02), so the share block
+  // is asserted where it is written, and the view must render that header.
+  assert.match(detail, /<AssignmentHeader\b/, "the detail view renders the assignment's header");
+  const content = await readFile(join(FRONTEND_SRC, "components", "AssignmentHeader.vue"), "utf8");
 
   // The single primary CTA is still the invitation link, and it is still
   // InvitationShare.vue that presents it - but it is now the popover's TRIGGER
@@ -139,19 +140,19 @@ test("UI E2E Contract: AssignmentDetailView exports 1-Primary CTA and grouped Mo
   );
   assert.match(
     content,
-    /class="btn btn-primary[^"]*"[^>]*@click\.stop="toggleInviteMenu"/s,
-    "and the trigger is this view's one primary CTA",
+    /:class="\['btn', primaryInvite \? 'btn-primary' : 'btn-secondary'[^"]*"[^>]*@click\.stop="toggleInviteMenu"/s,
+    "and the trigger is the view's one primary CTA - except under the editor, whose Save is",
   );
   assert.ok(
     content.includes("inviteMenuOpen"),
-    "Detail view must manage inviteMenuOpen popover state",
+    "The header must manage inviteMenuOpen popover state",
   );
   assert.ok(
-    content.includes("moreActionsOpen"),
+    detail.includes("moreActionsOpen"),
     "Detail view must manage moreActionsOpen dropdown state",
   );
   assert.ok(
-    content.includes("exportDropdownOpen"),
+    detail.includes("exportDropdownOpen"),
     "Detail view must manage exportDropdownOpen dropdown state",
   );
 });

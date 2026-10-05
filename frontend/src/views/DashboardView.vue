@@ -1,117 +1,9 @@
 <template>
   <div class="dashboard-page">
-    <AppHeader :user="user" @logout="handleLogout">
-      <template #left>
-        <router-link to="/" class="app-header-logo-link" aria-label="PXL Classroom home">
-          <img :src="logoUrl" alt="" class="header-logo" />
-        </router-link>
-        <div class="header-titles flex items-center gap-sm">
-            <router-link to="/" class="app-header-title">PXL Classroom</router-link>
-            <span class="app-header-sep">/</span>
-
-            <!-- Custom Organization Selector with Styled Status Lights -->
-            <div class="org-dropdown-container" ref="orgDropdownRef">
-              <button
-                type="button"
-                class="org-dropdown-btn"
-                @click.stop="toggleOrgDropdown"
-                :aria-expanded="orgDropdownOpen"
-                aria-haspopup="listbox"
-                aria-label="Select organization"
-                :title="selectedOrg || 'Select organization…'"
-              >
-                <span class="flex items-center gap-sm">
-                  <span
-                    class="status-lamp"
-                    :class="`lamp-${getOrgStatus(selectedOrg)}`"
-                    :title="getOrgStatusTitle(selectedOrg)"
-                  ></span>
-                  <span class="org-label" :title="selectedOrg">{{ selectedOrg || 'Select organization…' }}</span>
-                </span>
-                <Icon :name="orgDropdownOpen ? 'chevron-up' : 'chevron-down'" :size="12" class="dropdown-chevron" />
-              </button>
-
-              <div
-                v-if="orgDropdownOpen"
-                class="org-dropdown-menu"
-                role="listbox"
-                aria-label="Organizations"
-                tabindex="-1"
-              >
-                <!-- `orgOption`, not `org`: this component has a String prop
-                     called `org`, and a loop variable of the same name holding
-                     an OBJECT shadowed it. Correct only for as long as every
-                     `.login` stays inside the loop - move one line out and it
-                     renders empty, with no error. -->
-                <div
-                  v-for="orgOption in orgsInSwitcher"
-                  :key="orgOption.login"
-                  class="org-dropdown-item org-choice-item"
-                  :class="{ 'is-selected': orgOption.login === selectedOrg }"
-                  role="option"
-                  :aria-selected="orgOption.login === selectedOrg"
-                  :title="orgOption.login"
-                  @click="selectOrg(orgOption.login)"
-                  @keydown.enter.prevent="selectOrg(orgOption.login)"
-                  @keydown.space.prevent="selectOrg(orgOption.login)"
-                  tabindex="0"
-                >
-                  <span
-                    class="status-lamp"
-                    :class="`lamp-${getOrgStatus(orgOption.login)}`"
-                    :title="getOrgStatusTitle(orgOption.login)"
-                  ></span>
-                  <span class="org-item-text">{{ orgOption.login }}</span>
-                  <Icon v-if="orgOption.login === selectedOrg" name="check" :size="13" class="check-icon" />
-                </div>
-
-                <div class="org-dropdown-divider" role="separator"></div>
-                <!-- The cross-organization usage page used to sit here. It was
-                     removed with its route and its view (2026-09-02): the
-                     dashboard already embeds `UsagePanel` for the selected org,
-                     and two controls a line apart both called "usage & limits"
-                     read as the same thing. Deleting the link ALONE would have
-                     stranded the route, which is why the view went with it. -->
-
-                <a
-                  :href="appInstallUrl"
-                  target="_blank"
-                  rel="noopener"
-                  class="org-dropdown-item org-connect-item"
-                  role="option"
-                  aria-selected="false"
-                  @click="onConnectClicked"
-                >
-                  <Icon name="plus" :size="13" />
-                  <span class="org-item-text">Connect an organization</span>
-                  <Icon name="external-link" :size="12" class="check-icon" />
-                </a>
-              </div>
-            </div>
-
-            <!-- Only where the account has actually demonstrated it. This was
-                 unconditional, so a student who had accepted one assignment
-                 was badged Lecturer on a dashboard they have no access to -
-                 the label asserting a role the system had never checked.
-                 Hub write alone does not earn it either: that is a role on
-                 the hub, and this tag is about the selected organization. -->
-            <span v-if="staffHere" class="lecturer-tag text-muted text-xs">Lecturer</span>
-        </div>
-      </template>
-      <template #actions>
-        <button
-          v-if="selectedOrg"
-          type="button"
-          class="btn btn-ghost btn-icon health-btn"
-          @click="showHealthModal = true"
-          title="System health check"
-          aria-label="System health check"
-        >
-          <Icon name="activity" :size="16" />
-          <span v-if="hubStuckRun" class="alert-dot" title="Pipeline warning detected"></span>
-        </button>
-      </template>
-    </AppHeader>
+    <!-- The top bar - the organization picker and the org's tabs - is the
+         organization's (OrgShell.vue), drawn once for all its pages. It was
+         this page's own, which is why the picker existed here only. System
+         health and Usage & limits are on the Organization tab. -->
 
     <main class="container">
       <!-- Stuck Hub Pipeline Alert Banner (Visible to Hub Staff) -->
@@ -148,6 +40,12 @@
           <button class="btn btn-sm btn-ghost" type="button" @click="connectPending = false">Dismiss</button>
         </div>
       </div>
+
+      <!-- "New look", once. Staff only, and only once the page has established
+           it: a student whose installation reaches this org must never be told
+           about a lecturer's screens. Above every state of the page, so a
+           lecturer in a course with no assignments yet is told too. -->
+      <WhatsNewCard v-if="user && staffVerdict === true" />
 
       <!-- Not authenticated -->
       <AuthCard v-if="!user" title="Sign in to access the dashboard" @authenticated="onAuthenticated">
@@ -208,7 +106,7 @@
       </div>
 
       <!-- No assignments - say WHY, each cause has a different remedy -->
-      <div v-else-if="assignments.length === 0" class="center-card fade-in">
+      <div v-else-if="assignments.length === 0 && drafts.length === 0" class="center-card fade-in">
         <!-- NOT STAFF HERE, and it must say so rather than describe a
              half-configured organization.
              The org reaches the switcher for anyone whose App installation
@@ -409,13 +307,13 @@
                 <div class="step-icon"><Icon name="plus-circle" :size="16" class="text-blue" /></div>
                 <div class="step-body">
                   <strong>3. Create &amp; Publish Assignment</strong>
-                  <p>Open the Admin Panel, select your template, and generate the student invitation link.</p>
+                  <p>Create an assignment, select your template, and publish it to get the student invitation link.</p>
                 </div>
               </div>
             </div>
 
             <div class="onboarding-actions">
-              <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
+              <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
                 <Icon name="plus" :size="14" />
                 <span>Create Your First Assignment</span>
               </router-link>
@@ -431,14 +329,11 @@
           <p class="text-secondary">
             The control repo exists, but <code>reports/dashboard.json</code> hasn't been generated yet.
             It appears when an assignment is published (and refreshes nightly).
-            <span v-if="draftCount > 0" style="display: block; margin-top: var(--space-xs);">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel - publish to track them here.
-            </span>
-            <span v-else style="display: block; margin-top: var(--space-xs);">
+            <span style="display: block; margin-top: var(--space-xs);">
               Published assignments appear here once the first report is generated.
             </span>
           </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+          <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary">New assignment</router-link>
         </template>
         <!-- The state the page cannot explain.
              "Assignments in this organization are closed or archived" was
@@ -452,16 +347,11 @@
         <template v-else>
           <h2>Nothing to show for {{ selectedOrg }}</h2>
           <p class="text-secondary">
-            <span v-if="draftCount > 0">
-              You have {{ draftCount }} draft{{ draftCount > 1 ? 's' : '' }} in the Admin Panel.
-            </span>
-            <span v-else>
-              No assignments came back for this organization. If you know there are some,
-              this is a failed load rather than an empty course - reload, and tell whoever
-              maintains this deployment if it keeps happening.
-            </span>
+            No assignments came back for this organization. If you know there are some,
+            this is a failed load rather than an empty course - reload, and tell whoever
+            maintains this deployment if it keeps happening.
           </p>
-          <router-link :to="{ name: 'admin', params: { org: selectedOrg } }" class="btn btn-primary">Open Admin Panel</router-link>
+          <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary">New assignment</router-link>
         </template>
       </div>
 
@@ -480,17 +370,43 @@
             </label>
           </div>
           <div class="flex items-center gap-sm">
-            <router-link :to="{ name: 'admin', params: { org: selectedOrg }, query: { new: '1' } }" class="btn btn-primary btn-with-icon">
+            <router-link :to="{ name: 'assignment-new', params: { org: selectedOrg } }" class="btn btn-primary btn-with-icon">
               <Icon name="plus" :size="14" />
               <span>New assignment</span>
             </router-link>
           </div>
         </div>
-        
-        <div v-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
+
+        <!-- Drafts first and apart: nothing to track yet, so a name and a
+             deadline, and a click opens the settings, where a draft's work is. -->
+        <section v-if="drafts.length" class="drafts-row" aria-label="Drafts">
+          <h3 class="assignment-group-title">Drafts</h3>
+          <div class="drafts-row-list">
+            <router-link
+              v-for="d in drafts"
+              :key="d.id"
+              :to="{ name: 'assignment-detail', params: { org: selectedOrg, assignmentId: d.id }, query: { tab: 'settings' } }"
+              class="draft-chip card"
+            >
+              <span class="status-dot dot-neutral"></span>
+              <span class="draft-chip-title">{{ d.title || d.id }}</span>
+              <span v-if="d.deadline_at" class="text-muted text-xs">due {{ formatDate(d.deadline_at, d.timezone) }}</span>
+            </router-link>
+          </div>
+        </section>
+
+        <div v-if="visibleAssignments.length === 0 && drafts.length" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
+          Nothing published yet. Publish a draft to hand out its invitation link.
+        </div>
+        <div v-else-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
           No active assignments right now.
         </div>
         <div v-else class="assignment-grid">
+          <!-- Titled only when there are drafts above, to tell the two apart:
+               everything from here down has been published (BETA-UX,
+               decided 2026-10-04). With no drafts there is nothing to tell
+               apart, and no titles at all. Inside the grid, across it. -->
+          <h3 v-if="drafts.length" class="assignment-group-title assignment-grid-title">Published</h3>
           <router-link
             v-for="a in visibleAssignments"
             :key="a.id"
@@ -565,9 +481,6 @@
         </div>
       </div>
 
-      <!-- Embedded Resource Usage & Limits Section -->
-      <UsagePanel v-if="user && selectedOrg && !loadingData && !dashError && !orgsLoadError && dashState !== 'no-control-repo' && staffHere" :org="selectedOrg" />
-
       <!-- Unified Health Diagnostics Modal -->
       <SystemHealthModal
         :is-open="showHealthModal"
@@ -581,24 +494,25 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import AppHeader from '../components/AppHeader.vue'
 import AuthCard from '../components/AuthCard.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
-import UsagePanel from '../components/UsagePanel.vue'
 import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
-import logoUrl from '../assets/logo.png'
+import WhatsNewCard from '../components/WhatsNewCard.vue'
 import { config } from '../lib/config.js'
 import { assignmentStateLabel } from '../lib/status-labels.js'
-import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
+import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
+import { getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
+import {
+  orgs, orgsLoaded, orgsLoadError, connectPending, setOrgStatus, isInstalled, markStaff,
+  orgStatusTitle, orgStatusLabel, orgStatusDot, loadOrgs as loadSharedOrgs, rememberOrg, rememberedOrg,
+} from '../lib/org-session.js'
 import { toast } from '../lib/toast.js'
 import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { gradingSummaryPath } from '../../../lib/control-layout.mjs'
 import { countGraded } from '../../../lib/grading-summary.mjs'
 import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
-import { lampRank, orderOrgsForSwitcher } from '../lib/org-order.js'
 import { formatDate, formatRelative, isPast } from '../lib/format.js'
 
 const props = defineProps({
@@ -609,117 +523,18 @@ const router = useRouter()
 const route = useRoute()
 
 const user = ref(getUser())
-const orgs = ref([])
 const selectedOrg = ref(props.org || '')
 const assignments = ref([])
 const loadingData = ref(false)
 const showHealthModal = ref(false)
 
-// Custom Dropdown State & Status Lights
-const orgDropdownOpen = ref(false)
-const orgDropdownRef = ref(null)
-const orgStatusMap = ref(new Map())
-
-// Green, then amber, then unlit, A-Z within each (lib/org-order.js).
-//
-// FROZEN WHILE THE MENU IS OPEN. The lamps arrive one fetch per org after the
-// page loads, and the selected org's is rewritten by the dashboard load - so a
-// live sort moves rows under the pointer of someone who opened the menu early,
-// and the click lands on a different organization. The ranks are captured when
-// the menu opens; an org that appears while it is open sorts by its live lamp.
-let menuRanks = null
-const liveRank = (login) => lampRank(getOrgStatus(login))
-const orgsInSwitcher = computed(() => {
-  const open = orgDropdownOpen.value
-  return orderOrgsForSwitcher(orgs.value, (login) => {
-    const key = login.toLowerCase()
-    return open && menuRanks?.has(key) ? menuRanks.get(key) : liveRank(login)
-  })
-})
-
-function toggleOrgDropdown() {
-  if (!orgDropdownOpen.value) {
-    menuRanks = new Map(orgs.value.map((o) => [o.login.toLowerCase(), liveRank(o.login)]))
-  }
-  orgDropdownOpen.value = !orgDropdownOpen.value
-}
-
-function selectOrg(orgLogin) {
-  selectedOrg.value = orgLogin
-  orgDropdownOpen.value = false
-}
-
-function getOrgStatus(orgLogin) {
-  if (!orgLogin) return 'unknown'
-  return orgStatusMap.value.get(orgLogin.toLowerCase()) || 'unknown'
-}
-
-function getOrgStatusTitle(orgLogin) {
-  const status = getOrgStatus(orgLogin)
-  if (status === 'active') return 'Active: at least one open assignment available'
-  if (status === 'inactive') return 'Inactive: assignments exist, but none currently open'
-  if (status === 'empty') return 'Empty: no assignments in this organization'
-  // "no assignments here" and "you cannot see this organization's course data"
-  // are different facts, and the second must not render as the first.
-  if (status === 'no-access') return 'No access: this account is not staff on this organization'
-  return 'Loading organization status…'
-}
-
-function getOrgStatusLabel(orgLogin) {
-  const status = getOrgStatus(orgLogin)
-  if (status === 'active') return 'Open Assignments Active'
-  if (status === 'inactive') return 'All Assignments Closed'
-  if (status === 'empty') return 'No Assignments'
-  if (status === 'no-access') return 'No Access'
-  return 'Loading Status…'
-}
-
-function getOrgStatusDot(orgLogin) {
-  const status = getOrgStatus(orgLogin)
-  if (status === 'active') return 'success'
-  if (status === 'inactive') return 'warning'
-  return 'neutral'
-}
-
-function onOutsideClick(e) {
-  if (orgDropdownRef.value && !orgDropdownRef.value.contains(e.target)) {
-    orgDropdownOpen.value = false
-  }
-}
-
-async function loadOrgStatuses(orgList) {
-  const now = new Date()
-  await Promise.all(
-    orgList.map(async (org) => {
-      const login = org.login.toLowerCase()
-      try {
-        // Zero API cost: read pre-built static Pages assignments JSON
-        const res = await fetch(`${import.meta.env.BASE_URL}data/${org.login}/assignments.json`, { cache: 'no-cache' })
-        if (res.ok) {
-          let data = null
-          try { data = await res.json() } catch { /* ignore */ }
-          const list = Object.values(data?.assignments || {})
-          if (list.length === 0) {
-            orgStatusMap.value.set(login, 'empty')
-            return
-          }
-          const hasActive = list.some((a) => {
-            if (a.state !== 'published') return false
-            if (a.opens_at && now < new Date(a.opens_at)) return false
-            if (a.deadline_at && now > new Date(a.deadline_at)) return false
-            return true
-          })
-          orgStatusMap.value.set(login, hasActive ? 'active' : 'inactive')
-          return
-        }
-      } catch (e) {
-        // fallback
-      }
-
-      orgStatusMap.value.set(login, 'empty')
-    })
-  )
-}
+// The organizations, their status lights and the picker are the shared top
+// bar's (OrgShell.vue, OrgPicker.vue, lib/org-session.js). This page lights
+// the selected org from its own fuller read (setOrgStatus below) and shows
+// the same light in its toolbar.
+const getOrgStatusTitle = orgStatusTitle
+const getOrgStatusLabel = orgStatusLabel
+const getOrgStatusDot = orgStatusDot
 
 // Why the assignment list is empty: '' | 'no-control-repo' | 'no-access' |
 // 'no-org-access' | 'registry-unknown' | 'onboarding' | 'no-dashboard' | 'empty'
@@ -813,10 +628,9 @@ const settingUp = ref(false)
 // Set when the lecturer leaves for GitHub's installation page, cleared as soon
 // as an org appears. Without it, "install finished, now what?" has no answer
 // in this UI at all.
-const connectPending = ref(false)
+// `connectPending` is the shared one: the top bar's picker sets it too.
 function onConnectClicked() {
   connectPending.value = true
-  orgDropdownOpen.value = false
 }
 async function refreshOrgsNow() {
   const before = orgs.value.length
@@ -833,7 +647,7 @@ async function refreshOrgsNow() {
 // Reaching this view by URL does not imply the App is on that org - the org
 // switcher only lists installations, but /dashboard/<anything> is routable.
 const orgIsInstalled = computed(() =>
-  orgs.value.some((o) => o.login?.toLowerCase() === selectedOrg.value?.toLowerCase())
+  isInstalled(selectedOrg.value)
 )
 // Bumped on org switch and on unmount, so a poll in flight can tell that its
 // answer is no longer wanted. Same reason SystemHealthModal carries one.
@@ -928,7 +742,12 @@ async function runSetupOrg() {
 }
 const dashError = ref(null)
 
-const draftCount = ref(0)
+// DRAFTS ARE A ROW OF THEIR OWN, above the cards (BETA-UX.md, 2026-10-02):
+// nothing to track yet, so no figures, and each opens its settings, which is
+// where a draft's work is. Set wherever the list is, never cleared ahead of
+// its replacement.
+const drafts = ref([])
+const draftCount = computed(() => drafts.value.length)
 const showArchived = ref(false)
 
 const archivedCount = computed(() => {
@@ -975,14 +794,11 @@ const visibleAssignments = computed(() => {
 
 // True once /user/installations has answered - gates the "no installation
 // visible" empty state so it can't flash during the initial load.
-const orgsLoaded = ref(false)
-const orgsLoadError = ref(null)
 
 
 function onGlobalKeydown(e) {
   if (e.key === 'Escape') {
     showHealthModal.value = false
-    orgDropdownOpen.value = false
   }
 }
 
@@ -1022,23 +838,19 @@ onMounted(async () => {
     connectPending.value = true
     router.replace({ query: { ...route.query, setup_action: undefined, installation_id: undefined } })
   }
-  window.addEventListener('click', onOutsideClick)
   window.addEventListener('keydown', onGlobalKeydown)
   document.addEventListener('visibilitychange', refreshOrgsOnReturn)
   if (isAuthenticated()) {
     user.value = getUser()
-    await loadOrgs()
+    await loadOrgs({ force: false })
   }
 })
 
 onUnmounted(() => {
-  window.removeEventListener('click', onOutsideClick)
   window.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('visibilitychange', refreshOrgsOnReturn)
   setupGeneration++
 })
-
-const LAST_ORG_KEY = 'pxl_last_selected_org'
 
 // immediate so navigating back to /dashboard/<org> from the breadcrumb
 // triggers loadDashboard even when selectedOrg is already set from the URL
@@ -1046,7 +858,7 @@ const LAST_ORG_KEY = 'pxl_last_selected_org'
 watch(selectedOrg, async (org) => {
   setupGeneration++
   if (org) {
-    try { localStorage.setItem(LAST_ORG_KEY, org) } catch { /* ignore */ }
+    rememberOrg(org)
     if (route.params.org !== org) {
       router.replace({ name: 'dashboard', params: { org } })
     }
@@ -1054,41 +866,28 @@ watch(selectedOrg, async (org) => {
   }
 }, { immediate: true })
 
+// The top bar's picker navigates, and this page stays mounted under the bar
+// with a new `org`.
+watch(() => props.org, (org) => {
+  if (org && org !== selectedOrg.value) selectedOrg.value = org
+})
 
-async function loadOrgs() {
+/**
+ * The installations, from the shared list (lib/org-session.js) - `force`
+ * refetches, for coming back from GitHub's install page - and, with no org in
+ * the address, the one to open: the remembered org, or the only one there is.
+ * An org in the address that has no installation is corrected the same way.
+ */
+async function loadOrgs({ force = true } = {}) {
   const token = getToken()
   if (!token) return
-
-  orgsLoadError.value = null
-  orgsLoaded.value = false
-  try {
-    const installs = await getInstallations(token)
-    if (!installs.ok) {
-      orgsLoadError.value = `Failed to load installations (HTTP ${installs.status})`
-      return
-    }
-
-    const installOrgs = (installs.data.installations || [])
-      .filter((i) => i.account?.type === 'Organization')
-      .map((i) => i.account)
-
-    orgs.value = installOrgs
-    loadOrgStatuses(installOrgs, token)
-
-    // Auto-select based on URL param, remembered localStorage, or single-org fallback
-    const savedOrg = localStorage.getItem(LAST_ORG_KEY)
-    if (props.org && orgs.value.some(o => o.login.toLowerCase() === props.org.toLowerCase())) {
-      selectedOrg.value = props.org
-    } else if (savedOrg && orgs.value.some(o => o.login.toLowerCase() === savedOrg.toLowerCase())) {
-      selectedOrg.value = savedOrg
-    } else if (orgs.value.length === 1) {
-      selectedOrg.value = orgs.value[0].login
-    }
-  } catch (e) {
-    console.error('Failed to load orgs:', e)
-    orgsLoadError.value = `Failed to load installations: ${e.message || 'unknown error'}`
-  } finally {
-    orgsLoaded.value = true
+  await loadSharedOrgs(token, { force })
+  if (props.org && (isInstalled(props.org) || orgsLoadError.value)) return
+  const savedOrg = rememberedOrg()
+  if (savedOrg && isInstalled(savedOrg)) {
+    selectedOrg.value = orgs.value.find((o) => sameLogin(o.login, savedOrg)).login
+  } else if (orgs.value.length === 1) {
+    selectedOrg.value = orgs.value[0].login
   }
 }
 
@@ -1129,7 +928,6 @@ async function loadDashboard(orgArg) {
   // Scalars, not the list: these describe the run and every authoritative exit
   // sets them. `assignments` stays until a replacement exists.
   dashState.value = ''
-  draftCount.value = 0
   hubWritable.value = false
 
   try {
@@ -1173,14 +971,15 @@ async function loadDashboard(orgArg) {
       // after a newer one has moved to another organization would put that
       // organization's assignments under this one's name.
       if (superseded()) return
-      assignments.value = [...displayList, ...extra].sort((a, b) => {
+      assignments.value = [...displayList, ...extra.filter((a) => a.state !== 'draft')].sort((a, b) => {
         const diff = (stateOrder[a.state] || 99) - (stateOrder[b.state] || 99)
         if (diff !== 0) return diff
         return (a.id || '').localeCompare(b.id || '')
       })
-
-      const drafts = Object.values(reportData.assignments).filter(a => a.state === 'draft')
-      draftCount.value = drafts.length + extra.filter((a) => a.state === 'draft').length
+      drafts.value = [
+        ...Object.entries(reportData.assignments).map(([id, a]) => ({ id, ...a })).filter((a) => a.state === 'draft'),
+        ...extra.filter((a) => a.state === 'draft'),
+      ].sort((a, b) => (a.id || '').localeCompare(b.id || ''))
 
       const now = new Date()
       const hasActive = assignments.value.some((a) => {
@@ -1191,7 +990,7 @@ async function loadDashboard(orgArg) {
       })
       if (superseded()) return
       dashState.value = assignments.value.length === 0 ? (draftCount.value > 0 ? 'no-dashboard' : 'empty') : ''
-      orgStatusMap.value.set(org.toLowerCase(), hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
+      setOrgStatus(org, hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
       return
     }
 
@@ -1247,8 +1046,9 @@ async function loadDashboard(orgArg) {
         // cards from the organization you just switched away from stay on
         // screen under the new one's name.
         assignments.value = []
+        drafts.value = []
         dashState.value = DASH_STATE_FOR_VERDICT[access.verdict]
-        orgStatusMap.value.set(org.toLowerCase(), access.verdict === 'not-set-up' ? 'empty' : 'no-access')
+        setOrgStatus(org, access.verdict === 'not-set-up' ? 'empty' : 'no-access')
         return
       }
     }
@@ -1267,8 +1067,9 @@ async function loadDashboard(orgArg) {
       // This is the beginning lecturer state - show the onboarding readiness card!
       if (superseded()) return
       assignments.value = []
+      drafts.value = []
       dashState.value = 'onboarding'
-      orgStatusMap.value.set(org.toLowerCase(), 'empty')
+      setOrgStatus(org, 'empty')
       return
     } else {
       // Assignments HAVE been created in this organization (e.g. drafts or awaiting dashboard.json generation).
@@ -1277,12 +1078,12 @@ async function loadDashboard(orgArg) {
       // who had just published two assignments was told they had two drafts to
       // publish. What is missing here is reports/dashboard.json, not the
       // publish; read each YAML's own state and say only what is true.
-      const drafts = await countDraftAssignments(token, org, ymls)
+      const found = await listDraftAssignments(token, org, ymls)
       if (superseded()) return
-      draftCount.value = drafts
+      drafts.value = found
       assignments.value = []
       dashState.value = 'no-dashboard'
-      orgStatusMap.value.set(org.toLowerCase(), 'empty')
+      setOrgStatus(org, 'empty')
       return
     }
   } catch (e) {
@@ -1307,17 +1108,28 @@ async function loadDashboard(orgArg) {
     //
     // A superseded run leaves the flag alone; the run that superseded it turns
     // it off when IT finishes.
-    if (!superseded()) loadingData.value = false
+    if (!superseded()) {
+      loadingData.value = false
+      loadedOrg.value = org
+    }
   }
 }
 
-// How many of these assignment YAMLs are actually drafts.
-//
-// The directory listing carries names, not contents, so each file is fetched.
-// That only happens on this branch - reports/dashboard.json missing, i.e. a
-// newly onboarded org - and the pool keeps a large assignments/ directory from
-// firing one request per file at once. `yaml` is imported lazily so it stays
-// out of the dashboard chunk for the ordinary path.
+// What this load showed about the account in this org, for the shared top
+// bar's tabs (lib/org-session.js). Only from a load that FINISHED for this org:
+// `staffHere` is true before anything is known, which is the reason the tabs
+// used to wait for `!loadingData`. Not staff, not installed, or no control
+// repository: the tabs lead nowhere this account can go.
+const loadedOrg = ref('')
+const staffVerdict = computed(() => {
+  if (!selectedOrg.value || loadedOrg.value !== selectedOrg.value || loadingData.value) return null
+  if (dashError.value || !orgsLoaded.value) return null
+  return orgIsInstalled.value && staffHere.value && dashState.value !== 'no-control-repo'
+})
+watch(staffVerdict, (verdict) => {
+  if (verdict !== null) markStaff(selectedOrg.value, verdict)
+}, { immediate: true })
+
 /**
  * Assignments that exist on disk but are not in `reports/dashboard.json` yet.
  *
@@ -1330,8 +1142,8 @@ async function loadDashboard(orgArg) {
  * has never been reported on. It is listed rather than hidden, since "exists
  * but has no numbers" is the truth and "does not exist" is not.
  *
- * Drafts are excluded to match the generated list, which excludes them too -
- * they are counted separately and shown as a prompt to publish.
+ * Drafts are included, with their state; the caller puts them in the drafts
+ * row rather than among the cards.
  */
 async function assignmentsMissingFrom(token, org, reported) {
   let files = []
@@ -1361,8 +1173,8 @@ async function assignmentsMissingFrom(token, org, reported) {
         if (!text) continue
         const doc = parseYaml(text)
         // An absent state is a draft - the schema's own default.
+        // Drafts too: the caller puts them in the drafts row.
         const state = doc?.state || 'draft'
-        if (state === 'draft') continue
         out.push({
           id: doc?.id || f.name.replace(/\.ya?ml$/, ''),
           title: doc?.title || null,
@@ -1382,17 +1194,26 @@ async function assignmentsMissingFrom(token, org, reported) {
   return out
 }
 
-async function countDraftAssignments(token, org, files) {
+// Which of these assignment YAMLs are actually drafts.
+//
+// The directory listing carries names, not contents, so each file is fetched.
+// That only happens on this branch - reports/dashboard.json missing, i.e. a
+// newly onboarded org - and the pool keeps a large assignments/ directory from
+// firing one request per file at once. `yaml` is imported lazily so it stays
+// out of the dashboard chunk for the ordinary path.
+async function listDraftAssignments(token, org, files) {
   const { parse: parseYaml } = await import('yaml')
   const queue = [...files]
-  let drafts = 0
+  const found = []
   const worker = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
       try {
         const text = await getRepoContent(token, org, config.controlRepo, f.path)
         if (!text) continue
+        const doc = parseYaml(text)
         // An absent state is a draft - the schema's own default.
-        if ((parseYaml(text)?.state || 'draft') === 'draft') drafts++
+        if ((doc?.state || 'draft') !== 'draft') continue
+        found.push({ id: doc?.id || f.name.replace(/\.ya?ml$/, ''), title: doc?.title || null, state: 'draft', deadline_at: doc?.deadline_at || null })
       } catch {
         // Unreadable or unparseable is not evidence of a draft. Leaving it out
         // is the point: the bug being fixed was counting files as drafts.
@@ -1400,7 +1221,7 @@ async function countDraftAssignments(token, org, files) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
-  return drafts
+  return found.sort((a, b) => a.id.localeCompare(b.id))
 }
 
 async function onAuthenticated(authedUser) {
@@ -1409,14 +1230,6 @@ async function onAuthenticated(authedUser) {
 }
 
 
-function handleLogout() {
-  clearAuth()
-  user.value = null
-  orgs.value = []
-  orgsLoaded.value = false
-  selectedOrg.value = ''
-  assignments.value = []
-}
 </script>
 
 <style scoped>
@@ -1426,195 +1239,12 @@ function handleLogout() {
 
 
 
-.header-titles {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.header-app-title:hover {
-  text-decoration: none;
-  color: var(--accent-blue);
-}
-
-
-.lecturer-tag {
-  background: var(--bg-surface-hover);
-  padding: 1px 6px;
-  border-radius: var(--radius-xs);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-/* Custom Dropdown Container & Trigger */
+/* The org picker's rules moved with it into OrgPicker.vue (2026-10-03). */
 .connect-pending {
   padding: var(--space-sm) var(--space-md);
   margin-top: var(--space-md);
   border-color: var(--tint-accent-emphasis);
   background: var(--tint-accent-subtle);
-}
-
-.org-dropdown-divider {
-  height: 1px;
-  background: var(--border-muted);
-  margin: var(--space-xs) 0;
-}
-/* Distinguished from the org rows: this one leaves the app.
-   `.org-action-item` went with the cross-org usage link it existed for. */
-.org-connect-item {
-  color: var(--accent-blue);
-  text-decoration: none;
-  font-weight: 500;
-}
-.org-connect-item:hover {
-  text-decoration: none;
-}
-
-.org-dropdown-container {
-  position: relative;
-  /* No hard floor: this sits in the header, so a fixed min-width forces the
-     whole bar wider than a narrow viewport. The org name truncates instead.
-     Accommodates up to GitHub's 39-character max org name on desktop. */
-  min-width: 0;
-  max-width: min(390px, calc(100vw - 320px));
-}
-
-.org-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.org-dropdown-btn {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-default);
-  color: var(--text-primary);
-  padding: 3px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-  min-height: 28px;
-  transition: border-color 0.12s, background-color 0.12s;
-}
-
-.org-dropdown-btn > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.org-dropdown-btn:hover {
-  border-color: var(--text-muted);
-  background: var(--bg-surface-hover);
-}
-
-.org-dropdown-btn:focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 1px;
-}
-
-.org-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  width: max-content;
-  max-width: min(420px, calc(100vw - 32px));
-  background: var(--bg-surface-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
-  z-index: 100;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 4px;
-}
-
-.org-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 6px 10px;
-  border-radius: var(--radius-xs);
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.1s;
-}
-
-.org-dropdown-item:hover,
-.org-dropdown-item:focus-visible {
-  background: var(--bg-surface-hover);
-  outline: none;
-}
-
-/* An actual organization to switch to, as opposed to the action rows below
-   the divider. Named rather than left as ":not(.org-connect-item)", which
-   silently counted the second action row as a 101st organization. */
-.org-choice-item { cursor: pointer; }
-.org-dropdown-item.is-selected {
-  font-weight: 600;
-  color: var(--accent-blue);
-}
-
-.check-icon {
-  margin-left: auto;
-  color: var(--accent-blue);
-}
-
-.dropdown-chevron {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-/* Status Lamp Indicators */
-.status-lamp {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  min-width: 7px;
-  min-height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-.lamp-active {
-  background-color: var(--accent-green);
-  box-shadow: 0 0 5px var(--tint-success-emphasis);
-}
-
-.lamp-inactive {
-  background-color: var(--accent-yellow);
-  opacity: 0.85;
-}
-
-.lamp-empty {
-  background-color: transparent;
-  border: 1.5px solid var(--border-strong);
-  opacity: 0.7;
-}
-
-/* Declared, because `lamp-${status}` composes the class name from data and an
-   undeclared class renders unstyled with no error (DESIGN.md §7). Hollow like
-   `empty` rather than red: not being staff on an organization is not a fault
-   condition, it is simply not yours. */
-.lamp-no-access {
-  background-color: transparent;
-  border: 1.5px dashed var(--border-strong);
-  opacity: 0.55;
-}
-
-.lamp-unknown {
-  background-color: var(--border-default);
-  opacity: 0.5;
 }
 
 /* padding-top/bottom, NOT the shorthand: `main` here is a scoped element
@@ -1798,18 +1428,28 @@ main {
   flex-wrap: wrap;
 }
 
-.health-btn {
-  position: relative;
+.drafts-row { margin: var(--space-md) 0; }
+/* Drafts and Published, one size: a step up from the small grey label Drafts
+   was, so the two groups read as the page's two halves (decided 2026-10-04). */
+.assignment-group-title {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
-.alert-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--accent-red);
+.assignment-grid-title { grid-column: 1 / -1; margin-bottom: 0; }
+.drafts-row-list { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+.draft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  max-width: 100%;
 }
+.draft-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pipeline-stuck-banner {
   background: var(--tint-attention-subtle);
   border: 1px solid var(--tint-attention-emphasis);
@@ -1818,22 +1458,10 @@ main {
 }
 
 @media (max-width: 640px) {
-  /* Decorative first: the tag says nothing the dashboard does not, and the
-     wordmark duplicates the logo, which still links home. */
-  .lecturer-tag { display: none; }
-  .header-right { flex-direction: column; gap: var(--space-sm); align-items: stretch; }
-  .health-btn { justify-content: center; }
   .onboarding-actions { flex-direction: column; align-items: stretch; }
-  .org-dropdown-container { max-width: 240px; }
 }
 
 @media (max-width: 520px) {
-  .header-titles .app-header-title,
-  .header-titles .app-header-sep { display: none; }
   .section-toolbar { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
-}
-
-@media (max-width: 420px) {
-  .org-dropdown-container { max-width: 170px; }
 }
 </style>

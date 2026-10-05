@@ -21,14 +21,11 @@ import {
   openAutogradeModal,
   addCheck,
   CHECK_RUN,
-  CHECK_PYTHON,
-} from '../fixtures/e2e-fixtures.mjs';
+  CHECK_PYTHON, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
 import { validateAgainst } from '../../lib/validate.mjs';
 import { buildAutogradingWorkflow } from '../../provisioning/provision.mjs';
 
 // ---------------------------------------------------------------- helpers
-
-const rosterSelect = (page) => page.locator('select').filter({ hasText: 'only students on the roster' });
 const capInput = (page) => page.locator('input[type="number"][min="1"]').first();
 const saveDraft = (page) => page.getByRole('button', { name: 'Save as draft' }).first();
 const advanced = (page) => page.locator('details.advanced');
@@ -48,9 +45,8 @@ async function fillMinimum(page, title) {
 async function openNewAssignmentForm(page, opts = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, ...opts });
-  await page.goto(`/dashboard/${ORG}/admin`);
+  await page.goto(`/dashboard/${ORG}/new`);
   await expect(page.locator('.app-header-crumbs .app-header-heading')).toBeVisible({ timeout: 10000 });
-  await page.locator('.new-btn').click();
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible();
 }
 
@@ -112,7 +108,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     const contentWrites = [];
     await openNewAssignmentForm(page, { contentWrites });
     await fillMinimum(page, 'Gated Lab');
-    await rosterSelect(page).selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await capInput(page).fill('');
     await expect(saveDraft(page)).toBeEnabled();
     await saveDraft(page).click();
@@ -130,11 +126,11 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
 
     // Clearing the cap is only legal under `enforced` - it is the roster
     // gate's absence that makes the cap the last limit standing.
-    await rosterSelect(page).selectOption('enforced');
+    await chooseRosterMode(page, 'enforced');
     await capInput(page).fill('');
     await expect(saveDraft(page)).toBeEnabled();
 
-    await rosterSelect(page).selectOption('open');
+    await chooseRosterMode(page, 'open');
     await expect(page.locator('.field-error-msg', { hasText: 'Open enrollment requires a cap' })).toBeVisible();
     await expect(saveDraft(page)).toBeDisabled();
 
@@ -154,7 +150,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     // whose cohort is not on any roster would reject every remaining student.
     const contentWrites = [];
     await openEditorFor(page, draftAssignment({ roster_mode: 'open', max_acceptances: 40 }), { contentWrites });
-    await expect(rosterSelect(page)).toHaveValue('open');
+    await expect(page.getByLabel('Anyone with the link')).toBeChecked();
 
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Existing Lab renamed');
     await saveDraft(page).click();
@@ -171,7 +167,7 @@ test.describe('31 - §3.1 What a new assignment is saved with', () => {
     // not in force - and saving normalises the YAML to what is actually true.
     const contentWrites = [];
     await openEditorFor(page, draftAssignment({ roster_mode: 'Open' }), { contentWrites });
-    await expect(rosterSelect(page)).toHaveValue('enforced');
+    await expect(page.getByLabel('Only students on the roster')).toBeChecked();
 
     await saveDraft(page).click();
     await expect.poll(() => committed(contentWrites, 'existing-lab'), { timeout: 10000 }).toBeTruthy();
@@ -186,7 +182,7 @@ test.describe('31 - Acceptance mode is not a question, and not deleted either', 
     await openNewAssignmentForm(page);
     await advanced(page).locator('summary').click();
 
-    for (const kept of ['Student permission', 'Submission ref', 'Timezone']) {
+    for (const kept of ['Student permission', 'Submission ref', 'Time zone students see']) {
       await expect(advanced(page)).toContainText(kept);
     }
     await expect(advanced(page)).not.toContainText('Acceptance mode');
@@ -435,9 +431,9 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await overrideFile(page, 'c-broken', { body: 'title: { unterminated\n' });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     // Only a-draft. Counting files said three; counting optimistically says two.
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveAttribute('href', `/dashboard/${ORG}/a-draft?tab=settings`);
   });
 
   test('A missing state is a draft, and a file that 404s is nothing at all', async ({ page }) => {
@@ -451,7 +447,8 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await overrideFile(page, 'vanished', { status: 404 });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('text=You have 1 draft in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(1);
+    await expect(page.locator('.drafts-row .draft-chip')).toContainText('No State');
   });
 
   test('When nothing can be read at all, the panel still says something true', async ({ page }) => {
@@ -462,14 +459,14 @@ test.describe('31 - The draft count reads state, and copes with what it cannot r
     await page.goto(`/dashboard/${ORG}`);
     await expect(page.locator('h2', { hasText: /No dashboard data yet/i })).toBeVisible();
     await expect(page.locator('text=Published assignments appear here once the first report is generated')).toBeVisible();
-    await expect(page.locator('text=in the Admin Panel - publish to track them here')).not.toBeVisible();
+    await expect(page.locator('.drafts-row'), 'unreadable is not a draft').toHaveCount(0);
   });
 
-  test('Every assignment in draft is still counted, and pluralised', async ({ page }) => {
+  test('Every assignment in draft is still listed', async ({ page }) => {
     await openDashboard(page, { 'd1': asgn('d1'), 'd2': asgn('d2'), 'p1': asgn('p1', { state: 'closed' }) });
 
     await page.goto(`/dashboard/${ORG}`);
-    await expect(page.locator('text=You have 2 drafts in the Admin Panel')).toBeVisible();
+    await expect(page.locator('.drafts-row .draft-chip')).toHaveCount(2);
   });
 });
 

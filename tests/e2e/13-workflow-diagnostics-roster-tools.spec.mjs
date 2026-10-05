@@ -83,10 +83,10 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       roster: sampleRoster,
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
     // Switch to Roster tab
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }).click();
 
     // Verify filter chips
     await expect(page.getByRole('button', { name: 'All (3)' })).toBeVisible();
@@ -119,8 +119,7 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       contentWrites,
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
-    await page.locator('button[role="tab"]', { hasText: 'Roster' }).click();
+    await page.goto(`/dashboard/${ORG}/roster`);
 
     // Click + Add student
     await page.getByRole('button', { name: '+ Add student' }).click();
@@ -168,10 +167,8 @@ test.describe('13 - Workflow Diagnostics, Roster Management & Capacity Bumper', 
       assignments: {},
     });
 
-    await page.goto(`/dashboard/${ORG}/admin`);
+    await page.goto(`/dashboard/${ORG}/new`);
 
-    // Click New assignment
-    await page.locator('.new-btn').click();
 
     const templateInput = page.getByPlaceholder('Type or select a template repository');
     await templateInput.fill(`${ORG}/starter-template`);

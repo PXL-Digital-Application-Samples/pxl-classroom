@@ -88,7 +88,14 @@
 
       <!-- Reassurance rather than a guessed cause; see AssignmentView for the
            reasoning, which this card had a verbatim copy of. -->
-      <p v-if="pollCount >= 5" class="text-secondary">
+      <AttemptProgress
+        :steps="progressStepList"
+        :message="progressText"
+        :can-retry="progress.canRetry"
+        :busy="accepting"
+        @retry="sendAgain"
+      />
+      <p v-if="!progressText && pollCount >= 5" class="text-secondary">
         Still going, and that is normal. Leave this page open - it updates by itself.
       </p>
 
@@ -145,6 +152,21 @@
         Tell them: <strong>{{ rejectionReference }}</strong>
       </p>
       <button class="btn btn-primary" @click="backToTeams">Back</button>
+    </div>
+
+    <!-- State: GitHub said the join will not finish - not passed on, stopped,
+         or ended with nothing set up. Not a timeout and not a refusal. -->
+    <div v-else-if="acceptState === 'not-processed'" class="timeout-state text-center">
+      <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
+      <h2>Joining {{ targetTeamName || 'the team' }} did not go through</h2>
+      <AttemptProgress
+        :steps="progressStepList"
+        :message="progressText"
+        :can-retry="progress.canRetry"
+        :busy="accepting"
+        @retry="sendAgain"
+      />
+      <button v-if="!progress.canRetry" class="btn btn-secondary" @click="backToTeams">Back</button>
     </div>
 
     <!-- State: Timeout -->
@@ -444,6 +466,10 @@ import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
+import AttemptProgress from './AttemptProgress.vue'
+import {
+  GIVE_UP_MS, attemptProgress, findAttemptRun, hubRunsPath, progressMessage, progressSteps,
+} from '../lib/acceptance-progress.js'
 
 const props = defineProps({
   assignment: { type: Object, required: true },
@@ -480,7 +506,7 @@ const loadingTeams = ref(true)
 const selectedTeam = ref(null)
 const myCurrentTeam = ref(null)
 const targetTeamName = ref('')
-const acceptState = ref('ready') // ready | pending | provisioned | invited | rejected | timeout | error
+const acceptState = ref('ready') // ready | pending | provisioned | invited | rejected | not-processed | timeout | error
 /** When this attempt was refused. Set beside every `acceptState = 'rejected'`. */
 const rejectedAt = ref(null)
 const rejectionReference = computed(() => formatRejectionReference({
@@ -646,10 +672,10 @@ async function backToTeams() {
 
 // Set by Back from a refusal, cleared when the next attempt is sent.
 const refusedEarlier = ref(false)
-// What the refused attempt was doing, so the heading names it: a team that was
-// never created is not one the student "was not able to join".
-const lastTeamAction = ref('')
-const refusedHeading = computed(() => lastTeamAction.value === 'create'
+// What the refused attempt was doing (`lastJoin`, below), so the heading names
+// it: a team that was never created is not one the student "was not able to
+// join".
+const refusedHeading = computed(() => lastJoin.value?.action === 'create'
   ? 'Your team was not created'
   : `You were not able to join ${targetTeamName.value || 'this team'}`)
 
@@ -663,11 +689,60 @@ async function readTeamAcceptanceOutcome() {
       getToken(), 'GET',
       `/repos/${props.org}/${brokerRepo}/issues/${acceptanceIssue.value}`,
     )
+    // The TITLE too, from the same read: how far the broker got.
+    attemptTitle.value = res.ok && typeof res.data?.title === 'string' ? res.data.title : null
     if (!res.ok) return null
     return outcomeFromLabels(res.data?.labels)
   } catch {
+    attemptTitle.value = null
     return null
   }
+}
+
+// WHICH STEP THE JOIN IS AT - the same reading as the individual page, through
+// the same module (frontend/src/lib/acceptance-progress.js). On 2026-10-02 two
+// students watched this card spin four times each while their joins sat
+// cancelled behind a stuck run, and could not tell it from a slow one.
+const attemptTitle = ref(null)
+const progress = ref({ step: 'unknown', final: false, canRetry: false })
+const progressStepList = computed(() => progressSteps(progress.value.step))
+const progressText = computed(() => progressMessage(progress.value.step))
+// What the last join asked for, so "send it again" sends the same thing.
+const lastJoin = ref(null)
+
+async function readAttemptProgress() {
+  const sentAt = Date.parse(acceptanceIssueCreatedAt.value || '')
+  if (!acceptanceIssue.value || !Number.isFinite(sentAt)) return progress.value
+  const broker = brokerRepoName({ assignment: props.assignment, assignmentId: props.assignment?.id })
+  let run = null
+  let runsRead = false
+  try {
+    const res = await ghApi(getToken(), 'GET', hubRunsPath({ owner: config.hubOwner, repo: config.hubRepo, sentAt }))
+    if (res.ok && Array.isArray(res.data?.workflow_runs)) {
+      runsRead = true
+      run = findAttemptRun(res.data.workflow_runs, { org: props.org, broker, issue: acceptanceIssue.value })
+    }
+  } catch {
+    // Unread: says nothing.
+  }
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt })
+  return progress.value
+}
+
+/** Send the same join again: a new attempt. An older one that runs later does nothing. */
+async function sendAgain() {
+  if (pollTimer) clearTimeout(pollTimer)
+  progress.value = { step: 'unknown', final: false, canRetry: false }
+  const join = lastJoin.value || {
+    slug: targetTeamSlug.value,
+    name: targetTeamName.value || targetTeamSlug.value,
+    action: 'join',
+  }
+  if (!join.slug) {
+    acceptState.value = 'ready'
+    return
+  }
+  await executeTeamAcceptance(join.slug, join.name, join.action)
 }
 
 onMounted(async () => {
@@ -1001,9 +1076,9 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     acceptanceIssue.value = issueRes.data?.number ?? null
     acceptanceIssueCreatedAt.value = issueRes.data?.created_at ?? new Date().toISOString()
     targetTeamSlug.value = teamSlug
+    lastJoin.value = { slug: teamSlug, name: teamName, action: teamAction }
     // A new attempt is on its way; the old refusal is no longer the news.
     refusedEarlier.value = false
-    lastTeamAction.value = teamAction
 
     acceptState.value = 'pending'
     startPolling(teamSlug)
@@ -1061,12 +1136,22 @@ function startPolling(teamSlug) {
         acceptState.value = 'invited'
         return
       }
+      // No repository, no invitation, no answer: how far did it get? A final
+      // step ends the wait with "send it again".
+      if ((await readAttemptProgress()).final) {
+        acceptState.value = 'not-processed'
+        return
+      }
     }
 
     if (pollCount.value > 20) {
       pollInterval.value = 10000
     }
-    if (pollCount.value > 30) {
+    // Not a timeout while GitHub says the join is still coming - bounded, so a
+    // run GitHub never starts still ends somewhere. See AssignmentView.
+    const stillComing = ['starting', 'not-started', 'queued', 'running', 'finishing'].includes(progress.value.step)
+    const sentAt = Date.parse(acceptanceIssueCreatedAt.value || '') || pollStartedAt
+    if (pollCount.value > 30 && !(stillComing && Date.now() - sentAt < GIVE_UP_MS)) {
       acceptState.value = 'timeout'
       return
     }
