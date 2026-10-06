@@ -53,6 +53,7 @@ import { getRepo, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 import { loadAssignmentDocs } from '../lib/org-assignments.js'
+import { askDiscard } from '../lib/confirm.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -117,7 +118,8 @@ function onAuthenticated(authedUser) {
 function rosterDirty() {
   return rosterTab.value?.isDirty?.() === true
 }
-onBeforeRouteLeave(() => !rosterDirty() || window.confirm('Discard the un-committed roster import?'))
+// A promise when it asks: vue-router waits for the answer (lib/confirm.js).
+onBeforeRouteLeave(() => !rosterDirty() || askDiscard('The roster import you pasted has not been committed.'))
 function onBeforeUnload(e) {
   if (rosterDirty()) {
     e.preventDefault()

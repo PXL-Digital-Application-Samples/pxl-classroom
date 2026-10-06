@@ -483,23 +483,6 @@
         Team Autograding: <strong>{{ activeTeamAutograde.team_name }}</strong> (<code>{{ activeTeamAutograde.team_slug }}</code>)
       </template>
     </AutogradeResultsModal>
-
-    <!-- LAST, so it stacks over Manage: a move is asked from inside that
-         dialog, and two overlays at one z-index stack by document order. -->
-    <ConfirmDialog
-      v-if="confirmState"
-      :title="confirmState.title"
-      :confirm-label="confirmState.confirmLabel"
-      :destructive="confirmState.destructive"
-      @confirm="answerConfirm(true)"
-      @cancel="answerConfirm(false)"
-    >
-      <p v-for="(p, i) in confirmState.paragraphs" :key="i">{{ p }}</p>
-      <ul v-if="confirmState.list?.length">
-        <li v-for="(item, i) in confirmState.list" :key="i">{{ item }}</li>
-      </ul>
-      <p v-for="(p, i) in confirmState.after || []" :key="`after-${i}`">{{ p }}</p>
-    </ConfirmDialog>
   </div>
 </template>
 
@@ -507,7 +490,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
-import ConfirmDialog from './ConfirmDialog.vue'
+import { askConfirm } from '../lib/confirm.js'
 import { teamPath, repositoryPath, acceptancePath } from '../../../lib/control-layout.mjs'
 import { planMemberRecordChanges, teamRepository } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
@@ -771,20 +754,6 @@ async function copyConfirmLink() {
   toast.success('Confirm-email link copied')
 }
 onBeforeUnmount(() => clearTimeout(confirmCopiedTimer))
-
-// One question at a time, asked in the page (ConfirmDialog) and answered by a
-// promise, so the actions below read top to bottom as they did with confirm().
-const confirmState = ref(null)
-function askConfirm(question) {
-  return new Promise((resolve) => {
-    confirmState.value = { ...question, resolve }
-  })
-}
-function answerConfirm(yes) {
-  const state = confirmState.value
-  confirmState.value = null
-  state?.resolve(yes)
-}
 
 function memberStatusFor(login) {
   return memberStatus({

@@ -23,7 +23,7 @@
 // is exactly two characters of somebody's typo.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 // Imported, never spelled: the first draft of this file invented `source:
 // "promoted"`, which is not the constant - so every row fell into the schema's
 // `else` branch and required a student number and a full name it does not have.
@@ -202,8 +202,8 @@ test.describe('filling them in', () => {
 
   test('it writes ONLY the allowed address, and merges rather than rebuilds', async ({ page }) => {
     const { contentWrites } = await openRoster(page);
-    page.on('dialog', (d) => d.accept());
     await fillButton(page).click();
+    await answerConfirm(page);
 
     await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
     const yaml = rosterWrite(contentWrites).content;
@@ -219,14 +219,13 @@ test.describe('filling them in', () => {
     // A git author email is whatever the student typed into `git config`. The
     // domain check makes it plausible, never proven, so it is confirmed.
     const { contentWrites } = await openRoster(page);
-    const messages = [];
-    page.on('dialog', (d) => { messages.push(d.message()); d.dismiss(); });
     await fillButton(page).click();
 
-    await expect.poll(() => messages.length, { timeout: 10000 }).toBe(1);
-    expect(messages[0]).toContain('@LowieSerneelsPXL');
-    expect(messages[0]).toContain('lowie.serneels@student.pxl.be');
-    expect(messages[0]).toMatch(/not verified/i);
+    const ask = page.locator('.confirm-dialog');
+    // One line per student, as a list rather than a run-on box.
+    await expect(ask.locator('li', { hasText: '@LowieSerneelsPXL' })).toContainText('lowie.serneels@student.pxl.be');
+    await expect(ask).toContainText(/not verified/i);
+    await answerConfirm(page, { accept: false });
     await page.waitForTimeout(300);
     expect(rosterWrite(contentWrites), 'dismissing writes nothing').toBeUndefined();
   });
@@ -529,8 +528,13 @@ test.describe('importing a CSV over a promoted row', () => {
     await expect(pane.locator('text=Removed (5)').locator('..'))
       .not.toContainText('LowieSerneelsPXL');
 
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /Commit/i }).first().click();
+    // Five come off: asked, naming them, before anything is written.
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Remove 5 students from the roster?');
+    await expect(ask.locator('li')).toHaveCount(5);
+    expect(rosterWrite(contentWrites), 'nothing written while it asks').toBeUndefined();
+    await answerConfirm(page);
     await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
 
     const yaml = rosterWrite(contentWrites).content;
@@ -547,7 +551,6 @@ test.describe('importing a CSV over a promoted row', () => {
     });
     await paste(page, ['student_number,full_name', '0123456,Alice Example'].join(NL));
 
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /Commit/i }).first().click();
     await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
 
@@ -564,7 +567,6 @@ test.describe('importing a CSV over a promoted row', () => {
     });
     await paste(page, csv([['0123456', 'Alice Example', 'a@student.pxl.be', 'alice-dev']]));
 
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /Commit/i }).first().click();
     await expect.poll(() => rosterWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
 
@@ -660,9 +662,9 @@ test.describe('a claim identifying a promoted row', () => {
   test('DISCARD deletes the claim, so the box can be finished', async ({ page }) => {
     const deletes = captureDeletes(page);
     await openWithClaim(page, [claimFor({ claim_verified: false })]);
-    page.on('dialog', (d) => d.accept());
 
     await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+    await answerConfirm(page);
 
     // The claim record itself, addressed by the id the finding carries rather
     // than by a login joined back to it.
@@ -685,8 +687,8 @@ test.describe('a claim identifying a promoted row', () => {
       if (req.url().includes('claim-attempts/4711.json')) asked.push(req.method());
     });
     await openWithClaim(page, [claimFor({ claim_verified: false })]);
-    page.on('dialog', (d) => d.accept());
     await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+    await answerConfirm(page);
 
     await expect.poll(() => asked.length, { timeout: 10000 }).toBeGreaterThan(0);
     await expect(page.locator('.toast, [role="status"]').filter({ hasText: /can claim again/i }))
@@ -696,8 +698,8 @@ test.describe('a claim identifying a promoted row', () => {
   test('cancelling the confirm deletes nothing', async ({ page }) => {
     const deletes = captureDeletes(page);
     await openWithClaim(page, [claimFor({ claim_verified: false })]);
-    page.on('dialog', (d) => d.dismiss());
     await page.locator('.claim-review').getByRole('button', { name: 'Discard' }).click();
+    await answerConfirm(page, { accept: false });
 
     await page.waitForTimeout(500);
     expect(deletes).toHaveLength(0);

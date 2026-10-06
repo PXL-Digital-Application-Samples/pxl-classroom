@@ -19,7 +19,7 @@
 
 import { test, expect } from '@playwright/test';
 import { stringify as stringifyYaml } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, chooseRosterMode } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAutogradeModal, chooseRosterMode, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 const rosterStatus = (page) => page.locator('.roster-status');
 
@@ -328,8 +328,8 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
     await expect(rosterStatus(page)).toContainText('nobody can accept');
 
     // The gate change is an unsaved edit, so leaving asks; this test leaves.
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster' }).click();
+    await answerConfirm(page);
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
     await page.locator('textarea').first().fill(
       'student_number,full_name,email,github_login\n' +

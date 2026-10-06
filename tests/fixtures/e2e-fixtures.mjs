@@ -1481,15 +1481,18 @@ export async function setupStandardMockRoutes(page, {
         const asgnId = match ? match[1] : null;
         if (asgnId) {
           const dynamicContent = dynamicFiles.get(`assignments/${asgnId}.yml`) || dynamicFiles.get(`assignments/${asgnId}.yaml`);
+          // WITH a sha, like GitHub. Without one, deleteFile (which reads the
+          // sha it must name) could never delete an assignment here, so
+          // Delete draft had no test that could pass.
           if (dynamicContent) {
             const contentBase64 = Buffer.from(dynamicContent).toString('base64');
-            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: contentSha(dynamicContent) }) });
             return;
           }
           if (assignments[asgnId]) {
             const yamlContent = yamlStringify(assignments[asgnId]);
             const contentBase64 = Buffer.from(yamlContent).toString('base64');
-            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64' }) });
+            await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: contentSha(yamlContent) }) });
             return;
           }
           await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });

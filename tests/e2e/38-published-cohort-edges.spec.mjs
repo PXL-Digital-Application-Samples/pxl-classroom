@@ -26,6 +26,7 @@ import {
   inviteToken,
   expandSettings,
   chooseState,
+  answerConfirm,
 } from '../fixtures/e2e-fixtures.mjs';
 
 const A = 'linux-processes-2026';
@@ -113,15 +114,13 @@ test.describe('38 - Unsaved settings: kept across tabs, asked about on the way o
     await expandSettings(page);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Edited but not saved');
 
-    const asked = []
-    page.on('dialog', (d) => { asked.push(d.message()); d.dismiss(); });
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}$`));
+    await expect(page.locator('.confirm-dialog'), 'switching tabs is not leaving').toHaveCount(0);
     // /^Settings/, not /^Settings$/: with an edit waiting the tab also says so
     // ("Settings (unsaved changes)" to a screen reader, a dot on screen).
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings/ }).click();
-
-    expect(asked, 'switching tabs is not leaving').toEqual([]);
+    await expect(page.locator('.confirm-dialog'), 'switching tabs is not leaving').toHaveCount(0);
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
     await expect(details(page)).toBeVisible();
   });
@@ -134,8 +133,8 @@ test.describe('38 - Unsaved settings: kept across tabs, asked about on the way o
     await expandSettings(page);
     await page.getByPlaceholder('e.g. Linux Processes 2026').fill('Edited but not saved');
 
-    page.on('dialog', (d) => d.dismiss());
     await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster', exact: true }).click();
+    await answerConfirm(page, { accept: false });
 
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${A}\\?tab=settings$`));
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Edited but not saved');
@@ -151,8 +150,8 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
       assignments: { [A]: assignment(A) },
       extra: { contentWrites, reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    page.on('dialog', (d) => d.accept());
     await chooseState(page, 'Stop accepting');
+    await answerConfirm(page);
 
     await expect(page.locator('[data-state-menu]')).toContainText('Closed', { timeout: 15000 });
     await expect(details(page)).toBeVisible();
@@ -168,8 +167,8 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
       assignments: { [A]: assignment(A) },
       extra: { reports: { dashboard: dashboardDoc({ [A]: entry() }) } },
     });
-    page.on('dialog', (d) => d.accept());
     await chooseState(page, 'Archive');
+    await answerConfirm(page);
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await page.locator('[data-state-menu]').click();
@@ -220,14 +219,14 @@ test.describe('38 - Republish is a repair only where it repairs', () => {
       extra: { workflowDispatches, reports: { dashboard: dashboardDoc({ [A]: entry({ state: 'closed' }) }) } },
     });
 
-    const seen = [];
-    page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
     await chooseState(page, 'Reopen for acceptance');
 
-    await expect.poll(() => seen.length).toBe(1);
-    expect(seen[0]).toMatch(/reopen/i);
-    expect(seen[0], 'the consequence, in the words that matter to a cohort')
-      .toMatch(/students can accept it again/i);
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText(/reopen/i);
+    await expect(ask, 'the consequence, in the words that matter to a cohort')
+      .toContainText(/students with the link can accept it again/i);
+    await answerConfirm(page, { accept: false });
+    await page.waitForTimeout(500);
     expect(
       workflowDispatches.filter((d) => d.workflow === 'publish-assignment.yml'),
       'a dismissed confirmation dispatches nothing',

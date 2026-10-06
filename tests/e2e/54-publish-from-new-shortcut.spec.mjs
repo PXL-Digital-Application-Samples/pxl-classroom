@@ -28,7 +28,7 @@
 // reproduced on purpose. PXL-Automation-II/test-pe-1 and test-pe-2, 2026-09-02.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 test.describe('54 - the + Assignment shortcut', () => {
   test('the ?new=1 intent is consumed rather than left standing', async ({ page }) => {
@@ -113,8 +113,8 @@ test.describe('54 - the + Assignment shortcut', () => {
     await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
     const title = page.getByPlaceholder('e.g. Linux Processes 2026');
     await title.fill('Changed my mind');
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: /^Cancel$/ }).click();
+    await answerConfirm(page);
     // Settings IS the assignment's settings: there is nowhere to go back to.
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/other-one\\?tab=settings$`));
     await expect(title).toHaveValue('Other One');

@@ -1478,6 +1478,7 @@ import { describeSubmission } from '../lib/submission-detail.js'
 import { teamRows } from '../lib/team-rows.js'
 import { rememberAssignmentTitle } from '../lib/assignment-crumb.js'
 import { studentsMissingFromReport, studentRowKey } from '../lib/missing-students.js'
+import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { minTeamSize } from '../../../lib/group-config.mjs'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { teamRepresentative } from '../../../lib/team-representative.mjs'
@@ -1548,7 +1549,8 @@ const editorRef = ref(null)
 // not: the editor stays mounted and keeps the edit.
 onBeforeRouteLeave(() => {
   if (!editorRef.value?.hasUnsavedEdits?.()) return true
-  return window.confirm('Discard unsaved changes to this assignment?')
+  // A promise: vue-router waits for the answer (lib/confirm.js).
+  return askDiscard('Your changes to this assignment are not saved.')
 })
 
 // After the editor saved or changed the state, the header's state and deadline
@@ -5288,9 +5290,18 @@ async function retryAcceptanceFor(student) {
     const now = new Date()
     const isOutsideWindow = (deadline && now > deadline) || (opensAt && now < opensAt)
     if (isOutsideWindow) {
-      if (!window.confirm(`Warning: The assignment window is currently closed (opens: ${opensAt ? opensAt.toLocaleString() : 'N/A'}, deadline: ${deadline ? deadline.toLocaleString() : 'N/A'}). Retrying will bypass these constraints. Proceed?`)) {
-        return
-      }
+      const before = opensAt && now < opensAt
+      const ok = await askConfirm({
+        title: `Retry @${login}'s acceptance outside the assignment's window?`,
+        paragraphs: [
+          before
+            ? `It opens ${fmt(assignment.value.opens_at)}, so nobody can accept yet.`
+            : `Its deadline passed ${fmt(assignment.value.deadline_at)}, so nobody can accept any more.`,
+          'Retrying lets this one acceptance through anyway.',
+        ],
+        confirmLabel: 'Retry anyway',
+      })
+      if (!ok) return
     }
 
     let initialRunId = null

@@ -15,7 +15,7 @@
 // decides the roll call.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 import { buildDashboardEntry } from '../../lib/dashboard-aggregate.mjs';
 
 const REPORTED = 'reported-assignment';
@@ -99,7 +99,6 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
       reports: { dashboard: staleDashboard },
       contentWrites,
     });
-    page.on('dialog', (d) => d.accept());
     await page.goto(`/dashboard/${ORG}/admin?edit=${REPORTED}`);
     // The lifecycle row, not the title field: a published assignment opens
     // with its settings collapsed and the cohort card on top.
@@ -118,6 +117,7 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
       await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
 
       await chooseState(page, label);
+      await answerConfirm(page);
 
       await expect
         .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
@@ -132,6 +132,7 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
     await adminPanel(page, { assignments: { [REPORTED]: assignment(REPORTED) }, contentWrites });
 
     await chooseState(page, 'Archive');
+    await answerConfirm(page);
 
     await expect
       .poll(() => writtenDashboard(contentWrites)?.assignments?.[REPORTED]?.state, { timeout: 10000 })
@@ -152,11 +153,11 @@ test.describe('51 - changing an assignment repairs what the overview reads', () 
       reports: { dashboard: staleDashboard },
       contentWrites,
     });
-    page.on('dialog', (d) => d.accept());
     await page.goto(`/dashboard/${ORG}/admin?edit=${FRESH}`);
     await expect(page.locator('[data-state-menu]')).toBeEnabled({ timeout: 15000 });
 
     await chooseState(page, 'Archive');
+    await answerConfirm(page);
     await expect(page.locator('.toast')).toContainText(`${FRESH} -> archived`, { timeout: 10000 });
 
     expect(writtenDashboard(contentWrites)).toBeNull();

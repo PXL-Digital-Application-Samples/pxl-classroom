@@ -19,6 +19,7 @@ import {
   inviteToken,
   expandSettings,
   chooseState,
+  answerConfirm,
 } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
@@ -177,8 +178,8 @@ test.describe('37 - Settings is the form, under the assignment\'s own header', (
   test('Reverting to draft keeps the form', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
 
-    page.on('dialog', (d) => d.accept());
     await chooseState(page, 'Back to draft');
+    await answerConfirm(page);
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole('button', { name: 'Save & publish' })).toBeVisible();
@@ -329,24 +330,25 @@ test.describe('37 - Repair in the settings, state in the header', () => {
   test('Stopping the cohort names the consequence before it happens', async ({ page }) => {
     await openEditor(page, { extra: { reports: { dashboard: dashboard(47) } } });
 
-    const seen = [];
-    page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
     await chooseState(page, 'Stop accepting');
-    await expect.poll(() => seen.length).toBe(1);
-    expect(seen[0]).toMatch(/no longer accept/i);
-    expect(seen[0], 'and what is NOT affected, which is the anxious question')
-      .toMatch(/existing repos are unaffected/i);
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText(/Nobody new can accept it/i);
+    await expect(ask, 'and what is NOT affected, which is the anxious question')
+      .toContainText(/Existing repositories are untouched/i);
+    // Named by its title, and the button says what it does.
+    await expect(ask).toContainText(`Stop accepting "${TITLE}"?`);
+    await expect(ask.getByRole('button', { name: 'Stop accepting' })).toBeVisible();
+    await answerConfirm(page, { accept: false });
   });
 
   test('Reverting to draft names its consequence too, and dismissing changes nothing', async ({ page }) => {
     const contentWrites = [];
     await openEditor(page, { extra: { contentWrites, reports: { dashboard: dashboard(47) } } });
 
-    const seen = [];
-    page.on('dialog', (d) => { seen.push(d.message()); d.dismiss(); });
     await chooseState(page, 'Back to draft');
-    await expect.poll(() => seen.length).toBe(1);
-    expect(seen[0]).toMatch(/students can no longer open the accept link/i);
+    await expect(page.locator('.confirm-dialog')).toContainText(/students can no longer open it/i);
+    await answerConfirm(page, { accept: false });
+    await page.waitForTimeout(500);
     expect(
       contentWrites.filter((w) => w.path.startsWith('assignments/')),
       'a dismissed confirmation writes nothing',

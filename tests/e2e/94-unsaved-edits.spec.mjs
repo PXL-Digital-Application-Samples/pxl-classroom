@@ -15,7 +15,7 @@
 // that students cannot open yet. Unsaved edits exist in this tab only.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState, inviteToken } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, chooseState, inviteToken, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'pe-unsaved';
 const TITLE = 'Unsaved Edits PE';
@@ -100,8 +100,9 @@ test.describe('94 - what the screen says about unsaved edits', () => {
   test('Cancel asks, then puts the stored values back', async ({ page }) => {
     await openSettings(page);
     await titleBox(page).fill(`${TITLE} v2`);
-    page.once('dialog', (d) => d.accept());
     await page.locator('.editor-action-bar').getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.locator('.confirm-dialog')).toContainText('Discard unsaved changes?');
+    await answerConfirm(page);
     await expect(titleBox(page)).toHaveValue(TITLE);
     await expect(note(page)).toHaveCount(0);
   });
@@ -116,11 +117,10 @@ test.describe('94 - what the screen says about unsaved edits', () => {
     await expect(note(page)).toHaveCount(0);
     await expect(tabDot(page)).toHaveCount(0);
     // And leaving asks nothing, because there is nothing to discard.
-    let asked = false;
-    page.on('dialog', (d) => { asked = true; d.accept(); });
+    // A question would hold the navigation; it went straight through.
     await courseView(page, 'Roster').click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster`));
-    expect(asked).toBe(false);
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
   });
 });
 
@@ -129,28 +129,69 @@ test.describe('94 - leaving with unsaved edits', () => {
     await openSettings(page);
     await titleBox(page).fill(`${TITLE} v2`);
 
-    page.once('dialog', (d) => d.dismiss());
     await courseView(page, 'Roster').click();
+    // Asked in the page, destructive, so Cancel has the focus.
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Your changes to this assignment are not saved.');
+    await expect(ask.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await answerConfirm(page, { accept: false });
     await expect(page).toHaveURL(new RegExp(`/${ID}\\?tab=settings$`));
     await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
 
-    page.once('dialog', (d) => d.accept());
     await courseView(page, 'Roster').click();
+    await answerConfirm(page);
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster`));
+  });
+
+  test('Escape on the question stays, and the browser Back asks again rather than leaving', async ({ page }) => {
+    await openSettings(page);
+    await titleBox(page).fill(`${TITLE} v2`);
+
+    await courseView(page, 'Roster').click();
+    await expect(page.locator('.confirm-dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/${ID}\\?tab=settings$`));
+    await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
+
+  });
+
+  test('the browser Back while the question is open: it is answered no, and the edit survives', async ({ page }) => {
+    // History inside the app: Settings, then Progress, then Settings again.
+    await openSettings(page);
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    await titleBox(page).fill(`${TITLE} v2`);
+
+    await courseView(page, 'Roster').click();
+    await expect(page.locator('.confirm-dialog')).toBeVisible();
+    // Back lands on Progress, the same assignment, which needs no question; a
+    // completed navigation answers the open one no (lib/confirm.js), so the
+    // way to Roster is abandoned rather than left waiting for a click.
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
+    // "Settings (unsaved changes)" to a screen reader now: the edit is waiting.
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings/ }).click();
+    await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
   });
 
   test('signing out: asked FIRST, and No leaves the lecturer signed in with the edit', async ({ page }) => {
     await openSettings(page);
     await titleBox(page).fill(`${TITLE} v2`);
 
-    page.once('dialog', (d) => d.dismiss());
     await page.getByRole('button', { name: 'Sign out' }).click();
+    // The sign-in is still there while the question is open: it is cleared
+    // only once every guard has said yes.
+    await expect(page.locator('.confirm-dialog')).toBeVisible();
+    expect(await page.evaluate(() => !!localStorage.getItem('pxl_auth')), 'not cleared before the answer').toBe(true);
+    await answerConfirm(page, { accept: false });
     await expect(page.getByRole('button', { name: 'Sign out' }), 'still signed in').toBeVisible();
     await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
     expect(await page.evaluate(() => !!localStorage.getItem('pxl_auth')), 'the sign-in is still stored').toBe(true);
 
-    page.once('dialog', (d) => d.accept());
     await page.getByRole('button', { name: 'Sign out' }).click();
+    await answerConfirm(page);
     await expect(page.getByRole('button', { name: /Sign in with GitHub/i })).toBeVisible({ timeout: 15000 });
   });
 
@@ -158,11 +199,9 @@ test.describe('94 - leaving with unsaved edits', () => {
     const writes = await openSettings(page);
     await titleBox(page).fill(`${TITLE} v2`);
 
-    let asked = false;
-    page.on('dialog', (d) => { asked = true; d.accept(); });
     await chooseState(page, 'Stop accepting');
     await expect(page.locator('.toast', { hasText: 'You have unsaved changes in Settings' })).toBeVisible({ timeout: 15000 });
-    expect(asked, 'not asked about closing: nothing is going to happen').toBe(false);
+    await expect(page.locator('.confirm-dialog'), 'not asked about closing: nothing is going to happen').toHaveCount(0);
     expect(assignmentWrites(writes)).toHaveLength(0);
     await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
     await expect(page.locator('[data-state-menu]')).toContainText('Accepting');
@@ -181,8 +220,12 @@ test.describe('94 - leaving with unsaved edits', () => {
 
   test('with nothing edited, a state change goes ahead as before', async ({ page }) => {
     const writes = await openSettings(page);
-    page.once('dialog', (d) => d.accept());
     await chooseState(page, 'Stop accepting');
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Stop accepting');
+    await expect(ask).toContainText('Existing repositories are untouched.');
+    await expect(ask.getByRole('button', { name: 'Stop accepting' })).toHaveClass(/btn-danger/);
+    await answerConfirm(page);
     await expect.poll(() => assignmentWrites(writes).length, { timeout: 15000 }).toBeGreaterThan(0);
   });
 });
@@ -196,8 +239,8 @@ test.describe('94 - a new assignment', () => {
     await expect(note(page)).toHaveText('Not saved yet');
 
     await titleBox(page).fill('Half-typed');
-    page.once('dialog', (d) => d.dismiss());
     await courseView(page, 'Roster').click();
+    await answerConfirm(page, { accept: false });
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/new`));
     await expect(titleBox(page)).toHaveValue('Half-typed');
   });

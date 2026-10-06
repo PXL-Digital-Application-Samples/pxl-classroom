@@ -115,11 +115,6 @@ test.describe('75 - an existing assignment on the wrong branch', () => {
   };
 
   test('is warned, is not rewritten, and opening it does not make it look edited', async ({ page }) => {
-    const dialogs = [];
-    page.on('dialog', (d) => {
-      dialogs.push(d.message());
-      d.dismiss();
-    });
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: stored } });
     await routeTemplateRepo(page, { repo: 'java-start', defaultBranch: 'master' });
@@ -132,7 +127,11 @@ test.describe('75 - an existing assignment on the wrong branch', () => {
     await expect(submissionRef(page), 'a probe never writes into an existing assignment').toHaveValue('refs/heads/main');
 
     // Writing into the form on probe would trip the unsaved-changes guard on an
-    // assignment nobody touched.
-    expect(dialogs, 'opening an assignment must not make it look edited').toEqual([]);
+    // assignment nobody touched: the bar would say so, and leaving would ask.
+    await expect(page.locator('.editor-action-bar'), 'opening an assignment must not make it look edited')
+      .not.toContainText('Unsaved changes');
+    await page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: 'Roster', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/roster$`));
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
   });
 });

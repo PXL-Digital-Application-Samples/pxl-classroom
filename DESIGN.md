@@ -468,8 +468,28 @@ sentences. `ConfirmDialog.vue` asks instead, after Primer's ConfirmationDialog:
   cases (`frontend/src/lib/team-edit.js`), because it is what a lecturer reads
   to decide whether to warn a student.
 
-The Teams tab's three use it. The other confirmations in the app are still the
-browser's own.
+**Every confirmation in the app is asked this way** (2026-10-06): one service,
+`frontend/src/lib/confirm.js` (`askConfirm`, `askDiscard`, and `askText` for the
+one question that needs something typed), drawn by one host, `ConfirmHost.vue`,
+mounted after the router view in `App.vue` so it stacks over any page's own
+dialog. `window.confirm`, `prompt` and `alert` are refused by
+`tests/confirm-service.test.mjs`. Leaving unsaved work behind is one question
+in one wording (*Discard unsaved changes?* / **Discard changes**), wherever it
+is asked.
+
+The browser's box blocked the whole page; a page question does not, so the
+states it can reach are decided rather than left to chance:
+
+* **A second question answers the open one *no*** and is the one shown. Two at
+  once would leave one unanswerable behind the other.
+* **A completed navigation answers an open question *no*.** A question belongs
+  to the page that asked it; answered *yes* after the browser's Back, it would
+  act on a page nobody is on. A leave guard's own question is answered before
+  its navigation completes, so it is never the one dismissed.
+* A route guard returns the question's promise, and vue-router waits for it;
+  the sign-in is cleared only after every guard said yes.
+
+`tests/e2e/97-confirm-dialogs.spec.mjs` drives each of these on a real flow.
 
 ## 7. Shared Component Vocabulary
 

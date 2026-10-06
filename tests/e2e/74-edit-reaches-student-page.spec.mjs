@@ -31,6 +31,7 @@ import {
   inviteToken,
   expandSettings,
   chooseState,
+  answerConfirm,
 } from '../fixtures/e2e-fixtures.mjs';
 
 // Read, not spelled: the label names the institution from deployment.yml.
@@ -191,8 +192,8 @@ test.describe('74 - saving a live assignment', () => {
   test('Stop accepting rebuilds the page, so it stops offering the Accept button', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page);
 
-    page.once('dialog', (dialog) => dialog.accept());
     await chooseState(page, 'Stop accepting');
+    await answerConfirm(page);
 
     await expect.poll(() => named(dispatches, REGENERATE).length, { timeout: 15000 }).toBe(1);
     expect(named(dispatches, REGENERATE)[0].writesBefore).toBeGreaterThan(0);
@@ -248,8 +249,8 @@ test.describe('74 - the cohort page', () => {
 
     // Reopening is the state button's, on any tab: it opens Settings, which
     // republishes (one writer of `state`) after asking.
-    page.once('dialog', (dialog) => dialog.accept());
     await chooseState(page, 'Reopen for acceptance');
+    await answerConfirm(page);
 
     // A reopen is a publish: publish-assignment.yml sets the state, turns the
     // broker back on and rebuilds the page - so it, not a second regeneration,

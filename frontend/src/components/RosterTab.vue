@@ -898,6 +898,7 @@ import SortIcon from './SortIcon.vue'
 import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
+import { askConfirm, askText } from '../lib/confirm.js'
 import { copyText } from '../lib/clipboard.js'
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS } from '../lib/deployment.js'
 
@@ -1486,11 +1487,13 @@ async function loadReports() {
 async function fillFromReports() {
   const fillable = harvest.value.fillable
   if (fillable.length === 0) return
-  const lines = fillable.map((f) => `  @${f.login} → ${f.email}`).join('\n')
-  if (!window.confirm(
-    `Fill in ${fillable.length} email address${fillable.length === 1 ? '' : 'es'} from the students' own commits?\n\n${lines}\n\n` +
-    `These come from git config and are not verified - they are written because their domain is one of ${claimDomainList}.`,
-  )) return
+  const n = fillable.length
+  if (!(await askConfirm({
+    title: `Fill in ${n} email address${n === 1 ? '' : 'es'} from the students' own commits?`,
+    list: fillable.map((f) => `@${f.login} → ${f.email}`),
+    after: [`These come from git config and are not verified. They are written because their domain is one of ${claimDomainList}.`],
+    confirmLabel: `Fill in ${n} address${n === 1 ? '' : 'es'}`,
+  }))) return
 
   harvesting.value = true
   try {
@@ -1788,16 +1791,15 @@ async function saveStudentDetails(values) {
  */
 async function confirmRemoveStudent(student) {
   const who = whoIs(student)
-  const ok = window.confirm(
-    `Remove ${who} from the roster?
-
-` +
-    `They come off this list only. Their repository, their submitted work and ` +
-    `any assignment they accepted are untouched.
-
-` +
-    `If they accept another assignment, or use a confirm-email link, they come back.`,
-  )
+  const ok = await askConfirm({
+    title: `Remove ${who} from the roster?`,
+    paragraphs: [
+      'They come off this list only. Their repository, their submitted work and any assignment they accepted are untouched.',
+      'If they accept another assignment, or use a confirm-email link, they come back.',
+    ],
+    confirmLabel: 'Remove from roster',
+    destructive: true,
+  })
   if (!ok) return
 
   removingStudent.value = true
@@ -2225,11 +2227,14 @@ const discardingEmail = ref('')
 async function discardClaim(row) {
   if (!row?.githubId) return
   const who = row.login ? `@${row.login}` : 'the student'
-  const ok = window.confirm(
-    `Discard the claim for ${row.email}?\n\n` +
-    `${who} can claim again with any allowed address, and this box will ask you again if they do. ` +
-    `Their repository and acceptance are untouched.`
-  )
+  const ok = await askConfirm({
+    title: `Discard the address ${row.email}?`,
+    paragraphs: [
+      `${who} can confirm any allowed address again, and you are asked about it here if they do. Their repository and acceptance are untouched.`,
+    ],
+    confirmLabel: 'Discard',
+    destructive: true,
+  })
   if (!ok) return
 
   discardingEmail.value = row.email
@@ -2380,11 +2385,16 @@ async function confirmUnlink(student, binding) {
     toast.error(`Cannot unlink: ${claimsFailed.value || 'some'} claim record(s) could not be read, so the bindings shown are incomplete.`)
     return
   }
-  const ok = window.confirm(
-    `Unlink @${binding.login} from ${binding.claim.email}?\n\n` +
-    `${who} will be able to claim again with any allowed address. ` +
-    `Their repository and acceptance are untouched.`
-  )
+  // "Forget this account", as the menu item says (DESIGN.md §1.7): it was
+  // asked as "Unlink", a word for our data, under a button that said otherwise.
+  const ok = await askConfirm({
+    title: `Forget @${binding.login} for ${binding.claim.email}?`,
+    paragraphs: [
+      `${who} can confirm any allowed address again. Their repository and acceptance are untouched.`,
+    ],
+    confirmLabel: 'Forget this account',
+    destructive: true,
+  })
   if (!ok) return
 
   unlinking.value = true
@@ -2435,11 +2445,13 @@ const resettingAttempts = ref(false)
 // (the refusal they were shown names it too) and GitHub supplies the id.
 async function resetAttempts(student, binding) {
   const suggested = binding?.login || student.github_login || ''
-  const typed = window.prompt(
-    `Clear the failed-attempt counter for ${student.full_name || student.email || 'this student'}?\n\n` +
-    `Their GitHub account:`,
-    suggested,
-  )
+  const typed = await askText({
+    title: `Clear the failed attempts of ${student.full_name || student.email || 'this student'}?`,
+    paragraphs: ['They can confirm an address again. Their roster row and any confirmed address are kept.'],
+    inputLabel: 'Their GitHub username',
+    value: suggested,
+    confirmLabel: 'Clear failed attempts',
+  })
   const login = String(typed ?? '').trim().replace(/^@/, '')
   if (!login) return
   resettingAttempts.value = true
@@ -2598,10 +2610,16 @@ async function onDrop(ev) {
 async function commitRoster() {
   if (!canCommit.value) return
   // Removals are the destructive part - one extra look before they land.
-  if (diff.value.removed.length > 0 && !window.confirm(
-    `This commit removes ${diff.value.removed.length} student(s) from the roster ` +
-    `(listed under "Removed"). Continue?`,
-  )) return
+  const removing = diff.value.removed.length
+  if (removing > 0 && !(await askConfirm({
+    title: `Remove ${removing} student${removing === 1 ? '' : 's'} from the roster?`,
+    paragraphs: [
+      `This import takes ${removing === 1 ? 'the student' : 'the students'} listed under "Removed" off the roster. Their repositories and submitted work are untouched.`,
+    ],
+    list: diff.value.removed.map((s) => describeRosterEntry(s)),
+    confirmLabel: `Commit and remove ${removing}`,
+    destructive: true,
+  }))) return
   committing.value = true
   try {
     const token = getToken()

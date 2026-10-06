@@ -1557,6 +1557,7 @@ import {
 import { buildAssignmentDoc, localToUtc, utcToLocalInput } from '../lib/assignment-doc.js'
 import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
+import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
@@ -1733,9 +1734,11 @@ function snapshotForm() {
 function hasUnsavedEdits() {
   return !!editing.value && editableFingerprint(form.value) !== savedSnapshot.value
 }
+// A promise of the answer (lib/confirm.js): route guards return it and
+// vue-router waits; every other caller awaits it.
 function confirmDiscard() {
-  if (!hasUnsavedEdits()) return true
-  return window.confirm('Discard unsaved changes to this assignment?')
+  if (!hasUnsavedEdits()) return Promise.resolve(true)
+  return askDiscard('Your changes to this assignment are not saved.')
 }
 // Reactive, for what the screen says about it (the bar, the tab's dot).
 const unsaved = computed(() => hasUnsavedEdits())
@@ -3185,9 +3188,9 @@ async function loadTemplates() {
 
 // ---------------------------------------------------------------- edit flow
 
-function newAssignment({ confirmed = false } = {}) {
+async function newAssignment({ confirmed = false } = {}) {
   if (controlRepoUnreadable.value) return
-  if (!confirmed && !confirmDiscard()) return
+  if (!confirmed && !(await confirmDiscard())) return
   stopPublishWatch()
   templateNotice.value = null
   permissionNotice.value = null
@@ -3231,8 +3234,8 @@ function newAssignment({ confirmed = false } = {}) {
   snapshotForm()
 }
 
-function editAssignment(a, { confirmed = false } = {}) {
-  if (!confirmed && editing.value && editing.value.id !== a.id && !confirmDiscard()) return
+async function editAssignment(a, { confirmed = false } = {}) {
+  if (!confirmed && editing.value && editing.value.id !== a.id && !(await confirmDiscard())) return
   stopPublishWatch()
   if (templateNotice.value?.id !== a.id) templateNotice.value = null
   if (permissionNotice.value?.id !== a.id) permissionNotice.value = null
@@ -3394,10 +3397,10 @@ function editAssignment(a, { confirmed = false } = {}) {
 // A new assignment: back to the list (leaving asks about what was typed).
 // Settings: undo the edits and stay, because this tab IS the assignment's
 // settings - there is nowhere to go back to.
-function cancelEdit() {
+async function cancelEdit() {
   if (!props.embedded) return leaveEditor()
   const stored = assignments.value.find((a) => a.id === props.assignmentId)
-  if (!stored || !confirmDiscard()) return
+  if (!stored || !(await confirmDiscard())) return
   editAssignment(stored, { confirmed: true })
 }
 
@@ -4637,10 +4640,11 @@ async function handlePublishClick() {
   // archived assignment puts the cohort back to accepting. Every other thing
   // in this row that changes state says so first; this one has to as well.
   const reopening = form.value.state === 'closed' || form.value.state === 'archived'
-  if (reopening && !window.confirm(
-    `Reopen "${form.value.id}" for acceptance? Publishing sets its state back to published, ` +
-    `so students can accept it again until the deadline.`
-  )) return
+  if (reopening && !(await askConfirm({
+    title: `Reopen "${form.value.title || form.value.id}" for acceptance?`,
+    paragraphs: ['Publishing sets it back to published, so students with the link can accept it again until the deadline.'],
+    confirmLabel: 'Reopen for acceptance',
+  }))) return
 
   // SAVE FIRST. publish-assignment.yml reads the STORED document, so pressing
   // Publish with edits on screen dispatched against the previously saved
@@ -4727,7 +4731,12 @@ async function deleteDraft() {
   // Said by the assignment's title and in what it means to the lecturer, not
   // by its id and the file it lives in (DESIGN.md §1.6).
   const name = form.value.title || form.value.id
-  if (!window.confirm(`Delete the draft "${name}"? Nobody can have accepted it, so no student repository exists.`)) return
+  if (!(await askConfirm({
+    title: `Delete the draft "${name}"?`,
+    paragraphs: ['Nobody can have accepted it, so no student repository exists.'],
+    confirmLabel: 'Delete draft',
+    destructive: true,
+  }))) return
   deleting.value = true
   try {
     const token = getToken()
@@ -5033,12 +5042,29 @@ async function deleteAssignment() {
 }
 
 async function setState(newState) {
-  const warnings = {
-    draft: `Unpublish "${form.value.id}" back to draft? Students can no longer open the accept link.`,
-    closed: `Close "${form.value.id}"? Students can no longer accept it (existing repos are unaffected).`,
-    archived: `Archive "${form.value.id}"? It leaves the student-facing list and day-to-day tracking.`,
+  // Asked in the state menu's own words (lib/state-actions.js), by title.
+  const name = form.value.title || form.value.id
+  const questions = {
+    draft: {
+      title: `Move "${name}" back to draft?`,
+      paragraphs: ['The invitation link stops working, so students can no longer open it. Existing repositories are untouched.'],
+      confirmLabel: 'Back to draft',
+      destructive: true,
+    },
+    closed: {
+      title: `Stop accepting "${name}"?`,
+      paragraphs: ['Nobody new can accept it. Existing repositories are untouched.'],
+      confirmLabel: 'Stop accepting',
+      destructive: true,
+    },
+    archived: {
+      title: `Archive "${name}"?`,
+      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Existing repositories are untouched.'],
+      confirmLabel: 'Archive',
+      destructive: true,
+    },
   }
-  if (warnings[newState] && !window.confirm(warnings[newState])) return
+  if (questions[newState] && !(await askConfirm(questions[newState]))) return
   const before = form.value.state
   saving.value = true
   try {

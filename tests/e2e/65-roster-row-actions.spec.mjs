@@ -22,7 +22,7 @@
 // their email. Most of that vocabulary was the model's words leaking out.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, personaId, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, personaId, setupStandardMockRoutes, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 import { PROMOTED_SOURCE } from '../../lib/roster-entries.mjs';
 
 // A promoted row that knows nothing, one the harvest has filled in, and an
@@ -152,20 +152,44 @@ test.describe('65 - the row menu', () => {
       claims: [],
       claimAttempts: { [blockedId]: { schema_version: 1, failures: 5, first_at: '2026-09-26T00:00:00Z', last_at: '2026-09-26T00:00:00Z' } },
     });
-    page.once('dialog', (d) => d.accept('@alice-gh'));
     const deleted = page.waitForRequest((r) => r.method() === 'DELETE' && r.url().includes(`students/claim-attempts/${blockedId}.json`));
     await menuFor(page, 'Alice Example').click();
     await item(page, /Clear failed attempts/).click();
+    // Asked in the page with a field to type in, which has the focus; a
+    // leading @ is accepted, as a lecturer copies it from a refusal.
+    const field = page.locator('.confirm-dialog input');
+    await expect(field).toBeFocused();
+    await field.fill('@alice-gh');
+    await field.press('Enter');
     await deleted;
     await expect(page.getByText(/Cleared\. @alice-gh can confirm an address again/)).toBeVisible();
   });
 
   test('...and says so when there was nothing to clear, rather than claiming it cleared something', async ({ page }) => {
     await openRoster(page, { claims: [] });
-    page.once('dialog', (d) => d.accept('alice-gh'));
     await menuFor(page, 'Alice Example').click();
     await item(page, /Clear failed attempts/).click();
+    await page.locator('.confirm-dialog input').fill('alice-gh');
+    await answerConfirm(page);
     await expect(page.getByText(/had no failed attempts in this organization/)).toBeVisible();
+  });
+
+  test('Cancel, and an empty answer, clear nothing', async ({ page }) => {
+    await openRoster(page, { claims: [] });
+    const deletes = [];
+    page.on('request', (r) => { if (r.method() === 'DELETE') deletes.push(r.url()); });
+    await menuFor(page, 'Alice Example').click();
+    await item(page, /Clear failed attempts/).click();
+    await page.locator('.confirm-dialog input').fill('alice-gh');
+    await answerConfirm(page, { accept: false });
+
+    await menuFor(page, 'Alice Example').click();
+    await item(page, /Clear failed attempts/).click();
+    await page.locator('.confirm-dialog input').fill('   ');
+    await page.locator('.confirm-dialog input').press('Enter');
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(deletes).toEqual([]);
   });
 });
 

@@ -10,7 +10,7 @@
 // still passed.
 
 import { test, expect } from '@playwright/test';
-import { setupStandardMockRoutes, injectAuth } from '../fixtures/e2e-fixtures.mjs';
+import { setupStandardMockRoutes, injectAuth, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
 
 const ORG = 'PXL-2TIN-CloudEssentials-2627';
 const LECTURER = { login: 'prof-cloud', name: 'Professor Cloud', id: 900001, token: 'mock_lecturer_token' };
@@ -138,9 +138,14 @@ test.describe('47 - Unlink', () => {
   test('unlinking removes the binding and the student can claim again', async ({ page }) => {
     await openRoster(page, { claims: [claim('alice-gh', 111, 'alice@student.pxl.be')] });
 
-    page.once('dialog', (d) => d.accept());
     await openRowMenu(page, 'Alice Claimed');
     await forgetItem(page).click();
+    // Asked in the menu item's own words (DESIGN.md §1.7), never "Unlink".
+    const ask = page.locator('.confirm-dialog');
+    await expect(ask).toContainText('Forget @alice-gh for alice@student.pxl.be?');
+    await expect(ask).not.toContainText(/unlink/i);
+    await expect(ask.getByRole('button', { name: 'Forget this account' })).toHaveClass(/btn-danger/);
+    await answerConfirm(page);
 
     // The list is re-read after the delete, so the row falls back to unbound.
     await expect(row(page, 'Alice Claimed').locator('.badge-success')).toHaveCount(0);
@@ -151,9 +156,9 @@ test.describe('47 - Unlink', () => {
   test('declining the confirmation changes nothing', async ({ page }) => {
     await openRoster(page, { claims: [claim('alice-gh', 111, 'alice@student.pxl.be')] });
 
-    page.once('dialog', (d) => d.dismiss());
     await openRowMenu(page, 'Alice Claimed');
     await forgetItem(page).click();
+    await answerConfirm(page, { accept: false });
 
     await expect(row(page, 'Alice Claimed').locator('.badge-success')).toContainText('@alice-gh');
   });
@@ -166,13 +171,11 @@ test.describe('47 - Unlink', () => {
       claims: [claim('alice-gh', 111, 'alice@student.pxl.be'), 'UNREADABLE'],
     });
 
-    let dialogShown = false;
-    page.once('dialog', (d) => { dialogShown = true; d.accept(); });
     await openRowMenu(page, 'Alice Claimed');
     await forgetItem(page).click();
 
     await expect(page.locator('[role="alert"]')).toContainText(/could not be read/i);
-    expect(dialogShown, 'it must refuse before asking, not ask and then fail').toBe(false);
+    await expect(page.locator('.confirm-dialog'), 'it must refuse before asking, not ask and then fail').toHaveCount(0);
     await expect(row(page, 'Alice Claimed').locator('.badge-success')).toContainText('@alice-gh');
   });
 });

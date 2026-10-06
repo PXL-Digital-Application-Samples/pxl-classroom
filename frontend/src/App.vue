@@ -10,6 +10,9 @@
       <a :href="liveUrl">Open the live app</a>
     </div>
     <router-view />
+    <!-- Every confirmation the app asks (lib/confirm.js), after the view so it
+         stacks over the view's own dialogs. -->
+    <ConfirmHost />
     <Toast />
     <!-- Rendered here, not inside a view, and deliberately. The drawer is
          position: fixed, so any ancestor carrying a transform (fade-in leaves
@@ -20,6 +23,7 @@
 
 <script setup>
 import Toast from './components/Toast.vue'
+import ConfirmHost from './components/ConfirmHost.vue'
 import HelpDrawer from './components/HelpDrawer.vue'
 import { buildChannel, publicBaseUrl } from './lib/channel.js'
 import { BUILD_SHORT_SHA } from './lib/build-info.js'
