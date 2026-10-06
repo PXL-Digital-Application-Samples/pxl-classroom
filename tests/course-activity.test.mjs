@@ -27,6 +27,10 @@ test("after the deadline: locked or not, and who handed in", () => {
   const failed = activitySummary({ entry: past, lock: { locked_count: 39, error_count: 2 }, now });
   assert.equal(failed.attention, true);
   assert.ok(failed.phrases.includes("2 repositories could not be locked"));
+  // late_policy: report with lock-down off writes a record that locks nothing.
+  const reportOnly = activitySummary({ entry: past, lock: { lock_method: "none", locked_count: 0, error_count: 0 }, now });
+  assert.equal(reportOnly.phrases[1], "work collected at the deadline - this assignment does not lock");
+  assert.ok(!reportOnly.phrases.some((p) => /locked at the deadline/.test(p)));
 });
 
 test("a draft and a missing report say so", () => {

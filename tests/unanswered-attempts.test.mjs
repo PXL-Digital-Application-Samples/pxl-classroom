@@ -101,3 +101,18 @@ test("an email confirmation and an unrelated issue are not acceptance attempts",
   });
   assert.deepEqual(out, []);
 });
+
+test("a later issue that is not an acceptance does not hide the unanswered one before it", () => {
+  // Review 2026-10-06: the newest issue per student was picked BEFORE the
+  // title filter, so a complaint written on the broker after an unanswered
+  // attempt replaced it and was then skipped - the student who said something
+  // was the one dropped.
+  for (const later of ["I clicked accept and nothing happened", "Email confirmation (processed)", "Acceptance attempt (rejected)"]) {
+    const out = unansweredAttempts({
+      issues: [issue(5, "ann", "Acceptance (processed)", 600), issue(6, "ann", later, 500)],
+      acceptanceOf: none,
+      now,
+    });
+    assert.deepEqual(out.map((o) => o.number), [5], later);
+  }
+});
