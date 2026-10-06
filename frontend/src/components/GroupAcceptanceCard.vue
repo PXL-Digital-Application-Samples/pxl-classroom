@@ -468,7 +468,7 @@ import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import AttemptProgress from './AttemptProgress.vue'
 import {
-  GIVE_UP_MS, attemptProgress, findAttemptRun, hubRunsPath, progressMessage, progressSteps,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
 } from '../lib/acceptance-progress.js'
 
 const props = defineProps({
@@ -720,10 +720,7 @@ async function readAttemptProgress() {
   let runsRead = false
   try {
     const res = await ghApi(getToken(), 'GET', hubRunsPath({ owner: config.hubOwner, repo: config.hubRepo, sentAt }))
-    if (res.ok && Array.isArray(res.data?.workflow_runs)) {
-      runsRead = true
-      run = findAttemptRun(res.data.workflow_runs, { org: props.org, broker, issue: acceptanceIssue.value })
-    }
+    if (res.ok) ({ run, runsRead } = attemptRunFromPage(res.data, { org: props.org, broker, issue: acceptanceIssue.value }))
   } catch {
     // Unread: says nothing.
   }

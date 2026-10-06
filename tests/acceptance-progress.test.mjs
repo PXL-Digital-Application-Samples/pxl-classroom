@@ -8,6 +8,7 @@ import {
   BROKER_SLOW_MS,
   RETRY_OFFER_MS,
   attemptProgress,
+  attemptRunFromPage,
   findAttemptRun,
   hubRunsPath,
   issueStage,
@@ -46,6 +47,21 @@ test('the run is found by the name the hub gives it', () => {
   assert.equal(findAttemptRun(runs, { org: 'Org', broker: 'broker-lab', issue: 66 }).status, 'in_progress', 'the newest, if it ran twice')
   assert.equal(findAttemptRun(runs, { org: 'Org', broker: 'broker-lab', issue: 67 }), null)
   assert.equal(findAttemptRun(null, { org: 'Org', broker: 'broker-lab', issue: 66 }), null)
+})
+
+test('ONE PAGE IS NOT THE LIST: "not listed" means "not started" only when the page is all of it', () => {
+  // Review 2026-10-06: a busy exam start puts more than a page of acceptances
+  // after the attempt; its run fell off, and the page waited half an hour.
+  const attempt = { org: 'Org', broker: 'broker-lab', issue: 66 }
+  const other = { display_title: acceptanceRunName('Org/broker-lab', 65), status: 'completed' }
+  const mine = { display_title: acceptanceRunName('Org/broker-lab', 66), status: 'completed', conclusion: 'cancelled' }
+  assert.deepEqual(attemptRunFromPage({ total_count: 1, workflow_runs: [other] }, attempt), { run: null, runsRead: true })
+  assert.deepEqual(attemptRunFromPage({ total_count: 140, workflow_runs: [other] }, attempt), { run: null, runsRead: false })
+  assert.deepEqual(attemptRunFromPage({ total_count: 140, workflow_runs: [other, mine] }, attempt), { run: mine, runsRead: true })
+  assert.deepEqual(attemptRunFromPage({ workflow_runs: [other] }, attempt), { run: null, runsRead: true }, 'no count: as before')
+  assert.deepEqual(attemptRunFromPage(null, attempt), { run: null, runsRead: false })
+  // Unread, a handed-over attempt says nothing - never "waiting for GitHub".
+  assert.equal(attemptProgress({ title: HANDLED_TITLE_BY_PURPOSE.accept, run: null, runsRead: false, sentAt: SENT, now: at(600_000) }).step, 'unknown')
 })
 
 test('a request the broker has not started yet: patience, then the offer', () => {

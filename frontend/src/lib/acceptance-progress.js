@@ -82,6 +82,26 @@ export function findAttemptRun(runs, { org, broker, issue }) {
   )
 }
 
+/**
+ * This attempt's run, out of ONE PAGE of the hub's run list, and whether that
+ * page may say "not started yet": only when it is the whole list. One page is
+ * not the list - a busy exam start puts more than a page of acceptances after
+ * the attempt, its run falls off the page, and "no run listed" said "waiting
+ * for GitHub" for half an hour over a run that had already stopped.
+ *
+ * @param {unknown} data the run list's response body
+ * @param {{org: string, broker: string, issue: number|string}} attempt
+ * @returns {{run: object|null, runsRead: boolean}}
+ */
+export function attemptRunFromPage(data, attempt) {
+  const runs = Array.isArray(data?.workflow_runs) ? data.workflow_runs : null
+  if (!runs) return { run: null, runsRead: false }
+  const run = findAttemptRun(runs, attempt)
+  const total = Number(data?.total_count)
+  const whole = !Number.isFinite(total) || total <= runs.length
+  return { run, runsRead: !!run || whole }
+}
+
 const WAITING = new Set(['queued', 'pending', 'waiting', 'requested'])
 
 /**

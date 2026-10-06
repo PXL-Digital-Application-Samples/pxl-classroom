@@ -604,7 +604,7 @@ import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { recentAttempt } from '../lib/broker-teams.js'
 import {
-  GIVE_UP_MS, attemptProgress, findAttemptRun, hubRunsPath, progressMessage, progressSteps,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
 } from '../lib/acceptance-progress.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
@@ -1290,10 +1290,7 @@ async function readAttemptProgress() {
   let runsRead = false
   try {
     const res = await ghApi(getToken(), 'GET', hubRunsPath({ owner: config.hubOwner, repo: config.hubRepo, sentAt: attemptSentAt.value }))
-    if (res.ok && Array.isArray(res.data?.workflow_runs)) {
-      runsRead = true
-      run = findAttemptRun(res.data.workflow_runs, { org: props.org, broker, issue: acceptanceIssue.value })
-    }
+    if (res.ok) ({ run, runsRead } = attemptRunFromPage(res.data, { org: props.org, broker, issue: acceptanceIssue.value }))
   } catch {
     // Unread: says nothing.
   }
