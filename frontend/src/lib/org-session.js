@@ -105,6 +105,10 @@ async function loadOrgStatuses(list) {
 }
 
 let inFlight = null
+// Bumped by forgetOrgSession. A read started for the account that signed out
+// finishes after it, and wrote that account's organizations into the list the
+// next one to sign in, in the same tab, was then served from cache.
+let session = 0
 /**
  * The App installations this account can see, as organizations. Resolves to
  * the list; `force` refetches (returning from GitHub's install page).
@@ -113,10 +117,12 @@ export function loadOrgs(token, { force = false } = {}) {
   if (!token) return Promise.resolve(orgs.value)
   if (inFlight) return inFlight
   if (orgsLoaded.value && !force && !orgsLoadError.value) return Promise.resolve(orgs.value)
-  inFlight = (async () => {
+  const mine = session
+  const promise = (async () => {
     orgsLoadError.value = null
     try {
       const installs = await getInstallations(token)
+      if (mine !== session) return []
       if (!installs.ok) {
         orgsLoadError.value = `Failed to load installations (HTTP ${installs.status})`
         return orgs.value
@@ -128,14 +134,18 @@ export function loadOrgs(token, { force = false } = {}) {
       loadOrgStatuses(list)
       return list
     } catch (e) {
+      if (mine !== session) return []
       orgsLoadError.value = `Failed to load installations: ${e.message || 'unknown error'}`
       return orgs.value
     } finally {
-      orgsLoaded.value = true
-      inFlight = null
+      if (mine === session) {
+        orgsLoaded.value = true
+        inFlight = null
+      }
     }
   })()
-  return inFlight
+  inFlight = promise
+  return promise
 }
 
 // ------------------------------------------------------------- staff, so far
@@ -159,6 +169,8 @@ export const knownStaff = (org) => !!org && staffIn.value.get(normalizeLogin(org
 
 /** Signed out: nothing about the last account carries over. */
 export function forgetOrgSession() {
+  session++
+  inFlight = null
   orgs.value = []
   orgsLoaded.value = false
   orgsLoadError.value = null
