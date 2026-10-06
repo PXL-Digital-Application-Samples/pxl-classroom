@@ -491,7 +491,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
-import { teamPath, repositoryPath, acceptancePath } from '../../../lib/control-layout.mjs'
+import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
+import { sameLogin } from '../../../lib/github-login.mjs'
 import { planMemberRecordChanges, teamRepository } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
@@ -501,6 +502,7 @@ import {
   commitFiles,
   deleteFile,
   getRepoContent,
+  listRepoDir,
   addCollaborator,
   removeCollaborator,
   githubAccountExists,
@@ -1008,6 +1010,16 @@ async function moveMemberTo(login, targetSlug) {
   const target = (props.teams || []).find((t) => t.team_slug === targetSlug)
   if (!target) return
 
+  // A move closes Manage, and adds or removes made in it and not saved yet
+  // went with it, unasked. One thing at a time, as with a state change.
+  const shown = manageMembers.value || []
+  const opened = managingTeam.value.members || []
+  const pending = shown.length !== opened.length || shown.some((m) => !opened.some((o) => sameLogin(o, m)))
+  if (pending) {
+    toast.error('Save or undo the changes to this team first, then move.')
+    return
+  }
+
   // Written from the case in hand (lib team-edit.js): whether they accepted,
   // and whether each team has a repository. One sentence for every case said
   // "granted access to the Bravo repository" over a team that had none.
@@ -1172,14 +1184,20 @@ async function memberRecordChanges(token, login, toTeam) {
     const text = await getRepoContent(token, props.org, config.controlRepo, path)
     return text ? JSON.parse(text) : null
   }
+  // UNDER THE SPELLING THE RECORDS ARE FILED AT. A team file can carry the
+  // roster's spelling (`ella-dev`) while acceptance filed the student's records
+  // under GitHub's (`Ella-Dev.json`), and paths are case-sensitive: the read
+  // 404'd as "no record", and the save wrote a second record beside the real
+  // one - which still named the old team, so lockdown re-invited her there.
+  const filed = await recordSpelling(token, login)
   const [repoRecord, acceptance] = await Promise.all([
-    read(repositoryPath(props.assignment.id, login)),
-    read(acceptancePath(props.assignment.id, login)),
+    read(repositoryPath(props.assignment.id, filed)),
+    read(acceptancePath(props.assignment.id, filed)),
   ])
   const changes = planMemberRecordChanges({
     assignmentId: props.assignment.id,
     org: props.org,
-    login,
+    login: filed,
     toTeam,
     repoRecord,
     acceptance,
@@ -1197,6 +1215,26 @@ async function memberRecordChanges(token, login, toTeam) {
     }
   }
   return changes
+}
+
+/**
+ * The spelling this student's records are filed under for this assignment,
+ * matched lowercased (lib/github-login.mjs); the login as given when none is.
+ * THROWS on a listing that fails for any reason but absence, like the reads it
+ * serves: a guess here writes the second record this exists to prevent.
+ */
+async function recordSpelling(token, login) {
+  for (const dir of [repositoriesDir(props.assignment.id), acceptancesDir(props.assignment.id)]) {
+    let files = []
+    try {
+      files = await listRepoDir(token, props.org, config.controlRepo, dir)
+    } catch (e) {
+      if (e?.status !== 404) throw e
+    }
+    const hit = files.find((f) => f.type === 'file' && f.name.endsWith('.json') && sameLogin(f.name.slice(0, -'.json'.length), login))
+    if (hit) return hit.name.slice(0, -'.json'.length)
+  }
+  return login
 }
 
 /** The stored manifest at `path`, or null when it cannot be read or parsed. */
@@ -1249,13 +1287,35 @@ async function saveTeamMembers() {
       return
     }
 
+    // What this dialog changed: who was taken off and who was put on, against
+    // the list it OPENED with.
+    const removed = oldMembers.filter((m) => !newMembers.some((nm) => sameLogin(nm, m)))
+    const added = newMembers.filter((m) => !oldMembers.some((om) => sameLogin(om, m)))
+
+    // ...applied to the list as STORED NOW. Writing the list on screen dropped
+    // anyone who accepted into this team while the dialog was open - out of
+    // the team file, while their access and records stayed. And the cap is
+    // asked of that list, not of the one the dialog counted.
+    const stored = Array.isArray(existing.members) ? existing.members.map(String) : []
+    const members = [
+      ...stored.filter((m) => !removed.some((r) => sameLogin(r, m))),
+      ...added.filter((a) => !stored.some((s) => sameLogin(s, a))),
+    ]
+    if (added.length && members.length > maxTeamSize.value) {
+      toast.error(
+        `"${managingTeam.value.team_name || slug}" would have ${members.length} members, over its ${maxTeamSize.value}: ` +
+        'someone joined while this was open. Nothing was changed.',
+      )
+      return
+    }
+
     // Only what this modal actually changes. Everything else - created_by,
     // seeded_from, repo_id, and any field a later version adds - rides along
     // untouched.
     const teamDoc = {
       ...existing,
-      members: newMembers,
-      vacant: newMembers.length === 0,
+      members,
+      vacant: members.length === 0,
     }
 
     // Heal a manifest the old rebuild damaged instead of refusing it. Every
@@ -1276,10 +1336,6 @@ async function saveTeamMembers() {
       )
       return
     }
-
-    // Determine added and removed members
-    const removed = oldMembers.filter((m) => !newMembers.some((nm) => nm.toLowerCase() === m.toLowerCase()))
-    const added = newMembers.filter((m) => !oldMembers.some((om) => om.toLowerCase() === m.toLowerCase()))
 
     // Records for everyone whose membership changed, planned BEFORE any
     // collaborator is touched: an unreadable record refuses the whole save.
@@ -1380,13 +1436,33 @@ async function deleteVacantTeam(team) {
   try {
     const token = getToken()
     const path = teamPath(props.assignment.id, team.team_slug)
+    // VACANT AT THE CLICK, not when the page loaded. A student who joined in
+    // between lost their team file and kept their repository, and the next
+    // teammate was refused over grp-<slug>: a team assignment refuses an
+    // existing repository. Judged on the version the delete names.
     const res = await deleteFile(
       token,
       props.org,
       config.controlRepo,
       path,
-      `Delete vacant team ${team.team_slug} (${props.assignment.id})`
+      `Delete vacant team ${team.team_slug} (${props.assignment.id})`,
+      {
+        refuse: (text) => {
+          let doc = null
+          try { doc = JSON.parse(text) } catch { doc = null }
+          if (!doc || typeof doc !== 'object') return 'its file could not be read'
+          if (Array.isArray(doc.members) && doc.members.length) return `it has ${doc.members.length === 1 ? 'a member' : `${doc.members.length} members`} now`
+          // A repository the page did not show: somebody's run created one.
+          if (doc.repo_name && !team.repo_name) return 'it has a repository now'
+          return null
+        },
+      },
     )
+    if (res.refused) {
+      toast.error(`"${team.team_name || team.team_slug}" was not deleted: ${res.refused}. Someone may have joined since this page loaded.`)
+      emit('refresh')
+      return
+    }
     if (res.ok) {
       await republishTeams(token)
       toast.success(`Team "${team.team_name || team.team_slug}" deleted successfully.`)

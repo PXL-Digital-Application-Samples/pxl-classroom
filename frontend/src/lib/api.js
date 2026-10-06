@@ -680,9 +680,23 @@ export async function listClaims(token, org, controlRepo, { concurrency = 6 } = 
  * Delete a file from a repository. Returns { ok: false } when the file
  * doesn't exist (nothing to delete).
  */
-export async function deleteFile(token, owner, repo, path, message) {
+export async function deleteFile(token, owner, repo, path, message, { refuse } = {}) {
   const getRes = await ghApi(token, 'GET', `/repos/${owner}/${repo}/contents/${path}`)
   if (!getRes.ok || !getRes.data?.sha) return { ok: false, status: getRes.status, data: getRes.data }
+  // `refuse(text)` reads the version about to be deleted and says why it must
+  // not be, or null. The SAME version whose sha the DELETE names: a write in
+  // between makes GitHub refuse the delete, rather than delete what nobody read.
+  if (refuse) {
+    let text = null
+    try {
+      const bin = atob(String(getRes.data.content || '').replace(/\n/g, ''))
+      text = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+    } catch {
+      text = null
+    }
+    const why = refuse(text)
+    if (why) return { ok: false, status: 0, refused: why, data: { message: why } }
+  }
   return ghApi(token, 'DELETE', `/repos/${owner}/${repo}/contents/${path}`, {
     message,
     sha: getRes.data.sha,
