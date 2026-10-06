@@ -147,3 +147,22 @@ test("a failed write is a failed step, not a record pushed around it", () => {
   assert.notEqual(res.status, 0, "a failed write reported success");
   assert.equal(git(remote, "rev-parse", "main"), before);
 });
+
+test("a remote that stops answering is a failed step, never 'Nothing to record.'", () => {
+  // Review 2026-10-06: the push failed, the fetch after it failed too, and the
+  // loop wrote the record again on top of its own unpushed commit - found
+  // nothing new, said "Nothing to record." and exited 0, while a FAILED record
+  // never reached the branch.
+  const remote = remoteWith({
+    [`acceptances/${ID}/Fars.json`]: acceptance("Fars", "424242"),
+    [`teams/${ID}/fullhouse.json`]: team(["Fars"]),
+  });
+  const before = git(remote, "rev-parse", "main");
+  const dir = checkout(remote);
+  git(dir, "remote", "set-url", "origin", join(tmpdir(), `gone-${Date.now()}`));
+  const res = record(dir, { OUTCOME: "fail:grant", TEAM_SLUG: "", MAX_RETRIES: "3" });
+  assert.notEqual(res.status, 0, `reported success: ${res.stdout}`);
+  assert.doesNotMatch(res.stdout, /Nothing to record/);
+  assert.match(res.stderr, /could not be pushed after 3 attempts/);
+  assert.equal(git(remote, "rev-parse", "main"), before);
+});

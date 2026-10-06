@@ -97,22 +97,28 @@ apply() {
 }
 
 attempt=0
+# 1 while this run's record commit exists and has not reached the branch
+# because the FETCH failed, so the next pass pushes it as it is.
+unpushed=0
 while :; do
   attempt=$((attempt + 1))
-  if ! still_ours; then
-    echo "::notice::A newer attempt by ${LOGIN} for ${ASSIGNMENT_ID} was decided while this one was provisioning; it owns the record, so this run writes nothing."
-    exit 0
+  if [ "$unpushed" -eq 0 ]; then
+    if ! still_ours; then
+      echo "::notice::A newer attempt by ${LOGIN} for ${ASSIGNMENT_ID} was decided while this one was provisioning; it owns the record, so this run writes nothing."
+      exit 0
+    fi
+    rc=0
+    apply || rc=$?
+    if [ "$rc" -eq 1 ]; then
+      echo "Nothing to record."
+      exit 0
+    fi
+    if [ "$rc" -ne 0 ]; then
+      echo "::error::Writing the record for ${LOGIN} on ${ASSIGNMENT_ID} failed (see above); nothing was pushed." >&2
+      exit 1
+    fi
   fi
-  rc=0
-  apply || rc=$?
-  if [ "$rc" -eq 1 ]; then
-    echo "Nothing to record."
-    exit 0
-  fi
-  if [ "$rc" -ne 0 ]; then
-    echo "::error::Writing the record for ${LOGIN} on ${ASSIGNMENT_ID} failed (see above); nothing was pushed." >&2
-    exit 1
-  fi
+  unpushed=0
   if git -C "$DIR" push -q origin "HEAD:refs/heads/${BRANCH}"; then
     exit 0
   fi
@@ -128,7 +134,14 @@ while :; do
   SLEEP_TIME=$(( 1 + RANDOM % CAP ))
   echo "Push refused (another run pushed first). Writing the record again on the latest state in ${SLEEP_TIME}s (attempt ${attempt}/${MAX_RETRIES})..."
   sleep "$SLEEP_TIME"
-  git -C "$DIR" fetch -q origin "$BRANCH" || continue
+  # A fetch that fails is not a refusal: the remote did not answer. The commit
+  # is still here, unpushed, and writing the record again on top of it found
+  # nothing new - "Nothing to record.", exit 0, over a record (a FAILED one,
+  # say) that never reached the branch. Push the same commit again instead.
+  if ! git -C "$DIR" fetch -q origin "$BRANCH"; then
+    unpushed=1
+    continue
+  fi
   # The push may have landed with its answer lost on the way back. Writing the
   # record again on top would be a second, identical commit at best.
   if git -C "$DIR" merge-base --is-ancestor HEAD FETCH_HEAD; then

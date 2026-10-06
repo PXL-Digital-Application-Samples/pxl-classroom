@@ -32,9 +32,13 @@ const script = join(root, "provisioning", "provision.mjs");
  * so it is past the window in which another run may still be filling it
  * (lib/existing-repo.mjs `mayStillBeFilling`); `null` leaves it out.
  */
-async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = new Date(Date.now() - 3600_000).toISOString() } = {}) {
+async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = new Date(Date.now() - 3600_000).toISOString(), fillsAfter = Infinity } = {}) {
   const calls = [];
   let state = target;
+  // `fillsAfter`: how many reads of the root listing an EMPTY repository
+  // answers empty before another run's template copy lands in it. Infinity is
+  // a leftover nothing will ever fill.
+  let contentReads = 0;
   const server = createServer((req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { "content-type": "application/json" });
@@ -60,6 +64,10 @@ async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = 
             html_url: "https://github.com/Org/lab-ann",
             ...(createdAt ? { created_at: createdAt } : {}),
           });
+    }
+    if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") {
+      if (state === "empty" && ++contentReads > fillsAfter) state = "has-commits";
+      return state === "empty" ? send(404, { message: "This repository is empty." }) : send(200, [{ name: "README.md", type: "file" }]);
     }
     if (url === "/repos/Org/lab-ann/commits") {
       if (state === "empty") return send(409, { message: "Git Repository is empty." });
@@ -106,6 +114,8 @@ function provision(apiBase, { dryRun = false, recreateEmpty = "true" } = {}) {
         DRY_RUN: dryRun ? "1" : "0",
         RECREATE_EMPTY: recreateEmpty,
         FEEDBACK_PR: "false",
+        // Two checks, not sixty: the stub either fills or never will.
+        PXL_FILL_WAIT_CHECKS: "2",
         GITHUB_OUTPUT: join(dir, "out.env"),
         GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
       },
@@ -208,6 +218,21 @@ test("an empty repository created minutes ago is kept - another run may still be
     assert.match(res.outputs, /^outcome=reused$/m);
     assert.ok(!calls.some((c) => c.startsWith("DELETE ")), `a young repository was removed: ${calls.join(" | ")}`);
     assert.match(res.log, /another run may still be filling it/);
+    assert.ok(calls.includes("GET /repos/Org/lab-ann/contents/"), "it is handed out only once it has filled");
+  }, { target: "empty", createdAt: new Date(Date.now() - 60_000).toISOString(), fillsAfter: 1 });
+});
+
+test("a kept repository that never fills fails, naming it - never reused empty", async () => {
+  // Review 2026-10-06: a generate that failed after GitHub created the
+  // repository, retried inside ten minutes, was reported `reused` with no
+  // starter code, because only the autograding and feedback writers waited.
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.notEqual(res.status, 0, res.log);
+    assert.match(res.log, /fail:create/);
+    assert.match(res.log, /Org\/lab-ann exists and is still empty/);
+    assert.doesNotMatch(res.outputs, /^outcome=reused$/m);
+    assert.ok(!calls.some((c) => c.startsWith("DELETE ")), "still young: not removed");
   }, { target: "empty", createdAt: new Date(Date.now() - 60_000).toISOString() });
 });
 
@@ -216,7 +241,7 @@ test("an empty repository whose age cannot be read is kept, not removed on a gue
     const res = await provision(api);
     assert.equal(res.status, 0, res.log);
     assert.ok(!calls.some((c) => c.startsWith("DELETE ")), "unknown age is not evidence of an old leftover");
-  }, { target: "empty", createdAt: null });
+  }, { target: "empty", createdAt: null, fillsAfter: 1 });
 });
 
 test("mayStillBeFilling: young is true, old is false, unreadable is unknown", () => {

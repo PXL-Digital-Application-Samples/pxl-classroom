@@ -112,6 +112,10 @@ function validate() {
 // first. Only the writers call this, so an ordinary assignment - no autograde
 // block, no feedback PR - pays nothing and its timing is unchanged.
 let repoPopulated = false;
+// How many 2-second checks a KEPT empty repository gets to fill (step 3):
+// two minutes, inside the job's fifteen. `PXL_FILL_WAIT_CHECKS` exists for the
+// unit test, which would otherwise wait the two minutes for a stub.
+const FILL_WAIT_CHECKS = Number(process.env.PXL_FILL_WAIT_CHECKS) > 0 ? Number(process.env.PXL_FILL_WAIT_CHECKS) : 60;
 async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
   if (repoPopulated) return true;
   for (let i = 0; i < attempts; i++) {
@@ -543,6 +547,20 @@ async function main() {
           (stillFilling ? "was created less than ten minutes ago" : "its age could not be read") +
           ` - another run may still be filling it, so it is kept. A later attempt removes it if it is still empty.`,
       });
+      // KEPT, SO IT HAS TO FILL BEFORE IT IS HANDED OUT. Only the writers below
+      // waited, so an assignment with no autograding and no feedback PR handed
+      // out whatever was there: a `generate` that failed after GitHub created
+      // the repository, retried inside the ten minutes, was reported `reused`
+      // with no starter code (review 2026-10-06). Another run's repository
+      // fills in seconds; a leftover never does, and says so.
+      if (!cfg.dryRun && !(await ensureRepoPopulated({ attempts: FILL_WAIT_CHECKS, delayMs: 2000 }))) {
+        await fail(
+          "fail:create",
+          `${cfg.org}/${cfg.targetRepo} exists and is still empty: an earlier attempt left it, or GitHub has not ` +
+            `finished copying the template into it. Retry this student in ten minutes - an attempt then removes it ` +
+            `and creates it again.`,
+        );
+      }
     } else if (empty === true && cfg.dryRun) {
       log("idempotency", { ok: true, note: `exists id=${existing.data.id} and is EMPTY - a real run would remove it and create it again` });
     } else if (empty === true) {
