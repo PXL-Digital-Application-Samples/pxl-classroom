@@ -631,7 +631,8 @@ test("the form's actions are not repeated top and bottom", () => {
   // editor until this workstream.
   const src = adminSrc();
   const template = src.slice(0, src.indexOf("<script setup>"));
-  const saves = template.match(/@click="saveAndPublish"/g) || [];
+  // One button, whichever it does: closed and archived save as they are.
+  const saves = template.match(/@click="(?:saveKeepsState \? saveKeepingState\(\) : )?saveAndPublish(?:\(\))?"/g) || [];
   assert.equal(saves.length, 1, "exactly one Save & publish button in the editor");
   assert.ok(
     !/<div class="actions">/.test(template),

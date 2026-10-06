@@ -12,10 +12,10 @@
  * offered only where it was before - a draft, or an assignment that no longer
  * accepts.
  *
- * @param {{state?: string|null, deadlinePassed?: boolean}} args
+ * @param {{state?: string|null, deadlinePassed?: boolean, everPublished?: boolean}} args
  * @returns {Array<{key: string, label: string, sub: string, danger?: boolean}>}
  */
-export function stateActions({ state, deadlinePassed = false }) {
+export function stateActions({ state, deadlinePassed = false, everPublished = false }) {
   // Not "cannot be undone": a student can be let back in from their row.
   const freeze = deadlinePassed
     ? [{ key: 'freeze', label: 'Lock everyone out now', sub: 'Takes away every student\'s write access and archives their work. Asks for confirmation first.', danger: true }]
@@ -30,9 +30,16 @@ export function stateActions({ state, deadlinePassed = false }) {
     : { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }
   switch (state) {
     case 'draft':
+      // A draft that was PUBLISHED BEFORE (Back to draft) has a broker, maybe
+      // students and their repositories. "Delete draft" removed the file and
+      // nothing else - the public broker kept its key with nothing left to
+      // close it - and said nobody had accepted. Such a draft gets the full
+      // delete, which removes the broker and keeps a record.
       return [
         { key: 'publish', label: 'Publish', sub: 'Creates the invitation and lets students accept' },
-        { key: 'delete-draft', label: 'Delete draft', sub: 'Removes this draft. Nobody has accepted it.', danger: true },
+        everPublished
+          ? { key: 'delete', label: 'Delete assignment…', sub: 'It was published before. Asks for confirmation first', danger: true }
+          : { key: 'delete-draft', label: 'Delete draft', sub: 'Removes this draft. It was never published.', danger: true },
       ]
     case 'published':
       return [
@@ -57,4 +64,17 @@ export function stateActions({ state, deadlinePassed = false }) {
     default:
       return []
   }
+}
+
+/**
+ * Was this assignment ever published? Publishing writes the invitation fields
+ * (`invite_*`, publish-assignment.yml) and nothing removes them, so a draft
+ * that carries one went live at some point and may have a broker and students.
+ *
+ * @param {object|null|undefined} assignment the stored document
+ */
+export function everPublished(assignment) {
+  const a = assignment || {}
+  return a.state === 'published' || a.state === 'closed' || a.state === 'archived'
+    || ['invite_key', 'invite_pubkey', 'invite_nonce', 'invite_token'].some((f) => typeof a[f] === 'string' && a[f] !== '')
 }

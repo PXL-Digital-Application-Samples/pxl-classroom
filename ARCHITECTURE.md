@@ -800,12 +800,16 @@ trigger-dashboard: dispatches regenerate-dashboard.yml
 ```
 Lecturer opens the assignment editor -> Publish Assignment
    v
-SPA dispatches publish-assignment.yml with {org, assignment_id}
+SPA dispatches publish-assignment.yml with {org, assignment_id, prior_state}
+   (prior_state: what it was before Save & publish wrote `published`)
    v
 publish-assignment.yml:
    a. Mints App token for org, checks out control repo
-   b. Validates assignments/<id>.yml exists
-   c. Records the prior state, so a failure can revert it
+   b. Records the prior state - first, before any step that can fail, so a
+      failure or a refusal puts back exactly that; an unknown prior state
+      leaves the file alone, never defaults to draft
+   c. Validates assignments/<id>.yml exists, refuses a finished assignment
+      (lib/finished-assignment.mjs) and runs the preflight
    d. Mints the invitation: a P-256 keypair and a nonce, written to
       assignments/<id>.yml as invite_key / invite_pubkey / invite_nonce.
       Reused on republish so live links survive; regenerate_invite: true

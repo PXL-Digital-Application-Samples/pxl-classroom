@@ -112,7 +112,7 @@ import Icon from './Icon.vue'
 import InvitationShare from './InvitationShare.vue'
 import { assignmentStateLabel } from '../lib/status-labels.js'
 import { formatDate, formatRelative } from '../lib/format.js'
-import { stateActions } from '../lib/state-actions.js'
+import { stateActions, everPublished } from '../lib/state-actions.js'
 import { keepMenuInView } from '../lib/menu-position.js'
 
 const props = defineProps({
@@ -142,7 +142,11 @@ const deadline = computed(() => props.assignment?.deadline_at || null)
 const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.value) < Date.now())
 const deadlineRelative = computed(() => (deadline.value ? formatRelative(deadline.value) : ''))
 const deadlineAbs = computed(() => (deadline.value ? formatDate(deadline.value, props.assignment?.timezone) : ''))
-const actions = computed(() => stateActions({ state: state.value, deadlinePassed: deadlinePassed.value }))
+const actions = computed(() => stateActions({
+  state: state.value,
+  deadlinePassed: deadlinePassed.value,
+  everPublished: everPublished(props.assignment),
+}))
 
 // A link just regenerated is retired at once, while the stored assignment still
 // holds it until the workflow writes the new one. Offering it would hand out a

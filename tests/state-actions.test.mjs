@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stateActions } from "../frontend/src/lib/state-actions.js";
+import { stateActions, everPublished } from "../frontend/src/lib/state-actions.js";
 
 const STATES = ["draft", "published", "closed", "archived"];
 
@@ -60,4 +60,22 @@ test("destructive entries come last, so the menu separates them once", () => {
 test("an unknown state offers nothing rather than guessing", () => {
   assert.deepEqual(stateActions({ state: null }), []);
   assert.deepEqual(stateActions({ state: "something-new" }), []);
+});
+
+test("a draft that was published before is deleted in full, never as a bare file", () => {
+  // Back to draft, then Delete draft, removed the YAML alone: the public
+  // broker kept its key and acceptance, with nothing left to close it, under
+  // a confirmation saying nobody could have accepted.
+  const fresh = stateActions({ state: "draft", everPublished: false }).map((a) => a.key);
+  assert.ok(fresh.includes("delete-draft") && !fresh.includes("delete"));
+  const once = stateActions({ state: "draft", everPublished: true }).map((a) => a.key);
+  assert.ok(once.includes("delete") && !once.includes("delete-draft"));
+
+  assert.equal(everPublished({ state: "draft" }), false);
+  assert.equal(everPublished({ state: "draft", invite_key: "" }), false, "an empty field is not an invitation");
+  for (const f of ["invite_key", "invite_pubkey", "invite_nonce", "invite_token"]) {
+    assert.equal(everPublished({ state: "draft", [f]: "x" }), true, f);
+  }
+  assert.equal(everPublished({ state: "closed" }), true);
+  assert.equal(everPublished(null), false);
 });

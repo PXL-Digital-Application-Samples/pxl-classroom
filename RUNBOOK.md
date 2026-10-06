@@ -156,7 +156,11 @@ Once it is published, its **Settings** tab - the last tab of the assignment's pa
 
 **Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
 
-If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see ADMIN.md §1.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again.
+If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see ADMIN.md §1.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again. If the workflow itself fails or refuses, it puts back the state the assignment had before you pressed the button (draft, closed or archived) and never demotes one that was already published.
+
+**A closed or archived assignment saves as it is.** Its button is **Save**, not *Save & publish*: fixing something in a closed exam does not reopen it. Reopening is the state button's **Reopen for acceptance**. A finished assignment (deadline passed, submissions locked) is refused before anything is written, with the reason: move the deadline into the future first.
+
+**Delete draft** is offered only on a draft that was never published. A draft that was published before (**Back to draft**) has a broker and possibly students, so it offers **Delete assignment…**, the full delete.
 
 This dispatches `publish-assignment.yml`, which:
 

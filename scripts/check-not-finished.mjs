@@ -17,17 +17,25 @@ if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(id)) {
   process.exit(1);
 }
 
-const file = join(dataDir, assignmentPath(id));
-if (!existsSync(file)) {
-  // Not a YAML assignment (the workflow's own validation decides whether it
-  // exists at all); nothing here to judge.
-  console.log(`No ${assignmentPath(id)} - not checked.`);
+// Both shapes the workflow's own validation accepts. Reading only `<id>.yml`
+// let a finished legacy JSON assignment be published again - acceptance back
+// on, the key back on its public broker - which the nightly finalizes like any
+// other. loadYaml reads JSON too.
+const yml = join(dataDir, assignmentPath(id));
+const json = yml.replace(/\.yml$/, ".json");
+const file = existsSync(yml) ? yml : existsSync(json) ? json : null;
+if (!file) {
+  // The workflow's own validation decides whether it exists at all.
+  console.log(`No ${assignmentPath(id)} or .json - not checked.`);
   process.exit(0);
 }
 const assignment = await loadYaml(file);
+// An unparseable deadline is no deadline here: new Date("garbage").toISOString()
+// throws, which would fail the publish over a field the schema already judges.
+const deadline = assignment?.deadline_at ? new Date(assignment.deadline_at) : null;
 const refusal = republishRefusal({
   assignmentId: id,
-  deadlineAt: assignment?.deadline_at ? new Date(assignment.deadline_at).toISOString() : null,
+  deadlineAt: deadline && Number.isFinite(deadline.getTime()) ? deadline.toISOString() : null,
   lockRan: existsSync(join(dataDir, lockdownRecordPath(id))),
 });
 if (refusal) {

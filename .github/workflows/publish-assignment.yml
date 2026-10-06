@@ -18,6 +18,10 @@ on:
         description: "Dry run"
         type: boolean
         default: false
+      prior_state:
+        description: "The state before this publish (the editor writes published before dispatching); empty reads the file"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -77,6 +81,55 @@ jobs:
           repository: ${{ inputs.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
           path: control
+
+      # What state was this assignment in before this publish? A publish that
+      # fails must undo its own transition and nothing else - demoting an
+      # assignment that was ALREADY published, because a repair republish failed,
+      # would strand every student behind rejected:not-published.
+      #
+      # FIRST, before any step that can fail. It sat after the broker check, the
+      # validation, the finished-assignment guard and the preflight, so when any
+      # of those failed it never ran, its output was empty, and the revert read
+      # empty as "not published" and wrote `state: draft` - a refused republish
+      # of a finished exam demoted it to a draft with nothing to bring it back.
+      #
+      # The editor writes `state: published` BEFORE it dispatches, so the file
+      # says published by the time this reads it; the editor therefore sends
+      # what it was (`prior_state`). The file is the answer only when nothing
+      # was sent (the Actions tab, System health, an older open tab).
+      - name: Record prior state
+        id: prior
+        if: inputs.dry_run != true
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          SENT_STATE: ${{ inputs.prior_state }}
+        run: |
+          STATE=""
+          case "$SENT_STATE" in
+            draft|published|closed|archived) STATE="$SENT_STATE" ;;
+            "") ;;
+            *) echo "::error::prior_state must be draft, published, closed or archived"; exit 1 ;;
+          esac
+          YML="control/assignments/${ASSIGNMENT_ID}.yml"
+          JSON="control/assignments/${ASSIGNMENT_ID}.json"
+          if [ -n "$STATE" ]; then
+            :
+          elif [ -f "$YML" ]; then
+            STATE=$(grep -m1 '^state:' "$YML" | awk '{print $2}' || true)
+          elif [ -f "$JSON" ]; then
+            # Same reason the revert handles both: a JSON assignment recorded no
+            # prior state, so the revert had nothing to restore it to.
+            #
+            # Not `node -p "require('./$JSON')…"`: that is inline JS in workflow
+            # YAML with a shell value composed into its source text, and its
+            # `2>/dev/null || true` turned an unreadable file into "no prior
+            # state" - which is the one answer that makes the revert strand the
+            # assignment. A file that cannot be parsed now fails here instead.
+            # node:fs only, so the runner's own Node reads it before setup-node.
+            STATE=$(node scripts/read-json-field.mjs "$JSON" state)
+          fi
+          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "Prior state: ${STATE:-<unknown>}"
 
       # THE BROKER CREDENTIAL, AND WHY IT IS NOT THE APP KEY.
       #
@@ -192,35 +245,6 @@ jobs:
           else
             echo "::notice::No YAML assignment at $YML - publish preflight skipped"
           fi
-
-      # What state was this assignment in before we touched it? A publish that
-      # fails must undo its own transition and nothing else - demoting an
-      # assignment that was ALREADY published, because a repair republish failed,
-      # would strand every student behind rejected:not-published.
-      - name: Record prior state
-        id: prior
-        if: inputs.dry_run != true
-        env:
-          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
-        run: |
-          STATE=""
-          YML="control/assignments/${ASSIGNMENT_ID}.yml"
-          JSON="control/assignments/${ASSIGNMENT_ID}.json"
-          if [ -f "$YML" ]; then
-            STATE=$(grep -m1 '^state:' "$YML" | awk '{print $2}' || true)
-          elif [ -f "$JSON" ]; then
-            # Same reason the revert handles both: a JSON assignment recorded no
-            # prior state, so the revert had nothing to restore it to.
-            #
-            # Not `node -p "require('./$JSON')…"`: that is inline JS in workflow
-            # YAML with a shell value composed into its source text, and its
-            # `2>/dev/null || true` turned an unreadable file into "no prior
-            # state" - which is the one answer that makes the revert strand the
-            # assignment. A file that cannot be parsed now fails here instead.
-            STATE=$(node scripts/read-json-field.mjs "$JSON" state)
-          fi
-          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
-          echo "Prior state: ${STATE:-<unknown>}"
 
       # Mints the signed invitation token and records it in the PRIVATE control
       # repo. Republishing keeps the existing link alive; regenerate_invite
@@ -458,14 +482,22 @@ jobs:
       #
       # It also commits whatever the mint step produced, so the invitation is not
       # thrown away and the next publish reuses the same link.
+      #
+      # Only to a state that was READ. An unknown prior state is not "draft":
+      # that default is what turned a refused republish of a finished exam into
+      # a draft. Unknown leaves the file as it is and says so.
       - name: Revert to prior state on failure
-        if: failure() && inputs.dry_run != true && steps.prior.outputs.state != 'published'
+        if: failure() && inputs.dry_run != true && steps.prior.outcome == 'success' && steps.prior.outputs.state != 'published'
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           PRIOR_STATE: ${{ steps.prior.outputs.state }}
         run: |
           set -e
-          TARGET="${PRIOR_STATE:-draft}"
+          if [ -z "$PRIOR_STATE" ]; then
+            echo "::warning::Publish failed and the state before it is unknown, so ${ASSIGNMENT_ID} is left as it is."
+            exit 0
+          fi
+          TARGET="$PRIOR_STATE"
           # Both shapes. `[ -f "$FILE.yml" ] || exit 0` meant a JSON assignment
           # was never reverted - which leaves exactly the stranded
           # `state: published` with no working invitation that this step exists

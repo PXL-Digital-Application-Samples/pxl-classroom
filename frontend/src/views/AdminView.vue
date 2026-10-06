@@ -1385,9 +1385,9 @@
               <button
                 :class="['btn', saveIsPrimary ? 'btn-primary' : '']"
                 type="button"
-                @click="saveAndPublish"
+                @click="saveKeepsState ? saveKeepingState() : saveAndPublish()"
                 :disabled="saving || !canSave"
-              >{{ saving ? 'Saving…' : (form.state === 'published' ? 'Save' : 'Save & publish') }}</button>
+              >{{ saving ? 'Saving…' : saveLabel }}</button>
             </div>
           </div>
         </form>
@@ -1561,6 +1561,8 @@ import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
+import { republishRefusal } from '../../../lib/finished-assignment.mjs'
+import { everPublished } from '../lib/state-actions.js'
 import {
   templateUsable,
   templateSourceMessage,
@@ -2169,6 +2171,14 @@ const isNew = computed(() => editing.value && editing.value.__new === true)
 // one) saving or publishing is the next step whether or not anything changed.
 const saveIsPrimary = computed(() =>
   !props.embedded || isNew.value || form.value.state !== 'published' || unsaved.value)
+// CLOSED AND ARCHIVED ARE SAVED AS THEY ARE. Their one save button was "Save &
+// publish", so fixing a typo in a closed exam's grading published it again -
+// and when it was finished, the refused publish turned it into a draft.
+// Reopening is the state menu's Reopen, asked as such.
+const saveKeepsState = computed(() =>
+  !isNew.value && (form.value.state === 'closed' || form.value.state === 'archived'))
+const saveLabel = computed(() =>
+  (form.value.state === 'published' || saveKeepsState.value ? 'Save' : 'Save & publish'))
 watch(saveIsPrimary, (primary) => emit('save-primary', primary), { immediate: true })
 // The assignment page marks its Settings tab with it, so an edit left behind
 // on a look at Progress is visible from there.
@@ -4165,9 +4175,7 @@ async function saveAssignment(stateOverride = null) {
         orphans: retiredRepoCount(verdict),
         pattern,
         teams,
-        confirmLabel: stateOverride === 'draft'
-          ? 'Save as draft'
-          : (form.value.state === 'published' ? 'Save' : 'Save & publish'),
+        confirmLabel: stateOverride === 'draft' ? 'Save as draft' : saveLabel.value,
       })
       // `false` is Cancel. A team assignment confirms with `null`, because it
       // was told rather than asked and there is no answer to record - which is
@@ -4508,6 +4516,20 @@ async function noticeTemplateChange(id, before, after) {
   templateNotice.value = notice ? { ...notice, id } : null
 }
 
+/** Save a closed or archived assignment without changing its state. */
+async function saveKeepingState() {
+  const state = form.value.state
+  if (!(await saveAssignment())) return
+  // A closed assignment still has a card on the student page (lib/publish.js).
+  if (writeReachesStudentPage(state, state)) {
+    await republishStudentPages({
+      token: getToken(),
+      org: props.org,
+      failure: 'Saved, but updating the student page failed',
+    })
+  }
+}
+
 async function saveAndPublish() {
   inPublishFlow = true
   let started = false
@@ -4544,7 +4566,9 @@ async function saveAndPublishSteps() {
     // A broker that exists still needs the student page rebuilt: the hub
     // enforces the stored document from this commit on, while the page shows
     // the card from the last regeneration. See publishedSaveWorkflow.
-    if (publishedSaveWorkflow(brokerExists.value) === 'publish-assignment.yml') {
+    // A finished one is not published again (the workflow would refuse it and
+    // go red over a plain edit); its student page is rebuilt instead.
+    if (publishedSaveWorkflow(brokerExists.value) === 'publish-assignment.yml' && !(await finishedRefusal())) {
       await publishExisting()
     } else if (await republishStudentPages({
       token: getToken(),
@@ -4560,6 +4584,17 @@ async function saveAndPublishSteps() {
   const priorState = form.value.state === 'closed' || form.value.state === 'archived'
     ? form.value.state
     : 'draft'
+
+  // A FINISHED assignment is not published again - the workflow refuses it
+  // (lib/finished-assignment.mjs), and by then this page had already written
+  // `published` over `closed`. Asked here first, with the deadline about to be
+  // saved: moving it into the future is how one is reopened. Unreadable lets
+  // the workflow decide; it asks again either way.
+  const refusal = await finishedRefusal()
+  if (refusal) {
+    toast.error(refusal)
+    return false
+  }
 
   await saveAssignment('published')
   if (form.value.state === 'published') {
@@ -4580,7 +4615,7 @@ async function saveAndPublishSteps() {
     // does not claim to fix the cause. It makes the outcome survivable.
     let dispatched = false
     try {
-      dispatched = await publishExisting()
+      dispatched = await publishExisting({ prior: priorState })
     } catch (e) {
       console.error('Publish dispatch threw', e)
       dispatched = false
@@ -4691,12 +4726,31 @@ async function confirmRepublish(regenerate) {
   }
 }
 
+/**
+ * Why publishing this assignment now would be refused as finished, or null.
+ * The workflow's own judge (lib/finished-assignment.mjs), asked with the
+ * deadline on screen - that is what the save is about to write, and moving it
+ * into the future is how a finished assignment is reopened. A lock record that
+ * cannot be read is null: the workflow asks again with its own checkout.
+ */
+async function finishedRefusal() {
+  if (isNew.value || !form.value.id) return null
+  const local = form.value.deadline_at_local
+  const deadlineAt = local ? localToUtc(local) : (form.value._deadline_at_original || null)
+  if (!deadlineAt || !Number.isFinite(Date.parse(deadlineAt)) || Date.parse(deadlineAt) > Date.now()) return null
+  const lock = await ghApi(getToken(), 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`)
+  if (lock.status !== 200 && lock.status !== 404) return null
+  if (!republishRefusal({ deadlineAt: new Date(deadlineAt).toISOString(), lockRan: lock.status === 200 })) return null
+  // The judge's sentence is the workflow log's; this is the lecturer's.
+  return `"${form.value.title || form.value.id}" is finished: its deadline has passed and its submissions are locked. To reopen it, move the deadline into the future first.`
+}
+
 // Returns true when the workflow_dispatch was accepted by GitHub.
 //
 // `regenerate` mints a fresh nonce, which retires every link already handed
 // out. It is an input on publish-assignment.yml that nothing in the app ever
 // sent, so the only way to rotate a leaked link was the Actions tab.
-async function publishExisting({ regenerate = false } = {}) {
+async function publishExisting({ regenerate = false, prior = form.value.state } = {}) {
   publishing.value = true
   try {
     const token = getToken()
@@ -4705,6 +4759,10 @@ async function publishExisting({ regenerate = false } = {}) {
       assignment_id: form.value.id,
       // workflow_dispatch boolean inputs arrive as strings over the REST API.
       regenerate_invite: regenerate ? 'true' : 'false',
+      // What it was before this publish. Save & publish has already written
+      // `published` by now, so the workflow cannot read it from the file -
+      // and a failed or refused publish puts back exactly this.
+      prior_state: ['draft', 'published', 'closed', 'archived'].includes(prior) ? prior : '',
     })
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered. Watching for the broker to appear…')
@@ -4728,12 +4786,19 @@ async function publishExisting({ regenerate = false } = {}) {
 
 async function deleteDraft() {
   if (form.value.state !== 'draft') return
+  // Only a draft that never went live: removing the file is all there is to
+  // it. One that did (Back to draft) has a broker and maybe students, and the
+  // full delete is what removes those (lib/state-actions.js).
+  if (everPublished(form.value)) {
+    showDeleteModal.value = true
+    return
+  }
   // Said by the assignment's title and in what it means to the lecturer, not
   // by its id and the file it lives in (DESIGN.md §1.6).
   const name = form.value.title || form.value.id
   if (!(await askConfirm({
     title: `Delete the draft "${name}"?`,
-    paragraphs: ['Nobody can have accepted it, so no student repository exists.'],
+    paragraphs: ['It was never published, so nobody can have accepted it.'],
     confirmLabel: 'Delete draft',
     destructive: true,
   }))) return
