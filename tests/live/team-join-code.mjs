@@ -293,7 +293,7 @@ async function start() {
   alpha = await manifest(id, "alpha");
   if (same(members(beta), logins(A, B)) && beta?.join_code === code2) ok(`beta holds both, with code ${formatJoinCode(code2)}`);
   else bad(`beta: ${JSON.stringify(beta)}`);
-  if (alpha?.vacant === true && (alpha?.members || []).length === 0) ok(`alpha is vacant, still holding ${formatJoinCode(code1)} that nobody can give out`);
+  if (alpha?.vacant === true && (alpha?.members || []).length === 0) ok(`alpha is vacant, still holding its repository and ${formatJoinCode(code1)}`);
   else bad(`alpha: ${JSON.stringify(alpha)}`);
 
   console.log("\n6. alpha is empty but keeps its repository: a new code is refused, the one A kept lets A back in\n");
