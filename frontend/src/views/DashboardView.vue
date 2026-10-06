@@ -1265,7 +1265,14 @@ async function listDraftAssignments(token, org, files) {
 
 async function onAuthenticated(authedUser) {
   user.value = authedUser
+  const before = selectedOrg.value
   await loadOrgs()
+  // AN ORGANIZATION IN THE ADDRESS WAS READ BEFORE THERE WAS A SIGN-IN. The
+  // watcher loaded it at mount, found no token, and loaded nothing; signing in
+  // then fetched the organization list and nothing else, so the page said
+  // "Nothing to show for <org>" over a running course until a reload (live,
+  // 2026-10-06). An org that loadOrgs just picked loads through the watcher.
+  if (selectedOrg.value && selectedOrg.value === before) await loadDashboard(selectedOrg.value)
 }
 
 
