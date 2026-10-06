@@ -82,6 +82,50 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     await expect(page.getByRole('link', { name: /^New assignment$/ })).toBeVisible();
   });
 
+  test('Scenario 1b: GitHub failing is not an empty organization', async ({ page }) => {
+    // Review 2026-10-06: a 5xx on the control repository fell through as if
+    // it existed and were empty - "create your first assignment" over a running
+    // course, and the reader counted as staff.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [ORG_ACTIVE],
+      assignments: {},
+      reports: {},
+      currentUser: LECTURER,
+    });
+    await page.route(`**/repos/${ORG_ACTIVE}/pxl-classroom-control`, (route) =>
+      route.fulfill({ status: 502, body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.goto(`/dashboard/${ORG_ACTIVE}`);
+    await expect(page.getByText(/GitHub did not answer about this organization's control repository \(HTTP 502\)/)).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.onboarding-readiness-card')).toHaveCount(0);
+  });
+
+  test('Scenario 2b: a draft beside a published assignment with no report yet does not say nothing is published', async ({ page }) => {
+    // Review 2026-10-06: with no dashboard file the page lists drafts only,
+    // and said "Nothing published yet" over a published assignment it had just
+    // read the file of.
+    const base = {
+      organization: ORG_ACTIVE,
+      assignment_type: 'individual',
+      roster_mode: 'open',
+      template: { owner: ORG_ACTIVE, repository: 'draft-template' },
+    };
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [ORG_ACTIVE],
+      assignments: {
+        'lab-draft-only': { ...base, id: 'lab-draft-only', title: 'Draft Lab', state: 'draft', repository_name_pattern: 'lab-draft-{github_login}' },
+        'lab-live': { ...base, id: 'lab-live', title: 'Live Lab', state: 'published', repository_name_pattern: 'lab-live-{github_login}' },
+      },
+      reports: {},
+      currentUser: LECTURER,
+    });
+    await page.goto(`/dashboard/${ORG_ACTIVE}`);
+    await expect(page.locator('.drafts-row .draft-chip', { hasText: 'Draft Lab' })).toBeVisible();
+    await expect(page.getByText('One published assignment appears here once its first report is generated')).toBeVisible();
+    await expect(page.getByText('Nothing published yet')).toHaveCount(0);
+  });
+
   test('Scenario 3 (Org with Published Assignment): Onboarding panel is hidden; shows assignment grid', async ({ page }) => {
     const pubAssignment = {
       id: 'lab-active-1',

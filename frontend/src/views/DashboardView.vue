@@ -396,7 +396,7 @@
         </section>
 
         <div v-if="visibleAssignments.length === 0 && drafts.length" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
-          Nothing published yet. Publish a draft to hand out its invitation link.
+          {{ emptyListNote }}
         </div>
         <div v-else-if="visibleAssignments.length === 0" class="center-card text-secondary" style="padding: var(--space-xl); margin-top: var(--space-lg);">
           No active assignments right now.
@@ -754,6 +754,25 @@ const archivedCount = computed(() => {
   return assignments.value.filter(a => a.state === 'archived').length
 })
 
+// Assignments whose files say published or closed while the cards have no
+// report for them yet (the dashboard file is missing): counted by the fallback
+// read, which lists drafts only. Zero everywhere else.
+const unreportedCount = ref(0)
+
+// WHAT THE EMPTY LIST UNDER THE DRAFTS MEANS - only what a branch established.
+// "Nothing published yet" was said whenever the visible list was empty, which
+// is also every published assignment being archived (hidden behind the
+// toggle), and the dashboard file not existing yet while published ones do.
+const emptyListNote = computed(() => {
+  if (archivedCount.value > 0 && !showArchived.value) {
+    return `${archivedCount.value === 1 ? 'The one other assignment is' : `The ${archivedCount.value} other assignments are`} archived. Tick "Show archived" to see ${archivedCount.value === 1 ? 'it' : 'them'}.`
+  }
+  if (unreportedCount.value > 0) {
+    return `${unreportedCount.value === 1 ? 'One published assignment appears' : `${unreportedCount.value} published assignments appear`} here once its first report is generated, a few minutes after publishing.`
+  }
+  return 'Nothing published yet. Publish a draft to hand out its invitation link.'
+})
+
 // STUDENTS WITH A SCORE, per card - from each assignment's grade summary,
 // read when the list is shown (a card's Graded stat). Keyed by org as well as
 // id, so switching organization never shows one org's count on another's
@@ -928,6 +947,7 @@ async function loadDashboard(orgArg) {
   // Scalars, not the list: these describe the run and every authoritative exit
   // sets them. `assignments` stays until a replacement exists.
   dashState.value = ''
+  unreportedCount.value = 0
   hubWritable.value = false
 
   try {
@@ -1051,13 +1071,20 @@ async function loadDashboard(orgArg) {
         setOrgStatus(org, access.verdict === 'not-set-up' ? 'empty' : 'no-access')
         return
       }
+      // NOT AN ANSWER ABOUT THIS ORGANIZATION: GitHub failed (a 5xx) or refused
+      // for a reason of its own (a rate limit). This fell through as if the
+      // repository were there and empty, showed "Create your first assignment"
+      // over a running course, and counted whoever was reading as staff.
+      throw new Error(`GitHub did not answer about this organization's control repository (HTTP ${repoRes.status}). Try again in a minute.`)
     }
 
-    // Check if ANY assignment has been created in assignments/ folder
+    // Check if ANY assignment has been created in assignments/ folder. No
+    // folder is no assignments; a read that failed is not "none" (above).
     let assignmentFiles = []
     try {
       assignmentFiles = await listRepoDir(token, org, config.controlRepo, 'assignments')
     } catch (e) {
+      if (e?.status !== 404) throw e
       assignmentFiles = []
     }
     const ymls = (assignmentFiles || []).filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')))
@@ -1078,9 +1105,10 @@ async function loadDashboard(orgArg) {
       // who had just published two assignments was told they had two drafts to
       // publish. What is missing here is reports/dashboard.json, not the
       // publish; read each YAML's own state and say only what is true.
-      const found = await listDraftAssignments(token, org, ymls)
+      const { found, others } = await listDraftAssignments(token, org, ymls)
       if (superseded()) return
       drafts.value = found
+      unreportedCount.value = others
       assignments.value = []
       dashState.value = 'no-dashboard'
       setOrgStatus(org, 'empty')
@@ -1205,6 +1233,9 @@ async function listDraftAssignments(token, org, files) {
   const { parse: parseYaml } = await import('yaml')
   const queue = [...files]
   const found = []
+  // Published or closed: there, and not on the cards yet. Archived ones are
+  // off the cards anyway.
+  let others = 0
   const worker = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
       try {
@@ -1212,7 +1243,9 @@ async function listDraftAssignments(token, org, files) {
         if (!text) continue
         const doc = parseYaml(text)
         // An absent state is a draft - the schema's own default.
-        if ((doc?.state || 'draft') !== 'draft') continue
+        const state = doc?.state || 'draft'
+        if (state === 'published' || state === 'closed') others++
+        if (state !== 'draft') continue
         found.push({ id: doc?.id || f.name.replace(/\.ya?ml$/, ''), title: doc?.title || null, state: 'draft', deadline_at: doc?.deadline_at || null })
       } catch {
         // Unreadable or unparseable is not evidence of a draft. Leaving it out
@@ -1221,7 +1254,7 @@ async function listDraftAssignments(token, org, files) {
     }
   }
   await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
-  return found.sort((a, b) => a.id.localeCompare(b.id))
+  return { found: found.sort((a, b) => a.id.localeCompare(b.id)), others }
 }
 
 async function onAuthenticated(authedUser) {
