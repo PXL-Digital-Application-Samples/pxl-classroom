@@ -71,6 +71,11 @@
         </div>
         <!-- A name in the address that is not an assignment: say so, never an
              empty editor that would create one by that name. -->
+        <div v-else-if="!editing && mode === 'single' && unreadableIds.has(assignmentId)" class="empty-state">
+          <h3>Couldn't read <code>{{ assignmentId }}</code> just now.</h3>
+          <p class="text-secondary">GitHub did not return its settings. Nothing was changed.</p>
+          <button class="btn btn-sm" @click="loadAssignments().then(applyRouteIntent)">Retry</button>
+        </div>
         <div v-else-if="!editing && mode === 'single'" class="empty-state">
           <h3>There is no assignment called <code>{{ assignmentId }}</code> in {{ org }}.</h3>
           <p><router-link :to="{ name: 'dashboard', params: { org } }">Back to the assignments</router-link></p>
@@ -3102,6 +3107,12 @@ function onAssignmentTypeChange() {
 
 // ---------------------------------------------------------------- data loading
 
+// Assignment files the last list read could not read or parse. Left out of the
+// list, but NOT absent: a transient 500 on one file made the next tab switch
+// drop the editor and say "There is no assignment called X" under a header
+// showing that very assignment (review 2026-10-06).
+const unreadableIds = ref(new Set())
+
 async function loadAssignments() {
   loadingList.value = true
   assignmentsError.value = null
@@ -3165,11 +3176,13 @@ async function loadAssignments() {
           
           return { ...doc, id }
         } catch {
-          return null
+          // Not "there is no such assignment" - see unreadableIds.
+          return { __unreadable: true, id: f.name.replace(/\.yml$/, '') }
         }
       })
     )
-    assignments.value = docs.filter(Boolean).sort((a, b) => {
+    unreadableIds.value = new Set(docs.filter((d) => d?.__unreadable).map((d) => d.id))
+    assignments.value = docs.filter((d) => d && !d.__unreadable).sort((a, b) => {
       // draft first, then published, then closed, then archived
       const order = { draft: 0, published: 1, closed: 2, archived: 3 }
       return (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.id.localeCompare(b.id)
@@ -5224,6 +5237,9 @@ async function applyRouteIntent() {
   }
   const a = assignments.value.find((x) => x.id === props.assignmentId)
   if (!a) {
+    // A file that failed to read this time is not gone: the form on screen,
+    // and any edit waiting in it, stays.
+    if (unreadableIds.value.has(props.assignmentId) && editing.value?.id === props.assignmentId) return
     editing.value = null
     return
   }

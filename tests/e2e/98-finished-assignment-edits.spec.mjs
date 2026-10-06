@@ -154,6 +154,25 @@ test.describe('98 - editing a finished assignment', () => {
     await expect(page.locator('.confirm-dialog', { hasText: 'Delete the draft' })).toHaveCount(0);
   });
 
+  test('a settings file GitHub fails to return is "could not read", never "no such assignment"', async ({ page }) => {
+    // Review 2026-10-06: any read error dropped the file from the editor's
+    // list, and Settings said "There is no assignment called X" under a
+    // header showing X.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: { [ID]: doc({ state: 'published', deadline_at: new Date(Date.now() + 7 * DAY).toISOString() }) } });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(page.locator('.app-header-heading')).toHaveText('Cloud Exam', { timeout: 15000 });
+    const failing = `**/pxl-classroom-control/contents/assignments/${ID}.yml*`;
+    await page.route(failing, (route) => route.fulfill({ status: 502, body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    await expect(page.getByText(`Couldn't read ${ID} just now.`)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('There is no assignment called')).toHaveCount(0);
+
+    await page.unroute(failing);
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('Cloud Exam', { timeout: 15000 });
+  });
+
   test('a draft never published keeps "Delete draft"', async ({ page }) => {
     const fresh = doc({ state: 'draft', deadline_at: new Date(Date.now() + 7 * DAY).toISOString() });
     delete fresh.invite_key;
