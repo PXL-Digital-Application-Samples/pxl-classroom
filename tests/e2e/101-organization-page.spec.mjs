@@ -155,11 +155,13 @@ test.describe('101 - the Organization tab', () => {
     await expect(tab.locator('.tab-count')).toHaveAttribute('aria-label', '2 things need you');
   });
 
-  test('the organization card: the plan and what it does here, who is in it, Actions, repositories', async ({ page }) => {
+  test('the organization card: the plan, who is in it, Actions, repositories', async ({ page }) => {
     await open(page);
     const card = page.locator('.org-about');
     await expect(card.locator('.org-about-plan')).toHaveText('GitHub Team', { timeout: 15000 });
-    await expect(card).toContainText('students keep Actions, secrets and settings');
+    // What works on Team is the default, and is not said.
+    await expect(card).not.toContainText('Pushing stops');
+    await expect(card).not.toContainText('protected branches');
     await expect(card).toContainText('3,000 Actions minutes a month for private repositories, and up to 60 jobs at once.');
     await expect(card.locator('details.org-about-more')).toHaveCount(0);
     await expect(card).toContainText('1 owner · 0 other members · 2 outside collaborators (students are added this way)');

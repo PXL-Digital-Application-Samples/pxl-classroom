@@ -22,11 +22,10 @@ test("a non-owner is told the plan is an owner's to see, and nothing is guessed"
   assert.equal(f.repositories, null, "public count alone would read as the whole list");
 });
 
-test("Team: what it does for a deadline, in the lecturer's words, with GitHub's numbers", () => {
+test("Team: only GitHub's numbers - what works on Team is the default and is not said", () => {
   const f = orgFacts({ org: team, owners: 3, members: 17 });
   assert.equal(f.plan.name, "GitHub Team");
-  assert.match(f.plan.lines.join(" "), /students keep Actions, secrets and settings/);
-  assert.match(f.plan.lines.join(" "), /3,000 Actions minutes .* 60 jobs at once/);
+  assert.deepEqual(f.plan.lines, ["3,000 Actions minutes a month for private repositories, and up to 60 jobs at once."]);
   assert.deepEqual(f.plan.more, []);
   assert.equal(f.plan.upgradeUrl, null);
   assert.equal(f.people, "3 owners · 14 other members · 28 outside collaborators (students are added this way)");
