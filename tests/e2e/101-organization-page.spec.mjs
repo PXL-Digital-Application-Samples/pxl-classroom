@@ -43,12 +43,13 @@ const lab = {
   repository_name_pattern: 'lab-3-{github_login}',
 };
 
-async function open(page, { path = 'organization', comments = NOTICES } = {}) {
+async function open(page, { path = 'organization', comments = NOTICES, user = LECTURER, extra = {} } = {}) {
   const runReads = [];
   page.on('request', (r) => { if (r.url().includes('acceptance-handler.yml/runs')) runReads.push(r.url()); });
-  await injectAuth(page, LECTURER);
+  await injectAuth(page, user);
   await setupStandardMockRoutes(page, {
-    currentUser: LECTURER,
+    currentUser: user,
+    ...extra,
     assignments: { 'lab-3': lab },
     reports: {
       dashboard: {
@@ -121,6 +122,41 @@ test.describe('101 - the Organization tab', () => {
     const tab = page.getByRole('navigation', { name: 'Course views' }).getByRole('link', { name: /Organization/ });
     await expect(tab.locator('.tab-count')).toHaveText('2', { timeout: 15000 });
     await expect(tab.locator('.tab-count')).toHaveAttribute('aria-label', '2 things need you');
+  });
+
+  test('the organization card: the plan and what it does here, who is in it, Actions, repositories', async ({ page }) => {
+    await open(page);
+    const card = page.locator('.org-about');
+    await expect(card.locator('.org-about-plan')).toHaveText('GitHub Team', { timeout: 15000 });
+    await expect(card).toContainText('students keep Actions, secrets and settings');
+    await expect(card).toContainText('3,000 Actions minutes a month for private repositories, and up to 60 jobs at once.');
+    await expect(card.locator('details.org-about-more')).toHaveCount(0);
+    await expect(card).toContainText('1 owner · 0 other members · 2 outside collaborators (students are added this way)');
+    await expect(card).toContainText('42 minutes this month, nothing charged.');
+    await expect(card).toContainText('3 private and 1 public repositories, 2 MB in all.');
+    // Under what needs you, above Advanced.
+    const order = await page.evaluate(() => [...document.querySelectorAll('.org-needs, .org-about, .org-advanced')].map((e) => e.className.split(' ').find((c) => c.startsWith('org-'))));
+    expect(order).toEqual(['org-needs', 'org-about', 'org-advanced']);
+  });
+
+  test('on Free: named plainly, the consequences and the free upgrade behind What this means', async ({ page }) => {
+    await open(page, { extra: { orgPlan: 'free' } });
+    const card = page.locator('.org-about');
+    await expect(card.locator('.org-about-plan')).toHaveText('GitHub Free', { timeout: 15000 });
+    const more = card.locator('details.org-about-more');
+    await expect(more.locator('li').first()).toBeHidden();
+    await more.locator('summary').click();
+    await expect(more).toContainText('makes the repository read-only instead');
+    await expect(more).toContainText('up to 20 jobs at once');
+    await expect(more.getByRole('link', { name: 'Upgrade to GitHub Team on GitHub Education' })).toHaveAttribute('href', 'https://education.github.com/globalcampus/teacher');
+  });
+
+  test('a lecturer who is not an owner is told the plan is an owner\'s to see', async ({ page }) => {
+    // GitHub answers the plan and the counts to owners only (the fixture's
+    // persona without "lecturer" in its login is not an owner).
+    const staffNotOwner = { ...LECTURER, login: 'teaching-assistant', name: 'TA' };
+    await open(page, { user: staffNotOwner });
+    await expect(page.locator('.org-about')).toContainText('Only an owner of this organization can see its plan, who is in it and its usage.', { timeout: 15000 });
   });
 
   test('nothing to do: no count, and the page says all quiet', async ({ page }) => {

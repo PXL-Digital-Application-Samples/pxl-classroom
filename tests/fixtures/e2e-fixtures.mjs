@@ -578,6 +578,10 @@ export async function setupStandardMockRoutes(page, {
   // different facts and the panel has to be able to tell them apart.
   trackingIssue = null,
   trackingComments = [],
+  // GET /orgs/{org}'s `plan.name` for an owner ('team' | 'free' | ...).
+  orgPlan = 'team',
+  // This month's billing usage items, as GET /organizations/{org}/settings/billing/usage answers.
+  billingUsageItems = [{ product: 'actions', unitType: 'Minutes', quantity: 42, netAmount: 0, sku: 'Actions Linux' }],
   // Put a non-lecturer persona's org into /user/installations, which is what a
   // student who has accepted an assignment actually looks like. Off by default
   // so no existing spec changes shape.
@@ -974,7 +978,27 @@ export async function setupStandardMockRoutes(page, {
           login: url.split('/orgs/')[1].split(/[/?]/)[0],
           default_repository_permission: owner ? 'none' : null,
           total_private_repos: owner ? 3 : null,
+          public_repos: 1,
+          // Owner-only too, like the plan GitHub answers an owner with.
+          plan: owner ? { name: orgPlan, seats: 1, filled_seats: 3 } : null,
+          collaborators: owner ? 2 : null,
+          disk_usage: owner ? 2048 : null,
         }),
+      });
+    } else if (/\/orgs\/[^/]+\/members(\?.*)?$/.test(url) && method === 'GET') {
+      // The organization's members: the lecturer, an owner. Pages after the
+      // first are empty, so a walk ends.
+      const page = Number(new URL(url).searchParams.get('page') || '1');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(page === 1 ? [{ login: currentUser.login }] : []),
+      });
+    } else if (/\/organizations\/[^/]+\/settings\/billing\/usage/.test(url) && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ usageItems: billingUsageItems }),
       });
     } else if (url.includes('/user/installations')) {
       // A STUDENT WITH AN INSTALLATION IS THE REPORTED CASE, and this fixture

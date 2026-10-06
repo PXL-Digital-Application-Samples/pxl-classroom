@@ -86,6 +86,53 @@
           </template>
         </section>
 
+        <!-- THE ORGANIZATION ITSELF (2026-10-06): its plan and what that means for
+             a course, who is in it, Actions this month, repositories. Every line
+             only from what GitHub answered (lib/org-facts.mjs); GitHub answers
+             most of it to owners only, and the card says so instead of guessing.
+             Its own loading line, so it never holds up what needs you. -->
+        <section v-if="!access && !loadError" class="card org-about" aria-labelledby="org-about-title">
+          <h2 id="org-about-title" class="org-about-title">{{ org }}</h2>
+          <p v-if="factsState === 'loading'" class="org-needs-loading text-secondary">
+            <span class="spinner-sm" aria-hidden="true"></span>
+            Reading the organization…
+          </p>
+          <p v-else-if="factsState === 'unreadable'" class="text-secondary text-sm">Couldn't read this organization's details just now.</p>
+          <p v-else-if="facts.ownerOnly" class="text-secondary text-sm">
+            Only an owner of this organization can see its plan, who is in it and its usage.
+          </p>
+          <template v-else>
+            <p class="org-about-plan"><strong>{{ facts.plan.name }}</strong></p>
+            <ul v-if="facts.plan.lines.length" class="org-about-lines">
+              <li v-for="line in facts.plan.lines" :key="line">{{ line }}</li>
+            </ul>
+            <details v-if="facts.plan.more.length" class="org-about-more">
+              <summary>What this means</summary>
+              <ul class="org-about-lines">
+                <li v-for="line in facts.plan.more" :key="line">{{ line }}</li>
+              </ul>
+              <a v-if="facts.plan.upgradeUrl" :href="facts.plan.upgradeUrl" target="_blank" rel="noopener">Upgrade to GitHub Team on GitHub Education</a>
+            </details>
+            <dl class="org-about-facts">
+              <template v-if="facts.people || facts.membersRead">
+                <dt>People</dt>
+                <dd>
+                  <template v-if="facts.people">{{ facts.people }}</template>
+                  <span v-if="facts.membersRead" class="org-about-note">{{ facts.membersRead }}</span>
+                </dd>
+              </template>
+              <template v-if="facts.actions">
+                <dt>Actions</dt>
+                <dd>{{ facts.actions }}</dd>
+              </template>
+              <template v-if="facts.repositories">
+                <dt>Repositories</dt>
+                <dd>{{ facts.repositories }}</dd>
+              </template>
+            </dl>
+          </template>
+        </section>
+
         <!-- ADVANCED: what the organization costs, whether it is healthy, how it
              is connected, and the runs behind it - folded, and nothing in it is
              read until it is opened. OUTSIDE every state above, on purpose: the
@@ -177,6 +224,7 @@ import { formatDate, formatRelative } from '../lib/format.js'
 import { NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, isOrgNotice, noticeLines, noticesForLecturer } from '../../../lib/org-notices.mjs'
 import { ASSIGNMENTS_DIR, DASHBOARD_PATH, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
 import { RUN_NAME_PREFIX } from '../../../lib/acceptance-run-name.mjs'
+import { orgFacts } from '../../../lib/org-facts.mjs'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -196,6 +244,10 @@ const comments = ref([])
 const noticesState = ref('ok')
 const issueUrl = ref(null)
 const lastNightly = ref(null)
+
+// The organization card (lib/org-facts.mjs): 'loading' | 'ok' | 'unreadable'.
+const factsState = ref('loading')
+const facts = ref(null)
 
 const runs = ref([])
 const runsRead = ref(false)
@@ -268,6 +320,55 @@ async function onRunsToggle(e) {
   }
 }
 
+// ONE PAGE IS NOT THE LIST. A count of members is the whole walk or nothing:
+// past the cap, or on any failed page, it is unknown (null), never the part read.
+const MEMBER_PAGES = 10
+async function countAll(token, path) {
+  let total = 0
+  for (let page = 1; page <= MEMBER_PAGES; page++) {
+    const res = await ghApi(token, 'GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`)
+    if (!res.ok || !Array.isArray(res.data)) return null
+    total += res.data.length
+    if (res.data.length < 100) return total
+  }
+  return null
+}
+
+/** The organization card, read beside the rest and shown when it arrives. */
+async function loadFacts(token, mine) {
+  factsState.value = 'loading'
+  try {
+    const orgRes = await ghApi(token, 'GET', `/orgs/${props.org}`)
+    if (mine !== generation) return
+    if (!orgRes.ok) {
+      factsState.value = 'unreadable'
+      return
+    }
+    // Owner-only fields absent: nothing more to read that would be shown.
+    if (!orgRes.data?.plan?.name) {
+      facts.value = orgFacts({ org: orgRes.data })
+      factsState.value = 'ok'
+      return
+    }
+    const now = new Date()
+    const [owners, members, billing] = await Promise.all([
+      countAll(token, `/orgs/${props.org}/members?role=admin`),
+      countAll(token, `/orgs/${props.org}/members`),
+      ghApi(token, 'GET', `/organizations/${encodeURIComponent(props.org)}/settings/billing/usage?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`),
+    ])
+    if (mine !== generation) return
+    facts.value = orgFacts({
+      org: orgRes.data,
+      owners,
+      members,
+      billingItems: billing.ok && Array.isArray(billing.data?.usageItems) ? billing.data.usageItems : null,
+    })
+    factsState.value = 'ok'
+  } catch {
+    if (mine === generation) factsState.value = 'unreadable'
+  }
+}
+
 async function load() {
   const mine = ++generation
   loading.value = true
@@ -277,6 +378,8 @@ async function load() {
   runsRead.value = false
   runsUnreadable.value = false
   const token = getToken()
+  // Not awaited: the card has its own loading line.
+  loadFacts(token, mine)
   try {
     // ALL AT ONCE. These were read one after another, and then the lock record
     // of every past assignment, and then a run list, before anything showed.
@@ -362,6 +465,17 @@ onMounted(() => {
 .org-needs-text { margin: var(--space-xs) 0 0; color: var(--text-secondary); font-size: 0.9rem; }
 .org-needs-more > summary { cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; margin-top: var(--space-xs); }
 .org-needs-rest { margin: var(--space-xs) 0 0; white-space: pre-line; color: var(--text-secondary); font-size: 0.85rem; }
+.org-about { padding: var(--space-lg); margin-bottom: var(--space-lg); }
+.org-about-title { font-size: 1rem; margin: 0 0 var(--space-sm); }
+.org-about-plan { margin: 0; }
+.org-about-lines { margin: var(--space-xs) 0 0; padding-left: 1.25rem; color: var(--text-secondary); font-size: 0.9rem; display: flex; flex-direction: column; gap: 2px; }
+.org-about-more { margin-top: var(--space-xs); }
+.org-about-more > summary { cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; }
+.org-about-more > a { display: inline-block; margin-top: var(--space-xs); font-size: 0.9rem; }
+.org-about-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-xs) var(--space-md); margin: var(--space-md) 0 0; font-size: 0.9rem; }
+.org-about-facts dt { color: var(--text-muted); }
+.org-about-facts dd { margin: 0; }
+.org-about-note { display: block; color: var(--text-secondary); }
 .org-advanced > summary { cursor: pointer; list-style-position: outside; margin-bottom: var(--space-md); }
 .org-advanced-title { display: inline; font-size: 1rem; margin: 0 var(--space-sm) 0 0; }
 /* The usage panel is a component; its root takes this page's scope. */
