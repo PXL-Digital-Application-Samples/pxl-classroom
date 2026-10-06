@@ -8,14 +8,14 @@ import { readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoFiles } from "./repo-files.mjs";
-import {
-  askConfirm,
-  answerConfirm,
-  dismissConfirm,
-  askDiscard,
-  askText,
-  pendingConfirm,
-} from "../frontend/src/lib/confirm.js";
+// The pure rules, over a plain holder: `npm test` installs the hub's packages
+// and not the SPA's, so frontend/src/lib/confirm.js (which imports Vue) cannot
+// be imported here - it passed locally and failed CI. confirm.js is checked
+// below to be nothing but these rules over a ref.
+import { createConfirmService } from "../frontend/src/lib/confirm-state.js";
+
+const pendingConfirm = { value: null };
+const { askConfirm, answerConfirm, dismissConfirm, askDiscard, askText } = createConfirmService(pendingConfirm);
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tick = () => new Promise((r) => setImmediate(r));
@@ -128,4 +128,15 @@ test("the SPA asks nothing through window.confirm, prompt or alert any more", ()
     }
   }
   assert.deepEqual(offenders, [], "ask through lib/confirm.js askConfirm, which says what the button does");
+});
+
+test("confirm.js is these rules over a ref, and nothing else", () => {
+  // The tests above run lib/confirm-state.js; the app imports confirm.js. If
+  // confirm.js grew its own logic, the tests would be testing something the
+  // app does not run.
+  const src = readFileSync(join(root, "frontend", "src", "lib", "confirm.js"), "utf8")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .trim();
+  assert.match(src, /createConfirmService\(pendingConfirm\)/);
+  assert.doesNotMatch(src, /\bfunction\b|=>/, "no logic of its own");
 });
