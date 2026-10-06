@@ -176,6 +176,10 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     const row = summary.students.find((s) => s.login === LOGIN);
     expect(row.earned_points).toBe(6);
     expect(row.hand_ins).toMatchObject({ used: 6, allowed: 6, extra: 1, graded_number: 6, ignored: [] });
+    // Reading the score again closes the dialog itself, just AFTER the write
+    // above: toGrading's "is it open? then close it" could see it open and
+    // click a close button that had gone (a 60s flake).
+    await expect(actions(page), 'the dialog closes once the score is read again').toHaveCount(0);
     await toGrading(page);
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 6 (+1)');
     await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
