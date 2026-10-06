@@ -7,31 +7,23 @@ import { parse } from "yaml";
 // into an intermittently invalid credential rather than a visible error.
 import { generateAppJwt } from "../lib/app-jwt.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
-import { withTransientRetry } from "../lib/transient-retry.mjs";
+import { gh } from "../lib/gh.mjs";
 
-// A 502/503/504 or a dropped connection is asked again before it fails the
-// whole deploy - one organization's gateway timeout took every organization's
-// student pages down with it during a GitHub incident (lib/transient-retry.mjs).
-function request(url, options = {}) {
-  return withTransientRetry(
-    async () => {
-      const res = await fetch(url, {
-        ...options,
-        headers: {
-          "User-Agent": "pxl-classroom-fetch-pages-data",
-          ...options.headers,
-        },
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        const err = new Error(`Request to ${url} failed with status ${res.status}: ${errText.slice(0, 300)}`);
-        err.status = res.status;
-        throw err;
-      }
-      return res.json();
-    },
-    { onRetry: (e, ms) => console.log(`[retry] ${url}: ${e.status ?? e.message} - asking again in ${ms / 1000}s`) },
-  );
+// Through lib/gh.mjs, the one carrier with the one retry policy
+// (lib/rate-limit.mjs): a 5xx on a GET, or a rate limit, is asked again with
+// backoff before it fails the whole deploy. This script had its own bare
+// fetch, so on 2026-10-06, during a GitHub incident, one 504 on one
+// organization's index took every organization's student pages down with it
+// for a quarter of an hour. It sends the API version too, which it never did.
+async function request(url, { method = "GET", token } = {}) {
+  const res = await gh(method, url, null, { token });
+  if (!res.ok) {
+    const said = res.data?.message ?? res.data?.raw ?? "";
+    const err = new Error(`Request to ${url} failed with status ${res.status}: ${String(said).slice(0, 300)}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.data;
 }
 
 async function main() {
@@ -80,9 +72,7 @@ async function main() {
   try {
     let page = 1;
     while (true) {
-      const list = await request(`https://api.github.com/app/installations?per_page=100&page=${page}`, {
-        headers: { Authorization: `Bearer ${jwt}` },
-      });
+      const list = await request(`https://api.github.com/app/installations?per_page=100&page=${page}`, { token: jwt });
       if (list.length === 0) break;
       installations.push(...list);
       if (list.length < 100) break;
@@ -115,15 +105,13 @@ async function main() {
       // Mint installation token
       const tokenRes = await request(`https://api.github.com/app/installations/${inst.id}/access_tokens`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${jwt}` },
+        token: jwt,
       });
       const token = tokenRes.token;
 
       // Fetch public/assignments.json from the control repo
       const contentsUrl = `https://api.github.com/repos/${org}/${CONTROL_REPO}/contents/public/assignments.json`;
-      const fileData = await request(contentsUrl, {
-        headers: { Authorization: `token ${token}` },
-      });
+      const fileData = await request(contentsUrl, { token });
 
       if (fileData?.content) {
         const bin = Buffer.from(fileData.content.replace(/\n/g, ""), "base64").toString("utf8");
@@ -146,7 +134,7 @@ async function main() {
         const orgInviteDir = join(outDir, org, "i");
         const tree = await request(
           `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/trees/HEAD?recursive=1`,
-          { headers: { Authorization: `token ${token}` } }
+          { token }
         );
         const entries = (tree?.tree || []).filter(
           (e) => e.type === "blob" && e.path.startsWith("public/i/") && e.path.endsWith(".json")
@@ -161,7 +149,7 @@ async function main() {
         for (const entry of entries) {
           const blob = await request(
             `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/blobs/${entry.sha}`,
-            { headers: { Authorization: `token ${token}` } }
+            { token }
           );
           if (blob?.content) {
             const bin = Buffer.from(blob.content.replace(/\n/g, ""), "base64").toString("utf8");

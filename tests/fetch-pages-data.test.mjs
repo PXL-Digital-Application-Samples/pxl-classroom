@@ -36,7 +36,7 @@ function cardDigest(n) {
 }
 
 /** @returns {{ log: string[], outDir: string, stdout: string }} */
-function run({ cards = 3, truncated = false, assignmentsStatus = 200, allowFailure = false } = {}) {
+function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignmentsFailTimes = 0, allowFailure = false } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "pxl-pages-"));
   mkdirSync(join(cwd, "frontend", "public", "data"), { recursive: true });
   writeFileSync(join(cwd, "participating-orgs.yml"), `orgs:\n  - login: ${ORG}\n`);
@@ -61,6 +61,8 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, allowFailu
     {
       match: "contents/public/assignments\\.json",
       status: assignmentsStatus,
+      failTimes: assignmentsFailTimes,
+      failStatus: 504,
       body:
         assignmentsStatus === 200
           ? { content: b64(JSON.stringify({ schema_version: 1, assignments: {} })) }
@@ -181,6 +183,17 @@ test("an org that cannot be read stops the publish instead of vanishing from the
     !existsSync(join(res.dataDir, "index.json")),
     "and no index may be written - the previous deployment stays live instead",
   );
+});
+
+test("a gateway timeout that answers when asked again does not stop every organization's publish", () => {
+  // 2026-10-06, a GitHub incident: one 504 on one organization's index failed
+  // the deploy for all of them, and a lecturer watched "Publishing…" for a
+  // quarter of an hour. The script now asks through lib/gh.mjs, whose retry
+  // policy asks a GET again after a 5xx.
+  const res = run({ cards: 1, assignmentsFailTimes: 2 });
+  assert.equal(res.status, 0, res.stdout);
+  assert.equal(res.log.filter((l) => /contents\/public\/assignments\.json/.test(l)).length, 3, "asked three times");
+  assert.ok(existsSync(join(res.outDir, "assignments.json")), "and the organization is published");
 });
 
 test("a 404 is still an answer, not a failure", () => {

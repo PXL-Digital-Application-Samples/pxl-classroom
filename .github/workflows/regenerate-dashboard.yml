@@ -105,14 +105,27 @@ jobs:
     needs: [find-orgs, generate]
     if: always() && needs.find-orgs.outputs.orgs != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       actions: write
     steps:
       - name: Trigger frontend and data deployment
+        # Asked again on failure: this dispatch is the only thing that puts a
+        # publish or an acceptance on the student pages, and a 5xx here left
+        # them out of date until the next change anywhere. A second dispatch is
+        # harmless - deploy-frontend.yml cancels the older run.
         run: |
-          gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-frontend.yml/dispatches" \
-            -f ref=main >/dev/null
+          for attempt in 1 2 3; do
+            if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" --method POST \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-frontend.yml/dispatches" \
+              -f ref=main >/dev/null; then
+              exit 0
+            fi
+            echo "::warning::Dispatching the Pages deploy failed (attempt ${attempt} of 3)."
+            sleep $((attempt * 15))
+          done
+          echo "::error::The Pages deploy could not be dispatched: the student pages update on the next change."
+          exit 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # lib/github-api-version.mjs, which YAML cannot import; the test

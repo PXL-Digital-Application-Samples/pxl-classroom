@@ -10,14 +10,20 @@ import { appendFileSync, readFileSync } from "node:fs";
 
 const routes = JSON.parse(process.env.FETCH_STUB_ROUTES || "[]");
 const logPath = process.env.FETCH_STUB_LOG;
+// A route may fail its first `failTimes` requests with `failStatus` and answer
+// after that: GitHub saying "not now" and then answering.
+const served = new Map();
 
 globalThis.fetch = async (url, init = {}) => {
   const href = String(url);
   if (logPath) appendFileSync(logPath, `${init.method || "GET"} ${href}\n`);
 
   const route = routes.find((r) => new RegExp(r.match).test(href));
-  const status = route ? (route.status ?? 200) : 404;
-  const payload = route ? route.body : { message: "Not Found" };
+  const seen = route ? (served.get(route) ?? 0) : 0;
+  if (route) served.set(route, seen + 1);
+  const failing = route && seen < (route.failTimes ?? 0);
+  const status = failing ? route.failStatus : route ? (route.status ?? 200) : 404;
+  const payload = failing ? "<!DOCTYPE html><title>504 Gateway Time-out</title>" : route ? route.body : { message: "Not Found" };
   const text = typeof payload === "string" ? payload : JSON.stringify(payload);
 
   return {
