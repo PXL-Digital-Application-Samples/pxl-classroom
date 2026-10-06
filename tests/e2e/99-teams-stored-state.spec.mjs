@@ -116,6 +116,26 @@ test.describe('99 - Teams changes apply to the team as stored', () => {
     expect(teamWrite(commits, 'alpha')).toBeUndefined();
   });
 
+  test('a repository created while Manage was open is the one a removed member loses', async ({ page }) => {
+    // Self-review 2026-10-06: the save took the repository from the row on
+    // screen, which had none, so a removed member kept admin on the one their
+    // run had just created - while their record was deleted, so lockdown
+    // never touched them either.
+    const collab = [];
+    const commits = await open(page, { teams: [team('alpha', 'Alpha', ['stud1'])] });
+    await page.route('**/collaborators/**', (route) => {
+      collab.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill({ status: 204, body: '' });
+    });
+    const modal = await manage(page, 'Alpha');
+    await storedNow(page, team('alpha', 'Alpha', ['stud1'], { repo_name: `${ORG}/${ID}-alpha`, repo_id: 4001, repo_url: `https://github.com/${ORG}/${ID}-alpha` }));
+
+    await modal.locator('.member-manage-row', { hasText: 'stud1' }).getByRole('button', { name: 'Remove' }).click();
+    await modal.getByRole('button', { name: /Save Changes/ }).click();
+    await expect.poll(() => teamWrite(commits, 'alpha'), { timeout: 15000 }).toBeTruthy();
+    expect(collab).toContain(`DELETE /repos/${ORG}/${ID}-alpha/collaborators/stud1`);
+  });
+
   test('Delete is refused when the team is no longer empty at the click', async ({ page }) => {
     const deletes = [];
     page.on('request', (r) => { if (r.method() === 'DELETE' && r.url().includes('/contents/teams/')) deletes.push(r.url()); });

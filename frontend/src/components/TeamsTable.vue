@@ -1351,7 +1351,10 @@ async function saveTeamMembers() {
       return
     }
 
-    const repoName = managingTeam.value.repo_name ? managingTeam.value.repo_name.split('/').pop() : null
+    // The repository as STORED too, like the members: one created since the
+    // dialog opened is the one a removed student must lose access to, and the
+    // one an added student must be invited to.
+    const repoName = String(existing.repo_name || managingTeam.value.repo_name || '').split('/').pop() || null
 
     // Sync live GitHub collaborators if the repo exists.
     //
