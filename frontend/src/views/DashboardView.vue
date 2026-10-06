@@ -768,7 +768,10 @@ const emptyListNote = computed(() => {
     return `${archivedCount.value === 1 ? 'The one other assignment is' : `The ${archivedCount.value} other assignments are`} archived. Tick "Show archived" to see ${archivedCount.value === 1 ? 'it' : 'them'}.`
   }
   if (unreportedCount.value > 0) {
-    return `${unreportedCount.value === 1 ? 'One published assignment appears' : `${unreportedCount.value} published assignments appear`} here once its first report is generated, a few minutes after publishing.`
+    // Published or closed, so not called "published".
+    return unreportedCount.value === 1
+      ? 'One more assignment appears here once its first report is generated, a few minutes after publishing.'
+      : `${unreportedCount.value} more assignments appear here once their first reports are generated, a few minutes after publishing.`
   }
   return 'Nothing published yet. Publish a draft to hand out its invitation link.'
 })
@@ -1115,6 +1118,9 @@ async function loadDashboard(orgArg) {
       return
     }
   } catch (e) {
+    // A load for an organization the lecturer has left says nothing about the
+    // one on screen.
+    if (superseded()) return
     console.error('Failed to load dashboard:', e)
     if (e instanceof SyntaxError) {
       dashError.value = `Dashboard data is corrupted (JSON parse error). Recovering it means restoring the control repository from its own history, which is a hub administrator's job - your assignments and student repositories are unaffected.`

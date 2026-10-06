@@ -847,8 +847,10 @@ async function loadTeams() {
     // student who closed the tab and came back can read neither the rejection
     // reason nor the invitation notice. Newest first, so the first match is the
     // current attempt.
-    // Matched on the AUTHOR, not the title - frontend/src/lib/broker-teams.js
-    // carries why, and is where a test can reach it.
+    // Matched on the AUTHOR, among titles that are an acceptance attempt in
+    // any form the broker leaves (never the `pxl-accept:` prefix alone, which
+    // is rewritten in seconds) - frontend/src/lib/broker-teams.js carries why,
+    // and is where a test can reach it.
     const mine = ownAcceptanceIssue(issues, props.user?.login)
     if (mine) {
       acceptanceIssue.value = mine.number

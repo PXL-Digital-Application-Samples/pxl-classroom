@@ -1079,11 +1079,11 @@ async function checkExistingState() {
     `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
   )
   if (mine.ok && Array.isArray(mine.data)) {
-    // NOT FILTERED BY TITLE, and that is the fix rather than an omission. This
-    // required `pxl-accept:`, which the broker rewrites to "Acceptance
-    // (processed)" within seconds of dispatching - so it matched only inside
-    // that window, and never for the returning student the whole branch exists
-    // for. The `creator=` query above already scopes the list to this student.
+    // NEVER BY THE `pxl-accept:` PREFIX ALONE: the broker rewrites it to
+    // "Acceptance (processed)" within seconds, so that matched only inside the
+    // window and never for the returning student this branch exists for. Every
+    // title the broker leaves is recognised instead, and an address
+    // confirmation (same broker) is not an acceptance.
     // frontend/src/lib/broker-teams.js carries the rest.
     const inFlight = recentAttempt(mine.data)
     if (inFlight) {

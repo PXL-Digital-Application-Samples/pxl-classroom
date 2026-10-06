@@ -122,7 +122,7 @@ test.describe('18 - Beginning Lecturer Onboarding & Readiness Panel', () => {
     });
     await page.goto(`/dashboard/${ORG_ACTIVE}`);
     await expect(page.locator('.drafts-row .draft-chip', { hasText: 'Draft Lab' })).toBeVisible();
-    await expect(page.getByText('One published assignment appears here once its first report is generated')).toBeVisible();
+    await expect(page.getByText('One more assignment appears here once its first report is generated')).toBeVisible();
     await expect(page.getByText('Nothing published yet')).toHaveCount(0);
   });
 
