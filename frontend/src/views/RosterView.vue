@@ -28,7 +28,7 @@
         <!-- The assignments are passed so the roster can offer "add the
              students who accepted" one of them, and so correcting an address
              can carry the cohorts that hold it (lib/cohort-reidentify.mjs). -->
-        <RosterTab v-else ref="rosterTab" :org="org" :assignments="assignments" />
+        <RosterTab v-else ref="rosterTab" :org="org" :assignments="assignments" :assignments-unreadable="assignmentsUnreadable" />
       </template>
     </div>
   </div>
@@ -52,7 +52,7 @@ import { markStaff } from '../lib/org-session.js'
 import { getRepo, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
-import { loadAssignmentDocs } from '../lib/org-assignments.js'
+import { loadAssignmentDocsCounted } from '../lib/org-assignments.js'
 import { askDiscard } from '../lib/confirm.js'
 
 const props = defineProps({
@@ -66,6 +66,8 @@ const loadError = ref('')
 // not be read, null when it could.
 const access = ref(null)
 const assignments = ref([])
+// Files left out of `assignments` because they could not be read.
+const assignmentsUnreadable = ref(0)
 const rosterTab = ref(null)
 
 // The newest load wins: switching organization while one is in flight must not
@@ -97,9 +99,10 @@ async function load() {
     }
     // Read the control repository: staff here, and the org's tabs can show.
     markStaff(props.org, true)
-    const docs = await loadAssignmentDocs(token, props.org)
+    const { docs, unreadable } = await loadAssignmentDocsCounted(token, props.org)
     if (mine !== generation) return
     assignments.value = docs
+    assignmentsUnreadable.value = unreadable
   } catch (e) {
     if (mine !== generation) return
     console.error('Failed to load the roster page', e)

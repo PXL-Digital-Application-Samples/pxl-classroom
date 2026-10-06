@@ -14,6 +14,18 @@ import { ASSIGNMENTS_DIR } from '../../../lib/control-layout.mjs'
 
 /** `[{ ...doc, id }]`, sorted by id. A 404 directory is no assignments yet. */
 export async function loadAssignmentDocs(token, org) {
+  return (await loadAssignmentDocsCounted(token, org)).docs
+}
+
+/**
+ * The same, and how many files were left out because they could not be read
+ * or parsed. Leaving one out is fine for a list; it is not for a change that
+ * must reach EVERY assignment naming a student (re-identifying a roster row),
+ * which needs to know the list is short.
+ *
+ * @returns {Promise<{docs: object[], unreadable: number}>}
+ */
+export async function loadAssignmentDocsCounted(token, org) {
   let files = []
   try {
     files = await listRepoDir(token, org, config.controlRepo, ASSIGNMENTS_DIR)
@@ -31,5 +43,9 @@ export async function loadAssignmentDocs(token, org) {
       return null
     }
   }))
-  return docs.filter(Boolean).sort((a, b) => String(a.id).localeCompare(String(b.id)))
+  const read = docs.filter(Boolean)
+  return {
+    docs: read.sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    unreadable: docs.length - read.length,
+  }
 }

@@ -86,6 +86,54 @@ async function editNinasAddress(page, to = 'nino@student.pxl.be') {
   await page.getByRole('button', { name: 'Save' }).click();
 }
 
+test.describe('66 - an address edit while an assignment cannot be read', () => {
+  test('is refused, because the cohort it would miss is the one nobody can see', async ({ page }) => {
+    // Review 2026-10-06: a file that could not be read was left out of the
+    // list the plan is made from, so its cohort kept the old address - a
+    // removal from a published cohort that no dialog named.
+    const contentWrites = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      roster: ROSTER,
+      contentWrites,
+      assignments: { 'lab-3': assignment(), 'lab-4': assignment({ id: 'lab-4', title: 'Lab 4' }) },
+    });
+    await page.route('**/pxl-classroom-control/contents/assignments/lab-4.yml*', (route) =>
+      route.fulfill({ status: 502, body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.goto(`/dashboard/${ORG}/roster`);
+    await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
+
+    await editNinasAddress(page);
+    await expect(page.locator('.toast-error')).toContainText('One assignment could not be read just now', { timeout: 10000 });
+    await expect(confirmDialog(page)).toHaveCount(0);
+    expect(contentWrites.filter((w) => w.path === 'students/roster.yml' || w.path.startsWith('assignments/'))).toEqual([]);
+  });
+
+  test("an edit that changes nobody's identity is not held up by it", async ({ page }) => {
+    const contentWrites = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      roster: ROSTER,
+      contentWrites,
+      assignments: { 'lab-3': assignment(), 'lab-4': assignment({ id: 'lab-4', title: 'Lab 4' }) },
+    });
+    await page.route('**/pxl-classroom-control/contents/assignments/lab-4.yml*', (route) =>
+      route.fulfill({ status: 502, body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.goto(`/dashboard/${ORG}/roster`);
+    await expect(page.locator('.roster-table')).toBeVisible({ timeout: 15000 });
+
+    // A name is no identity: nothing any cohort holds can change.
+    await menuFor(page, 'Alice Example').click();
+    await page.getByRole('menuitem', { name: /Edit details/ }).click();
+    await page.getByLabel('Name').fill('Alice Exampel');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect.poll(() => contentWrites.filter((w) => w.path === 'students/roster.yml').length, { timeout: 15000 }).toBe(1);
+    await expect(page.locator('.toast-error')).toHaveCount(0);
+  });
+});
+
 test.describe('66 - an address edit that would drop somebody', () => {
   test('IT ASKS, AND IT NAMES THE ASSIGNMENT', async ({ page }) => {
     await openRoster(page);

@@ -915,6 +915,8 @@ const props = defineProps({
   // accepted one. Optional: the tab works without them, it simply has nothing
   // to offer.
   assignments: { type: Array, default: () => [] },
+  /** Assignment files that could not be read when `assignments` was loaded. */
+  assignmentsUnreadable: { type: Number, default: 0 },
 })
 
 const controlRepo = config.controlRepo
@@ -1631,6 +1633,19 @@ const reidentifyWhat = computed(() => {
  */
 async function askBeforeReidentifying(before, after) {
   const plan = planCohortRename({ before, after, assignments: props.assignments })
+  // EVERY COHORT, OR NOT NOW. An assignment file that could not be read is
+  // missing from the list this plan was made from, so a cohort in it would
+  // keep the identity this edit takes away - a removal from a published
+  // cohort that nobody was shown (review 2026-10-06). Only an edit that
+  // changes an identity needs the whole list.
+  if (plan.lost.length > 0 && props.assignmentsUnreadable > 0) {
+    const n = props.assignmentsUnreadable
+    toast.error(
+      `${n === 1 ? 'One assignment' : `${n} assignments`} could not be read just now, so this change could miss ` +
+      'a cohort that names this student. Nothing was changed. Reload the page and try again.',
+    )
+    return { proceed: false, plan: null }
+  }
   if (plan.affected.length === 0) return { proceed: true, plan: null }
 
   // UNNAMEABLE IS REFUSED, NOT CONFIRMED. The roster schema will not store such
