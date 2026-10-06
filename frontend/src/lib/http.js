@@ -47,18 +47,34 @@ export async function fetchWithTimeout(url, init = {}, { timeoutMs = 0, signal =
   // Distinguishes our own timeout from a caller-initiated cancel, so a
   // cancelled sign-in is not reported to the user as a network timeout.
   let timedOut = false
-  const timer = setTimeout(() => {
+  const deadline = Date.now() + timeoutMs
+  let timer = setTimeout(() => {
     timedOut = true
     controller.abort()
   }, timeoutMs)
 
-  try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } catch (err) {
-    if (timedOut) throw new HttpTimeoutError(timeoutMs, url)
-    throw err
-  } finally {
+  // THE BODY TOO, NOT ONLY THE HEADERS. fetch() resolves when the headers
+  // arrive, and clearing the timer there left the reply's body unbounded: a
+  // response that stalled half way hung its reader for ever (2026-10-06). So on
+  // success the timer and the forwarded abort stay armed until the deadline,
+  // and an abort then ends a body still being read - aborting one that was
+  // already read does nothing. Read the body straight away; ghApi does.
+  const disarm = () => {
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', forwardAbort)
+  }
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal })
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+      disarm()
+    }, Math.max(0, deadline - Date.now()))
+    return res
+  } catch (err) {
+    disarm()
+    if (timedOut) throw new HttpTimeoutError(timeoutMs, url)
+    throw err
   }
 }

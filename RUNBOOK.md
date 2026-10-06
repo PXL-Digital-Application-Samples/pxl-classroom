@@ -1155,7 +1155,7 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
 #### Option A: Web UI (Unified System Health Center)
 
 1. **Organization-Wide Health Check (Organization tab):**
-   - Open the **Organization** tab, unfold **Advanced**, then **System health**, and click **Run the checks**. It is there whatever else on that page could or could not load, because it is the tool for exactly that.
+   - Open the **Organization** tab, unfold **Advanced**, then **System health**: the checks run as it opens, in the page, and **Check again** runs them again. It is there whatever else on that page could or could not load, because it is the tool for exactly that. Every read has a time limit and the whole pass a budget, so GitHub not answering ends in a report that says so.
    - The modal automatically verifies GitHub session validity, API rate-limit quota, App installation, permissions drift, `participating-orgs.yml` enrollment, and control repository scaffold integrity.
 2. **Assignment Pre-Flight Troubleshooter (Settings tab):**
    - On an assignment's **Settings** tab, click **Troubleshoot** in the bar at the bottom (or click any warning banner).

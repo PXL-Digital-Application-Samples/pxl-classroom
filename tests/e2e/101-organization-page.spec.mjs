@@ -49,7 +49,6 @@ async function open(page, { path = 'organization', comments = NOTICES, user = LE
   await injectAuth(page, user);
   await setupStandardMockRoutes(page, {
     currentUser: user,
-    ...extra,
     assignments: { 'lab-3': lab },
     reports: {
       dashboard: {
@@ -60,6 +59,8 @@ async function open(page, { path = 'organization', comments = NOTICES, user = LE
     },
     trackingIssue: ISSUE,
     trackingComments: comments,
+    // Last, so a test's own options win.
+    ...extra,
   });
   await page.goto(`/dashboard/${ORG}${path ? `/${path}` : ''}`);
   return { runReads };
@@ -80,6 +81,36 @@ test.describe('101 - the Organization tab', () => {
     await expect(items.nth(1)).not.toContainText('unrecorded-repositories');
     // The deleted assignment's notice is not there at all.
     await expect(needs(page)).not.toContainText('drill-race-1629');
+  });
+
+  test('a failed provisioning that has since gone through is not listed, nor counted on the tab', async ({ page }) => {
+    // PXL-Java-Essentials, 2026-10-06: 25 of these, all for students who had
+    // had their repository for a week.
+    const settled = [
+      notice('prov-fail-lab-3-ann', 'provisioning-failed', 'lab-3', 2, 'Failed to provision repo for `ann`.'),
+      notice('prov-fail-lab-3-bob', 'provisioning-failed', 'lab-3', 3, 'Failed to provision repo for `bob`.'),
+    ];
+    await open(page, {
+      comments: settled,
+      extra: {
+        reports: {
+          dashboard: { schema_version: 1, generated_at: new Date().toISOString(), assignments: { 'lab-3': { title: 'Lab 3', state: 'published' } } },
+          'lab-3': {
+            schema_version: 1,
+            assignment_id: 'lab-3',
+            generated_at: new Date().toISOString(),
+            students: [
+              { github_login: 'Ann', repo_name: 'lab-3-ann', acceptance_state: 'provisioned', submission_status: 'no-submission' },
+            ],
+          },
+        },
+      },
+    });
+    await expect(needs(page).locator('.org-needs-title')).toHaveText(/1 thing needs you/, { timeout: 15000 });
+    await expect(needs(page)).toContainText('Failed to provision repo for bob.');
+    await expect(needs(page)).not.toContainText('for ann');
+    const tab = page.getByRole('navigation', { name: 'Course views' }).locator('[aria-current="page"]');
+    await expect(tab.locator('.tab-count')).toHaveText('1');
   });
 
   test('one sentence each, the rest behind More', async ({ page }) => {

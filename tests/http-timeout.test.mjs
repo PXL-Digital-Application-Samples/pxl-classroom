@@ -110,3 +110,31 @@ test("http: every GitHub fetch in the client goes through fetchWithTimeout", asy
       "passing timeoutMs: 0 if it genuinely must wait forever.",
   );
 });
+
+// Its own limit: without the fix the read never returns, and that has to fail
+// this test rather than hang the suite.
+test("http: a reply that stalls after its headers is bounded too, and a quick one is untouched", { timeout: 10000 }, async () => {
+  // 2026-10-06: the timer was cleared when fetch() resolved, which is when the
+  // HEADERS arrive, so a body that stalled half way hung its reader for ever.
+  const { createServer } = await import("node:http");
+  const { fetchWithTimeout } = await import("../frontend/src/lib/http.js");
+  const server = createServer((req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    if (req.url === "/stall") res.write('{"partial":'); // and never ends
+    else res.end('{"ok":true}');
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const quick = await fetchWithTimeout(`${base}/quick`, {}, { timeoutMs: 300 });
+    assert.deepEqual(await quick.json(), { ok: true });
+
+    const started = Date.now();
+    const stalled = await fetchWithTimeout(`${base}/stall`, {}, { timeoutMs: 300 });
+    await assert.rejects(stalled.text(), (err) => err?.name === "AbortError");
+    assert.ok(Date.now() - started < 3000, `the stalled body took ${Date.now() - started}ms to give up`);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+  }
+});

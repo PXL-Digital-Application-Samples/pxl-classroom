@@ -1,8 +1,25 @@
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click.self="$emit('close')">
-    <div class="diagnostic-modal">
+  <!-- A DIALOG, or - `inline` - part of the page: the Organization tab shows the
+       organization's checks in place, run when their section is opened
+       (2026-10-06). One body for both, so the two cannot report differently. -->
+  <div
+    v-if="isOpen"
+    :class="inline ? 'health-inline' : 'modal-overlay'"
+    @click.self="inline || $emit('close')"
+  >
+    <div :class="inline ? 'health-inline-panel' : 'diagnostic-modal'">
+      <div v-if="inline" class="health-inline-head">
+        <span class="text-secondary text-sm" aria-live="polite">
+          <template v-if="running">Checking {{ org }}…</template>
+          <template v-else-if="report">Checked {{ org }} {{ checkedAgo }}.</template>
+        </span>
+        <button class="btn btn-sm btn-with-icon" type="button" data-health-rerun @click="run" :disabled="running">
+          <Icon name="refresh-cw" :size="12" :class="{ 'spin-animation': running }" />
+          <span>{{ running ? 'Checking…' : 'Check again' }}</span>
+        </button>
+      </div>
       <!-- HEADER -->
-      <div class="modal-head">
+      <div v-else class="modal-head">
         <div class="head-title">
           <Icon name="activity" :size="18" class="text-blue" />
           <h3 v-if="assignmentId">System Diagnostic &amp; Auto-Fix: <code>{{ assignmentId }}</code></h3>
@@ -18,7 +35,7 @@
       </div>
 
       <!-- BODY -->
-      <div class="modal-body">
+      <div :class="inline ? 'health-inline-body' : 'modal-body'">
         <!-- OVERALL STATUS BANNER -->
         <div v-if="report" class="diag-banner" :class="`banner-${report.overall}`">
           <Icon :name="severityIcon(report.overall)" :size="20" />
@@ -94,8 +111,10 @@
                     <Icon name="zap" :size="14" class="text-yellow" />
                     <span>Suggested Fix:</span>
                   </div>
+                  <!-- Primary in the dialog, which is a view of its own; in the
+                       page, secondary - one primary button per view (DESIGN.md §1.2). -->
                   <button
-                    class="btn btn-sm btn-primary btn-with-icon"
+                    :class="['btn', 'btn-sm', 'btn-with-icon', { 'btn-primary': !inline }]"
                     type="button"
                     @click="executeFix(c)"
                     :disabled="fixingId === c.id"
@@ -111,7 +130,7 @@
       </div>
 
       <!-- FOOTER -->
-      <div class="modal-foot">
+      <div v-if="!inline" class="modal-foot">
         <span class="text-muted" style="font-size: 0.8rem;">
           Diagnostics run in strict dependency order (Auth → Org → Control Repo → Templates → Brokers → Pages).
         </span>
@@ -122,10 +141,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getToken, getUser, startDeviceFlow } from '../lib/auth.js'
 import { ghApi, triggerWorkflow } from '../lib/api.js'
+import { READ_TIMEOUT_MS, fetchWithTimeout } from '../lib/http.js'
+import { formatRelative } from '../lib/format.js'
 import { config } from '../lib/config.js'
 import { DEVICE_FLOW_PROXY } from '../lib/deployment.js'
 import { toast } from '../lib/toast.js'
@@ -137,6 +158,8 @@ const props = defineProps({
   org: { type: String, required: true },
   assignmentId: { type: String, default: null },
   formDoc: { type: Object, default: null },
+  /** Part of the page rather than a dialog (the Organization tab). */
+  inline: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'fixed', 'navigate-tab'])
@@ -144,12 +167,19 @@ const router = useRouter()
 
 const running = ref(false)
 const report = ref(null)
+const checkedAt = ref(null)
+const checkedAgo = computed(() => (checkedAt.value ? formatRelative(checkedAt.value) : ''))
 const fixingId = ref(null)
 const expandedTiers = reactive({})
-const alertLevel = ref(localStorage.getItem('pxl_alert_level') || 'stuck_and_failures')
+// Browser storage can be blocked (a private window): a preference, never a
+// reason for the page to fail.
+const storedAlertLevel = (() => {
+  try { return localStorage.getItem('pxl_alert_level') } catch { return null }
+})()
+const alertLevel = ref(storedAlertLevel || 'stuck_and_failures')
 
 function updateAlertLevel() {
-  localStorage.setItem('pxl_alert_level', alertLevel.value)
+  try { localStorage.setItem('pxl_alert_level', alertLevel.value) } catch { /* not remembered */ }
   toast.success(`Pipeline alert preference updated: ${alertLevel.value.replace(/_/g, ' ')}`)
 }
 
@@ -225,9 +255,12 @@ async function run() {
       return { status: r.status, ok: r.ok, data: r.data }
     }
 
+    // Bounded like every other read, and by the pass budget: these two were
+    // bare fetch() calls, so a Pages file or a sign-in proxy that never
+    // answered held the whole pass past its budget (2026-10-06).
     const fetchPages = async (targetOrg) => {
       const pagesUrl = `${import.meta.env.BASE_URL}data/${targetOrg}/assignments.json?t=${Date.now()}`
-      const res = await fetch(pagesUrl, { cache: 'no-store' })
+      const res = await fetchWithTimeout(pagesUrl, { cache: 'no-store' }, { timeoutMs: READ_TIMEOUT_MS, signal: budget.signal })
       if (!res.ok) return null
       return await res.json().catch(() => null)
     }
@@ -243,9 +276,9 @@ async function run() {
       const target = DEVICE_FLOW_PROXY
       if (!target) return { configured: false }
       try {
-        const res = await fetch(`${target}${encodeURIComponent('https://github.com/login/device/code')}`, {
+        const res = await fetchWithTimeout(`${target}${encodeURIComponent('https://github.com/login/device/code')}`, {
           method: 'OPTIONS',
-        })
+        }, { timeoutMs: READ_TIMEOUT_MS, signal: budget.signal })
         return res.ok || res.status === 204 ? { ok: true } : { ok: false, detail: `HTTP ${res.status}` }
       } catch (err) {
         return { ok: false, detail: String(err?.message || err) }
@@ -269,6 +302,7 @@ async function run() {
     if (generation !== runGeneration) return
 
     report.value = res
+    checkedAt.value = new Date().toISOString()
 
     // Auto-expand all tiers that have warnings or errors, collapse fully ok tiers
     for (const t of res.tiers) {
@@ -424,6 +458,20 @@ function overallSummary(sev) {
 </script>
 
 <style scoped>
+/* Part of the page (the Organization tab): no overlay, no scroll box of its
+   own - the page scrolls. */
+.health-inline { margin-top: var(--space-md); }
+.health-inline-panel { display: flex; flex-direction: column; }
+.health-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+.health-inline-body { display: flex; flex-direction: column; gap: var(--space-md); }
+
 .modal-overlay {
   position: fixed;
   inset: 0;

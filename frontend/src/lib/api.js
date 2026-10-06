@@ -5,7 +5,7 @@
 
 import { clearAuth, forgetAuthInMemory, tokenInMemory } from './auth.js'
 import { authChangeFromOtherTab } from './auth-storage.js'
-import { READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
+import { HttpTimeoutError, READ_TIMEOUT_MS, fetchWithTimeout } from './http.js'
 import { toast } from './toast.js'
 import { teamsDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { commitWithRebase, commitFailureMessage } from '../../../lib/gittree.mjs'
@@ -92,7 +92,15 @@ export async function ghApi(token, method, path, body = null, options = {}) {
 
   if (res.status === 401 && token) handleSessionExpiry()
 
-  const text = await res.text()
+  let text
+  try {
+    text = await res.text()
+  } catch (err) {
+    // The deadline fell while the reply was still arriving (http.js): the
+    // same timeout as one that fell before it began, said the same way.
+    if (err?.name === 'AbortError' && timeoutMs) throw new HttpTimeoutError(timeoutMs, `${API_BASE}${path}`)
+    throw err
+  }
   let data = null
   if (text) {
     try {

@@ -311,12 +311,22 @@ test.describe('22 - DESIGN.md §1 conformity', () => {
   });
 
   test('A modal is its own major section', async ({ page }) => {
+    // The dialog form of System health: the new organization's readiness card
+    // opens it (the Organization tab shows it in the page instead).
     await injectAuth(page, LECTURER);
-    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });
     await page.goto(`/dashboard/${ORG}`);
-    await openSystemHealth(page);
+    await page.locator('.onboarding-readiness-card').getByRole('button', { name: /Check System Health/i }).click();
     await expect(page.locator('.diagnostic-modal')).toBeVisible();
     await expect(page.locator('.modal-head .btn')).toBeEnabled({ timeout: 15000 });
     await conforms(page, 'System Health modal');
+  });
+
+  test('System health in the Organization tab keeps the page to one primary button', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER });
+    const panel = await openSystemHealth(page);
+    await expect(panel.locator('[data-health-rerun]')).toBeEnabled({ timeout: 15000 });
+    await conforms(page, 'Organization tab with System health open');
   });
 });

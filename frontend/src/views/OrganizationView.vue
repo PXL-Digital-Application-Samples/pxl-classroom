@@ -42,6 +42,7 @@
               This is not "nothing needs you" - it is unknown.
               <a v-if="issueUrl" :href="issueUrl" target="_blank" rel="noopener">Open the notifications on GitHub</a>
             </p>
+            <button class="btn btn-sm" type="button" @click="load">Try again</button>
           </template>
           <template v-else-if="needsYou.length">
             <h2 id="org-needs-title" class="org-needs-title">
@@ -97,7 +98,10 @@
             <span class="spinner-sm" aria-hidden="true"></span>
             Reading the organization…
           </p>
-          <p v-else-if="factsState === 'unreadable'" class="text-secondary text-sm">Couldn't read this organization's details just now.</p>
+          <p v-else-if="factsState === 'unreadable'" class="text-secondary text-sm">
+            GitHub did not answer about this organization just now.
+            <button class="btn btn-sm" type="button" @click="retryFacts">Try again</button>
+          </p>
           <p v-else-if="facts.ownerOnly" class="text-secondary text-sm">
             Only an owner of this organization can see its plan, who is in it and its usage.
           </p>
@@ -149,13 +153,17 @@
           <div v-if="advancedOpen" class="org-advanced-body">
             <UsagePanel :org="org" />
 
-            <details class="card org-fold">
+            <!-- In the page, run when opened (2026-10-06): a button that opened
+                 a dialog was one step too many for the one thing this section
+                 is for. Bounded: every read has a time limit and the whole pass
+                 a budget, so GitHub not answering ends in a report that says so. -->
+            <details class="card org-fold org-health" @toggle="healthOpen = $event.target.open">
               <summary><h3>System health</h3></summary>
-              <p class="text-secondary">
+              <p class="text-secondary text-sm">
                 Checks your sign-in, the GitHub App, the control repository, the assignments, their
                 acceptance repositories and the published pages, and offers a fix where one exists.
               </p>
-              <button class="btn btn-secondary btn-sm" type="button" @click="showHealth = true">Run the checks</button>
+              <SystemHealthModal inline :is-open="healthOpen" :org="org" />
             </details>
 
             <details class="card org-fold">
@@ -197,8 +205,6 @@
         </details>
       </template>
     </div>
-
-    <SystemHealthModal :is-open="showHealth" :org="org" @close="showHealth = false" />
   </div>
 </template>
 
@@ -215,16 +221,17 @@ import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { markStaff, setNeedsYou } from '../lib/org-session.js'
+import { markStaff, readProvisioned, setNeedsYou } from '../lib/org-session.js'
 import { getRepo, getRepoContent, ghApi, listRepoDir } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 import { readTrackingIssue } from '../lib/tracking-issue.js'
 import { formatDate, formatRelative } from '../lib/format.js'
-import { NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, isOrgNotice, noticeLines, noticesForLecturer } from '../../../lib/org-notices.mjs'
+import { NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, assignmentsToSettle, isOrgNotice, noticeLines, noticesForLecturer } from '../../../lib/org-notices.mjs'
 import { ASSIGNMENTS_DIR, DASHBOARD_PATH, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
 import { RUN_NAME_PREFIX } from '../../../lib/acceptance-run-name.mjs'
 import { orgFacts } from '../../../lib/org-facts.mjs'
+import { TIMED_OUT, withDeadline } from '../lib/section-deadline.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -234,7 +241,8 @@ const user = ref(null)
 const loading = ref(true)
 const loadError = ref('')
 const access = ref(null)
-const showHealth = ref(false)
+// Whether the System health section is open: the checks run while it is.
+const healthOpen = ref(false)
 
 // The assignments by id - from the folder listing, so it is the whole list -
 // and their titles from the dashboard file, falling back to the id.
@@ -257,7 +265,10 @@ const runsUnreadable = ref(false)
 const fmt = (iso) => (iso ? formatDate(iso) : '')
 const titleOf = (id) => titles.value[id] || id
 
-const needsYou = computed(() => noticesForLecturer(comments.value, { assignmentIds: assignmentIds.value }))
+// Who has a repository, per assignment with a notice about one student: what
+// settles those notices. Null when it could not be read - nothing is settled.
+const provisioned = ref(null)
+const needsYou = computed(() => noticesForLecturer(comments.value, { assignmentIds: assignmentIds.value, provisioned: provisioned.value }))
 
 // The Advanced section stays as the viewer left it: a per-browser convenience,
 // so a lecturer who never needs it never sees it open, and one who does is not
@@ -296,6 +307,8 @@ async function loadNightly(token) {
 async function onRunsToggle(e) {
   if (!e.target.open || runsRead.value || runsLoading.value) return
   runsLoading.value = true
+  // Closing and opening it again is how a failed read is tried again.
+  runsUnreadable.value = false
   const mine = generation
   try {
     const hub = `${config.hubOwner}/${config.hubRepo}`
@@ -334,13 +347,28 @@ async function countAll(token, path) {
   return null
 }
 
+// A GET to GitHub REJECTS when it times out (http.js) - the one way the
+// resolve-don't-throw helpers in api.js throw - so a read that must not take
+// its section down with it is settled here: its answer, or null.
+async function settle(promise) {
+  try {
+    return await promise
+  } catch {
+    return null
+  }
+}
+
+function retryFacts() {
+  loadFacts(getToken(), generation)
+}
+
 /** The organization card, read beside the rest and shown when it arrives. */
 async function loadFacts(token, mine) {
   factsState.value = 'loading'
   try {
-    const orgRes = await ghApi(token, 'GET', `/orgs/${props.org}`)
+    const orgRes = await settle(ghApi(token, 'GET', `/orgs/${props.org}`))
     if (mine !== generation) return
-    if (!orgRes.ok) {
+    if (!orgRes?.ok) {
       factsState.value = 'unreadable'
       return
     }
@@ -350,18 +378,23 @@ async function loadFacts(token, mine) {
       factsState.value = 'ok'
       return
     }
+    // Each one on its own: a count that times out is left out of the card,
+    // never the card. The member walks also have a deadline as a whole.
     const now = new Date()
+    const counted = (path) => withDeadline(countAll(token, path))
+      .then((n) => (n === TIMED_OUT ? null : n))
+      .catch(() => null)
     const [owners, members, billing] = await Promise.all([
-      countAll(token, `/orgs/${props.org}/members?role=admin`),
-      countAll(token, `/orgs/${props.org}/members`),
-      ghApi(token, 'GET', `/organizations/${encodeURIComponent(props.org)}/settings/billing/usage?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`),
+      counted(`/orgs/${props.org}/members?role=admin`),
+      counted(`/orgs/${props.org}/members`),
+      settle(ghApi(token, 'GET', `/organizations/${encodeURIComponent(props.org)}/settings/billing/usage?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`)),
     ])
     if (mine !== generation) return
     facts.value = orgFacts({
       org: orgRes.data,
       owners,
       members,
-      billingItems: billing.ok && Array.isArray(billing.data?.usageItems) ? billing.data.usageItems : null,
+      billingItems: billing?.ok && Array.isArray(billing.data?.usageItems) ? billing.data.usageItems : null,
     })
     factsState.value = 'ok'
   } catch {
@@ -383,25 +416,38 @@ async function load() {
   try {
     // ALL AT ONCE. These were read one after another, and then the lock record
     // of every past assignment, and then a run list, before anything showed.
+    //
+    // EACH ONE FAILS ON ITS OWN. A read that times out (http.js) or fails is
+    // "unknown" for its own part of the page - the notices, the titles, the
+    // nightly line - never the whole page; and the notices walk pages, so they
+    // also get a deadline as a whole (lib/section-deadline.js).
     const [repoRes, files, dash, tracking, nightly] = await Promise.all([
-      getRepo(token, props.org, config.controlRepo),
+      settle(getRepo(token, props.org, config.controlRepo)).then((r) => r || { ok: false, status: 0 }),
       listRepoDir(token, props.org, config.controlRepo, ASSIGNMENTS_DIR).catch((e) => (e?.status === 404 ? [] : null)),
       getRepoContent(token, props.org, config.controlRepo, DASHBOARD_PATH).catch(() => null),
-      readTrackingIssue(token, { org: props.org, controlRepo: config.controlRepo }),
+      withDeadline(readTrackingIssue(token, { org: props.org, controlRepo: config.controlRepo }))
+        .then((t) => (t === TIMED_OUT ? { state: 'unreadable' } : t))
+        .catch(() => ({ state: 'unreadable' })),
       loadNightly(token).catch(() => null),
     ])
     if (mine !== generation) return
     if (!repoRes.ok) {
       if (repoRes.status === 404) {
-        const verdict = await classifyUnreadableControlRepo(
+        const verdict = await withDeadline(classifyUnreadableControlRepo(
           (method, path) => ghApi(token, method, path),
           { org: props.org, hubOwner: config.hubOwner, hubRepo: config.hubRepo },
-        )
+        )).catch(() => TIMED_OUT)
         if (mine !== generation) return
+        if (verdict === TIMED_OUT) {
+          loadError.value = `GitHub did not answer in time about ${props.org}. Try again in a minute.`
+          return
+        }
         access.value = verdict
         markStaff(props.org, false)
       } else {
-        loadError.value = `Couldn't read ${props.org}'s control repository (HTTP ${repoRes.status}).`
+        loadError.value = repoRes.status
+          ? `Couldn't read ${props.org}'s control repository (HTTP ${repoRes.status}).`
+          : `GitHub did not answer in time about ${props.org}'s control repository. Try again in a minute.`
       }
       return
     }
@@ -422,6 +468,15 @@ async function load() {
     nightlyRuns = nightly || []
     const lastNight = nightlyRuns.find((r) => r.status === 'completed')
     lastNightly.value = lastNight ? { at: lastNight.created_at, ok: lastNight.conclusion === 'success' } : null
+
+    // Notices about one student settle when that student has their
+    // repository: read the reports of the assignments that have any.
+    const toSettle = assignmentsToSettle(comments.value).filter((id) => !assignmentIds.value || assignmentIds.value.has(id))
+    const settled = toSettle.length
+      ? await withDeadline(readProvisioned(token, props.org, config.controlRepo, toSettle)).catch(() => TIMED_OUT)
+      : new Map()
+    if (mine !== generation) return
+    provisioned.value = settled === TIMED_OUT ? null : settled
 
     // The tab's count, from what this page just read - the same rule, so the
     // count and the list agree. Unknown when either half could not be read.
@@ -477,6 +532,7 @@ onMounted(() => {
 .org-about-facts dd { margin: 0; }
 .org-about-note { display: block; color: var(--text-secondary); }
 .org-advanced > summary { cursor: pointer; list-style-position: outside; margin-bottom: var(--space-md); }
+.org-health > p { margin: var(--space-sm) 0 0; }
 .org-advanced-title { display: inline; font-size: 1rem; margin: 0 var(--space-sm) 0 0; }
 /* The usage panel is a component; its root takes this page's scope. */
 .org-advanced-body > .usage-panel { margin-bottom: var(--space-md); }

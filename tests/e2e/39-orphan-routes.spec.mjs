@@ -116,8 +116,7 @@ test.describe('39 - /setup is offered where somebody discovers they need it', ()
   }
 
   async function openTier1(page) {
-    await openSystemHealth(page);
-    const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
+    const overlay = await openSystemHealth(page);
     await expect(overlay.locator('.diag-banner')).toBeVisible({ timeout: 15000 });
     const tier1 = overlay.locator('.tier-card', { hasText: 'Course Organization & GitHub App' });
     await expect(tier1).toBeVisible();

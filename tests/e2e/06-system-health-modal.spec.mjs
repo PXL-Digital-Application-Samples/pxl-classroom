@@ -3,7 +3,7 @@ import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openSystemHealth } 
 import { EXPECTED_APP_PERMISSIONS, MANIFEST_APP_PERMISSIONS } from '../../lib/audit.mjs';
 
 test.describe('06 - System Health & Diagnostics Modal', () => {
-  test('Happy Path: System Health modal opens top-anchored and displays diagnostic tiers', async ({ page }) => {
+  test('Happy Path: System health runs in the page when its section opens, and displays diagnostic tiers', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
@@ -12,16 +12,11 @@ test.describe('06 - System Health & Diagnostics Modal', () => {
 
     await page.goto(`/dashboard/${ORG}`);
 
-    // The System Health button is icon-only - aria-label is the only handle.
-    await openSystemHealth(page);
-
-    const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
-    await expect(overlay).toBeVisible();
-
-    // Top-anchored: SystemHealthModal's scoped .modal-overlay must beat the
-    // global centred one in style.css, or a long tier list overflows the fold.
-    const alignItems = await overlay.evaluate((el) => window.getComputedStyle(el).alignItems);
-    expect(alignItems).toBe('flex-start');
+    // On the Organization tab it is part of the page, not a dialog
+    // (2026-10-06): opening its section is what runs the checks.
+    const overlay = await openSystemHealth(page);
+    await expect(page.locator('.modal-overlay:has(.diagnostic-modal)')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Run the checks' })).toHaveCount(0);
 
     // Verdict banner - rendered only once the diagnostic pass has a report.
     // That pass awaits 17 checks strictly in sequence, so this is the one wait

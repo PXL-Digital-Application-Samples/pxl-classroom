@@ -1776,13 +1776,16 @@ export async function openAdvanced(page) {
   await expect(advanced).toHaveAttribute('open', '');
 }
 
-// System health is in it. Opens the modal.
+// System health is in it, part of the page: opening its section runs the
+// checks there (2026-10-06). Returns the panel, which carries the report.
+export const healthPanel = (page) => page.locator('details.org-health .health-inline');
 export async function openSystemHealth(page, org = ORG) {
   await page.goto(`/dashboard/${org}/organization`);
   await openAdvanced(page);
-  const fold = page.locator('details.org-fold', { has: page.locator('summary', { hasText: 'System health' }) });
-  await fold.locator('summary').click();
-  await fold.getByRole('button', { name: 'Run the checks' }).click();
+  const fold = page.locator('details.org-health');
+  if ((await fold.getAttribute('open')) === null) await fold.locator('> summary').click();
+  await expect(healthPanel(page)).toBeVisible({ timeout: 15000 });
+  return healthPanel(page);
 }
 
 // Automated checks moved out of the Guardrails fieldset into a modal
