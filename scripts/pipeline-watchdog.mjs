@@ -75,6 +75,60 @@ const LOOKBACK_MS = 6 * 60 * 60 * 1000;
  */
 export const RUN_LIST_CAP = 1000;
 
+const isWorkflow = (run, file) => String(run?.path || "").endsWith(`/${file}`);
+const finishedAt = (run) => Date.parse(run?.updated_at || run?.created_at || "") || 0;
+
+/** How long the ordinary path (regenerate, then dispatch, then deploy) gets first. */
+export const PAGES_GRACE_MS = 10 * 60 * 1000;
+/** Failed deploys in a row after which redeploying is a loop, not a cure. */
+export const PAGES_FAILURES_TO_STOP = 3;
+
+/**
+ * Are the student pages behind, with nothing on its way to fix it?
+ *
+ * 2026-10-06, during a GitHub incident: a lecturer's publish regenerated the
+ * data, the deploy it dispatched failed on one 504, and the student page went
+ * live only because the lecturer published again a quarter of an hour later.
+ * This watchdog already redeployed after a deploy that HUNG; one that FAILED,
+ * or a dispatch that never started one, waited for the next change anywhere.
+ *
+ * Due when the data was regenerated after the last successful deploy (a
+ * regeneration whose dispatch failed counts - its run fails), or the newest
+ * deploy failed - and that is older than the grace, and no deploy is queued,
+ * waiting or running. Not due after PAGES_FAILURES_TO_STOP failures in a row:
+ * each failed run is alerted already, and a fourth deploy would fail the same.
+ *
+ * @param {{completed: object[], active: object[], now: number}} runs
+ * @returns {{due: boolean, reason: string}}
+ */
+export function pagesRedeployDue({ completed = [], active = [], now = Date.now() }) {
+  if (active.some((r) => isWorkflow(r, "deploy-frontend.yml"))) return { due: false, reason: "a deploy is on its way" };
+  const deploys = completed
+    .filter((r) => isWorkflow(r, "deploy-frontend.yml") && r.conclusion !== "cancelled" && r.conclusion !== "skipped")
+    .sort((a, b) => finishedAt(b) - finishedAt(a));
+  const lastOk = deploys.find((r) => r.conclusion === "success");
+  const lastOkAt = lastOk ? finishedAt(lastOk) : 0;
+  const failedInARow = deploys.findIndex((r) => r.conclusion === "success");
+  const streak = failedInARow === -1 ? deploys.length : failedInARow;
+  if (streak >= PAGES_FAILURES_TO_STOP) {
+    return { due: false, reason: `${streak} deploys failed in a row - alerted, not retried again` };
+  }
+  const newestRegen = completed
+    .filter((r) => isWorkflow(r, "regenerate-dashboard.yml") && (r.conclusion === "success" || r.conclusion === "failure"))
+    .map(finishedAt)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const newestDeployFailure = deploys[0]?.conclusion === "failure" ? finishedAt(deploys[0]) : 0;
+  const behindSince = Math.max(newestRegen > lastOkAt ? newestRegen : 0, newestDeployFailure);
+  if (!behindSince) return { due: false, reason: "the pages are as new as the data" };
+  if (now - behindSince < PAGES_GRACE_MS) return { due: false, reason: "the ordinary path still has time" };
+  return {
+    due: true,
+    reason: newestDeployFailure && newestDeployFailure >= newestRegen
+      ? "the newest deploy failed"
+      : "the data was regenerated after the last successful deploy",
+  };
+}
+
 export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, notifyLogins }) {
   if (alertLevel === "off") {
     console.log("Pipeline alerts are disabled (alertLevel=off). Exiting.");
@@ -92,10 +146,12 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   const since = new Date(now - LOOKBACK_MS).toISOString();
   const listRuns = (query) =>
     ghAllItems(`/repos/${owner}/${repo}/actions/runs?${query}&per_page=100`, "workflow_runs", ghOpts);
-  const [waitingAll, inProgressAll, completedAll] = await Promise.all([
+  const [waitingAll, inProgressAll, completedAll, queuedAll] = await Promise.all([
     listRuns("status=waiting"),
     listRuns("status=in_progress"),
     listRuns(`status=completed&created=${encodeURIComponent(`>=${since}`)}`),
+    // Only to know whether a deploy is already on its way (pagesRedeployDue).
+    listRuns("status=queued"),
   ]);
   // A list that reached GitHub's cap is not the whole list (RUN_LIST_CAP).
   const capped = [["waiting", waitingAll], ["running", inProgressAll], ["finished", completedAll]]
@@ -175,6 +231,26 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     }
   }
 
+  // Student pages behind the data, with nothing on its way: deploy them. A
+  // stuck deploy cancelled above was re-dispatched already, so it is on its way.
+  let pagesRedeploy = { due: false, reason: "not checked" };
+  if (autoCancel) {
+    const redeployedAbove = cancelledRuns.length > 0 && stuckRuns.some(
+      (r) => cancelledRuns.includes(r.id) && isWorkflow(r, "deploy-frontend.yml"),
+    );
+    pagesRedeploy = redeployedAbove
+      ? { due: false, reason: "re-dispatched after cancelling a stuck deploy" }
+      : pagesRedeployDue({
+          completed: completedAll.filter(watchedRun),
+          active: [...waitingAll, ...inProgressAll, ...queuedAll].filter(watchedRun),
+          now,
+        });
+    console.log(`Student pages: ${pagesRedeploy.due ? "redeploying" : "no redeploy"} - ${pagesRedeploy.reason}.`);
+    if (pagesRedeploy.due) {
+      await gh("POST", `/repos/${owner}/${repo}/actions/workflows/deploy-frontend.yml/dispatches`, { ref: "main" }, ghOpts);
+    }
+  }
+
   // Determine if notification is warranted based on alertLevel picklist
   let shouldNotify = false;
   if (alertLevel === "all") {
@@ -193,7 +269,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
 
   if (!shouldNotify) {
     console.log("No alerting conditions met for configured alert level.");
-    return { outcome: "ok", stuckRuns, failedRuns, cancelledRuns, capped };
+    return { outcome: "ok", stuckRuns, failedRuns, cancelledRuns, capped, pagesRedeploy };
   }
 
   // Find or create tracking issue
@@ -289,7 +365,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     }
   }
 
-  return { outcome: capped.length ? "incomplete" : "notified", stuckRuns, failedRuns, cancelledRuns, capped };
+  return { outcome: capped.length ? "incomplete" : "notified", stuckRuns, failedRuns, cancelledRuns, capped, pagesRedeploy };
 }
 
 // CLI entry point

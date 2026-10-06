@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runWatchdog, ranFor, watchedRun, RUN_LIST_CAP } from "../scripts/pipeline-watchdog.mjs";
+import { runWatchdog, ranFor, watchedRun, pagesRedeployDue, RUN_LIST_CAP } from "../scripts/pipeline-watchdog.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 
 test("runWatchdog - skips when alertLevel is off", async () => {
@@ -45,7 +45,7 @@ test("runWatchdog - detects stuck runs, auto-cancels, and posts alerts with ment
       );
     }
 
-    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed")) {
+    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued")) {
       return new Response(JSON.stringify({ workflow_runs: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -148,7 +148,7 @@ test("runWatchdog - deduplicates alerts when marker is already present", async (
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }
-    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed")) {
+    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued")) {
       return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (urlStr.includes("/actions/runs/554433/cancel")) {
@@ -225,6 +225,7 @@ test("runWatchdog - ignores the registry branch, and a failure says how long the
     calls.push({ method, url: urlStr, body: opts?.body ? JSON.parse(opts.body) : null });
     if (urlStr.includes("/actions/runs?status=waiting")) return json({ workflow_runs: [stuckOnRegistry] });
     if (urlStr.includes("/actions/runs?status=in_progress")) return json({ workflow_runs: [] });
+    if (urlStr.includes("/actions/runs?status=queued")) return json({ workflow_runs: [] });
     if (urlStr.includes("/actions/runs?status=completed")) return json({ workflow_runs: [codeqlOnRegistry, deployOnMain] });
     if (urlStr.includes("/issues?labels=pxl-tracking")) return json([{ number: 20, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
     if (urlStr.includes("/issues/20/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);
@@ -344,4 +345,59 @@ test("runWatchdog - a list at GitHub's cap is not an all-clear, at any alert lev
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// --- student pages behind the data -------------------------------------------
+
+const T = (hhmm) => Date.parse(`2026-10-06T${hhmm}:00Z`);
+const run = (file, conclusion, hhmm, status = "completed") => ({
+  path: `.github/workflows/${file}`, conclusion, status, created_at: new Date(T(hhmm) - 60_000).toISOString(), updated_at: new Date(T(hhmm)).toISOString(),
+});
+const deploy = (conclusion, hhmm) => run("deploy-frontend.yml", conclusion, hhmm);
+const regen = (conclusion, hhmm) => run("regenerate-dashboard.yml", conclusion, hhmm);
+
+test("pagesRedeployDue - 2026-10-06: a publish's deploy failed on one 504, and nothing else came", () => {
+  // As it would have been had the lecturer not published again: regenerated
+  // 19:40, its deploy failed 19:41. The next scan, 20:10, deploys.
+  const completed = [deploy("success", "19:29"), regen("success", "19:40"), deploy("failure", "19:41")];
+  assert.deepEqual(pagesRedeployDue({ completed, now: T("20:10") }), { due: true, reason: "the newest deploy failed" });
+  // Inside the grace the ordinary path may still be on it.
+  assert.equal(pagesRedeployDue({ completed, now: T("19:45") }).due, false);
+  // And once the lecturer's second publish deployed, nothing is due.
+  const after = [...completed, regen("success", "19:56"), deploy("success", "19:57")];
+  assert.equal(pagesRedeployDue({ completed: after, now: T("20:10") }).due, false);
+});
+
+test("pagesRedeployDue - a regeneration whose dispatch never started a deploy is caught too", () => {
+  // The dispatch is the regeneration's last job, so a failed one fails its run.
+  const completed = [deploy("success", "19:00"), regen("failure", "19:30")];
+  assert.deepEqual(pagesRedeployDue({ completed, now: T("19:45") }), {
+    due: true, reason: "the data was regenerated after the last successful deploy",
+  });
+});
+
+test("pagesRedeployDue - nothing is due while a deploy is on its way, queued included", () => {
+  const completed = [deploy("success", "19:00"), regen("success", "19:30")];
+  for (const status of ["queued", "waiting", "in_progress"]) {
+    assert.equal(pagesRedeployDue({ completed, active: [run("deploy-frontend.yml", null, "19:31", status)], now: T("20:00") }).due, false, status);
+  }
+  // Another workflow running is not a deploy.
+  assert.equal(pagesRedeployDue({ completed, active: [run("ci.yml", null, "19:31", "in_progress")], now: T("20:00") }).due, true);
+});
+
+test("pagesRedeployDue - three failed deploys in a row are alerted, not retried again", () => {
+  const completed = [deploy("success", "18:00"), deploy("failure", "18:30"), deploy("failure", "19:00"), deploy("failure", "19:30")];
+  const verdict = pagesRedeployDue({ completed, now: T("20:30") });
+  assert.equal(verdict.due, false);
+  assert.match(verdict.reason, /3 deploys failed in a row/);
+  // A cancelled deploy is neither a failure nor a success.
+  const withCancel = [deploy("success", "18:00"), deploy("failure", "18:30"), deploy("cancelled", "19:00"), deploy("failure", "19:30")];
+  assert.equal(pagesRedeployDue({ completed: withCancel, now: T("20:30") }).due, true);
+});
+
+test("pagesRedeployDue - pages as new as the data need nothing", () => {
+  assert.equal(pagesRedeployDue({ completed: [regen("success", "19:00"), deploy("success", "19:02")], now: T("20:00") }).due, false);
+  assert.equal(pagesRedeployDue({ completed: [], now: T("20:00") }).due, false);
+  // A cancelled regeneration changed nothing it could publish.
+  assert.equal(pagesRedeployDue({ completed: [deploy("success", "19:00"), regen("cancelled", "19:30")], now: T("20:00") }).due, false);
 });

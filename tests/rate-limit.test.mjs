@@ -132,7 +132,9 @@ test("gh.mjs reads the body before deciding whether to retry", () => {
   // The secondary limit announces itself in the message, so a retry decision
   // taken on headers alone cannot see it.
   const src = readFileSync(join(root, "lib", "gh.mjs"), "utf8");
-  const body = src.indexOf("const text = await res.text()");
+  // `text` is assigned inside the attempt's try (a body can stall like a
+  // header, lib/gh.mjs REQUEST_TIMEOUT_MS), so the anchor is the read itself.
+  const body = src.indexOf("text = await res.text()");
   const decide = src.indexOf("retryDelayMs(");
   assert.ok(body > -1 && decide > -1, "both steps must exist");
   assert.ok(body < decide, "the body must be read before the retry decision");

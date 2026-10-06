@@ -199,3 +199,60 @@ test("ghAll next link", async (t) => {
   assert.deepEqual(res, [1, 2, 3]);
   assert.equal(calls, 2);
 });
+
+// --- no answer at all ----------------------------------------------------------
+//
+// 2026-10-06, a GitHub incident: a dropped connection was thrown straight out
+// of gh(), failing whatever step met it, and a stalled one sat for Node's five
+// minutes. Asked again now - on the same terms as a 5xx.
+
+const ok = () => new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
+const dropped = () => Promise.reject(new TypeError("fetch failed"));
+
+test("gh asks a GET again after a dropped connection", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => (++calls === 1 ? dropped() : ok());
+  t.after(() => globalThis.fetch = originalFetch);
+  const res = await gh("GET", "/test", null, { token: "secret" });
+  assert.equal(res.status, 200);
+  assert.equal(calls, 2);
+});
+
+test("gh sends a POST once whatever happened to the connection - it may have been carried out", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return dropped(); };
+  t.after(() => globalThis.fetch = originalFetch);
+  await assert.rejects(gh("POST", "/repos/o/r/issues", { title: "x" }, { token: "secret" }), TypeError);
+  assert.equal(calls, 1);
+});
+
+test("gh stops waiting on a stalled request and asks again, three times at most", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  // Never answers; gives up only when the request's own signal says so.
+  globalThis.fetch = (url, init) => {
+    calls++;
+    return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+  };
+  t.after(() => globalThis.fetch = originalFetch);
+  await assert.rejects(gh("GET", "/test", null, { token: "secret", timeoutMs: 30 }), { name: "TimeoutError" });
+  assert.equal(calls, 3, "three attempts, not six: each one can cost the whole limit");
+});
+
+test("gh's stall limit covers the body too", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (url, init) => {
+    calls++;
+    if (calls > 1) return Promise.resolve(ok());
+    // Headers arrive; the body never does.
+    const stream = new ReadableStream({ start(controller) { init.signal.addEventListener("abort", () => controller.error(init.signal.reason)); } });
+    return Promise.resolve(new Response(stream, { status: 200, headers: { "content-type": "application/json" } }));
+  };
+  t.after(() => globalThis.fetch = originalFetch);
+  const res = await gh("GET", "/test", null, { token: "secret", timeoutMs: 30 });
+  assert.equal(res.status, 200);
+  assert.equal(calls, 2);
+});
