@@ -2184,7 +2184,11 @@ async function reloadFromStored(changed = {}) {
   }
   const snapshot = JSON.parse(savedSnapshot.value || '{}')
   for (const [k, v] of Object.entries(changed)) {
-    form.value[k] = v
+    // A field the lecturer has edited here keeps their value, and stays an
+    // edit waiting (it now differs from what is stored); only an untouched
+    // one takes the page's.
+    const edited = JSON.stringify(form.value[k] ?? null) !== JSON.stringify(snapshot[k] ?? null)
+    if (!edited) form.value[k] = v
     snapshot[k] = v
   }
   savedSnapshot.value = JSON.stringify(snapshot)
@@ -4624,9 +4628,23 @@ async function saveAndPublishSteps() {
   }
   // Where to go back to if the dispatch does not happen. Captured BEFORE the
   // save, because saveAssignment writes 'published' into the form.
-  const priorState = form.value.state === 'closed' || form.value.state === 'archived'
+  let priorState = form.value.state === 'closed' || form.value.state === 'archived'
     ? form.value.state
     : 'draft'
+  // What it IS, not what this tab believes. The workflow trusts prior_state
+  // over the file, so a tab still showing a draft that another tab has since
+  // published sent `draft`, and a failed run would then demote a live
+  // assignment. Unreadable keeps the tab's answer; the workflow is no worse
+  // off than before it had one.
+  if (!isNew.value) {
+    try {
+      const text = await getRepoContent(getToken(), props.org, config.controlRepo, assignmentPath(form.value.id))
+      const stored = text ? parseYaml(text)?.state : null
+      if (['draft', 'published', 'closed', 'archived'].includes(stored)) priorState = stored
+    } catch {
+      // keep the tab's answer
+    }
+  }
 
   // A FINISHED assignment is not published again - the workflow refuses it
   // (lib/finished-assignment.mjs), and by then this page had already written
@@ -4784,8 +4802,17 @@ async function finishedRefusal() {
   const lock = await ghApi(getToken(), 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`)
   if (lock.status !== 200 && lock.status !== 404) return null
   if (!republishRefusal({ deadlineAt: new Date(deadlineAt).toISOString(), lockRan: lock.status === 200 })) return null
-  // The judge's sentence is the workflow log's; this is the lecturer's.
-  return `"${form.value.title || form.value.id}" is finished: its deadline has passed and its submissions are locked. To reopen it, move the deadline into the future first.`
+  // The judge's sentence is the workflow log's; this is the lecturer's - and
+  // only what the record says: an assignment that does not lock gets a record
+  // too (`lock_method: none`), and "its submissions are locked" was untrue there.
+  let lockMethod = null
+  try {
+    lockMethod = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(lock.data?.content || '').replace(/\n/g, '')), (c) => c.charCodeAt(0))))?.lock_method ?? null
+  } catch {
+    lockMethod = null
+  }
+  const what = lockMethod === 'none' ? 'its work was collected' : 'its submissions are locked'
+  return `"${form.value.title || form.value.id}" is finished: its deadline has passed and ${what}. To reopen it, move the deadline into the future first.`
 }
 
 // Returns true when the workflow_dispatch was accepted by GitHub.

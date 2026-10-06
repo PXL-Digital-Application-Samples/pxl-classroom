@@ -11,7 +11,7 @@
 // assignment is refused before anything is written, and a draft that was
 // published before is deleted in full, never as a bare file.
 
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { test, expect } from '@playwright/test';
 import {
   ORG,
@@ -126,6 +126,22 @@ test.describe('98 - editing a finished assignment', () => {
     await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
     expect(named(dispatches, PUBLISH)[0].inputs.prior_state, 'a failed publish puts back this').toBe('draft');
     expect(parse(assignmentWrites(writes).at(-1).content).state).toBe('published');
+  });
+
+  test('a tab still showing a draft that another tab published sends what is stored', async ({ page }) => {
+    // Self-review 2026-10-06: prior_state came from the form, so a stale tab
+    // sent `draft` for a live assignment, and a failed run would have
+    // demoted it with students in it.
+    const future = new Date(Date.now() + 7 * DAY).toISOString();
+    const { dispatches } = await open(page, { assignment: doc({ state: 'draft', deadline_at: future }) });
+    await page.route(`**/pxl-classroom-control/contents/assignments/${ID}.yml*`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const text = stringify(doc({ state: 'published', deadline_at: future }));
+      return route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(text).toString('base64'), encoding: 'base64', sha: 'theirs' }) });
+    });
+    await chooseState(page, 'Publish');
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    expect(named(dispatches, PUBLISH)[0].inputs.prior_state).toBe('published');
   });
 
   test('a live save of a finished assignment rebuilds the page instead of publishing', async ({ page }) => {

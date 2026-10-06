@@ -284,6 +284,23 @@ test.describe('74 - the cohort page', () => {
     expect(saved.max_acceptances).toBe(30);
   });
 
+  test('a cap the lecturer is typing in Settings is theirs, not the banner\'s', async ({ page }) => {
+    const { writes } = await openCohort(page, liveAssignment({ max_acceptances: 20 }), fullReport(20));
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue('.NET Advanced Labs', { timeout: 15000 });
+    const cap = page.locator('.field', { has: page.locator('label', { hasText: 'Max acceptances' }) }).locator('input[type="number"]');
+    await cap.fill('35');
+
+    await page.locator('.capacity-banner').getByRole('button', { name: '+10' }).click();
+    await expect(page.locator('.toast', { hasText: /Capacity increased to 30 slots/ })).toBeVisible();
+    await expect(cap, 'the typed value stays').toHaveValue('35');
+    await expect(page.locator('.editor-action-bar [data-unsaved]'), 'and is still an edit waiting').toHaveCount(1);
+
+    await page.locator('.editor-action-buttons').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length, { timeout: 15000 }).toBe(2);
+    expect(parse(writes.filter((w) => w.path === `assignments/${ID}.yml`).at(-1).content).max_acceptances).toBe(35);
+  });
+
   test('re-opening acceptance rebuilds the page that says it is closed', async ({ page }) => {
     const { writes, dispatches } = await openCohort(page, liveAssignment({ state: 'closed' }), fullReport(3));
 
