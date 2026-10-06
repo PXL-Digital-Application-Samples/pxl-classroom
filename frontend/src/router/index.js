@@ -169,7 +169,13 @@ const router = createRouter({
 
 // Per-route document titles so tabs, history, and bookmarks are tellable
 // apart. Falls back to the bare app name on the home page.
-router.afterEach((to) => {
+//
+// Only for a navigation that HAPPENED. afterEach runs for an aborted one too
+// (Cancel on "Discard unsaved changes?"), and named the tab after the page the
+// lecturer had just declined to open - "Roster" over the assignment still on
+// screen, which no later read could correct.
+router.afterEach((to, from, failure) => {
+  if (failure) return
   let page = ''
   switch (to.name) {
     case 'invitation':

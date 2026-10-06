@@ -100,14 +100,32 @@ watch(() => route.fullPath, () => {
 // Cancel there left the lecturer signed out over edits they could no longer
 // save. `beforeResolve` runs after every leave guard has said yes; an answer
 // of no never reaches it.
+//
+// ONLY FOR THE WAY OUT. The hook is global, so it ran for whatever navigation
+// reached it first: Back while "Discard?" was open went to another tab of the
+// same assignment (no leave guard there), resolved, and signed the lecturer
+// out on the spot - over the edits they had just been asked about.
 async function handleLogout() {
-  const signOut = router.beforeResolve(() => {
-    signOut()
+  const remove = router.beforeResolve((to) => {
+    if (to.name !== 'home') return
+    remove()
     clearAuth()
     forgetOrgSession()
   })
-  await router.push({ name: 'home' })
-  signOut()
+  try {
+    await router.push({ name: 'home' })
+  } catch (e) {
+    // Not a "no" - a guard's no resolves - but the way out failing to load
+    // (an old tab after a deploy: its home chunk is gone). The leave guards
+    // have already said yes by the time a page is loaded, so sign out here
+    // and load the home page whole, which fetches what this tab no longer has.
+    console.error('Sign out navigation failed', e)
+    clearAuth()
+    forgetOrgSession()
+    window.location.assign(import.meta.env.BASE_URL || '/')
+  } finally {
+    remove()
+  }
 }
 </script>
 

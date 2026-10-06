@@ -195,6 +195,35 @@ test.describe('94 - leaving with unsaved edits', () => {
     await expect(page.getByRole('button', { name: /Sign in with GitHub/i })).toBeVisible({ timeout: 15000 });
   });
 
+  test('the browser Back while "sign out?" is open signs nobody out', async ({ page }) => {
+    // Review 2026-10-06: the sign-out hook was global, so the Back's own
+    // navigation - to Progress, which asks nothing - reached it first and
+    // cleared the sign-in over the edits just asked about.
+    await openSettings(page);
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    await titleBox(page).fill(`${TITLE} v2`);
+
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.locator('.confirm-dialog')).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}$`));
+    await expect(page.locator('.confirm-dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => !!localStorage.getItem('pxl_auth')), 'still signed in').toBe(true);
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings/ }).click();
+    await expect(titleBox(page)).toHaveValue(`${TITLE} v2`);
+  });
+
+  test('Cancel on the question leaves the browser tab named after the page still on screen', async ({ page }) => {
+    await openSettings(page);
+    await expect(page).toHaveTitle(new RegExp(`^${TITLE} - `));
+    await titleBox(page).fill(`${TITLE} v2`);
+    await courseView(page, 'Roster').click();
+    await answerConfirm(page, { accept: false });
+    await expect(page).toHaveTitle(new RegExp(`^${TITLE} - `));
+  });
+
   test('a state change refuses rather than saving the edits with it', async ({ page }) => {
     const writes = await openSettings(page);
     await titleBox(page).fill(`${TITLE} v2`);
