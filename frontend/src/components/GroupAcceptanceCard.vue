@@ -535,6 +535,8 @@ const waitedMs = ref(0)
 let pollStartedAt = 0
 const waitedSeconds = computed(() => Math.max(0, Math.round(waitedMs.value / 1000)))
 let pollTimer = null
+// One loop at a time - see AssignmentView.
+let pollGeneration = 0
 
 const isPreAssignedMode = computed(() => props.assignment.group_config?.formation_mode === 'pre-assigned')
 const unassignedFallbackOpen = computed(
@@ -752,6 +754,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  pollGeneration++
   if (pollTimer) clearTimeout(pollTimer)
 })
 
@@ -1094,14 +1097,18 @@ function startPolling(teamSlug) {
   waitedMs.value = 0
   pollStartedAt = Date.now()
   const expectedName = teamRepoName(teamSlug)
+  const generation = ++pollGeneration
+  const stale = () => generation !== pollGeneration
 
   const tick = async () => {
+    if (stale()) return
     pollCount.value++
     waitedMs.value = Date.now() - pollStartedAt
     const token = getToken()
     if (!token) return
 
     const repo = await getRepo(token, props.org, expectedName)
+    if (stale()) return
     if (repo.ok) {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
@@ -1112,6 +1119,7 @@ function startPolling(teamSlug) {
     }
 
     const invites = await getInvitations(token)
+    if (stale()) return
     const evidence = invitationEvidence(invites, { org: props.org, repo: expectedName })
     invitationProven.value = evidence.proven
     if (evidence.invitation) {
@@ -1128,6 +1136,7 @@ function startPolling(teamSlug) {
     // tick one - the marker cannot exist before the repository does.
     if (pollCount.value >= 2) {
       const said = await readTeamAcceptanceOutcome()
+      if (stale()) return
       if (isRejection(said)) {
         showRejected()
         return
@@ -1138,7 +1147,9 @@ function startPolling(teamSlug) {
       }
       // No repository, no invitation, no answer: how far did it get? A final
       // step ends the wait with "send it again".
-      if ((await readAttemptProgress()).final) {
+      const at = await readAttemptProgress()
+      if (stale()) return
+      if (at.final) {
         acceptState.value = 'not-processed'
         return
       }
@@ -1156,7 +1167,7 @@ function startPolling(teamSlug) {
       return
     }
 
-    if (acceptState.value === 'pending') {
+    if (acceptState.value === 'pending' && !stale()) {
       pollTimer = setTimeout(tick, pollInterval.value)
     }
   }

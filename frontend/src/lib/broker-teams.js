@@ -36,6 +36,7 @@
 import { parseTeamPayload } from '../../../lib/team-payload.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { REJECTED_LABEL } from '../../../lib/acceptance-labels.mjs'
+import { REJECTED_ISSUE_TITLE, notDelivered, issuePurpose, isAcceptanceIssueTitle } from '../../../lib/broker-issue-titles.mjs'
 
 /**
  * Did the hub refuse this attempt? Read from the outcome label, the one thing
@@ -44,6 +45,11 @@ import { REJECTED_LABEL } from '../../../lib/acceptance-labels.mjs'
  */
 function refused(issue) {
   return (issue?.labels || []).some((l) => (typeof l === 'string' ? l : l?.name) === REJECTED_LABEL)
+}
+
+/** Did the broker stop this attempt before the hub saw it (lib/broker-issue-titles.mjs)? */
+function neverReachedHub(title) {
+  return typeof title === 'string' && (title.trim() === REJECTED_ISSUE_TITLE || notDelivered(title))
 }
 
 /**
@@ -64,7 +70,10 @@ export function teamsFromBrokerIssues(issues) {
     // repository - and their next visit offered "You are already listed in
     // team-1" with a one-click join into it (testbed, 2026-10-03). An attempt
     // with no label yet still counts: in flight is what this fallback is for.
-    if (refused(issue)) continue
+    // The broker says the same in the TITLE before the hub has run at all: a
+    // link it would not take, and a request it could not pass on, formed no
+    // team either.
+    if (refused(issue) || neverReachedHub(issue?.title)) continue
     const { team_slug: slug, team_name: name } = parseTeamPayload({
       body: issue?.body,
       title: issue?.title,
@@ -102,7 +111,14 @@ export function teamsFromBrokerIssues(issues) {
  */
 export function ownAcceptanceIssue(issues, login) {
   if (!login) return null
-  return (issues || []).find((i) => sameLogin(i?.user?.login, login)) || null
+  // An ACCEPTANCE of theirs - not their address confirmation, which the same
+  // broker carries, and not an issue they wrote by hand (see recentAttempt).
+  return (issues || []).find((i) => sameLogin(i?.user?.login, login) && isAcceptanceAttempt(i?.title)) || null
+}
+
+/** Is this title one of ours, and not an address confirmation? */
+function isAcceptanceAttempt(title) {
+  return isAcceptanceIssueTitle(title) && issuePurpose(title) !== 'confirm'
 }
 
 /**
@@ -122,20 +138,29 @@ export const RECENT_ATTEMPT_MS = 15 * 60 * 1000
  * the student should be offered Accept again rather than dropped into a
  * three-minute poll for an answer that is not coming.
  *
- * DELIBERATELY NOT FILTERED BY TITLE. The caller asks GitHub for
- * `?creator=<login>`, so the list is already the student's own, and the only
- * thing a title test could add is the redaction bug: the broker rewrites
- * `pxl-accept:...` within seconds, so requiring that prefix found the issue
- * only inside that window - and never for the returning student this exists
- * for, who is by definition looking later.
+ * NEVER BY THE `pxl-accept:` PREFIX ALONE. The caller asks GitHub for
+ * `?creator=<login>`, so the list is already the student's own, and requiring
+ * the prefix was the redaction bug: the broker rewrites `pxl-accept:...` within
+ * seconds, so it found the issue only inside that window - and never for the
+ * returning student this exists for, who is by definition looking later.
  *
- * @param {Array<{created_at?: string}>} issues
+ * But the student's own list is not only acceptances. The same broker carries
+ * their ADDRESS CONFIRMATION (the confirm link), which sets nothing up, so a
+ * student who confirmed and then opened the invitation was told "Your request
+ * did not go through" before pressing anything. And an issue they wrote by
+ * hand ("I clicked accept and nothing happened") is not an attempt at all. So
+ * the title must be one of ours (lib/broker-issue-titles.mjs, every title the
+ * broker leaves included), and not a confirmation. A refusal is titled the same
+ * whatever it asked, so it still counts: its reason is worth showing.
+ *
+ * @param {Array<{created_at?: string, title?: string}>} issues
  * @param {{now?: number, maxAgeMs?: number}} [opts]
  */
 export function recentAttempt(issues, { now = Date.now(), maxAgeMs = RECENT_ATTEMPT_MS } = {}) {
   const cutoff = now - maxAgeMs
   return (
     (issues || []).find((issue) => {
+      if (!isAcceptanceAttempt(issue?.title)) return false
       const at = Date.parse(issue?.created_at ?? '')
       return Number.isFinite(at) && at > cutoff
     }) || null

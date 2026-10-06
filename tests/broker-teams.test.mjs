@@ -25,6 +25,7 @@ import {
   RECENT_ATTEMPT_MS,
 } from "../frontend/src/lib/broker-teams.js";
 import { REJECTED_LABEL, INVITED_LABEL } from "../lib/acceptance-labels.mjs";
+import { REJECTED_ISSUE_TITLE, NOT_DELIVERED_TITLE_BY_PURPOSE } from "../lib/broker-issue-titles.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TEMPLATE = readFileSync(join(ROOT, "acceptance/broker-workflow.yml"), "utf8");
@@ -67,14 +68,18 @@ test("the broker really does leave titles that carry no team", () => {
 
 test("a team is still found once the broker has redacted the title", () => {
   // THE REGRESSION. Every one of these returned nothing before 2026-09-22.
+  // Except the two the broker writes when the hub never saw the attempt - a
+  // link it would not take, a request it could not pass on: those formed no
+  // team, and listing them put a refused student in a team that exists nowhere.
+  const neverReachedHub = new Set([REJECTED_ISSUE_TITLE, ...Object.values(NOT_DELIVERED_TITLE_BY_PURPOSE)]);
   for (const title of titlesTheBrokerLeaves()) {
     const rows = teamsFromBrokerIssues([
       { title, body: teamBody("rojaro", "Rojaro"), user: { login: "RobPolusPXL" } },
     ]);
     assert.deepEqual(
       rows,
-      [{ team_slug: "rojaro", team_name: "Rojaro", members: ["RobPolusPXL"] }],
-      `redacted title ${JSON.stringify(title)} must still yield its team`,
+      neverReachedHub.has(title) ? [] : [{ team_slug: "rojaro", team_name: "Rojaro", members: ["RobPolusPXL"] }],
+      `redacted title ${JSON.stringify(title)}`,
     );
   }
 });
@@ -176,6 +181,26 @@ test("the newest attempt wins, because the list is newest first", () => {
 // Same defect as above, on the individual assignment page: it required the
 // title to start with `pxl-accept:`, which the broker has already rewritten by
 // the time the returning student this branch exists for comes back.
+
+test("an address confirmation, or an issue the student wrote, is not an acceptance in flight", () => {
+  // Review 2026-10-06: the confirm link uses the same broker, and its issue
+  // ends "Email confirmation (processed)" with a hub run that succeeds and sets
+  // nothing up - so a student who confirmed and then opened the invitation was
+  // told "Your request did not go through" before pressing Accept.
+  const now = Date.parse("2026-10-06T10:30:00Z");
+  for (const title of ["Email confirmation (processed)", "Email confirmation (not delivered)", "pxl-confirm:a1.AQID.BAUG", "I clicked accept and nothing happened"]) {
+    assert.equal(recentAttempt([{ number: 7, title, created_at: "2026-10-06T10:28:00Z" }], { now }), null, title);
+  }
+  // Behind a newer confirmation, the acceptance is still found.
+  const issues = [
+    { number: 8, title: "Email confirmation (processed)", created_at: "2026-10-06T10:29:00Z", user: { login: "sam" } },
+    { number: 6, title: "Acceptance (processed)", created_at: "2026-10-06T10:25:00Z", user: { login: "sam" } },
+  ];
+  assert.equal(recentAttempt(issues, { now })?.number, 6);
+  assert.equal(ownAcceptanceIssue(issues, "sam")?.number, 6, "the group card reads the same issue");
+  // A refusal is titled the same whatever it asked, and its reason is worth showing.
+  assert.equal(recentAttempt([{ number: 9, title: "Acceptance attempt (rejected)", created_at: "2026-10-06T10:29:00Z" }], { now })?.number, 9);
+});
 
 test("a returning student's attempt is found although the title was redacted", () => {
   const now = Date.parse("2026-09-22T15:30:00Z");

@@ -463,6 +463,13 @@
               :busy="accepting"
               @retry="sendAgain"
             />
+            <!-- A link the broker would not take offers no "send it again" - the
+                 same link would be refused again - so this is the way on, with
+                 the current link the lecturer sends. Without it the page was a
+                 dead end, and reloading led back to it for fifteen minutes. -->
+            <div v-if="!progress.canRetry" class="flex justify-center gap-sm mt-md">
+              <button class="btn btn-secondary" @click="acceptState = 'ready'">Back</button>
+            </div>
           </div>
 
           <div v-else-if="acceptState === 'timeout'" class="timeout-state fade-in">
@@ -767,6 +774,13 @@ const waitedMs = ref(0)
 let pollStartedAt = 0
 const waitedSeconds = computed(() => Math.max(0, Math.round(waitedMs.value / 1000)))
 let pollTimer = null
+// ONE LOOP AT A TIME. "Send it again" starts a new loop while a tick of the
+// old one can be half way through its requests; clearing the timer does not
+// stop that tick, which then scheduled itself again - two loops on the
+// student's token, and the one onUnmounted did not know about kept polling
+// for up to half an hour after they left. A tick of a replaced loop stops at
+// its next await, says nothing and schedules nothing.
+let pollGeneration = 0
 
 const now = ref(new Date())
 let nowInterval = null
@@ -837,6 +851,7 @@ function startNotFoundPolling() {
 
 onUnmounted(() => {
   stopNotFoundPolling()
+  pollGeneration++
   if (pollTimer) clearTimeout(pollTimer)
   if (nowInterval) clearInterval(nowInterval)
 })
@@ -1342,8 +1357,11 @@ function startPolling() {
   pollCount.value = 0
   waitedMs.value = 0
   pollStartedAt = Date.now()
+  const generation = ++pollGeneration
+  const stale = () => generation !== pollGeneration
 
   const tick = async () => {
+    if (stale()) return
     pollCount.value++
     waitedMs.value = Date.now() - pollStartedAt
     const token = getToken()
@@ -1355,6 +1373,7 @@ function startPolling() {
 
     // Check repo
     const repo = await getRepo(token, org, expectedName)
+    if (stale()) return
     if (repo.ok) {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
@@ -1367,6 +1386,7 @@ function startPolling() {
     // answer without one has already been observed while an invitation existed,
     // so it leaves the question open rather than closing it.
     const invites = await getInvitations(token)
+    if (stale()) return
     const evidence = invitationEvidence(invites, { org, repo: expectedName })
     invitationProven.value = evidence.proven
     if (evidence.invitation) {
@@ -1393,6 +1413,7 @@ function startPolling() {
     // student's first second.
     if (pollCount.value >= 2) {
       const said = await readAcceptanceOutcome()
+      if (stale()) return
       if (isRejection(said)) {
         rejectedCategory.value = said
         rejectedAt.value = new Date()
@@ -1412,7 +1433,9 @@ function startPolling() {
       // No repository, no invitation, no answer: ask how far it got. A final
       // step - not passed on, stopped, finished with nothing - ends the wait
       // with "send it again" instead of minutes of spinner.
-      if ((await readAttemptProgress()).final) {
+      const at = await readAttemptProgress()
+      if (stale()) return
+      if (at.final) {
         acceptState.value = 'not-processed'
         return
       }
@@ -1442,18 +1465,21 @@ function startPolling() {
       // different state from a stall, and the page used to present the second
       // while the system knew the first.
       const outcome = await readAcceptanceOutcome()
+      if (stale()) return
       if (outcome) {
         rejectedCategory.value = outcome
         rejectedAt.value = new Date()
         acceptState.value = 'rejected'
         return
       }
-      acceptState.value = (await acceptanceIssueVanished()) ? 'blocked-account' : 'timeout'
+      const vanished = await acceptanceIssueVanished()
+      if (stale()) return
+      acceptState.value = vanished ? 'blocked-account' : 'timeout'
       return
     }
-    
+
     // Continue polling if not aborted
-    if (acceptState.value === 'pending') {
+    if (acceptState.value === 'pending' && !stale()) {
       pollTimer = setTimeout(tick, pollInterval.value)
     }
   }
