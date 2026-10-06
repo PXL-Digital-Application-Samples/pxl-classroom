@@ -182,7 +182,9 @@ test.describe('58 - The dashboard refuses an account with no staff access', () =
 
     await page.goto(`/dashboard/${ORG}`);
     await page.getByRole('button', { name: new RegExp(`Set up ${ORG}`, 'i') }).click({ timeout: 20000 });
-    await expect(page.locator('.toast')).toContainText(/is set up/i, { timeout: 15000 });
+    // The toast that says so, by its words: "Setting up…" is still fading out
+    // when it arrives, and on a slower machine (CI) `.toast` matched both.
+    await expect(page.locator('.toast', { hasText: /is set up/i })).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.center-card')).toContainText(/is set up, but not for this account/i);
   });
 
