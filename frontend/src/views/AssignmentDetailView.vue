@@ -205,7 +205,7 @@
         <!-- Summary cards: they filter the list below, so they live with it. -->
         <div class="summary-row">
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = ''" title="Show all students">
-            <span class="summary-value">{{ report.students.length }}</span>
+            <span class="summary-value">{{ progressStudents.length }}</span>
             <span class="summary-label">Students</span>
           </div>
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'on-time'" title="Filter on-time submissions">
@@ -254,7 +254,7 @@
                 :class="{ active: statusFilter === '' }"
                 @click="statusFilter = ''"
               >
-                All ({{ report.students.length }})
+                All ({{ progressStudents.length }})
               </button>
               <button
                 type="button"
@@ -503,9 +503,17 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="s in filteredStudents" :key="s.github_login">
+              <tr v-for="s in filteredStudents" :key="studentRowKey(s)">
                 <td>
-                  <a :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
+                  <a v-if="s.github_login" :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
+                  <!-- Admitted, with no GitHub username yet (lib/missing-students.js):
+                       the heading asks for a login and the answer is that
+                       there is none, so the cell says so, under the address
+                       that identifies the row (DESIGN.md §1.7). -->
+                  <div v-else class="no-username-cell" :title="[s.full_name, s.student_number].filter(Boolean).join(' · ') || null">
+                    <span class="text-sm">{{ s.email || s.full_name || s.student_number }}</span>
+                    <span class="text-muted text-xs">no GitHub username yet</span>
+                  </div>
                 </td>
                 <td v-if="isGroupAssignment">
                   <span v-if="s.team_name || s.team_slug" class="text-sm font-medium">
@@ -533,8 +541,12 @@
                      (378px), and most rows are two lines tall already because
                      Last commit is. -->
                 <td v-if="hasClaimedEmails" class="col-claimed-email">
+                  <!-- Nothing confirmed, and nothing to edit: an address is
+                       saved against a username, and this row has none. First,
+                       so an empty username can never match the edit below. -->
+                  <span v-if="s.missing_from_report" class="text-muted">-</span>
                   <!-- Inline edit mode -->
-                  <div v-if="editingClaimLogin === s.github_login" class="inline-claim-edit">
+                  <div v-else-if="editingClaimLogin === s.github_login" class="inline-claim-edit">
                     <input
                       ref="inlineClaimInputRef"
                       type="email"
@@ -741,12 +753,14 @@
                   <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
                 </td>
                 <td class="col-actions">
-                  <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
+                  <!-- No actions for a student the report does not hold: every
+                       one of them acts on a username and a repository. -->
+                  <button v-if="!s.missing_from_report" class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
                     <Icon name="more-horizontal" :size="18" />
                   </button>
                 </td>
               </tr>
-              <tr v-if="report.students.length > 0 && filteredStudents.length === 0">
+              <tr v-if="progressStudents.length > 0 && filteredStudents.length === 0">
                 <td :colspan="tableColumnCount" class="empty-row">
                   No students match the current filters.
                   <button class="btn-link" type="button" @click="clearFilters">Clear filters</button>
@@ -788,14 +802,18 @@
 
         <!-- Student cards (mobile) -->
         <div class="card-list mobile-only">
-          <div v-if="report.students.length > 0 && filteredStudents.length === 0" class="empty-row">
+          <div v-if="progressStudents.length > 0 && filteredStudents.length === 0" class="empty-row">
             No students match the current filters.
             <button class="btn-link" type="button" @click="clearFilters">Clear filters</button>
           </div>
-          <article v-for="s in filteredStudents" :key="s.github_login" class="student-card">
+          <article v-for="s in filteredStudents" :key="studentRowKey(s)" class="student-card">
             <header class="student-card-head" style="display: flex; align-items: center; justify-content: space-between;">
-              <a :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
-              <button class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
+              <a v-if="s.github_login" :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
+              <div v-else class="no-username-cell">
+                <span class="student-card-login">{{ s.email || s.full_name || s.student_number }}</span>
+                <span class="text-muted text-xs">no GitHub username yet</span>
+              </div>
+              <button v-if="!s.missing_from_report" class="row-action" type="button" @click="openActions(s)" :aria-label="`Actions for ${s.github_login}`">
                 <Icon name="more-horizontal" :size="18" />
               </button>
             </header>
@@ -859,7 +877,7 @@
         </div>
 
         <p class="table-footer text-muted">
-          {{ filteredStudents.length }} of {{ report.students.length }} students shown ·
+          {{ filteredStudents.length }} of {{ progressStudents.length }} students shown ·
           Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota (resets hourly)`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
         </p>
 
@@ -1422,7 +1440,7 @@ import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 import { buildGradingSummary, countGraded } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
-import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns } from '../lib/api.js'
+import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns, listClaims } from '../lib/api.js'
 import { writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
@@ -1447,7 +1465,7 @@ import {
   domainAllowed,
   resolveClaimDomains,
 } from '../lib/claim.js'
-import { BINDING_STATES as _BINDING_STATES } from '../lib/claim-bindings.js'
+import { BINDING_STATES as _BINDING_STATES, indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { CLAIM_DOMAINS, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
 import {
@@ -1459,6 +1477,7 @@ import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoNam
 import { describeSubmission } from '../lib/submission-detail.js'
 import { teamRows } from '../lib/team-rows.js'
 import { rememberAssignmentTitle } from '../lib/assignment-crumb.js'
+import { studentsMissingFromReport, studentRowKey } from '../lib/missing-students.js'
 import { minTeamSize } from '../../../lib/group-config.mjs'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
 import { teamRepresentative } from '../../../lib/team-representative.mjs'
@@ -1692,7 +1711,29 @@ function stopDailyWatch() {
 
 const onTimeCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'on-time').length || 0)
 const lateCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'late').length || 0)
-const noSubCount = computed(() => report.value?.students.filter((s) => s.submission_status === 'no-submission').length || 0)
+// The listed students who have submitted nothing, those with no username yet
+// included (progressStudents): they are on the list, so they are in its count.
+const noSubCount = computed(() => progressStudents.value.filter((s) => s.submission_status === 'no-submission').length)
+
+// The Progress tab's list: the report's rows, and the students this assignment
+// admits who have no row because they have no GitHub username yet
+// (frontend/src/lib/missing-students.js). Display rows only: everything that
+// acts on a student - grading, refresh, export, actions - keeps using
+// `report.students`, which is keyed by username.
+const missingStudents = computed(() =>
+  report.value
+    ? studentsMissingFromReport({
+        assignment: assignment.value,
+        roster: rosterRows.value,
+        students: report.value.students || [],
+        loginFor: claimLoginFor,
+      })
+    : [],
+)
+const progressStudents = computed(() => [...(report.value?.students || []), ...missingStudents.value])
+function claimLoginFor(row) {
+  return claimIndex.value ? bindingForEntry(row, claimIndex.value).login : null
+}
 // Students with a score, from the grades joined onto the rows (lib/grading-summary.mjs).
 const gradedCount = computed(() => countGraded(report.value?.students))
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
@@ -2346,6 +2387,27 @@ const rosterByLogin = ref(new Map())
 // those: they are this assignment's students who cannot be placed in a team
 // until they confirm their address, and leaving them out made them invisible.
 const rosterRows = ref([])
+
+// Who confirmed which address, for the Progress tab's students with no
+// username (missingStudents): read only when the roster has address-only rows,
+// and again on every load of the page (the roster is a new array then). A
+// failed read keeps what was known; with nothing known, everyone without a
+// username is listed as such, which is what the roster says.
+const claimIndex = ref(null)
+let claimsRead = 0
+async function loadClaimsForProgress() {
+  if (!(rosterRows.value || []).some((r) => !r?.github_login && r?.email)) return
+  const token = getToken()
+  if (!token) return
+  const mine = ++claimsRead
+  try {
+    const { records } = await listClaims(token, props.org, config.controlRepo)
+    if (mine === claimsRead) claimIndex.value = indexClaims(records)
+  } catch {
+    /* unreadable is not "nobody confirmed": keep what was known */
+  }
+}
+watch(rosterRows, loadClaimsForProgress)
 const userProfilesByLogin = ref(new Map())
 
 
@@ -2759,7 +2821,7 @@ const hasPreservationActions = computed(() =>
 // The Invite link popover is in AssignmentHeader.vue, above every tab.
 
 const filteredStudents = computed(() => {
-  let list = report.value?.students || []
+  let list = progressStudents.value
   if (search.value) {
     const q = search.value.toLowerCase().trim()
     list = list.filter((s) => {
@@ -2775,7 +2837,7 @@ const filteredStudents = computed(() => {
       const studentNr = (s.student_number || roster?.student_number || '').toLowerCase()
       const classGroup = (s.class_group || roster?.class_group || '').toLowerCase()
       const company = (profile?.company || '').toLowerCase()
-      return s.github_login.toLowerCase().includes(q) ||
+      return (s.github_login || '').toLowerCase().includes(q) ||
              (s.repo_name && s.repo_name.toLowerCase().includes(q)) ||
              fullName.includes(q) ||
              email.includes(q) ||
@@ -2812,6 +2874,11 @@ const filteredStudents = computed(() => {
     } else if (sortKey.value === 'feedback_pr') {
       av = a.feedback_pr_number ?? null
       bv = b.feedback_pr_number ?? null
+    } else if (sortKey.value === 'github_login') {
+      // A student with no username yet has nothing to sort by here: last,
+      // with the other blanks, not first as an empty string would be.
+      av = a.github_login || null
+      bv = b.github_login || null
     }
     // Nulls last regardless of direction
     if (av == null && bv == null) return 0
@@ -5621,6 +5688,9 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   gap: var(--space-sm);
 }
 .student-card-login { font-weight: 600; }
+/* A student with no GitHub username yet: what identifies them, and under it
+   that there is no username (lib/missing-students.js). */
+.no-username-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .student-card-badges { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .student-card-detail { font-size: 0.8rem; }
 .student-card-repo { font-size: 0.85rem; }

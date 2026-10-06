@@ -299,6 +299,85 @@ test.describe('96 - The Teams tab says what is true', () => {
   });
 });
 
+test.describe('96 - Progress lists every admitted student, with or without a username', () => {
+  // The report keys rows by username, so a roster row with only an address was
+  // absent from Progress: 12 of a cohort of 14 on the testbed (2026-10-05).
+  const individual = (over = {}) => assignment({ assignment_type: 'individual', repository_name_pattern: `${ID}-{github_login}`, group_config: undefined, ...over });
+  const roster = [
+    { student_number: '1', full_name: 'Ann Smets', github_login: 'stud1', email: 'ann@student.pxl.be' },
+    { student_number: '2', full_name: 'Kobe Demo', email: 'kobe@student.pxl.be' },
+    { student_number: '3', full_name: 'Lotte Demo', email: 'lotte@student.pxl.be' },
+  ];
+
+  async function openProgress(page, opts) {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, { currentUser: LECTURER, roster, ...opts });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(page.locator('.table-wrapper tbody tr').first()).toBeVisible({ timeout: 15000 });
+  }
+
+  test('they are rows, counted, filtered as no submission, last by login, and carry no actions', async ({ page }) => {
+    await openProgress(page, {
+      assignments: { [ID]: individual() },
+      reports: { [ID]: report([], [{ github_login: 'stud1', acceptance_state: 'provisioned', submission_status: 'on-time', repo_url: repo('x').repo_url }]) },
+    });
+    const rows = page.locator('.table-wrapper tbody tr');
+    await expect(rows).toHaveCount(3);
+    const kobe = rows.filter({ hasText: 'kobe@student.pxl.be' });
+    await expect(kobe).toContainText('no GitHub username yet');
+    await expect(kobe).toContainText('Not accepted');
+    await expect(kobe).toContainText('No submission');
+    await expect(kobe.locator('.row-action')).toHaveCount(0);
+    await expect(rows.filter({ hasText: 'stud1' }).locator('.row-action')).toHaveCount(1);
+
+    // Counted where the list is counted.
+    await expect(page.locator('.summary-card').first()).toContainText('3');
+    await expect(page.locator('.quick-filter-pills').getByRole('button', { name: /^All/ })).toHaveText('All (3)');
+    await expect(page.locator('.quick-filter-pills').getByRole('button', { name: /^No submission/ })).toHaveText('No submission (2)');
+    await page.locator('.quick-filter-pills').getByRole('button', { name: /^No submission/ }).click();
+    await expect(rows).toHaveCount(2);
+    await page.locator('.quick-filter-pills').getByRole('button', { name: /^On time/ }).click();
+    await expect(rows).toHaveCount(1);
+    await page.locator('.quick-filter-pills').getByRole('button', { name: /^All/ }).click();
+
+    // Found by address, and last when sorted by login in either direction.
+    await page.getByLabel('Search students').fill('lotte');
+    await expect(rows).toHaveCount(1);
+    await page.getByLabel('Search students').fill('');
+    const loginHeader = page.locator('.table-wrapper th', { hasText: 'Login' });
+    await loginHeader.click();
+    await expect(rows.last()).toContainText('no GitHub username yet');
+    await loginHeader.click();
+    await expect(rows.last()).toContainText('no GitHub username yet');
+    await expect(rows.first()).toContainText('stud1');
+  });
+
+  test('a student who confirmed but has not accepted is listed under their username, once', async ({ page }) => {
+    await openProgress(page, {
+      assignments: { [ID]: individual({ roster_mode: 'claim' }) },
+      reports: { [ID]: report([], [{ github_login: 'stud1', acceptance_state: 'provisioned', submission_status: 'on-time' }]) },
+      claims: [{
+        schema_version: 1, github_login: 'kobe-gh', github_id: 222, email: 'kobe@student.pxl.be',
+        claim_verified: true, student_number: null, claimed_at: '2026-09-01T10:00:00.000Z', claimed_via: ID,
+      }],
+    });
+    const rows = page.locator('.table-wrapper tbody tr');
+    await expect(rows.filter({ hasText: 'kobe-gh' })).toHaveCount(1, { timeout: 10000 });
+    await expect(rows.filter({ hasText: 'kobe@student.pxl.be' })).toHaveCount(0);
+    await expect(rows.filter({ hasText: 'lotte@student.pxl.be' })).toContainText('no GitHub username yet');
+    await expect(rows).toHaveCount(3);
+  });
+
+  test('under open enrolment the roster adds nobody: only who accepted', async ({ page }) => {
+    await openProgress(page, {
+      assignments: { [ID]: individual({ roster_mode: 'open' }) },
+      reports: { [ID]: report([], [{ github_login: 'stud1', acceptance_state: 'provisioned', submission_status: 'on-time' }]) },
+    });
+    await expect(page.locator('.table-wrapper tbody tr')).toHaveCount(1);
+    await expect(page.locator('text=no GitHub username yet')).toHaveCount(0);
+  });
+});
+
 test.describe('96 - An assignment that is not there', () => {
   test('says so in words a lecturer has, not a file path or "report"', async ({ page }) => {
     await injectAuth(page, LECTURER);
