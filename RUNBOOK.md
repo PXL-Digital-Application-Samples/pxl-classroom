@@ -156,7 +156,7 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 1.4 Publish
 
-In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says when the accept link is live.
+In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says what GitHub is doing until the accept link is live: waiting to start the publish, publishing, putting the student page live, then *Live*. It usually takes one to three minutes. When GitHub is slow to start something, the line says how long it has waited and links GitHub's status page: nothing is wrong on your side, and leaving the page does not stop it. If GitHub could not put the student page live, it is tried again automatically.
 
 Once it is published, its **Settings** tab - the last tab of the assignment's page - is the same form, with a list of its sections on the left to jump between them, and a *Broker* section at the end holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings.
 

@@ -25,16 +25,26 @@
 
 import { onBeforeUnmount, ref } from 'vue'
 import { getToken } from '../lib/auth.js'
-import { getRepo, getRepoContent } from '../lib/api.js'
+import { getRepo, getRepoContent, ghApi } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { inviteDataUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
+import { deployRunsPath, newestRun, publishRunsPath, publishStage } from '../lib/publish-progress.js'
 
-/** 48 ticks of 10s after a 5s head start - eight minutes. */
-const MAX_POLLS = 48
+/**
+ * Thirty minutes: every 10s for the first five, then every 20s. It was eight,
+ * which ended the watch while GitHub was still starting the publish during the
+ * 2026-10-06 incident - the line can say what is happening now, so it may
+ * keep saying it.
+ */
+const WATCH_MS = 30 * 60_000
 const FIRST_TICK_MS = 5000
 const TICK_MS = 10000
+const SLOW_TICK_MS = 20000
+const SLOW_AFTER_MS = 5 * 60_000
+/** A publish dispatched just before the watch began is still this one. */
+const LOOKBACK_MS = 3 * 60_000
 
 /**
  * @param {object} deps
@@ -43,10 +53,35 @@ const TICK_MS = 10000
  * @param {() => boolean} deps.hasUnsavedEdits
  * @param {() => void} deps.snapshotForm
  * @param {(msg: string) => void} deps.onReady     told once, when it is live
+ * @param {() => string|undefined} [deps.login]   the signed-in lecturer, whose publish run it is
  */
-export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onReady }) {
+export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onReady, login = () => undefined }) {
   const publishWatch = ref('')
   const publishPollCount = ref(0)
+  // The step GitHub is at (lib/publish-progress.js), read from the hub's runs.
+  const publishProgress = ref({ step: 'unknown', minutes: 0, url: null })
+  let watchStartedAt = 0
+
+  /**
+   * Which step the publish is at: this lecturer's publish run, then the Pages
+   * deploy after it. A read that fails leaves the last answer standing - a
+   * failed read is not a step.
+   */
+  async function readPublishProgress() {
+    const token = getToken()
+    if (!token) return
+    const where = { owner: config.hubOwner, repo: config.hubRepo }
+    const publishRes = await ghApi(token, 'GET', publishRunsPath({ ...where, since: watchStartedAt - LOOKBACK_MS, actor: login() }))
+    if (!publishRes.ok) return
+    const publishRun = newestRun(publishRes)
+    let deployRun = null
+    if (publishRun?.status === 'completed' && publishRun.conclusion === 'success') {
+      const deployRes = await ghApi(token, 'GET', deployRunsPath({ ...where, since: Date.parse(publishRun.updated_at) || watchStartedAt }))
+      if (!deployRes.ok) return
+      deployRun = newestRun(deployRes)
+    }
+    publishProgress.value = publishStage({ publishRun, deployRun })
+  }
   const liveCheckLoading = ref(false)
   const brokerExists = ref(null) // null = unchecked, true = exists, false = missing
   const pagesLive = ref(null)    // null = unchecked, true = live, false = not live
@@ -132,6 +167,8 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     stopPublishWatch()
     publishWatch.value = 'watching'
     publishPollCount.value = 0
+    publishProgress.value = { step: 'unknown', minutes: 0, url: null }
+    watchStartedAt = Date.now()
     brokerExists.value = null
     pagesLive.value = null
 
@@ -156,10 +193,12 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
           onReady?.('Published! The invitation link is live and ready to share.')
           return
         }
+        await readPublishProgress()
       } catch {
         // A failed poll is not a failed publish; the next tick asks again.
       }
-      if (publishPollCount.value >= MAX_POLLS) {
+      const elapsed = Date.now() - watchStartedAt
+      if (elapsed >= WATCH_MS) {
         publishWatch.value = 'timeout'
         // The workflow may well have finished and only Pages be lagging, so the
         // link is often already there. Show it rather than making the lecturer
@@ -167,7 +206,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
         await verifyLiveInfrastructure(form.value.id)
         return
       }
-      timer = setTimeout(tick, TICK_MS)
+      timer = setTimeout(tick, elapsed >= SLOW_AFTER_MS ? SLOW_TICK_MS : TICK_MS)
     }
 
     timer = setTimeout(tick, FIRST_TICK_MS)
@@ -179,6 +218,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
   return {
     publishWatch,
     publishPollCount,
+    publishProgress,
     liveCheckLoading,
     brokerExists,
     pagesLive,

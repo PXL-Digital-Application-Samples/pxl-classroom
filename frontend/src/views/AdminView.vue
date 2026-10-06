@@ -189,9 +189,19 @@
                repeated the Invite link button at the top of the page, and its
                Regenerate link is in that button's menu now. What it said while
                a publish was still going live is all that stays. -->
-          <div v-if="!isNew && publishWatch === 'watching'" class="publish-watch" role="status">
+          <!-- The step GitHub is at, read from the hub's runs
+               (lib/publish-progress.js), not a count of the page's own checks:
+               on 2026-10-06 "a minute or two (checked 45×)" ran for half an
+               hour while GitHub had not even started the publish. -->
+          <div v-if="!isNew && publishWatch === 'watching'" class="publish-watch" role="status" :data-publish-step="publishProgress.step">
             <div class="spinner sm"></div>
-            <span class="text-secondary">Publishing: the student page goes live in a minute or two. (checked {{ publishPollCount }}×)</span>
+            <span class="text-secondary">
+              {{ publishProgressMessage.text }}
+              <template v-if="publishProgressMessage.slow">
+                GitHub is slow right now: <a :href="GITHUB_STATUS_URL" target="_blank" rel="noopener">githubstatus.com</a>.
+              </template>
+              <a v-if="publishProgress.step === 'failed' && publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
+            </span>
           </div>
           <div v-else-if="!isNew && publishWatch === 'ready'" class="publish-watch publish-ready" role="status">
             <Icon name="check-circle" :size="15" />
@@ -199,8 +209,8 @@
           </div>
           <div v-else-if="!isNew && publishWatch === 'timeout'" class="publish-watch" role="status">
             <span class="text-warning">
-              Not live after 8 minutes. Check the
-              <a :href="`https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">publish workflow run</a>.
+              Not live after 30 minutes. {{ publishProgressMessage.text }}
+              <a :href="publishProgress.url || `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">See the run.</a>
             </span>
           </div>
 
@@ -1578,6 +1588,7 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
+import { GITHUB_STATUS_URL, publishStageMessage } from '../lib/publish-progress.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
 import { republishRefusal } from '../../../lib/finished-assignment.mjs'
@@ -1772,7 +1783,7 @@ const unsaved = computed(() => hasUnsavedEdits())
 // poll running for the life of the tab.
 const {
   publishWatch,
-  publishPollCount,
+  publishProgress,
   liveCheckLoading,
   brokerExists,
   pagesLive,
@@ -1785,7 +1796,10 @@ const {
   hasUnsavedEdits,
   snapshotForm,
   onReady: (msg) => toast.success(msg),
+  login: () => user.value?.login,
 })
+// What the publishing line says: the step GitHub is at, read from its runs.
+const publishProgressMessage = computed(() => publishStageMessage(publishProgress.value))
 
 // The page around the editor reads the assignment for its header (state,
 // deadline, Invite link). A publish going live, and an invitation the watch
