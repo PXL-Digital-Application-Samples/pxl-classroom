@@ -37,6 +37,7 @@ import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 // Owned by the modules that own the documents, not by control-layout.
 import { claimPath, claimAttemptsPath } from "../lib/claim.mjs";
 import { repoFiles } from "./repo-files.mjs";
+import { withoutComments } from "./strip-comments.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -139,7 +140,12 @@ test("no file builds a control-repo path by hand", () => {
   for (const file of sources()) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
     if (OWNERS.has(rel)) continue;
-    if (buildsAPath(readFileSync(file, "utf8"))) offenders.push(rel);
+    // COMMENTS FIRST. buildsAPath pairs backticks across the file, and a
+    // comment's inline code shifted that pairing: a hand-built `teams/...`
+    // path in TeamsTable.vue hid from this guard until an edited comment
+    // happened to realign it (2026-10-05). Blanked rather than removed, so
+    // every other backtick keeps its partner.
+    if (buildsAPath(withoutComments(rel, readFileSync(file, "utf8")))) offenders.push(rel);
   }
   assert.deepEqual(
     offenders,
