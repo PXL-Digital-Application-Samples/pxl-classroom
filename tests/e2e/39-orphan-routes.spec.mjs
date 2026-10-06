@@ -18,7 +18,7 @@
 // only a number.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openSystemHealth } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openSystemHealth, openAdvanced } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'linux-processes-2026';
 const TITLE = 'Linux Processes 2026';
@@ -68,8 +68,9 @@ test.describe('39 - The usage panel points at its own detail view', () => {
       assignments: { [ID]: assignment() },
       reports: { dashboard },
     });
-    // Usage & limits is on the Organization tab.
+    // Usage & limits is in the Organization tab's Advanced section.
     await page.goto(`/dashboard/${ORG}/organization`);
+    await openAdvanced(page);
 
     const full = page.locator('.usage-panel').getByRole('link', { name: /Full report/i });
     await expect(full).toBeVisible({ timeout: 15000 });
@@ -88,6 +89,7 @@ test.describe('39 - The usage panel points at its own detail view', () => {
       reports: { dashboard },
     });
     await page.goto(`/dashboard/${ORG}/organization`);
+    await openAdvanced(page);
 
     const panel = page.locator('.usage-panel');
     await expect(panel).toBeVisible({ timeout: 15000 });

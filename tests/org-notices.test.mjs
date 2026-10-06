@@ -2,10 +2,19 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEDUP_MARKER, noticesNeedingYou, parseNotice, plainDetails } from "../lib/org-notices.mjs";
+import {
+  DEDUP_MARKER,
+  ORG_NOTICE_LABELS,
+  isOrgNotice,
+  noticeLines,
+  noticesForLecturer,
+  noticesNeedingYou,
+  parseNotice,
+  plainDetails,
+} from "../lib/org-notices.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const now = new Date("2026-10-02T15:00:00Z");
@@ -45,6 +54,49 @@ test("only recent notices that ask for something need you, newest first", () => 
     { now },
   );
   assert.deepEqual(list.map((n) => n.key), ["d", "a"]);
+});
+
+test("every organization-wide notice the workflows file is known, so none is hidden as a deleted assignment's", () => {
+  // Read, not listed: a literal `assignment-id:` in a workflow that is not an
+  // expression names no assignment, and noticesForLecturer would otherwise
+  // drop it for not being in the organization's assignment list.
+  const dir = join(root, ".github", "workflows");
+  const literals = new Set();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    for (const m of readFileSync(join(dir, file), "utf8").matchAll(/^\s*assignment-id:\s*(.*)$/gm)) {
+      const v = m[1].trim().replace(/^['"]|['"]$/g, "");
+      if (!v.startsWith("${{")) literals.add(v);
+    }
+  }
+  assert.ok(literals.size >= 3, `found ${[...literals].join(", ")}`);
+  for (const id of literals) assert.ok(Object.hasOwn(ORG_NOTICE_LABELS, id), `${JSON.stringify(id)} has no label`);
+});
+
+test("a notice about an assignment that is gone is not listed; an organization-wide one always is", () => {
+  const comments = [
+    comment({ key: "live", type: "provisioning-failed", assignment: "lab-3", time: "2026-10-02T10:00:00Z" }),
+    comment({ key: "gone", type: "preservation-failed", assignment: "drill-race-1629", time: "2026-10-02T11:00:00Z" }),
+    comment({ key: "org", type: "provisioning-failed", assignment: "unrecorded-repositories", time: "2026-10-02T12:00:00Z" }),
+  ];
+  const keys = (opts) => noticesForLecturer(comments, { now, ...opts }).map((n) => n.key);
+  assert.deepEqual(keys({ assignmentIds: new Set(["lab-3"]) }), ["org", "live"]);
+  // The list of assignments not known: nothing is hidden on a guess.
+  assert.deepEqual(keys({ assignmentIds: null }), ["org", "gone", "live"]);
+  assert.equal(isOrgNotice({ assignmentId: "" }), true);
+  assert.equal(isOrgNotice({ assignmentId: "lab-3" }), false);
+});
+
+test("one sentence first, the rest on request - a wrapped first line is not a sentence", () => {
+  const wrapped = "Finalizing this assignment did not complete. Lock-down, preservation\nor the report may be incomplete.\n\nIt is re-queued automatically.";
+  assert.deepEqual(noticeLines(wrapped), {
+    first: "Finalizing this assignment did not complete.",
+    rest: "Lock-down, preservation or the report may be incomplete.\n\nIt is re-queued automatically.",
+  });
+  const list = "A student repository exists that PXL Classroom has no record of.\n\n- `lab-ann` (assignment lab)\n- `lab-bob` (assignment lab)";
+  assert.equal(noticeLines(list).first, "A student repository exists that PXL Classroom has no record of.");
+  assert.equal(noticeLines(list).rest, "- lab-ann (assignment lab)\n- lab-bob (assignment lab)");
+  assert.deepEqual(noticeLines("One line"), { first: "One line", rest: "" });
+  assert.deepEqual(noticeLines(""), { first: "", rest: "" });
 });
 
 test("details are words, not markdown", () => {

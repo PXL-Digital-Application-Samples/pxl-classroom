@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, openAdvanced } from '../fixtures/e2e-fixtures.mjs';
 
 // A System Health pass is a fan-out of GitHub REST calls made from the browser -
 // not a workflow dispatch. So an impatient lecturer cannot start runaway Actions
@@ -8,11 +8,13 @@ import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/
 // component is never unmounted (only its inner v-if content is), so state
 // persisted across open/close.
 
-// System health is a fold on the Organization tab; once open, its button stays
-// on screen behind the modal, so it can be pressed again and again.
+// System health is a fold in the Organization tab's Advanced section; once
+// open, its button stays on screen behind the modal, so it can be pressed again
+// and again.
 const HEALTH_BTN = 'details.org-fold button:has-text("Run the checks")';
 async function toHealth(page) {
   await page.goto(`/dashboard/${ORG}/organization`);
+  await openAdvanced(page);
   await page.locator('details.org-fold summary', { hasText: 'System health' }).click();
 }
 

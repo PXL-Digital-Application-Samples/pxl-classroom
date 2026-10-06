@@ -228,6 +228,8 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 | `.dot-neutral` | Not started, no submission, unknown. **Not** an error: an empty population is not a failure. |
 | `.dot-info` | Informational only. One use; prefer `.dot-neutral` unless the row genuinely reads as a notice. |
 
+**A count on a tab** is `.tab-count`, in the attention tint like `.dot-warning`: how many things wait behind that tab. One use, the Organization tab's notices, shown from every page of the organization so a notice is seen where the lecturer already is. Unknown shows nothing, never `0`, and its `aria-label` says what is counted.
+
 ---
 
 ## 5. Theming (light / dark, seeded from the OS)

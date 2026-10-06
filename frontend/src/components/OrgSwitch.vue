@@ -18,17 +18,26 @@
     >Assignments</router-link>
     <span v-if="current === 'roster'" class="primer-tab active" aria-current="page">Roster</span>
     <router-link v-else :to="{ name: 'roster', params: { org } }" class="primer-tab">Roster</router-link>
-    <span v-if="current === 'organization'" class="primer-tab active" aria-current="page">Organization</span>
-    <router-link v-else :to="{ name: 'organization', params: { org } }" class="primer-tab">Organization</router-link>
+    <span v-if="current === 'organization'" class="primer-tab active" aria-current="page">Organization<span v-if="needsYou" class="tab-count" :aria-label="countLabel">{{ needsYou }}</span></span>
+    <router-link v-else :to="{ name: 'organization', params: { org } }" class="primer-tab">Organization<span v-if="needsYou" class="tab-count" :aria-label="countLabel">{{ needsYou }}</span></router-link>
   </nav>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   org: { type: String, required: true },
   /** Which of the three is on screen. */
   current: { type: String, required: true, validator: (v) => ['assignments', 'roster', 'organization'].includes(v) },
   /** The assignment on screen, if any: Assignments then leads back to the list. */
   assignmentId: { type: String, default: '' },
+  /**
+   * How many things need the lecturer (lib/org-notices.mjs), shown on the
+   * Organization tab from every page of the org. Null is unknown: nothing shown.
+   */
+  needsYou: { type: Number, default: null },
 })
+
+const countLabel = computed(() => (props.needsYou === 1 ? '1 thing needs you' : `${props.needsYou} things need you`))
 </script>

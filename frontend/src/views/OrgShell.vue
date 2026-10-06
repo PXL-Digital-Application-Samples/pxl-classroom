@@ -23,7 +23,7 @@
            seen the account act as staff in this org (lib/org-session.js): a
            student whose installation reaches the org must never see them. -->
       <template #center>
-        <OrgSwitch v-if="showTabs" :org="org" :current="current" :assignment-id="belowList" />
+        <OrgSwitch v-if="showTabs" :org="org" :current="current" :assignment-id="belowList" :needs-you="needsYouCount(org)" />
       </template>
     </AppHeader>
 
@@ -39,7 +39,8 @@ import OrgPicker from '../components/OrgPicker.vue'
 import OrgSwitch from '../components/OrgSwitch.vue'
 import logoUrl from '../assets/logo.png'
 import { clearAuth, getToken, getUser, onAuthChange } from '../lib/auth.js'
-import { forgetOrgSession, knownStaff, loadOrgs } from '../lib/org-session.js'
+import { forgetOrgSession, knownStaff, loadNeedsYou, loadOrgs, needsYouCount } from '../lib/org-session.js'
+import { config } from '../lib/config.js'
 import { assignmentTitle } from '../lib/assignment-crumb.js'
 
 const route = useRoute()
@@ -68,6 +69,12 @@ const crumb = computed(() => {
 })
 
 const showTabs = computed(() => !!user.value && knownStaff(org.value))
+
+// The Organization tab's count, read once per org per session as soon as the
+// tabs show - only then, because only staff can read the notices.
+watch([showTabs, org], ([shown, o]) => {
+  if (shown && o) loadNeedsYou(getToken(), o, config.controlRepo)
+}, { immediate: true })
 
 // Something under Assignments other than the list itself - an assignment, or a
 // new one - so its tab stays lit AND leads back to the list (OrgSwitch).

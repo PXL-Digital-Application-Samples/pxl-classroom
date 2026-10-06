@@ -1742,10 +1742,20 @@ export async function chooseState(page, label) {
   await page.locator('.state-menu [role="menuitem"]').filter({ has: page.locator('.dropdown-item-title', { hasText: label }) }).click();
 }
 
-// System health is on the Organization tab (OrganizationView.vue), folded, and
-// there whatever state the rest of that page is in. Opens the modal.
+// The Organization tab's Advanced section (OrganizationView.vue): usage, system
+// health, connection, recent runs. Folded until opened, and there whatever
+// state the rest of that page is in.
+export async function openAdvanced(page) {
+  const advanced = page.locator('details.org-advanced');
+  await expect(advanced).toHaveCount(1, { timeout: 15000 });
+  if ((await advanced.getAttribute('open')) === null) await advanced.locator('> summary').click();
+  await expect(advanced).toHaveAttribute('open', '');
+}
+
+// System health is in it. Opens the modal.
 export async function openSystemHealth(page, org = ORG) {
   await page.goto(`/dashboard/${org}/organization`);
+  await openAdvanced(page);
   const fold = page.locator('details.org-fold', { has: page.locator('summary', { hasText: 'System health' }) });
   await fold.locator('summary').click();
   await fold.getByRole('button', { name: 'Run the checks' }).click();

@@ -9,8 +9,11 @@
 // not wait for a check this session already passed.
 
 import { ref } from 'vue'
-import { getInstallations } from './api.js'
+import { getInstallations, listRepoDir } from './api.js'
+import { readTrackingIssue } from './tracking-issue.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
+import { noticesForLecturer } from '../../../lib/org-notices.mjs'
+import { ASSIGNMENTS_DIR, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
 
 export const orgs = ref([])
 export const orgsLoaded = ref(false)
@@ -167,6 +170,52 @@ export function markStaff(org, isStaff) {
 
 export const knownStaff = (org) => !!org && staffIn.value.get(normalizeLogin(org)) === true
 
+// ------------------------------------------------------- what needs you, a count
+
+// org (normalized) -> number. The Organization tab carries it on every page of
+// the org (OrgSwitch.vue), so a notice is seen where the lecturer already is
+// rather than only by someone who opens that tab. Absent is unknown, and
+// unknown shows nothing - never a zero it did not count.
+export const needsYouIn = ref(new Map())
+const needsYouReading = new Set()
+
+export function setNeedsYou(org, count) {
+  if (!org) return
+  const next = new Map(needsYouIn.value)
+  if (Number.isInteger(count) && count >= 0) next.set(normalizeLogin(org), count)
+  else next.delete(normalizeLogin(org))
+  needsYouIn.value = next
+}
+
+export const needsYouCount = (org) => (org ? needsYouIn.value.get(normalizeLogin(org)) ?? null : null)
+
+/**
+ * The count for one organization, read once per session: its notices and the
+ * names of its assignment files, through the rule the Organization page lists
+ * them by (`noticesForLecturer`, lib/org-notices.mjs) - so the tab and the page
+ * cannot disagree. Three requests. A read that fails leaves it unknown. The
+ * Organization page sets it again from its own read.
+ */
+export async function loadNeedsYou(token, org, controlRepo) {
+  const key = normalizeLogin(org || '')
+  if (!token || !key || needsYouIn.value.has(key) || needsYouReading.has(key)) return
+  needsYouReading.add(key)
+  const mine = session
+  try {
+    const [tracking, files] = await Promise.all([
+      readTrackingIssue(token, { org, controlRepo }),
+      listRepoDir(token, org, controlRepo, ASSIGNMENTS_DIR).catch((e) => (e?.status === 404 ? [] : null)),
+    ])
+    if (mine !== session) return
+    if (tracking.state === 'unreadable' || tracking.state === 'no-repo' || !files) return
+    const ids = new Set(files.map((f) => assignmentIdFromFile(f.name)).filter(Boolean))
+    const comments = tracking.state === 'ok' ? tracking.comments : []
+    setNeedsYou(org, noticesForLecturer(comments, { assignmentIds: ids }).length)
+  } finally {
+    needsYouReading.delete(key)
+  }
+}
+
 /** Signed out: nothing about the last account carries over. */
 export function forgetOrgSession() {
   session++
@@ -176,5 +225,6 @@ export function forgetOrgSession() {
   orgsLoadError.value = null
   orgStatusMap.value = new Map()
   staffIn.value = new Map()
+  needsYouIn.value = new Map()
   connectPending.value = false
 }

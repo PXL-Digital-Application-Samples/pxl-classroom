@@ -477,6 +477,22 @@ a:hover {
   font-weight: 600;
   border-bottom-color: var(--accent-orange);
 }
+/* How many things wait behind a tab (DESIGN.md §4): the Organization tab's
+   notices. A warning, not an alarm - the attention tint, like .dot-warning. */
+.tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--tint-attention-muted);
+  color: var(--accent-yellow-bright);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+}
 
 /* Segmented Control / Quick Filter Pills */
 .tab-pill-selector {
