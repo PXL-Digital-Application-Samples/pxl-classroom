@@ -133,6 +133,10 @@
           "pattern": "^[a-z0-9-]*$",
           "description": "Optional prefix automatically added to new team names."
         },
+        "require_join_code": {
+          "type": "boolean",
+          "description": "When true, a team a student creates gets a join code, and joining it needs that code from someone in it (lib/team-join-code.mjs). Teams without a code stay open. Absent is false, which is how every assignment before the field behaved; no default, because validation would write one."
+        },
         "unassigned_fallback": {
           "type": "string",
           "enum": [

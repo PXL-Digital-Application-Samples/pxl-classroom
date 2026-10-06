@@ -146,6 +146,14 @@ Drop `--dry-run` to apply. `--from-roster` uses the roster columns instead; `--y
 
 Under self-service, a carried-over group is a strong default rather than a lock: the student can still use **Choose a different group**. Under pre-assigned, they cannot, and a request naming another team is rejected server-side.
 
+**Join codes.** With **Joining a team needs a code from someone in it** ticked (on by default for a new group assignment), a team a student creates gets a six-character code such as `K7P-4QX`. The creator sees it on their page at once, while the repository is still being made, and gives it to their teammates; joining that team, or switching into it, asks for it. Without it nobody can join, so strangers stay out of a team.
+
+- **A student lost the code:** the Teams tab shows each team's code under its name. Read it out to them, or **Move to…** them in yourself.
+- **Teams you make or seed have no code** and anyone can join them, as before. So do teams students made before you ticked the box.
+- **Unticking the box** opens every team at once; ticking it again closes the teams that have a code.
+- **A typo** is caught on the student's page before anything is sent. A refusal there means a real code that was not this team's, and shows as *did not have the team's join code* in your notices.
+- **A team everybody left** disappears from the students' list. Whoever creates a team with that name again makes it new, with a new code.
+
 ### 1.4 Publish
 
 In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says when the accept link is live.

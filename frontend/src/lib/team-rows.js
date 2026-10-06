@@ -57,6 +57,11 @@ export function teamRows(reportTeams, manifests, { minTeamSize = 0 } = {}) {
       repo_url: doc.repo_url || reported?.repo_url || null,
       ...(doc.repo_id || reported?.repo_id ? { repo_id: doc.repo_id || reported?.repo_id } : {}),
       ...(doc.seeded_from ? { seeded_from: doc.seeded_from } : {}),
+      // Only from the file: the report never carries it, and the Teams tab is
+      // where a lecturer reads it out to a student who lost it.
+      // Whatever is there, readable or not: the hub treats an unreadable one as
+      // a lock (lib/team-join-code.mjs), so the tab must not show it as none.
+      ...(doc.join_code != null && doc.join_code !== '' ? { join_code: String(doc.join_code) } : {}),
       under_capacity: under,
       warnings: under ? [...otherWarnings, 'under-capacity'] : otherWarnings,
     })

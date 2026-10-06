@@ -142,6 +142,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 
 - Set the maximum team size, and the minimum if you want the report to flag teams that are short.
 - **Self-service** lets students form their own teams. **Pre-assigned** means you seed the teams first, and you decide what happens to a student who is in none.
+- **Joining a team needs a code from someone in it** keeps strangers out of a team. The student who creates a team gets a code to give their teammates. You can see every team's code on the **Teams** tab, for a student who lost it. Teams you make or seed have no code and anyone can join them.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
 - Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 

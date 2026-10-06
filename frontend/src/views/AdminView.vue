@@ -839,6 +839,20 @@
                 <small>When enabled, students can create custom new teams or join open teams. When unchecked, students can only join existing teams created by the lecturer.</small>
               </div>
 
+              <div
+                v-if="form.group_config.formation_mode === 'self-service' || form.group_config.unassigned_fallback === 'self-service'"
+                class="field checkbox"
+              >
+                <label>
+                  <input type="checkbox" v-model="form.group_config.require_join_code" data-field="require-join-code" />
+                  Joining a team needs a code from someone in it
+                </label>
+                <small>
+                  The student who creates a team gets a code to give their teammates. You can see every
+                  team's code on the Teams tab. Teams you make or seed have no code and stay open.
+                </small>
+              </div>
+
               <div v-if="form.group_config.formation_mode === 'pre-assigned'" class="field checkbox">
                 <label>
                   <input
@@ -1594,6 +1608,7 @@ import { normalizeRosterMode, rosterGatesAcceptance, rosterMatchesLogin } from '
 import { classGroupChips, studentInClassGroup, normalizeClassGroup } from '../lib/class-groups.js'
 import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
+import { requiresJoinCode } from '../../../lib/team-join-code.mjs'
 import { readRoster } from '../lib/roster-read.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 
@@ -3016,6 +3031,9 @@ function emptyForm() {
       min_team_size: 2,
       formation_mode: 'self-service',
       allow_team_creation: true,
+      // On for a new assignment; an existing one keeps what it stored, and
+      // absent there is off (lib/team-join-code.mjs).
+      require_join_code: true,
       // New assignments default to letting an unassigned student self-enrol;
       // hand-written YAML without the key keeps the stricter historical 'block'.
       unassigned_fallback: 'self-service',
@@ -3415,6 +3433,7 @@ async function editAssignment(a, { confirmed = false } = {}) {
       min_team_size: a.group_config?.min_team_size || 2,
       formation_mode: a.group_config?.formation_mode || 'self-service',
       allow_team_creation: a.group_config?.allow_team_creation !== false,
+      require_join_code: requiresJoinCode(a.group_config),
       unassigned_fallback: a.group_config?.unassigned_fallback === 'self-service' ? 'self-service' : 'block',
     },
   }

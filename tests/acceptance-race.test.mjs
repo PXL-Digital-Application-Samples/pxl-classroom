@@ -18,6 +18,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { flaky, hubRun as runHub, lostAnswer, remoteDir, remoteJson, remoteWith, checkout } from "./fixtures/control-remote.mjs";
 import { startRepoProbe } from "./fixtures/repo-probe.mjs";
+import { encryptTeamCode, generateClaimKeypair } from "../lib/claim.mjs";
+import { newJoinCode } from "../lib/team-join-code.mjs";
 
 const probe = await startRepoProbe();
 Object.assign(process.env, probe.env);
@@ -147,6 +149,70 @@ test("two students create one new team at the same moment: both are in it", { ti
     );
     const { teams } = assertConsistent(remote);
     assert.deepEqual([...teams.alpha.members].sort(), ["student1", "student2"]);
+  }
+});
+
+test("under join codes, two students creating one name at once: one team, one code, the other refused", { timeout: 300_000 }, async () => {
+  // Without codes both are in the team (above). With them, the second run's
+  // page made its OWN code, which opens nothing in a team the first one saved:
+  // the second is refused, and their Back shows the name as taken.
+  const keys = await generateClaimKeypair();
+  const codes = { student1: newJoinCode(), student2: newJoinCode() };
+  for (let round = 0; round < 3; round++) {
+    fresh();
+    const remote = remoteWith({
+      "students/roster.yml": ROSTER,
+      [`assignments/${ID}.yml`]: GROUP_YAML.replace(`max_team_size: ${MAX}`, `max_team_size: ${MAX}\n  require_join_code: true`),
+    });
+    const results = await Promise.all(
+      ["student1", "student2"].map(async (login, i) =>
+        hubRun({
+          remote, org: ORG, assignmentId: ID, login, githubId: idOf(login), issue: 900 + i, team: "alpha", action: "create",
+          env: {
+            CLAIM_PRIVATE_KEY: keys.privateKey,
+            TEAM_CODE_PAYLOAD: await encryptTeamCode({
+              publicKey: keys.publicKey, code: codes[login], githubId: idOf(login), assignmentId: ID, teamSlug: "alpha",
+            }),
+          },
+        }),
+      ),
+    );
+    const outcomes = results.map((r) => r.outcome).sort();
+    assert.deepEqual(outcomes, ["accepted", "rejected:team-code"], results.map((r) => r.log).join("\n---\n"));
+    const { teams } = assertConsistent(remote);
+    const winner = ["student1", "student2"][results.findIndex((r) => r.outcome === "accepted")];
+    assert.deepEqual(teams.alpha.members, [winner]);
+    assert.equal(teams.alpha.join_code, codes[winner], "the team keeps the code of the student who made it");
+  }
+});
+
+test("a teammate joining with the code while the creator's own request is still waiting: both are in", { timeout: 300_000 }, async () => {
+  // The page shows the creator the code at once, so in a classroom it is read
+  // aloud before the team exists. Whichever run lands first makes the team
+  // with that code; the other meets it and the code opens it.
+  const keys = await generateClaimKeypair();
+  const code = newJoinCode();
+  for (let round = 0; round < 3; round++) {
+    fresh();
+    const remote = remoteWith({
+      "students/roster.yml": ROSTER,
+      [`assignments/${ID}.yml`]: GROUP_YAML.replace(`max_team_size: ${MAX}`, `max_team_size: ${MAX}\n  require_join_code: true`),
+    });
+    const results = await Promise.all(
+      [["student1", "create"], ["student2", "join"]].map(async ([login, action], i) =>
+        hubRun({
+          remote, org: ORG, assignmentId: ID, login, githubId: idOf(login), issue: 900 + i, team: "alpha", action,
+          env: {
+            CLAIM_PRIVATE_KEY: keys.privateKey,
+            TEAM_CODE_PAYLOAD: await encryptTeamCode({ publicKey: keys.publicKey, code, githubId: idOf(login), assignmentId: ID, teamSlug: "alpha" }),
+          },
+        }),
+      ),
+    );
+    assert.deepEqual(results.map((r) => r.outcome), ["accepted", "accepted"], results.map((r) => r.log).join("\n---\n"));
+    const { teams } = assertConsistent(remote);
+    assert.deepEqual([...teams.alpha.members].sort(), ["student1", "student2"]);
+    assert.equal(teams.alpha.join_code, code);
   }
 });
 

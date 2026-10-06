@@ -26,6 +26,7 @@ import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.m
 // `Europe/Brussels` beside a `TIMEZONE` export nothing read.
 import { TIMEZONE } from "../lib/deployment.mjs";
 import { maxTeamSize } from "../lib/group-config.mjs";
+import { teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -359,6 +360,9 @@ async function main() {
                 member_count: (tdata.members || []).length,
                 max_members: maxMem,
                 is_full: (tdata.members || []).length >= maxMem,
+                // Whether joining needs the team's code - never the code: this
+                // file is public to anyone holding the invitation.
+                ...(teamNeedsJoinCode(def.group_config, tdata) ? { needs_code: true } : {}),
                 // Provenance only - the source assignment's id and title are
                 // already public. Never the lecturer login or the seed time.
                 ...(tdata.seeded_from

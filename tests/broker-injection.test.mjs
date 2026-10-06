@@ -261,8 +261,18 @@ test("parseTeamPayload accepts a well-formed payload", () => {
     parseTeamPayload({
       body: JSON.stringify({ team_slug: "alpha-1", team_name: "Team Alpha", team_action: "join" }),
     }),
-    { team_slug: "alpha-1", team_name: "Team Alpha", team_action: "join" }
+    { team_slug: "alpha-1", team_name: "Team Alpha", team_action: "join", team_code_payload: "" }
   );
+});
+
+test("parseTeamPayload passes a sealed join code through and nothing else", () => {
+  const sealed = "t1.AAAA.BBBB.CCCC";
+  const read = (team_code) => parseTeamPayload({ body: JSON.stringify({ team_slug: "a1", team_code }) }).team_code_payload;
+  assert.equal(read(sealed), sealed);
+  assert.equal(read("K7P-4QX"), "", "a plain code is not sealed and is not passed on");
+  assert.equal(read("t1.a.b.c\nteam_slug=evil"), "", "nothing that could forge an output line");
+  assert.equal(read(`t1.${"A".repeat(1100)}.b.c`), "", "nothing oversized");
+  assert.equal(read(42), "");
 });
 
 test("parseTeamPayload falls back to the title form", () => {

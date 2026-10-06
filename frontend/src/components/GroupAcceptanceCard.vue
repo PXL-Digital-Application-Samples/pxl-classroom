@@ -33,6 +33,8 @@
         </div>
       </div>
 
+      <TeamJoinCode :code="myTeamCode" :team-name="myCurrentTeam?.team_name || targetTeamName" :elsewhere="myTeamCodeElsewhere" />
+
       <!-- Team Submission Status & Deadline Countdown Card -->
       <div class="team-status-card card flex flex-col gap-sm" style="margin-top: var(--space-md); padding: 14px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; text-align: left;">
         <!-- Active Extension Announcement -->
@@ -85,6 +87,9 @@
         <div class="progress-bar-fill"></div>
       </div>
       <p class="text-muted">Waiting {{ waitedSeconds }}s…</p>
+
+      <!-- Shown while it waits: the creator can hand the code out now. -->
+      <TeamJoinCode :code="myTeamCode" :team-name="targetTeamName" />
 
       <!-- Reassurance rather than a guessed cause; see AssignmentView for the
            reasoning, which this card had a verbatim copy of. -->
@@ -148,6 +153,12 @@
       <Icon name="alert-triangle" :size="48" class="status-icon status-icon-warn" />
       <h2>{{ refusedHeading }}</h2>
       <p class="text-secondary">{{ REJECTION_MESSAGE }}</p>
+      <!-- Not a reason - the page is not told one - but the thing to check
+           first when a code was typed: a typo is caught before sending, so
+           what reaches the hub is a real code, and maybe another team's. -->
+      <p v-if="lastJoin?.code && !lastJoin.made" class="text-secondary" data-code-refused-hint>
+        If you typed a join code, check it is this team's with someone in it.
+      </p>
       <p v-if="rejectionReference" class="text-muted">
         Tell them: <strong>{{ rejectionReference }}</strong>
       </p>
@@ -251,6 +262,10 @@
       />
       <p v-if="needsClaim && !claimKeyReady" class="text-sm claim-unavailable">
         Claiming is not set up for this course yet. Ask your lecturer to finish
+        setting up the assignment.
+      </p>
+      <p v-else-if="codesBlocked" class="text-sm claim-unavailable">
+        Join codes are not set up for this course yet. Ask your lecturer to finish
         setting up the assignment.
       </p>
 
@@ -369,12 +384,45 @@
                 <span v-for="m in team.members" :key="m" class="member-tag">@{{ m }}</span>
                 <span v-if="team.members.length === 0" class="text-muted" style="font-size: 0.8rem;">Empty team</span>
               </div>
+              <p v-if="team.needs_code && !isMyTeam(team) && !team.is_full" class="team-needs-code text-xs text-muted">
+                <Icon name="lock" :size="12" /> Needs a join code from someone in it
+              </p>
+              <form
+                v-if="codeFor === team.team_slug"
+                class="join-code-form"
+                @submit.prevent="joinWithCode(team)"
+                @keydown.esc="closeCodeField"
+              >
+                <label :for="`join-code-${team.team_slug}`" class="text-xs">Join code</label>
+                <div class="join-code-row">
+                  <input
+                    :id="`join-code-${team.team_slug}`"
+                    v-model="codeInput"
+                    type="text"
+                    class="input-text join-code-input"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    maxlength="9"
+                    placeholder="K7P-4QX"
+                    :aria-invalid="codeLooksWrong ? 'true' : 'false'"
+                    data-join-code-input
+                  />
+                  <button type="submit" class="btn btn-secondary btn-sm" :disabled="!codeWellFormed || accepting || claimBlocked">
+                    {{ accepting ? 'Joining…' : 'Join' }}
+                  </button>
+                  <button type="button" class="btn btn-link btn-sm" @click="closeCodeField">Cancel</button>
+                </div>
+                <p v-if="codeLooksWrong" class="field-error-msg" role="alert">
+                  This code has a mistake in it. Check it with someone in the team.
+                </p>
+              </form>
             </div>
-            <div class="team-action-btn">
+            <div v-if="codeFor !== team.team_slug" class="team-action-btn">
               <button
                 class="btn btn-sm"
                 :class="isMyTeam(team) ? 'btn-primary' : 'btn-secondary'"
-                :disabled="(team.is_full && !isMyTeam(team)) || accepting || claimBlocked"
+                :disabled="(team.is_full && !isMyTeam(team)) || accepting || claimBlocked || (team.needs_code && !isMyTeam(team) && codesBlocked)"
                 @click="confirmJoinTeam(team)"
               >
                 {{ isMyTeam(team) ? 'My group' : team.is_full ? 'Full' : 'Join Team' }}
@@ -407,10 +455,14 @@
             A team with slug "<strong>{{ computedSlug }}</strong>" already exists. Please pick a different name or join that team.
           </div>
 
-          <button 
-            type="submit" 
+          <p v-if="codesOn" class="form-hint" data-create-code-hint>
+            Your team gets a join code. Give it to your teammates: they need it to join.
+          </p>
+
+          <button
+            type="submit"
             class="btn btn-primary btn-lg"
-            :disabled="!computedSlug || slugConflict || accepting || claimBlocked"
+            :disabled="!computedSlug || slugConflict || accepting || claimBlocked || codesBlocked"
           >
             <span v-if="accepting">Creating…</span>
             <span v-else>Create & Join Team</span>
@@ -434,7 +486,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
 import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
@@ -460,12 +512,17 @@ import {
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
-import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
+import { buildAcceptanceBody, hubClaimKey, encryptClaim, encryptTeamCode } from '../lib/claim.js'
+import {
+  isWellFormedJoinCode, newJoinCode, normalizeJoinCode, requiresJoinCode,
+} from '../../../lib/team-join-code.mjs'
+import { forgetJoinCode, rememberJoinCode, rememberedJoinCode } from '../lib/team-code-memory.js'
 import { claimRequired } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
+import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
 import {
   GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
@@ -594,6 +651,64 @@ const filteredTeams = computed(() => {
 
 const openTeamsCount = computed(() => teams.value.filter((t) => !t.is_full).length)
 
+// JOIN CODES (lib/team-join-code.mjs). A team a student made while the
+// assignment asks for codes is joined with its code; the page catches a typo
+// itself, because a refusal reaches it only as "refused".
+const codesOn = computed(() => requiresJoinCode(props.assignment?.group_config))
+const codesBlocked = computed(() => codesOn.value && !claimKeyReady.value)
+// The team whose code field is open, and what has been typed into it.
+const codeFor = ref('')
+const codeInput = ref('')
+const codeWellFormed = computed(() => isWellFormedJoinCode(codeInput.value))
+// Said only once there is a whole code's worth of characters to judge.
+const codeLooksWrong = computed(
+  () => codeInput.value.replace(/[\s-]/g, '').length >= 6 && !codeWellFormed.value,
+)
+// Bumped whenever this browser's remembered codes change, so what reads them
+// recomputes.
+const codeMemory = ref(0)
+
+/**
+ * The code of the team this page is about, where this browser has it: made
+ * here, or typed here to join. Not for a team that has none, and not once the
+ * assignment stops asking for codes - then it opens nothing.
+ */
+const myTeamCode = computed(() => {
+  void codeMemory.value
+  const slug = activeTeamSlug.value
+  if (!slug || !codesOn.value) return ''
+  const team = teams.value.find((t) => t.team_slug === slug) || myCurrentTeam.value
+  if (team && team.needs_code === false) return ''
+  return rememberedJoinCode(props.org, props.assignment?.id, slug)
+})
+// A team with a code this browser does not have: said where to get it.
+const myTeamCodeElsewhere = computed(() => {
+  if (myTeamCode.value || !codesOn.value) return false
+  const slug = activeTeamSlug.value
+  const team = teams.value.find((t) => t.team_slug === slug) || myCurrentTeam.value
+  return team?.needs_code === true
+})
+
+async function openCodeField(team) {
+  codeFor.value = team.team_slug
+  codeInput.value = ''
+  await nextTick()
+  document.getElementById(`join-code-${team.team_slug}`)?.focus()
+}
+
+function closeCodeField() {
+  codeFor.value = ''
+  codeInput.value = ''
+}
+
+async function joinWithCode(team) {
+  if (!codeWellFormed.value || accepting.value) return
+  selectedTeam.value = team
+  targetTeamName.value = team.team_name
+  const code = normalizeJoinCode(codeInput.value)
+  await executeTeamAcceptance(team.team_slug, team.team_name, isSwitching.value ? 'switch' : 'join', code)
+}
+
 // The slug of the team this student last asked to join from THIS page. Set only
 // once the broker accepted the request, so a failed submit changes nothing.
 const targetTeamSlug = ref('')
@@ -645,6 +760,13 @@ const RECENT_ATTEMPT_MS = SHARED_RECENT_ATTEMPT_MS
 function showRejected() {
   rejectedAt.value = new Date()
   acceptState.value = 'rejected'
+  // A refused attempt's code is not this team's - or, for a team being made,
+  // the team was never made with it. Not shown again as if it were.
+  const sent = lastJoin.value
+  if (sent?.code) {
+    forgetJoinCode(props.org, props.assignment?.id, sent.slug, sent.code)
+    codeMemory.value++
+  }
 }
 
 /**
@@ -741,7 +863,7 @@ async function sendAgain() {
     acceptState.value = 'ready'
     return
   }
-  await executeTeamAcceptance(join.slug, join.name, join.action)
+  await executeTeamAcceptance(join.slug, join.name, join.action, join.code || '', { made: join.made === true })
 }
 
 onMounted(async () => {
@@ -767,7 +889,10 @@ async function loadTeams() {
   const teamsMap = new Map() // slug -> teamObject
 
   // Helper to upsert team
-  function upsertTeam(slug, name, members = [], seededFrom = null) {
+  // `needsCode` is what the published file says; a team known only from the
+  // broker's issues is one a student is making right now, and has a code
+  // exactly when the assignment gives new teams one.
+  function upsertTeam(slug, name, members = [], seededFrom = null, needsCode = codesOn.value) {
     if (!slug) return
     const cleanSlug = slug.toLowerCase().trim()
     const existing = teamsMap.get(cleanSlug) || {
@@ -775,6 +900,7 @@ async function loadTeams() {
       team_name: name || cleanSlug,
       members: [],
       max_members: maxTeamCap,
+      needs_code: needsCode,
     }
     if (name && name !== cleanSlug) existing.team_name = name
     if (seededFrom && !existing.seeded_from) existing.seeded_from = seededFrom
@@ -795,7 +921,7 @@ async function loadTeams() {
     if (res.ok) {
       const data = await res.json()
       for (const t of (data.teams || [])) {
-        upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from)
+        upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from, t.needs_code === true)
       }
     }
   } catch (e) {
@@ -1004,6 +1130,12 @@ async function checkExistingState() {
 }
 
 async function confirmJoinTeam(team) {
+  // A team with a code asks for it first; one this student is already in
+  // does not (the hub admits a member without one).
+  if (team.needs_code && !isMyTeam(team)) {
+    await openCodeField(team)
+    return
+  }
   selectedTeam.value = team
   targetTeamName.value = team.team_name
   await executeTeamAcceptance(team.team_slug, team.team_name, isSwitching.value ? 'switch' : 'join')
@@ -1012,10 +1144,14 @@ async function confirmJoinTeam(team) {
 async function submitCreateTeam() {
   if (!computedSlug.value || slugConflict.value) return
   targetTeamName.value = newTeamName.value
-  await executeTeamAcceptance(computedSlug.value, newTeamName.value, isSwitching.value ? 'switch' : 'create')
+  // Made here, so the creator can be shown it at once: nothing a student can
+  // read holds it anywhere else (lib/team-join-code.mjs).
+  const code = codesOn.value ? newJoinCode() : ''
+  await executeTeamAcceptance(computedSlug.value, newTeamName.value, isSwitching.value ? 'switch' : 'create', code, { made: true })
 }
 
-async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
+/** `made`: the code was made here for a new team, not typed to join one. */
+async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = '', { made = false } = {}) {
   accepting.value = true
   try {
     const token = getToken()
@@ -1057,11 +1193,27 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
       }
     }
 
+    let sealedCode = ''
+    if (joinCode) {
+      const hubKey = hubClaimKey()
+      if (!hubKey) {
+        throw new Error('Join codes are not set up for this course yet. Ask your lecturer to finish setting up the assignment.')
+      }
+      sealedCode = await encryptTeamCode({
+        publicKey: hubKey.publicKey,
+        code: joinCode,
+        githubId: props.user?.id,
+        assignmentId: props.assignment.id,
+        teamSlug,
+      })
+    }
+
     const issueRes = await ghApi(token, 'POST', `/repos/${props.org}/${brokerRepo}/issues`, {
       title,
       body: buildAcceptanceBody({
         team: { team_slug: teamSlug, team_name: teamName, team_action: teamAction },
         claim: claimField,
+        teamCode: sealedCode,
       }),
     })
 
@@ -1078,7 +1230,12 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction) {
     acceptanceIssue.value = issueRes.data?.number ?? null
     acceptanceIssueCreatedAt.value = issueRes.data?.created_at ?? new Date().toISOString()
     targetTeamSlug.value = teamSlug
-    lastJoin.value = { slug: teamSlug, name: teamName, action: teamAction }
+    lastJoin.value = { slug: teamSlug, name: teamName, action: teamAction, code: joinCode, made }
+    if (joinCode) {
+      rememberJoinCode(props.org, props.assignment.id, teamSlug, joinCode)
+      codeMemory.value++
+    }
+    closeCodeField()
     // A new attempt is on its way; the old refusal is no longer the news.
     refusedEarlier.value = false
 
@@ -1319,6 +1476,36 @@ function copyRepoUrl() {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.team-needs-code {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.team-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.join-code-form {
+  margin-top: var(--space-sm);
+}
+
+.join-code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: 4px;
+}
+
+.join-code-input {
+  max-width: 12ch;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .member-tag {

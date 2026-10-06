@@ -22,6 +22,7 @@ import { normalizeRosterMode, rosterGatesAcceptance, claimRequired } from "../li
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
+import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
 import { lockdownRecordPath } from "../lib/control-layout.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
@@ -36,6 +37,7 @@ import {
   claimAttemptsPath,
   claimPath,
   decryptClaimWithAnyKey,
+  decryptTeamCodeWithAnyKey,
   claimPrivateKeys,
   domainAllowed,
   byFirstHolder,
@@ -97,6 +99,44 @@ function validate(assignmentId, login, id) {
   if (!id || isNaN(Number(id)))
     return `github_id="${id}" is missing or not a number`;
   return null;
+}
+
+// --- a team's join code ------------------------------------------------------
+//
+// The code this acceptance carried for `teamSlug`, normalised, or null when it
+// carried none or one that does not open: sealed for another account, another
+// assignment or another team is a ciphertext copied out of the public archive,
+// and reads as no code at all (lib/team-join-code.mjs).
+//
+// NOT COUNTED against the student's attempts, unlike every other refusal that
+// depends on a secret (CLAUDE.md). The secret here is 28,629,151 codes guessed
+// one public issue and one hub run at a time, under GitHub's limit on creating
+// content; the claim counter is the only counter, it is org-wide, and spending
+// it here would lock a student out of every assignment for a code a teammate
+// read out wrong. Typos never get this far: the page checks the code's check
+// character first.
+async function sealedTeamCode({ teamSlug, assignmentId, githubId }) {
+  const payload = env("TEAM_CODE_PAYLOAD", "").trim();
+  if (!payload) return null;
+  const privateKeys = claimPrivateKeys(env("CLAIM_PRIVATE_KEY", ""), env("CLAIM_PRIVATE_KEYS_RETIRED", ""));
+  if (privateKeys.length === 0) {
+    // The page seals to the public half, so a code arrived and the hub cannot
+    // read it: a deployment fault, never the student's.
+    await fail(
+      "fail:config",
+      `this assignment needs team join codes and PXL_CLAIM_PRIVATE_KEY is not set on the hub - no code can be read. See INSTALL.md §3.2.`,
+    );
+  }
+  let opened;
+  try {
+    opened = await decryptTeamCodeWithAnyKey({ privateKeys, payload });
+  } catch {
+    return null;
+  }
+  if (opened.githubId !== githubId) return null;
+  if (opened.assignmentId !== assignmentId) return null;
+  if (opened.teamSlug.toLowerCase() !== teamSlug.toLowerCase()) return null;
+  return normalizeJoinCode(opened.code) || null;
 }
 
 // --- the claim gate ----------------------------------------------------------
@@ -1217,6 +1257,41 @@ async function main() {
         await fail("fail:team-manifest", `teams/${assignmentId}/${teamSlug}.json has no members array`);
       }
       if (!teamData.members.some((m) => String(m).toLowerCase() === login.toLowerCase())) {
+        // EVERYBODY LEFT: whoever enters makes the team again. Its old code is
+        // one nobody can give out any more - the students who held it are in
+        // other teams - and the page does not list a vacant team, so a student
+        // typing its name is CREATING one and sends a fresh code. Under codes
+        // that code becomes the team's; without them the old one is dropped,
+        // so it cannot come back into force if codes are switched on later.
+        // A lecturer's empty team is not vacant (nobody left it) and stays as
+        // it was made.
+        const remade = teamData.vacant === true && teamData.members.length === 0;
+        if (remade && requiresJoinCode(assignment.group_config)) {
+          const fresh = await sealedTeamCode({ teamSlug, assignmentId, githubId: Number(githubId) });
+          if (!fresh || !isWellFormedJoinCode(fresh)) {
+            await reject(
+              "rejected:team-code",
+              `team "${teamSlug}" is empty and is made again by whoever enters it, with a new join code - and the acceptance did not carry one. Reload the invitation page and create the team again.`
+            );
+          }
+          teamData.join_code = fresh;
+          log("team-code", { ok: true, note: `${teamSlug} was vacant - made again with a new join code` });
+        } else if (remade) {
+          delete teamData.join_code;
+        } else if (teamNeedsJoinCode(assignment.group_config, teamData)) {
+          // A team a student made under require_join_code is joined with its
+          // code. Asked before the size, and of joins and switches alike - and
+          // of a "create" that met a team made a moment earlier under the same
+          // name, whose fresh code opens nothing here.
+          const offered = await sealedTeamCode({ teamSlug, assignmentId, githubId: Number(githubId) });
+          if (!offered || !joinCodeMatches(teamData.join_code, offered)) {
+            await reject(
+              "rejected:team-code",
+              `team "${teamSlug}" needs its join code, and the acceptance did not carry it. Someone in the team has the code; the lecturer can see it on the Teams tab.`
+            );
+          }
+          log("team-code", { ok: true, note: `joined ${teamSlug} with its code` });
+        }
         // The assignment's maximum AS IT IS NOW, never the manifest's
         // `max_members`. That field is a snapshot taken when the team was
         // created and nothing ever updates it, so a lecturer who raised the size
@@ -1248,6 +1323,21 @@ async function main() {
       if (assignment.group_config?.allow_team_creation === false) {
         await reject("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
       }
+      // The code the creator's page made and showed them. Fails closed: a team
+      // created without one under require_join_code would be open to anyone,
+      // which is what the setting exists to stop - so a stale page, or a
+      // request made by hand, is refused rather than served an open team.
+      let joinCode = null;
+      if (requiresJoinCode(assignment.group_config)) {
+        joinCode = await sealedTeamCode({ teamSlug, assignmentId, githubId: Number(githubId) });
+        if (!joinCode || !isWellFormedJoinCode(joinCode)) {
+          await reject(
+            "rejected:team-code",
+            "this assignment gives every new team a join code, and the acceptance did not carry one. Reload the invitation page and create the team again."
+          );
+        }
+        log("team-code", { ok: true, note: `${teamSlug} created with a join code` });
+      }
       const newTeam = {
         schema_version: 1,
         assignment_id: assignmentId,
@@ -1257,6 +1347,7 @@ async function main() {
         max_members: maxTeamSize,
         created_at: now.toISOString(),
         created_by: login,
+        ...(joinCode ? { join_code: joinCode } : {}),
       };
       await writeFile(teamFile, JSON.stringify(newTeam, null, 2) + "\n");
       teamName = newTeam.team_name;

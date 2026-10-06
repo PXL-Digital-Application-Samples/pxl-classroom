@@ -10,6 +10,7 @@
 export {
   CLAIM_PUBLIC_KEY_LENGTH,
   encryptClaim,
+  encryptTeamCode,
   addressFormatAllowed,
   resolveAddressFormat,
   domainAllowed,
@@ -86,13 +87,16 @@ export function hubClaimKey() {
  * Returns "" when there is nothing to say, which is what an individual
  * acceptance on a non-claim assignment sends today.
  */
-export function buildAcceptanceBody({ team = null, claim = null } = {}) {
+export function buildAcceptanceBody({ team = null, claim = null, teamCode = '' } = {}) {
   const payload = {}
 
   if (team?.team_slug) {
     payload.team_slug = team.team_slug
     payload.team_name = team.team_name ?? ''
     payload.team_action = team.team_action ?? ''
+    // Sealed (encryptTeamCode), never the code a person typed: this body is a
+    // public issue, and the public event archive keeps it.
+    if (teamCode) payload.team_code = teamCode
   }
 
   if (claim?.payload) {

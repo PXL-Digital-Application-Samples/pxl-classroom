@@ -90,6 +90,7 @@ jobs:
           team-slug: ${{ steps.team.outputs.team_slug }}
           team-name: ${{ steps.team.outputs.team_name }}
           team-action: ${{ steps.team.outputs.team_action }}
+          team-code-payload: ${{ steps.team.outputs.team_code_payload }}
           # Straight off the dispatch, and it is safe there BECAUSE the broker
           # took it from the verifier rather than the title: the signature
           # covers the purpose. Absent is `accept`, which is what every dispatch

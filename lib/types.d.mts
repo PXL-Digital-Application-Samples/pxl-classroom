@@ -43,6 +43,7 @@ export type Assignment = {
     formation_mode?: "self-service" | "pre-assigned";
     allow_team_creation?: boolean;
     team_name_prefix?: string;
+    require_join_code?: boolean;
     unassigned_fallback?: "block" | "self-service";
   };
   repository_name_pattern?: string;
@@ -599,6 +600,7 @@ export type Team = {
   repo_name?: string;
   repo_id?: number;
   repo_url?: string;
+  join_code?: string;
   vacant?: boolean;
   seeded_from?: {
     source?: "assignment" | "roster";

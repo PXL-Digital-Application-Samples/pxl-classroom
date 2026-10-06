@@ -56,6 +56,14 @@ inputs:
     description: Validated team action (join, create, switch).
     required: false
     default: ''
+  team-code-payload:
+    description: >-
+      The team's join code, sealed to the hub's claim key, from the acceptance
+      issue body (lib/team-join-code.mjs). Ciphertext only, bound to the
+      student, the assignment and the team. Read only under
+      group_config.require_join_code.
+    required: false
+    default: ''
   kind:
     description: >-
       What the student's signed title asked for - "accept" (a repository) or
@@ -257,6 +265,7 @@ runs:
         TEAM_SLUG: ${{ inputs.team-slug }}
         TEAM_NAME: ${{ inputs.team-name }}
         TEAM_ACTION: ${{ inputs.team-action }}
+        TEAM_CODE_PAYLOAD: ${{ inputs.team-code-payload }}
         KIND: ${{ inputs.kind }}
         CLAIM_PAYLOAD: ${{ inputs.claim-payload }}
         CLAIM_VERIFIED: ${{ inputs.claim-verified }}

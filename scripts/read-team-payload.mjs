@@ -7,8 +7,9 @@
 //
 // Inputs via env: BROKER_REPO (owner/repo), ISSUE_NUMBER, ORG, EXPECTED_LOGIN,
 //                 TEAM_HINT, GH_TOKEN
-// Outputs via GITHUB_OUTPUT: team_slug, team_name, team_action, issue_node_id,
-//                            claim_payload, claim_verified, issue_number, acted_at
+// Outputs via GITHUB_OUTPUT: team_slug, team_name, team_action, team_code_payload,
+//                            issue_node_id, claim_payload, claim_verified,
+//                            issue_number, acted_at
 //
 // Runs for EVERY acceptance, individual ones included: the claim, the attempt
 // number and the time of the request are read from the issue whatever the
@@ -37,13 +38,14 @@ import { parseActedAt, parseIssueNumber } from "../lib/acceptance-reservation.mj
 const NODE_ID = /^[A-Za-z0-9_=-]{1,200}$/;
 
 async function setOutputs({
-  team_slug, team_name, team_action, issue_node_id = "", claim_payload = "", claim_verified = false,
-  issue_number = "", acted_at = "",
+  team_slug, team_name, team_action, team_code_payload = "", issue_node_id = "", claim_payload = "",
+  claim_verified = false, issue_number = "", acted_at = "",
 }) {
   if (!process.env.GITHUB_OUTPUT) return;
   await appendFile(
     process.env.GITHUB_OUTPUT,
     `team_slug=${team_slug}\nteam_name=${team_name}\nteam_action=${team_action}\n` +
+      `team_code_payload=${team_code_payload}\n` +
       `issue_node_id=${issue_node_id}\n` +
       `claim_payload=${claim_payload}\nclaim_verified=${claim_verified ? "true" : "false"}\n` +
       `issue_number=${issue_number}\nacted_at=${acted_at}\n`
@@ -51,7 +53,7 @@ async function setOutputs({
 }
 
 const EMPTY = {
-  team_slug: "", team_name: "", team_action: "", issue_node_id: "",
+  team_slug: "", team_name: "", team_action: "", team_code_payload: "", issue_node_id: "",
   claim_payload: "", claim_verified: false, issue_number: "", acted_at: "",
 };
 
@@ -157,6 +159,7 @@ async function main() {
 
   console.log(
     `[ok] ${brokerRepo}#${issueNumber} -> team_slug="${parsed.team_slug}" team_action="${parsed.team_action}" ` +
+      `team_code=${parsed.team_code_payload ? "present" : "absent"} ` +
       `claim=${claim.claim_payload ? "present" : "absent"} claim_verified=${claim.claim_verified}`
   );
   await setOutputs({ ...parsed, ...claim, ...attemptOf(res.data), issue_node_id: deletable });

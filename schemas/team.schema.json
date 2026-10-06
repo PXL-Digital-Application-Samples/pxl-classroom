@@ -71,6 +71,11 @@
       "type": "string",
       "description": "HTTPS URL of the provisioned team repository."
     },
+    "join_code": {
+      "type": "string",
+      "pattern": "^[2-9A-HJKMNP-Z]{6}$",
+      "description": "The code a student needs to join this team, made by the page of the student who created it while the assignment's group_config.require_join_code was on (lib/team-join-code.mjs). Absent on a team made any other way, which is then open. Never published: the public teams file says only whether one is needed."
+    },
     "vacant": {
       "type": "boolean",
       "description": "True if all members have left or switched away from this team."

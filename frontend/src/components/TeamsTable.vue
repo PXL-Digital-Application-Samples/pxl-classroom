@@ -165,6 +165,9 @@
               <div class="team-cell">
                 <strong class="team-title">{{ team.team_name }}</strong>
                 <code class="team-slug">{{ team.team_slug }}</code>
+                <span v-if="teamNeedsJoinCode(assignment.group_config, team)" class="team-code text-xs">
+                  Join code <code data-join-code>{{ formatJoinCode(team.join_code) || 'unreadable' }}</code>
+                </span>
               </div>
             </td>
 
@@ -493,6 +496,7 @@ import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
+import { formatJoinCode, teamNeedsJoinCode } from '../../../lib/team-join-code.mjs'
 import { planMemberRecordChanges, teamRepository } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
 import { getToken } from '../lib/auth.js'
@@ -1528,6 +1532,10 @@ async function deleteVacantTeam(team) {
 .team-slug {
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+.team-code {
+  color: var(--text-secondary);
 }
 
 .members-cell {

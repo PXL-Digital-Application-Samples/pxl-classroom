@@ -156,10 +156,13 @@ test("accept.mjs reads both keys, and neither surface was left on the single-key
     calls.every((c) => c.startsWith("decryptClaimWithAnyKey")),
     "both paths must use the multi-key call, or a rotation breaks one of them",
   );
+  // And a third reader of the same keys: a team's join code is sealed to the
+  // same hub key (lib/team-join-code.mjs), so it survives a rotation the same way.
   assert.equal(
     [...src.matchAll(/CLAIM_PRIVATE_KEYS_RETIRED/g)].length,
-    2,
-    "both paths must read the retired keys",
+    3,
+    "both claim paths and the team code must read the retired keys",
   );
+  assert.equal([...src.matchAll(/decryptTeamCodeWithAnyKey\(/g)].length, 1, "the team code opens with every key too");
 });
 

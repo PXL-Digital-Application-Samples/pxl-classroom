@@ -343,3 +343,37 @@ test("a team's capacity is the assignment's size NOW, not the size when the team
   assert.equal(beta.max_members, 4, "a larger snapshot does not win either");
   assert.equal(beta.is_full, true, "4 of 4 is full");
 });
+
+test("a team's join code is never published - only whether joining needs one", () => {
+  // The teams file is public to anyone holding the invitation; the code is
+  // what keeps a stranger out of a team (lib/team-join-code.mjs).
+  const run = (requireCodes) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-gen-teamcode-"));
+    mkdirSync(join(dir, "assignments"));
+    const token = mintToken("PXLAutomation", "test-valid");
+    const base = readFileSync(fix("valid-assignment.yml"), "utf8")
+      .replace("repository_name_pattern: test-valid-{github_login}", "repository_name_pattern: test-valid-{team_slug}");
+    writeFileSync(
+      join(dir, "assignments", "test-valid.yml"),
+      `${base}assignment_type: group\ngroup_config:\n  max_team_size: 3\n${requireCodes ? "  require_join_code: true\n" : ""}invite_token: ${token}\ninvite_nonce: 0badc0de\n`,
+    );
+    mkdirSync(join(dir, "teams", "test-valid"), { recursive: true });
+    const manifest = (slug, more) => JSON.stringify({
+      schema_version: 1, assignment_id: "test-valid", team_slug: slug, team_name: slug, members: [`${slug}1`], ...more,
+    });
+    writeFileSync(join(dir, "teams", "test-valid", "coded.json"), manifest("coded", { join_code: "K7P4QX" }));
+    writeFileSync(join(dir, "teams", "test-valid", "open.json"), manifest("open", {}));
+    const outDir = join(dir, "public");
+    const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
+    assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+    const text = readFileSync(join(outDir, "i", `${inviteFileFor(token)}.teams.json`), "utf8");
+    assert.ok(!text.includes("K7P4QX"), "the code itself is nowhere in the public file");
+    assert.ok(!text.includes("join_code"));
+    return JSON.parse(text).teams;
+  };
+  const on = run(true);
+  assert.equal(on.find((t) => t.team_slug === "coded").needs_code, true);
+  assert.equal(on.find((t) => t.team_slug === "open").needs_code, undefined, "a team without a code is open");
+  const off = run(false);
+  assert.equal(off.find((t) => t.team_slug === "coded").needs_code, undefined, "with codes off, no team needs one");
+});

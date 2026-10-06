@@ -109,9 +109,6 @@
     "team-action-btn": [
       "GroupAcceptanceCard.vue"
     ],
-    "team-info": [
-      "GroupAcceptanceCard.vue"
-    ],
     "team-name": [
       "GroupAcceptanceCard.vue"
     ],
@@ -161,7 +158,6 @@
     "template-preflight-badge": "Carries its own inline style; the badge look comes from the elements inside it.",
     "diff-patch-view-container": "Carries its own inline style (margin-top).",
     "team-action-btn": "A wrapper around a .btn; the row layout is .team-item-card.",
-    "team-info": "Layout container inside .team-item-card, which owns the row.",
     "teammates-section": "Layout container; spacing comes from the parent stack.",
     "team-selection-flow": "Layout container; spacing comes from the parent stack.",
     "tab-content": "Layout container for a tab body; spacing comes from the parent stack.",
