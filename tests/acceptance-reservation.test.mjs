@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DECIDED_BY_LECTURER,
   DEADLINE_GRACE_MS,
   actedInTime,
   claimConcerns,
@@ -34,6 +35,18 @@ test("a teammate admitted into this team makes the repository at its name ours",
   assert.equal(ask(["fars", "FARS"]), false, "nor in another case");
   assert.equal(ask("ThomasBasyn"), false, "a manifest without a member list proves nothing");
   assert.equal(teammateAlreadyAdmitted({ members: ["ThomasBasyn"], login: "Fars", teamSlug: "", acceptanceOf }), false);
+});
+
+test("a teammate a LECTURER moved in proves nothing about the repository at the name", () => {
+  // Review 2026-10-06: a move rewrites team_slug and asks GitHub nothing, so
+  // last year's grp-<slug> would be handed to the next joiner unprobed.
+  const acceptanceOf = (login) => ({
+    MovedIn: { team_slug: "fullhouse", decided_by_run_id: DECIDED_BY_LECTURER },
+    Admitted: { team_slug: "fullhouse", decided_by_run_id: "18234" },
+  })[login] ?? null;
+  const ask = (members) => teammateAlreadyAdmitted({ members, login: "Fars", teamSlug: "fullhouse", acceptanceOf });
+  assert.equal(ask(["MovedIn", "Fars"]), false, "the move asked GitHub nothing");
+  assert.equal(ask(["MovedIn", "Admitted", "Fars"]), true, "a run's admission still settles it");
 });
 
 test("a decision is made again when another run touched anything it read", () => {
