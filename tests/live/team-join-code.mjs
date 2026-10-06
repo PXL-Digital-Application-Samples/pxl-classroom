@@ -15,8 +15,9 @@
 //         3. B joins alpha with the code: both in, one repository
 //         4. A switches to a new team beta (code 2), then B follows with it:
 //            alpha is vacant, still holding code 1
-//         5. A types "alpha" again with code 3: alpha is made again, holds A
-//            and code 3 - not the code that left
+//         5. alpha keeps its repository and its code: A asking with a fresh
+//            code is refused, A asking with code 1 (what A's page kept) is
+//            back in - same code, same repository
 //         6. the public teams file says which teams need a code and holds none
 //         7. no hub run failed, no code reached a public run log
 //
@@ -295,15 +296,23 @@ async function start() {
   if (alpha?.vacant === true && (alpha?.members || []).length === 0) ok(`alpha is vacant, still holding ${formatJoinCode(code1)} that nobody can give out`);
   else bad(`alpha: ${JSON.stringify(alpha)}`);
 
-  console.log("\n6. A types \"alpha\" again with a new code: it is made again\n");
+  console.log("\n6. alpha is empty but keeps its repository: a new code is refused, the one A kept lets A back in\n");
+  const alphaRepo = alpha?.repo_name;
   since = Date.now() - 10_000;
   const a3 = await attempt({ secret, id, broker, student: A, slug: "alpha", action: "switch", code: code3 });
   const d3 = await decided(broker, a3, since, A.login);
   alpha = await manifest(id, "alpha");
-  if (d3 && !d3.refused && same(members(alpha), logins(A))) ok(`alpha holds ${A.login} again`);
-  else bad(`alpha: ${JSON.stringify(alpha?.members)}, refused ${d3?.refused}`);
-  if (alpha?.join_code === code3) ok(`alpha's code is the new one (${formatJoinCode(code3)}), not the one that left`);
-  else bad(`alpha's code is ${alpha?.join_code}`);
+  if (d3?.refused && (alpha?.members || []).length === 0 && alpha?.join_code === code1) {
+    ok("a fresh code opens nothing: alpha still holds its repository and its own code");
+  } else bad(`alpha with a fresh code: refused ${d3?.refused}, ${JSON.stringify(alpha)}`);
+  since = Date.now() - 10_000;
+  const a4 = await attempt({ secret, id, broker, student: A, slug: "alpha", action: "switch", code: code1 });
+  const d4 = await decided(broker, a4, since, A.login);
+  alpha = await manifest(id, "alpha");
+  if (d4 && !d4.refused && same(members(alpha), logins(A))) ok(`alpha holds ${A.login} again, with the code their page kept`);
+  else bad(`alpha: ${JSON.stringify(alpha?.members)}, refused ${d4?.refused}`);
+  if (alpha?.join_code === code1 && alpha?.repo_name === alphaRepo) ok(`same code (${formatJoinCode(code1)}), same repository (${alphaRepo})`);
+  else bad(`alpha's code is ${alpha?.join_code}, repository ${alpha?.repo_name} (was ${alphaRepo})`);
 
   await publicAndLogs({ secret, broker, since: startedAt, codes: [code1, code2, code3] });
   note(`walk the student page as another account: ${PAGES}${ORG}/i/${secret}`);

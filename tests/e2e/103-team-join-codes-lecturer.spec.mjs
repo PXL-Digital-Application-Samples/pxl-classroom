@@ -80,6 +80,13 @@ test.describe('103 - team join codes, for the lecturer', () => {
     await expect(checkbox(page)).toBeVisible();
   });
 
+  test('not offered where students cannot create a team: it would do nothing (DESIGN.md §1.5)', async ({ page }) => {
+    await openEditor(page, {});
+    await expect(checkbox(page)).toBeVisible();
+    await page.getByLabel('Allow students to create new teams').uncheck();
+    await expect(checkbox(page)).toHaveCount(0);
+  });
+
   test('the Teams tab shows each team\'s code while codes are on, and keeps it through a move', async ({ page }) => {
     const gitCommits = [];
     const stored = (slug, members, more = {}) => ({

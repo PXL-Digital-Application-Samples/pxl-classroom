@@ -840,7 +840,7 @@
               </div>
 
               <div
-                v-if="form.group_config.formation_mode === 'self-service' || form.group_config.unassigned_fallback === 'self-service'"
+                v-if="form.group_config.allow_team_creation !== false && (form.group_config.formation_mode === 'self-service' || form.group_config.unassigned_fallback === 'self-service')"
                 class="field checkbox"
               >
                 <label>

@@ -139,11 +139,14 @@ test("a team needs its code only while codes are asked for, and only if it has o
   const code = sample(1)[0];
   assert.equal(teamNeedsJoinCode(ON, { join_code: code }), true);
   assert.equal(teamNeedsJoinCode(ON, {}), false, "made before the setting, seeded, or the lecturer's: open");
-  assert.equal(teamNeedsJoinCode(ON, { join_code: "" }), false);
   assert.equal(teamNeedsJoinCode({}, { join_code: code }), false, "unticking the setting opens every team");
-  // Fails closed: a code that is there but unreadable locks, it does not open.
-  assert.equal(teamNeedsJoinCode(ON, { join_code: "h4nd-edited!" }), true);
-  assert.equal(teamNeedsJoinCode(ON, { join_code: 12345 }), true);
+  // Fails closed: a code that is THERE but unreadable locks, it does not open -
+  // empty and null included, because absent and empty are different answers.
+  for (const unreadable of ["h4nd-edited!", 12345, "", null]) {
+    assert.equal(teamNeedsJoinCode(ON, { join_code: unreadable }), true, JSON.stringify(unreadable));
+    assert.equal(joinCodeMatches(unreadable, ""), false);
+  }
+  assert.equal(teamNeedsJoinCode(ON, null), false);
 });
 
 // --- the sealed code ---------------------------------------------------------

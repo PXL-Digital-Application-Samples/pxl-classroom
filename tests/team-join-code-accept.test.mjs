@@ -100,10 +100,13 @@ function accept(login, { slug = "alpha", payload = "", assignmentYaml = yaml(), 
   return { status: res.status, outputs, teamFile, log: res.stdout + res.stderr };
 }
 
-const refusedForCode = (r) => {
+const refusedForCode = (r, outcome = "rejected:team-code") => {
   assert.equal(r.status, 0, r.log);
-  assert.equal(r.outputs.outcome, "rejected:team-code", r.log);
+  assert.equal(r.outputs.outcome, outcome, r.log);
 };
+// A team made from a page that gave it no code: a different reason, with its
+// own words for the lecturer.
+const refusedNotMade = (r) => refusedForCode(r, "rejected:team-code-not-made");
 
 // --- creating a team ---------------------------------------------------------
 
@@ -116,7 +119,7 @@ test("creating a team under codes stores the code the creator's page made", asyn
 
 test("creating a team under codes without one is refused, and no team is written", () => {
   const r = accept("ann");
-  refusedForCode(r);
+  refusedNotMade(r);
   assert.equal(r.teamFile("alpha"), null);
 });
 
@@ -131,7 +134,7 @@ test("a creation is refused when the sealed code was made for anyone or anything
     ["junk", "t1.not.a.code"],
   ]) {
     const r = accept("ann", { payload });
-    assert.equal(r.outputs.outcome, "rejected:team-code", `${why}: ${r.log}`);
+    assert.equal(r.outputs.outcome, "rejected:team-code-not-made", `${why}: ${r.log}`);
     assert.equal(r.teamFile("alpha"), null, why);
   }
 });
@@ -248,11 +251,16 @@ test("switching into a team with a code needs that code", async () => {
 
 // --- a team everybody left ---------------------------------------------------
 
+// Nobody in it and NO repository: there is nothing to hand over.
 const vacantAlpha = () => ({ alpha: team("alpha", [], { join_code: OTHER_CODE, vacant: true, created_by: "ann" }) });
+// Nobody in it, and its repository with the former members' work.
+const vacantAlphaWithRepo = (more = {}) => ({
+  alpha: team("alpha", [], { join_code: OTHER_CODE, vacant: true, created_by: "ann", repo_name: "TestOrg/lab-alpha", ...more }),
+});
 
-test("a team everybody left is made again by whoever enters it, with their new code", async () => {
-  // ann made alpha, then switched to bob's team. cem types "alpha" - the page
-  // does not list a vacant team - and must not need a code nobody can give.
+test("a team everybody left that never got a repository is made again by whoever enters it, with their new code", async () => {
+  // ann made alpha and left before it had a repository. cem types "alpha" and
+  // must not need a code nobody can give - there is nothing in it to protect.
   const r = accept("cem", { teams: vacantAlpha(), payload: await sealFor("cem") });
   assert.equal(r.outputs.outcome, "accepted", r.log);
   assert.deepEqual(r.teamFile("alpha").members, ["cem"]);
@@ -263,19 +271,52 @@ test("a team everybody left is made again by whoever enters it, with their new c
   refusedForCode(next);
 });
 
-test("entering a team everybody left needs a fresh code under codes, and drops the old one without", async () => {
-  refusedForCode(accept("cem", { teams: vacantAlpha() }));
+test("entering one with no repository needs a fresh code under codes, and drops the old one without", async () => {
+  refusedNotMade(accept("cem", { teams: vacantAlpha() }));
   const off = accept("cem", { teams: vacantAlpha(), assignmentYaml: yaml({ codes: false }) });
   assert.equal(off.outputs.outcome, "accepted", off.log);
   assert.equal(off.teamFile("alpha").join_code, undefined, "an old code must not come back into force if codes are switched on");
+});
+
+test("a team everybody left that HAS a repository keeps its code: a stranger is refused, a former member gets back in", async () => {
+  // Review, 2026-10-06: entering it hands over the repository with the former
+  // members' work in it (step 7, the manifest names it), so "made again with
+  // a new code" let anyone who typed the name past the code.
+  const stranger = accept("cem", { teams: vacantAlphaWithRepo(), payload: await sealFor("cem") });
+  refusedForCode(stranger);
+  assert.deepEqual(stranger.teamFile("alpha").members, [], "the team is untouched");
+  assert.equal(stranger.teamFile("alpha").join_code, OTHER_CODE);
+
+  const back = accept("ann", { teams: vacantAlphaWithRepo(), payload: await sealFor("ann", { code: OTHER_CODE }) });
+  assert.equal(back.outputs.outcome, "accepted", back.log);
+  assert.deepEqual(back.teamFile("alpha").members, ["ann"]);
+  assert.equal(back.teamFile("alpha").join_code, OTHER_CODE, "the same code, not a new one");
+  assert.equal(back.teamFile("alpha").repo_name, "TestOrg/lab-alpha");
+});
+
+test("a team that never had a code stays open when it empties - the lecturer's, seeded, or from before the setting", async () => {
+  for (const more of [{}, { seeded_from: { source: "roster", seeded_at: "2026-10-01T00:00:00Z" } }]) {
+    const emptied = { alpha: team("alpha", [], { vacant: true, created_by: "lecturer", repo_name: "TestOrg/lab-alpha", ...more }) };
+    const r = accept("cem", { teams: emptied });
+    assert.equal(r.outputs.outcome, "accepted", r.log);
+    assert.equal(r.teamFile("alpha").join_code, undefined, "not given a code by whoever comes in");
+    const noRepo = { alpha: team("alpha", [], { vacant: true, created_by: "lecturer", ...more }) };
+    const r2 = accept("cem", { teams: noRepo });
+    assert.equal(r2.outputs.outcome, "accepted", r2.log);
+    assert.equal(r2.teamFile("alpha").join_code, undefined);
+  }
 });
 
 // --- what the lecturer reads -------------------------------------------------
 
 test("the refusal has words for the lecturer, and no code is ever written to the log or a notice", async () => {
   assert.equal(rejectionReason("rejected:team-code"), "did not have the team's join code");
+  assert.equal(rejectionReason("rejected:team-code-not-made"), "made a team from a page that gave it no join code");
   const r = accept("bob", { teams: alpha(), payload: await sealFor("bob", { code: OTHER_CODE }) });
   refusedForCode(r);
+  assert.match(r.outputs.reject_reason, /carried a different code/, "says what was carried, not that nothing was");
+  const none = accept("bob", { teams: alpha() });
+  assert.match(none.outputs.reject_reason, /carried no code that opens it/);
   for (const code of [CODE, OTHER_CODE]) {
     assert.ok(!r.log.includes(code), "the log is public");
     assert.ok(!(r.outputs.reject_reason || "").includes(code), "the reason reaches a notice");

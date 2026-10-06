@@ -539,6 +539,9 @@ export async function setupStandardMockRoutes(page, {
   assignments = {},
   allOrgAssignments = {},
   teams = {},
+  // The rest of a published teams file, per assignment id: `generated_at` and
+  // `taken`, exactly as pages/generate.mjs writes them.
+  teamsFile = {},
   reports = {},
   // grading/<assignment-id>/summary.json, keyed by assignment id. Scores reach
   // the student table by being joined onto the report from HERE - putting
@@ -884,7 +887,7 @@ export async function setupStandardMockRoutes(page, {
         organization: requestedOrg,
       };
     } else if (isTeams) {
-      body = { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [] };
+      body = { schema_version: 1, assignment_id: asgnId, teams: teams[asgnId] || [], ...(teamsFile[asgnId] || {}) };
     } else {
       // THE SHAPE THE GENERATOR ACTUALLY WRITES, not the raw assignment.
       // `pages/generate.mjs` publishes a card for `closed` as well as

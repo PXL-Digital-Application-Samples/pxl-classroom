@@ -61,7 +61,7 @@ export function teamRows(reportTeams, manifests, { minTeamSize = 0 } = {}) {
       // where a lecturer reads it out to a student who lost it.
       // Whatever is there, readable or not: the hub treats an unreadable one as
       // a lock (lib/team-join-code.mjs), so the tab must not show it as none.
-      ...(doc.join_code != null && doc.join_code !== '' ? { join_code: String(doc.join_code) } : {}),
+      ...(Object.prototype.hasOwnProperty.call(doc, 'join_code') ? { join_code: String(doc.join_code ?? '') } : {}),
       under_capacity: under,
       warnings: under ? [...otherWarnings, 'under-capacity'] : otherWarnings,
     })

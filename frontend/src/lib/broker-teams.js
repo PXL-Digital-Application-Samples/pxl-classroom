@@ -68,13 +68,14 @@ function neverReachedHub(title) {
  * takes them out of the others.
  *
  * RECENT ONLY. An older attempt is already in the published file, which is
- * the record - and may be older than a lecturer's Move, which it would undo
- * on screen. An issue with no date is kept, as before.
+ * the record. An issue with no date is kept, as before. Each row carries its
+ * attempt's time (`at`), so the caller can also let a published placement that
+ * is NEWER than the attempt win (`attemptYields`).
  *
  * @param {Array<{body?: unknown, title?: unknown, user?: {login?: string}, created_at?: string}>} issues
  *   newest first, as GitHub lists them
  * @param {{now?: number, maxAgeMs?: number}} [opts]
- * @returns {Array<{team_slug: string, team_name: string, members: string[]}>}
+ * @returns {Array<{team_slug: string, team_name: string, members: string[], at: number|null}>}
  */
 export function teamsFromBrokerIssues(issues, { now = Date.now(), maxAgeMs = RECENT_ATTEMPT_MS } = {}) {
   const rows = []
@@ -111,9 +112,29 @@ export function teamsFromBrokerIssues(issues, { now = Date.now(), maxAgeMs = REC
       team_slug: slug,
       team_name: name || slug,
       members: member ? [member] : [],
+      at: Number.isFinite(at) ? at : null,
     })
   }
   return rows
+}
+
+/**
+ * Does a published placement outrank this attempt?
+ *
+ * Only when the published file is NEWER than the attempt AND already places
+ * the student somewhere: then it holds a decision made after the attempt - the
+ * attempt's own, or a lecturer's Move that undid it - and putting the attempt
+ * back on screen would show the student where they no longer are (review,
+ * 2026-10-06). A student the file does not place yet is in flight whatever the
+ * times say, and the attempt is all there is: hiding it is the 2026-09-22
+ * outage, where four students each saw an empty list and made four teams.
+ * `generatedAt` and an issue's `created_at` are both servers' clocks.
+ *
+ * @param {{at: number|null}} row from teamsFromBrokerIssues
+ * @param {{generatedAt: number|null, placed: boolean}} published
+ */
+export function attemptYields(row, { generatedAt, placed }) {
+  return placed && Number.isFinite(generatedAt) && Number.isFinite(row?.at) && row.at < generatedAt
 }
 
 /**

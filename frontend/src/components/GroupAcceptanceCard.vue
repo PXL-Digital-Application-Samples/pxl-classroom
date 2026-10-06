@@ -353,6 +353,11 @@
           />
         </div>
 
+        <p v-if="!loadingTeams && teamsListPartial" class="text-sm text-muted teams-partial" data-teams-partial>
+          The full team list could not be loaded, so this one may be incomplete or out of date. Reload the
+          page in a minute.
+        </p>
+
         <div v-if="loadingTeams" class="text-center py-md">
           <div class="spinner"></div>
           <span class="text-muted" style="margin-left: 8px;">Loading teams…</span>
@@ -451,11 +456,17 @@
             </span>
           </div>
 
-          <div v-if="slugConflict" class="alert-warn" role="alert">
+          <div v-if="slugListed" class="alert-warn" role="alert">
             A team with slug "<strong>{{ computedSlug }}</strong>" already exists. Please pick a different name or join that team.
           </div>
+          <div v-else-if="slugTaken" class="alert-warn" role="alert" data-slug-taken>
+            A team called <strong>{{ computedSlug }}</strong> exists. Pick another name.
+          </div>
 
-          <p v-if="codesOn" class="form-hint" data-create-code-hint>
+          <p v-if="takenRejoinCode" class="form-hint" data-rejoin-hint>
+            You were in this team: this takes you back in, with its join code.
+          </p>
+          <p v-else-if="codesOn" class="form-hint" data-create-code-hint>
             Your team gets a join code. Give it to your teammates: they need it to join.
           </p>
 
@@ -486,7 +497,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import Icon from './Icon.vue'
 import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
@@ -506,6 +517,7 @@ import {
 } from '../lib/acceptance-outcome.js'
 import {
   teamsFromBrokerIssues,
+  attemptYields,
   ownAcceptanceIssue,
   RECENT_ATTEMPT_MS as SHARED_RECENT_ATTEMPT_MS,
 } from '../lib/broker-teams.js'
@@ -516,7 +528,8 @@ import { buildAcceptanceBody, hubClaimKey, encryptClaim, encryptTeamCode } from 
 import {
   isWellFormedJoinCode, newJoinCode, normalizeJoinCode, requiresJoinCode,
 } from '../../../lib/team-join-code.mjs'
-import { forgetJoinCode, rememberJoinCode, rememberedJoinCode } from '../lib/team-code-memory.js'
+import { forgetAnyJoinCode, forgetJoinCode, rememberJoinCode, rememberedJoinCode } from '../lib/team-code-memory.js'
+import { parseTeamPayload } from '../../../lib/team-payload.mjs'
 import { claimRequired } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
@@ -633,10 +646,27 @@ const computedSlug = computed(() => {
     .replace(/^-+|-+$/g, '')
 })
 
-const slugConflict = computed(() => {
+const slugListed = computed(() => {
   if (!computedSlug.value) return false
   return teams.value.some((t) => t.team_slug.toLowerCase() === computedSlug.value.toLowerCase())
 })
+
+// A NAME THAT IS TAKEN BY A TEAM NOBODY IS IN. The published file lists a team
+// everybody left that keeps its repository and its code (pages/generate.mjs):
+// the hub opens it only to that code, so it is a former member's way back and
+// nobody else's name to take. A browser that kept its code is that member's.
+const takenTeams = ref([])
+const takenRejoinCode = computed(() => {
+  void codeMemory.value
+  const slug = computedSlug.value.toLowerCase()
+  if (!slug || !takenTeams.value.some((t) => t.team_slug === slug)) return ''
+  return rememberedJoinCode(codeKey(slug))
+})
+const slugTaken = computed(() => {
+  const slug = computedSlug.value.toLowerCase()
+  return !!slug && takenTeams.value.some((t) => t.team_slug === slug) && !takenRejoinCode.value
+})
+const slugConflict = computed(() => slugListed.value || slugTaken.value)
 
 const filteredTeams = computed(() => {
   const q = teamSearchQuery.value.toLowerCase().trim()
@@ -667,6 +697,9 @@ const codeLooksWrong = computed(
 // Bumped whenever this browser's remembered codes change, so what reads them
 // recomputes.
 const codeMemory = ref(0)
+// Whose code, for which team: per GitHub account, so a shared lab computer
+// does not show one student's codes to the next (team-code-memory.js).
+const codeKey = (slug) => ({ org: props.org, assignmentId: props.assignment?.id, slug, login: props.user?.login })
 
 /**
  * The code of the team this page is about, where this browser has it: made
@@ -679,7 +712,7 @@ const myTeamCode = computed(() => {
   if (!slug || !codesOn.value) return ''
   const team = teams.value.find((t) => t.team_slug === slug) || myCurrentTeam.value
   if (team && team.needs_code === false) return ''
-  return rememberedJoinCode(props.org, props.assignment?.id, slug)
+  return rememberedJoinCode(codeKey(slug))
 })
 // A team with a code this browser does not have: said where to get it.
 const myTeamCodeElsewhere = computed(() => {
@@ -764,10 +797,31 @@ function showRejected() {
   // the team was never made with it. Not shown again as if it were.
   const sent = lastJoin.value
   if (sent?.code) {
-    forgetJoinCode(props.org, props.assignment?.id, sent.slug, sent.code)
+    forgetJoinCode(codeKey(sent.slug), sent.code)
+    codeMemory.value++
+  } else if (ownAttempt.value?.team_action === 'create' && ownAttempt.value.team_slug) {
+    // Refused while this page was closed: only the issue says what it was. A
+    // CREATE stored the code it made, and that team was never made with it.
+    // (A join stores nothing until it is admitted, so there is nothing to undo.)
+    forgetAnyJoinCode(codeKey(ownAttempt.value.team_slug))
     codeMemory.value++
   }
 }
+
+/**
+ * A typed code becomes the one this browser keeps only once the hub let the
+ * student in with it; before that it is what they typed, possibly a typo of
+ * another team's real code (review, 2026-10-06).
+ */
+function rememberAdmittedCode() {
+  const sent = lastJoin.value
+  if (!sent?.code || sent.made || sent.slug !== activeTeamSlug.value) return
+  rememberJoinCode(codeKey(sent.slug), sent.code)
+  codeMemory.value++
+}
+watch(acceptState, (state) => {
+  if (state === 'provisioned' || state === 'invited') rememberAdmittedCode()
+})
 
 /**
  * Once a join lands, the page's team IS the one joined, whatever the lagging
@@ -833,6 +887,10 @@ const progressStepList = computed(() => progressSteps(progress.value.step))
 const progressText = computed(() => progressMessage(progress.value.step))
 // What the last join asked for, so "send it again" sends the same thing.
 const lastJoin = ref(null)
+// The student's own newest attempt as the broker holds it (loadTeams).
+const ownAttempt = ref(null)
+// The published team list could not be read, so the list is partial.
+const teamsListPartial = ref(false)
 
 async function readAttemptProgress() {
   const sentAt = Date.parse(acceptanceIssueCreatedAt.value || '')
@@ -887,6 +945,9 @@ async function loadTeams() {
   // the lecturer raised the size - the same number accept.mjs now admits on.
   const maxTeamCap = maxTeamSize.value
   const teamsMap = new Map() // slug -> teamObject
+  // Who the published file places, and when it was made (attemptYields).
+  const publishedPlaced = new Set()
+  let publishedAt = NaN
 
   // Helper to upsert team
   // `needsCode` is what the published file says; a team known only from the
@@ -915,18 +976,30 @@ async function loadTeams() {
   }
 
   // 1. Try fetching from Pages CDN static data
+  let fileRead = false
   try {
     const url = `${await inviteTeamsUrl(props.org, props.inviteToken)}?_t=${Date.now()}`
     const res = await fetch(url)
     if (res.ok) {
+      fileRead = true
       const data = await res.json()
       for (const t of (data.teams || [])) {
         upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from, t.needs_code === true)
+        for (const m of t.members || []) publishedPlaced.add(String(m).toLowerCase())
       }
+      publishedAt = Date.parse(data.generated_at || '')
+      takenTeams.value = (data.taken || [])
+        .map((t) => ({ team_slug: String(t?.team_slug || '').toLowerCase(), team_name: t?.team_name || t?.team_slug }))
+        .filter((t) => t.team_slug)
     }
   } catch (e) {
+    fileRead = false
     console.warn('Could not load static teams file:', e.message)
   }
+  // Said, not left to a guess (DESIGN.md §1.5): without the published file the
+  // list is only the last minutes' requests, and whether a team there needs a
+  // code is assumed from the setting.
+  teamsListPartial.value = !fileRead
 
   // There used to be a second source here: `public/teams/<id>.json` in the
   // control repo. It was removed on 2026-09-22 because it could not answer.
@@ -981,6 +1054,9 @@ async function loadTeams() {
     if (mine) {
       acceptanceIssue.value = mine.number
       acceptanceIssueCreatedAt.value = mine.created_at || null
+      // What it asked for, read the way the hub reads it - for a refusal seen
+      // after a reload, when this page no longer remembers what it sent.
+      ownAttempt.value = parseTeamPayload({ body: mine.body, title: mine.title })
     }
 
     {
@@ -991,6 +1067,10 @@ async function loadTeams() {
       // frontend/src/lib/broker-teams.js carries the whole story, and holds the
       // logic somewhere a test can call it.
       for (const row of teamsFromBrokerIssues(issues)) {
+        // A published placement made after this attempt wins - a lecturer's
+        // Move among them (attemptYields).
+        const placed = row.members.some((m) => publishedPlaced.has(String(m).toLowerCase()))
+        if (attemptYields(row, { generatedAt: publishedAt, placed })) continue
         // Their newest attempt is where they are going: out of every other
         // team, the published one included, which trails it.
         for (const [slug, team] of teamsMap) {
@@ -1155,9 +1235,11 @@ async function submitCreateTeam() {
   if (!computedSlug.value || slugConflict.value) return
   targetTeamName.value = newTeamName.value
   // Made here, so the creator can be shown it at once: nothing a student can
-  // read holds it anywhere else (lib/team-join-code.mjs).
-  const code = codesOn.value ? newJoinCode() : ''
-  await executeTeamAcceptance(computedSlug.value, newTeamName.value, isSwitching.value ? 'switch' : 'create', code, { made: true })
+  // read holds it anywhere else (lib/team-join-code.mjs). A former member
+  // going back to a team nobody is in sends the code it kept instead.
+  const rejoin = takenRejoinCode.value
+  const code = rejoin || (codesOn.value ? newJoinCode() : '')
+  await executeTeamAcceptance(computedSlug.value, newTeamName.value, isSwitching.value ? 'switch' : 'create', code, { made: !rejoin })
 }
 
 /** `made`: the code was made here for a new team, not typed to join one. */
@@ -1241,8 +1323,11 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = 
     acceptanceIssueCreatedAt.value = issueRes.data?.created_at ?? new Date().toISOString()
     targetTeamSlug.value = teamSlug
     lastJoin.value = { slug: teamSlug, name: teamName, action: teamAction, code: joinCode, made }
-    if (joinCode) {
-      rememberJoinCode(props.org, props.assignment.id, teamSlug, joinCode)
+    // A code made here is the team's from the moment it is sent - the creator
+    // needs it on screen while they wait. A TYPED one is only a guess at the
+    // team's until the hub admits it (rememberAdmittedCode).
+    if (joinCode && made) {
+      rememberJoinCode(codeKey(teamSlug), joinCode)
       codeMemory.value++
     }
     closeCodeField()
@@ -1486,6 +1571,10 @@ function copyRepoUrl() {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.teams-partial {
+  margin: 0 0 var(--space-sm);
 }
 
 .team-needs-code {

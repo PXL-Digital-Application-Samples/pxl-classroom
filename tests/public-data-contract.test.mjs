@@ -363,17 +363,27 @@ test("a team's join code is never published - only whether joining needs one", (
     });
     writeFileSync(join(dir, "teams", "test-valid", "coded.json"), manifest("coded", { join_code: "K7P4QX" }));
     writeFileSync(join(dir, "teams", "test-valid", "open.json"), manifest("open", {}));
+    // Everybody left these. Only the one that keeps a repository AND a code
+    // is a name nobody new may take.
+    const left = (slug, more) => manifest(slug, { members: [], vacant: true, ...more });
+    writeFileSync(join(dir, "teams", "test-valid", "kept.json"), left("kept", { join_code: "M2X9RT", repo_name: "o/kept" }));
+    writeFileSync(join(dir, "teams", "test-valid", "norepo.json"), left("norepo", { join_code: "M2X9RT" }));
+    writeFileSync(join(dir, "teams", "test-valid", "nocode.json"), left("nocode", { repo_name: "o/nocode" }));
     const outDir = join(dir, "public");
     const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
     assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
     const text = readFileSync(join(outDir, "i", `${inviteFileFor(token)}.teams.json`), "utf8");
-    assert.ok(!text.includes("K7P4QX"), "the code itself is nowhere in the public file");
+    for (const code of ["K7P4QX", "M2X9RT"]) assert.ok(!text.includes(code), "the code itself is nowhere in the public file");
     assert.ok(!text.includes("join_code"));
-    return JSON.parse(text).teams;
+    return JSON.parse(text);
   };
   const on = run(true);
-  assert.equal(on.find((t) => t.team_slug === "coded").needs_code, true);
-  assert.equal(on.find((t) => t.team_slug === "open").needs_code, undefined, "a team without a code is open");
+  assert.equal(on.teams.find((t) => t.team_slug === "coded").needs_code, true);
+  assert.equal(on.teams.find((t) => t.team_slug === "open").needs_code, undefined, "a team without a code is open");
+  assert.ok(Number.isFinite(Date.parse(on.generated_at)), "says when it was made, so the page can tell an older request from a newer one");
+  assert.deepEqual(on.taken, [{ team_slug: "kept", team_name: "kept" }], "names only, and only the empty team that keeps a repository and a code");
+  assert.ok(!JSON.stringify(on.taken).includes("members"));
   const off = run(false);
-  assert.equal(off.find((t) => t.team_slug === "coded").needs_code, undefined, "with codes off, no team needs one");
+  assert.equal(off.teams.find((t) => t.team_slug === "coded").needs_code, undefined, "with codes off, no team needs one");
+  assert.equal(off.taken, undefined, "and no name is held back");
 });

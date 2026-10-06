@@ -39,7 +39,10 @@ const published = (slug, members, more = {}) => ({
   max_members: 3, is_full: members.length >= 3, ...more,
 });
 
-async function open(page, { user = STUDENT_2, groupConfig = {}, teams = [], userRepos = [], labels = [], storedCodes = null } = {}) {
+/** Where team-code-memory.js keeps a code: per account, org, assignment and team. */
+const storedKey = (user, slug) => `${user.login.toLowerCase()}/${ORG.toLowerCase()}/${ID}/${slug}`;
+
+async function open(page, { user = STUDENT_2, groupConfig = {}, teams = [], teamsFile = {}, userRepos = [], labels = [], storedCodes = null } = {}) {
   const bodies = [];
   if (storedCodes) {
     await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [JOIN_CODES_KEY, JSON.stringify(storedCodes)]);
@@ -49,6 +52,7 @@ async function open(page, { user = STUDENT_2, groupConfig = {}, teams = [], user
     currentUser: user,
     assignments: { [ID]: assignment(groupConfig) },
     teams: { [ID]: teams },
+    teamsFile: { [ID]: teamsFile },
     userRepos,
     brokerIssueLabels: labels,
     acceptanceBodies: bodies,
@@ -122,6 +126,12 @@ test.describe('102 - team join codes', () => {
     const { team, code } = await openBody(bodies[0], STUDENT_2);
     expect(team).toMatchObject({ team_slug: 'alpha', team_action: 'join' });
     expect(code).toBe(CODE);
+
+    // A typed code is a guess until the hub lets them in: not kept, and not
+    // shown back as "the team's code" while it waits.
+    await expect(page.locator('.pending-state')).toBeVisible();
+    await expect(page.locator('[data-join-code-panel]')).toHaveCount(0);
+    expect(await page.evaluate((key) => localStorage.getItem(key), JOIN_CODES_KEY) || '').not.toContain(CODE);
   });
 
   test('the code field closes with Escape or Cancel and sends nothing', async ({ page }) => {
@@ -202,7 +212,7 @@ test.describe('102 - team join codes', () => {
       user: STUDENT_1,
       teams: [published('alpha', [STUDENT_1.login, STUDENT_2.login], { needs_code: true })],
       userRepos: [repo],
-      storedCodes: { [`${ORG.toLowerCase()}/${ID}/alpha`]: CODE },
+      storedCodes: { [storedKey(STUDENT_1, 'alpha')]: CODE },
     });
     const panel = page.locator('.provisioned-state [data-join-code-panel]');
     await expect(panel.locator('[data-join-code]')).toHaveText(formatJoinCode(CODE), { timeout: 15000 });
@@ -218,7 +228,9 @@ test.describe('102 - team join codes', () => {
       userRepos: [repo],
     });
     await expect(page.locator('.provisioned-state [data-join-code-elsewhere]')).toHaveText(
-      'New teammates need this team\'s join code. Ask whoever made the team, or your lecturer.',
+      // True for every member - the creator on another computer included,
+      // whom "ask whoever made the team" sent to ask themselves.
+      'New teammates need this team\'s join code. Your lecturer can see it.',
       { timeout: 15000 },
     );
     await expect(page.locator('[data-join-code-panel]')).toHaveCount(0);
@@ -228,5 +240,49 @@ test.describe('102 - team join codes', () => {
     await open(page, { teams: [published('alpha', [STUDENT_1.login], { needs_code: true })] });
     await card(page, 'Alpha').getByRole('button', { name: 'Join Team' }).click();
     await expect(page.locator('.btn-primary:visible')).toHaveCount(0);
+  });
+
+  test('the name of a team everybody left, which keeps its repository, is taken - unless this browser was in it', async ({ page }) => {
+    // Review, 2026-10-06: entering that team hands over its repository with
+    // the former members' work in it, so the hub opens it only to its code.
+    const taken = { generated_at: new Date().toISOString(), taken: [{ team_slug: 'alpha', team_name: 'Alpha' }] };
+    await open(page, { user: STUDENT_1, teamsFile: taken });
+    await page.locator('.tab-pill', { hasText: '+ Create New Team' }).click();
+    await page.locator('#new-team-name').fill('Alpha');
+    await expect(page.locator('[data-slug-taken]')).toHaveText('A team called alpha exists. Pick another name.');
+    await expect(page.getByRole('button', { name: 'Create & Join Team' })).toBeDisabled();
+  });
+
+  test('a former member whose browser kept the code goes back in by its name, with that code', async ({ page }) => {
+    const taken = { generated_at: new Date().toISOString(), taken: [{ team_slug: 'alpha', team_name: 'Alpha' }] };
+    const bodies = await open(page, { user: STUDENT_1, teamsFile: taken, storedCodes: { [storedKey(STUDENT_1, 'alpha')]: CODE } });
+    await page.locator('.tab-pill', { hasText: '+ Create New Team' }).click();
+    await page.locator('#new-team-name').fill('Alpha');
+    await expect(page.locator('[data-slug-taken]')).toHaveCount(0);
+    await expect(page.locator('[data-rejoin-hint]')).toHaveText('You were in this team: this takes you back in, with its join code.');
+    await page.getByRole('button', { name: 'Create & Join Team' }).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    const { code } = await openBody(bodies[0], STUDENT_1);
+    expect(code, 'the code it kept, not a new one').toBe(CODE);
+  });
+
+  test('a code kept by one account is not shown to the next one on the same computer', async ({ page }) => {
+    const repo = { name: `${ID}-alpha`, full_name: `${ORG}/${ID}-alpha`, owner: { login: ORG }, html_url: `https://github.com/${ORG}/${ID}-alpha` };
+    await open(page, {
+      user: STUDENT_2,
+      teams: [published('alpha', [STUDENT_1.login, STUDENT_2.login], { needs_code: true })],
+      userRepos: [repo],
+      storedCodes: { [storedKey(STUDENT_1, 'alpha')]: CODE },
+    });
+    await expect(page.locator('.provisioned-state [data-join-code-elsewhere]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-join-code]')).toHaveCount(0);
+  });
+
+  test('a team list it could not read in full says so, rather than presenting a guess as the list', async ({ page }) => {
+    await injectAuth(page, STUDENT_2);
+    await setupStandardMockRoutes(page, { currentUser: STUDENT_2, assignments: { [ID]: assignment() }, teams: { [ID]: [] } });
+    await page.route('**/data/**/i/*.teams.json*', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+    await page.goto(inviteUrl(ORG, ID));
+    await expect(page.locator('[data-teams-partial]')).toContainText('could not be loaded', { timeout: 15000 });
   });
 });

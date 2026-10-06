@@ -20,7 +20,7 @@
     </div>
   </div>
   <p v-else-if="elsewhere" class="join-code-elsewhere text-sm text-muted" data-join-code-elsewhere>
-    New teammates need this team's join code. Ask whoever made the team, or your lecturer.
+    New teammates need this team's join code. Your lecturer can see it.
   </p>
 </template>
 

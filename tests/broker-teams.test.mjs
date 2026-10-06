@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 
 import {
   teamsFromBrokerIssues,
+  attemptYields,
   ownAcceptanceIssue,
   recentAttempt,
   RECENT_ATTEMPT_MS,
@@ -78,7 +79,7 @@ test("a team is still found once the broker has redacted the title", () => {
     ]);
     assert.deepEqual(
       rows,
-      neverReachedHub.has(title) ? [] : [{ team_slug: "rojaro", team_name: "Rojaro", members: ["RobPolusPXL"] }],
+      neverReachedHub.has(title) ? [] : [{ team_slug: "rojaro", team_name: "Rojaro", members: ["RobPolusPXL"], at: null }],
       `redacted title ${JSON.stringify(title)}`,
     );
   }
@@ -93,7 +94,7 @@ test("a team is found before redaction too, from the title the SPA opens", () =>
     },
   ]);
   assert.deepEqual(rows, [
-    { team_slug: "felmiroen", team_name: "Felmiroen", members: ["MietWelkenhuyzenPXL"] },
+    { team_slug: "felmiroen", team_name: "Felmiroen", members: ["MietWelkenhuyzenPXL"], at: null },
   ]);
 });
 
@@ -263,8 +264,8 @@ test("a student who changed their mind is in the team of their newest attempt, a
     attempt(1, "ann", "alpha", 9),
   ];
   assert.deepEqual(teamsFromBrokerIssues(issues, { now }), [
-    { team_slug: "alpha", team_name: "alpha", members: ["ann"] },
-    { team_slug: "beta", team_name: "beta", members: ["bob"] },
+    { team_slug: "alpha", team_name: "alpha", members: ["ann"], at: Date.parse(at(1)) },
+    { team_slug: "beta", team_name: "beta", members: ["bob"], at: Date.parse(at(2)) },
   ]);
   // A newest attempt that was refused moved nobody: the one before it stands.
   const refusedLast = [attempt(9, "bob", "gamma", 0, [{ name: REJECTED_LABEL }]), ...issues];
@@ -290,4 +291,27 @@ test("an attempt older than the in-flight window is left to the published file",
   // No date at all: kept, as before.
   const undated = { ...old, created_at: undefined };
   assert.equal(teamsFromBrokerIssues([undated], { now }).length, 1);
+});
+
+test("a published placement newer than the attempt wins - but only for a student it places", () => {
+  // Review, 2026-10-06: ann asked for alpha; within the window the lecturer
+  // moved her to beta. The file says beta and is newer than her request, which
+  // must not put her back in alpha on her own page.
+  const at = Date.parse("2026-10-06T14:00:00Z");
+  const row = { team_slug: "alpha", members: ["ann"], at };
+  assert.equal(attemptYields(row, { generatedAt: at + 60_000, placed: true }), true, "the Move wins");
+  // A student the file does not place yet is in flight whatever the times say:
+  // hiding them is the 2026-09-22 outage, four students and four teams.
+  assert.equal(attemptYields(row, { generatedAt: at + 60_000, placed: false }), false);
+  // An attempt newer than the file is newer than anything in it.
+  assert.equal(attemptYields(row, { generatedAt: at - 60_000, placed: true }), false);
+  // Unknown is not newer.
+  assert.equal(attemptYields(row, { generatedAt: NaN, placed: true }), false);
+  assert.equal(attemptYields({ ...row, at: null }, { generatedAt: at + 60_000, placed: true }), false);
+  // And the rows carry the time it is judged by.
+  const issue = {
+    number: 3, title: "Acceptance (processed)", user: { login: "ann" }, created_at: new Date(at).toISOString(),
+    body: JSON.stringify({ team_slug: "alpha", team_action: "join" }),
+  };
+  assert.equal(teamsFromBrokerIssues([issue], { now: at + 1000 })[0].at, at);
 });

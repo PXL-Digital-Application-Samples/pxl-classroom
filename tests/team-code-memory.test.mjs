@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   JOIN_CODES_KEY,
+  forgetAnyJoinCode,
   forgetJoinCode,
   rememberJoinCode,
   rememberedJoinCode,
@@ -23,50 +24,71 @@ const blocked = {
   getItem() { throw new Error("SecurityError"); },
   setItem() { throw new Error("QuotaExceededError"); },
 };
+const key = (over = {}) => ({ org: "o", assignmentId: "lab", slug: "alpha", login: "ann", ...over });
 
-test("a code is kept per organization, assignment and team, in any spelling of them", () => {
+test("a code is kept per account, organization, assignment and team, in any spelling of them", () => {
   const s = memoryStorage();
   const code = newJoinCode();
-  rememberJoinCode("PXL-Org", "lab", "Alpha", formatJoinCode(code).toLowerCase(), s);
-  assert.equal(rememberedJoinCode("pxl-org", "lab", "alpha", s), code);
-  assert.equal(rememberedJoinCode("pxl-org", "lab", "beta", s), "");
-  assert.equal(rememberedJoinCode("pxl-org", "lab-2", "alpha", s), "");
-  assert.equal(rememberedJoinCode("other-org", "lab", "alpha", s), "");
+  rememberJoinCode(key({ org: "PXL-Org", slug: "Alpha", login: "Ann" }), formatJoinCode(code).toLowerCase(), s);
+  assert.equal(rememberedJoinCode(key({ org: "pxl-org", login: "ann" }), s), code);
+  assert.equal(rememberedJoinCode(key({ org: "pxl-org", slug: "beta" }), s), "");
+  assert.equal(rememberedJoinCode(key({ org: "pxl-org", assignmentId: "lab-2" }), s), "");
+  assert.equal(rememberedJoinCode(key({ org: "other-org" }), s), "");
+});
+
+test("a shared computer does not show one student's codes to the next", () => {
+  const s = memoryStorage();
+  rememberJoinCode(key({ login: "ann" }), newJoinCode(), s);
+  assert.equal(rememberedJoinCode(key({ login: "bob" }), s), "");
+  // And nothing is kept for nobody.
+  rememberJoinCode(key({ login: "" }), newJoinCode(), s);
+  assert.equal(rememberedJoinCode(key({ login: "" }), s), "");
 });
 
 test("forgetting removes only the code that was refused, never one a later attempt stored", () => {
   const s = memoryStorage();
   const [refused, later] = [newJoinCode(), newJoinCode()];
-  rememberJoinCode("o", "lab", "alpha", refused, s);
-  rememberJoinCode("o", "lab", "alpha", later, s);
-  forgetJoinCode("o", "lab", "alpha", refused, s);
-  assert.equal(rememberedJoinCode("o", "lab", "alpha", s), later);
-  forgetJoinCode("o", "lab", "alpha", later, s);
-  assert.equal(rememberedJoinCode("o", "lab", "alpha", s), "");
+  rememberJoinCode(key(), refused, s);
+  rememberJoinCode(key(), later, s);
+  forgetJoinCode(key(), refused, s);
+  assert.equal(rememberedJoinCode(key(), s), later);
+  forgetJoinCode(key(), later, s);
+  assert.equal(rememberedJoinCode(key(), s), "");
+});
+
+test("a team this browser tried to make, refused while the page was closed, is forgotten whatever its code", () => {
+  const s = memoryStorage();
+  rememberJoinCode(key({ slug: "gamma" }), newJoinCode(), s);
+  rememberJoinCode(key({ slug: "delta" }), newJoinCode(), s);
+  forgetAnyJoinCode(key({ slug: "gamma" }), s);
+  assert.equal(rememberedJoinCode(key({ slug: "gamma" }), s), "");
+  assert.notEqual(rememberedJoinCode(key({ slug: "delta" }), s), "", "only that team");
 });
 
 test("a browser that refuses storage still shows the creator the code they just made", () => {
   const code = newJoinCode();
-  assert.doesNotThrow(() => rememberJoinCode("o", "blocked-lab", "alpha", code, blocked));
-  assert.equal(rememberedJoinCode("o", "blocked-lab", "alpha", blocked), code, "kept for this page");
-  forgetJoinCode("o", "blocked-lab", "alpha", code, blocked);
-  assert.equal(rememberedJoinCode("o", "blocked-lab", "alpha", blocked), "");
-  assert.doesNotThrow(() => rememberedJoinCode("o", "blocked-lab", "alpha", null));
+  const k = key({ assignmentId: "blocked-lab" });
+  assert.doesNotThrow(() => rememberJoinCode(k, code, blocked));
+  assert.equal(rememberedJoinCode(k, blocked), code, "kept for this page");
+  forgetJoinCode(k, code, blocked);
+  assert.equal(rememberedJoinCode(k, blocked), "");
+  assert.doesNotThrow(() => rememberedJoinCode(k, null));
 });
 
 test("junk in storage is read as nothing, never as a code", () => {
   const s = memoryStorage();
+  const k = key({ assignmentId: "junk-lab" });
   s.setItem(JOIN_CODES_KEY, "{not json");
-  assert.equal(rememberedJoinCode("o", "junk-lab", "alpha", s), "");
-  s.setItem(JOIN_CODES_KEY, JSON.stringify({ "o/junk-lab/alpha": "<script>" }));
-  assert.equal(rememberedJoinCode("o", "junk-lab", "alpha", s), "");
+  assert.equal(rememberedJoinCode(k, s), "");
+  s.setItem(JOIN_CODES_KEY, JSON.stringify({ "ann/o/junk-lab/alpha": "<script>" }));
+  assert.equal(rememberedJoinCode(k, s), "");
   s.setItem(JOIN_CODES_KEY, "[1,2]");
-  assert.equal(rememberedJoinCode("o", "junk-lab", "alpha", s), "");
+  assert.equal(rememberedJoinCode(k, s), "");
 });
 
 test("nothing that is not a code is remembered", () => {
   const s = memoryStorage();
-  rememberJoinCode("o", "lab", "gamma", "not-a-code", s);
-  rememberJoinCode("o", "lab", "", newJoinCode(), s);
+  rememberJoinCode(key({ slug: "gamma" }), "not-a-code", s);
+  rememberJoinCode(key({ slug: "" }), newJoinCode(), s);
   assert.equal(s.raw.size, 0);
 });

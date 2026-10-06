@@ -1257,26 +1257,33 @@ async function main() {
         await fail("fail:team-manifest", `teams/${assignmentId}/${teamSlug}.json has no members array`);
       }
       if (!teamData.members.some((m) => String(m).toLowerCase() === login.toLowerCase())) {
-        // EVERYBODY LEFT: whoever enters makes the team again. Its old code is
-        // one nobody can give out any more - the students who held it are in
-        // other teams - and the page does not list a vacant team, so a student
-        // typing its name is CREATING one and sends a fresh code. Under codes
-        // that code becomes the team's; without them the old one is dropped,
-        // so it cannot come back into force if codes are switched on later.
-        // A lecturer's empty team is not vacant (nobody left it) and stays as
-        // it was made.
-        const remade = teamData.vacant === true && teamData.members.length === 0;
-        if (remade && requiresJoinCode(assignment.group_config)) {
+        // A TEAM EVERYBODY LEFT IS STILL ITS REPOSITORY. Joining it is joining
+        // that repository - the manifest names it, so step 7 hands it over with
+        // the former members' work in it - so it keeps its code: a former member
+        // gets back in with the code their browser kept (or the lecturer moves
+        // them), and anyone else is refused and picks another name (the page
+        // lists the name as taken, pages/generate.mjs). Only a team that never
+        // got a repository has nothing to hand over, and is made again by
+        // whoever enters: with their fresh code under codes, with none
+        // without, so a code nobody holds cannot come back into force later.
+        // A team that never had a code - the lecturer's, seeded, from before
+        // the setting - stays open whatever happened to it.
+        const madeAgain =
+          teamData.vacant === true &&
+          teamData.members.length === 0 &&
+          !teamData.repo_name &&
+          Object.prototype.hasOwnProperty.call(teamData, "join_code");
+        if (madeAgain && requiresJoinCode(assignment.group_config)) {
           const fresh = await sealedTeamCode({ teamSlug, assignmentId, githubId: Number(githubId) });
           if (!fresh || !isWellFormedJoinCode(fresh)) {
             await reject(
-              "rejected:team-code",
-              `team "${teamSlug}" is empty and is made again by whoever enters it, with a new join code - and the acceptance did not carry one. Reload the invitation page and create the team again.`
+              "rejected:team-code-not-made",
+              `team "${teamSlug}" is empty, has no repository, and is made again by whoever enters it with a new join code - this acceptance carried none. Reload the invitation page and create the team again.`
             );
           }
           teamData.join_code = fresh;
-          log("team-code", { ok: true, note: `${teamSlug} was vacant - made again with a new join code` });
-        } else if (remade) {
+          log("team-code", { ok: true, note: `${teamSlug} had nobody and no repository - made again with a new join code` });
+        } else if (madeAgain) {
           delete teamData.join_code;
         } else if (teamNeedsJoinCode(assignment.group_config, teamData)) {
           // A team a student made under require_join_code is joined with its
@@ -1287,7 +1294,7 @@ async function main() {
           if (!offered || !joinCodeMatches(teamData.join_code, offered)) {
             await reject(
               "rejected:team-code",
-              `team "${teamSlug}" needs its join code, and the acceptance did not carry it. Someone in the team has the code; the lecturer can see it on the Teams tab.`
+              `team "${teamSlug}" needs its join code, and the acceptance ${offered ? "carried a different code" : "carried no code that opens it"}. Someone in the team has the code; the lecturer can see it on the Teams tab.`
             );
           }
           log("team-code", { ok: true, note: `joined ${teamSlug} with its code` });
@@ -1332,7 +1339,7 @@ async function main() {
         joinCode = await sealedTeamCode({ teamSlug, assignmentId, githubId: Number(githubId) });
         if (!joinCode || !isWellFormedJoinCode(joinCode)) {
           await reject(
-            "rejected:team-code",
+            "rejected:team-code-not-made",
             "this assignment gives every new team a join code, and the acceptance did not carry one. Reload the invitation page and create the team again."
           );
         }

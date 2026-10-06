@@ -189,4 +189,30 @@ test.describe('79 - the team list during the regeneration lag', () => {
     await expect(beta).toContainText('@carol');
     await expect(beta).toContainText('1/3 members');
   });
+
+  test('a lecturer\'s Move made after the student\'s own request wins on screen', async ({ page }) => {
+    // Review, 2026-10-06: carol asked for beta; the lecturer then moved her to
+    // alpha. The published file is newer than her request and places her, so
+    // her request must not put her back in beta.
+    const asked = new Date(Date.now() - 4 * 60_000).toISOString();
+    await injectAuth(page, STUDENT_2);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_2,
+      assignments: ASSIGNMENT,
+      teams: {
+        [ID]: [
+          { team_slug: 'alpha', team_name: 'Alpha', members: [STUDENT_1.login, 'carol'], member_count: 2, max_members: 3, is_full: false },
+          { team_slug: 'beta', team_name: 'Beta', members: ['dave'], member_count: 1, max_members: 3, is_full: false },
+        ],
+      },
+      teamsFile: { [ID]: { generated_at: new Date(Date.now() - 60_000).toISOString() } },
+      brokerIssues: [
+        { ...handledAcceptance({ number: 3, login: 'carol', slug: 'beta', name: 'Beta' }), created_at: asked },
+      ],
+    });
+    await page.goto(inviteUrl(ORG, ID));
+    const alpha = page.locator('.team-item-card', { hasText: 'Alpha' });
+    await expect(alpha).toContainText('@carol', { timeout: 10000 });
+    await expect(page.locator('.team-item-card', { hasText: 'Beta' })).not.toContainText('@carol');
+  });
 });

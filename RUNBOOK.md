@@ -152,7 +152,7 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 - **Teams you make or seed have no code** and anyone can join them, as before. So do teams students made before you ticked the box.
 - **Unticking the box** opens every team at once; ticking it again closes the teams that have a code.
 - **A typo** is caught on the student's page before anything is sent. A refusal there means a real code that was not this team's, and shows as *did not have the team's join code* in your notices.
-- **A team everybody left** disappears from the students' list. Whoever creates a team with that name again makes it new, with a new code.
+- **A team everybody left** disappears from the students' list but keeps its repository and its code: a former member gets back in by typing its name again (their browser kept the code), anyone else is told the name exists and picks another. To give it to someone new, **Move to…** them in.
 
 ### 1.4 Publish
 

@@ -341,12 +341,21 @@ async function main() {
       const publicTeamsDir = join(outputDir, "i");
       await mkdir(publicTeamsDir, { recursive: true });
       const publicTeams = [];
+      // Names a student cannot take: a team everybody left that still has its
+      // repository and its code, which accept.mjs opens only to that code
+      // (lib/team-join-code.mjs). Without this the page offers the name, and
+      // the student is refused with no reason. Name and slug only - nobody is
+      // in it, and who was is not this file's business.
+      const takenNames = [];
 
       if (existsSync(teamsDir)) {
         const teamFiles = (await readdir(teamsDir)).filter((f) => f.endsWith(".json"));
         for (const tf of teamFiles) {
           try {
             const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
+            if (tdata.vacant && tdata.repo_name && teamNeedsJoinCode(def.group_config, tdata)) {
+              takenNames.push({ team_slug: tdata.team_slug, team_name: tdata.team_name });
+            }
             if (!tdata.vacant) {
               // The assignment's maximum as it is NOW. A manifest's
               // `max_members` is a snapshot from when the team was created, so
@@ -390,7 +399,20 @@ async function main() {
       }
       await writeFile(
         join(publicTeamsDir, `${inviteFile}.teams.json`),
-        JSON.stringify({ schema_version: 1, assignment_id: def.id, teams: publicTeams }, null, 2) + "\n"
+        // `generated_at`: the page reads the broker's issues to cover the
+        // minutes before this file catches up, and an attempt OLDER than this
+        // file is already in it - or was undone since, by a lecturer's Move.
+        JSON.stringify(
+          {
+            schema_version: 1,
+            assignment_id: def.id,
+            generated_at: new Date().toISOString(),
+            teams: publicTeams,
+            ...(takenNames.length ? { taken: takenNames } : {}),
+          },
+          null,
+          2,
+        ) + "\n"
       );
       expectedInviteFiles.add(`${inviteFile}.teams.json`);
     }
