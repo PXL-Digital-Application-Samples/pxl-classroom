@@ -222,6 +222,16 @@ When the check does report a genuine excess, fix it in **one** of two ways, both
 
 ---
 
+### 3.3 "Student pages of `<org>` are not being updated"
+
+Posted on the hub's alert issue (with the watchdog's alerts) when a Pages deploy could not read that organization. Its student pages are kept exactly as they were last published, and every other organization's are updated, so nothing is broken for anyone yet - but new assignments, changed deadlines and new teams in that organization do not reach its students.
+
+1. The alert says why. A 403, or "answered not found, although it had student pages", is almost always the App's repository access: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Repository access** must include `pxl-classroom-control` (**All repositories** is simplest).
+2. A 5xx is GitHub. Check `https://www.githubstatus.com`; the next deploy reads the organization again by itself.
+3. Once fixed, the next deploy (any publish or acceptance, or the watchdog within half an hour) updates its pages; or run **Deploy frontend to Pages** by hand.
+
+The alert repeats at most once a day per organization. If the deploy cannot keep the organization's pages either - no deploy in the last day to keep them from - the deploy fails as it always did, and the previous site stays live.
+
 ## 4. Removing an organization
 
 1. Edit `participating-orgs.yml` on the `participating-orgs` branch - remove the org's entry, commit.

@@ -36,9 +36,15 @@ function cardDigest(n) {
 }
 
 /** @returns {{ log: string[], outDir: string, stdout: string }} */
-function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignmentsFailTimes = 0, allowFailure = false } = {}) {
+function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignmentsFailTimes = 0, treeStatus = 200, previous = null, allowFailure = false } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "pxl-pages-"));
   mkdirSync(join(cwd, "frontend", "public", "data"), { recursive: true });
+  // What the previous deployment published, as the deploy unpacks it.
+  const previousData = join(cwd, "prev", "data");
+  for (const [path, content] of Object.entries(previous || {})) {
+    mkdirSync(dirname(join(previousData, path)), { recursive: true });
+    writeFileSync(join(previousData, path), content);
+  }
   writeFileSync(join(cwd, "participating-orgs.yml"), `orgs:\n  - login: ${ORG}\n`);
 
   const tree = [];
@@ -68,7 +74,7 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
           ? { content: b64(JSON.stringify({ schema_version: 1, assignments: {} })) }
           : { message: "Server Error" },
     },
-    { match: "git/trees/HEAD", body: { tree, truncated } },
+    { match: "git/trees/HEAD", status: treeStatus, body: treeStatus === 200 ? { tree, truncated } : { message: "Server Error" } },
     ...blobRoutes,
     { match: "contents/public/teams", status: 404, body: { message: "Not Found" } },
   ];
@@ -88,6 +94,8 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
       FETCH_STUB_LOG: logFile,
       PXL_APP_CLIENT_ID: "Iv1.stub",
       PXL_APP_PRIVATE_KEY: PEM,
+      ...(previous ? { PREVIOUS_SITE_DATA: previousData } : {}),
+      KEPT_ORGS_FILE: join(cwd, "kept.json"),
     },
   });
   if (!allowFailure) assert.equal(proc.status, 0, `script failed:\n${proc.stderr}`);
@@ -194,6 +202,52 @@ test("a gateway timeout that answers when asked again does not stop every organi
   assert.equal(res.status, 0, res.stdout);
   assert.equal(res.log.filter((l) => /contents\/public\/assignments\.json/.test(l)).length, 3, "asked three times");
   assert.ok(existsSync(join(res.outDir, "assignments.json")), "and the organization is published");
+});
+
+// --- one organization does not stop the others --------------------------------
+
+const LAST = {
+  [`${ORG}/assignments.json`]: JSON.stringify({ schema_version: 1, assignments: { "old-lab": {} } }),
+  [`${ORG}/i/${cardDigest(9)}.json`]: JSON.stringify({ schema_version: 1, assignment: { id: "old-lab" } }),
+};
+const kept = (res) => (existsSync(join(res.cwd, "kept.json")) ? JSON.parse(readFileSync(join(res.cwd, "kept.json"), "utf8")) : []);
+
+test("an organization that cannot be read keeps its last published pages, and the deploy goes on", () => {
+  // It used to fail the whole deploy: one org's lasting fault froze every
+  // organization's student pages until somebody fixed it.
+  const res = run({ cards: 1, assignmentsStatus: 500, previous: LAST, allowFailure: true });
+  assert.equal(res.status, 0, res.stdout);
+  assert.equal(readFileSync(join(res.outDir, "assignments.json"), "utf8"), LAST[`${ORG}/assignments.json`]);
+  assert.ok(existsSync(join(res.outDir, "i", `${cardDigest(9)}.json`)), "its invitation cards too");
+  const index = JSON.parse(readFileSync(join(res.dataDir, "index.json"), "utf8"));
+  assert.deepEqual(index.orgs, [{ login: ORG }], "and it stays in the index its students find it through");
+  assert.match(res.stdout, /::warning::.*kept as the previous deployment published them/);
+  assert.equal(kept(res)[0].org, ORG, "and an administrator is told (report-kept-orgs.mjs)");
+});
+
+test("'not found' for an organization that had pages is kept and said, not silently emptied", () => {
+  const res = run({ cards: 1, assignmentsStatus: 404, previous: LAST, allowFailure: true });
+  assert.equal(res.status, 0, res.stdout);
+  assert.ok(existsSync(join(res.outDir, "assignments.json")));
+  assert.match(kept(res)[0].why, /repository access/);
+});
+
+test("cards that cannot be read are no longer published as missing - the org keeps its last complete pages", () => {
+  // A failed card read was a warning, and the org went out WITHOUT its cards:
+  // every invitation link it had handed out answered "not found".
+  const res = run({ cards: 2, treeStatus: 500, previous: LAST, allowFailure: true });
+  assert.equal(res.status, 0, res.stdout);
+  // Its OWN last complete state: the old index with the old card, never this
+  // run's new index beside a card list it could not read.
+  assert.equal(readFileSync(join(res.outDir, "assignments.json"), "utf8"), LAST[`${ORG}/assignments.json`]);
+  assert.ok(existsSync(join(res.outDir, "i", `${cardDigest(9)}.json`)));
+  assert.ok(!existsSync(join(res.outDir, "i", `${cardDigest(0)}.json`)), "nothing half-read is mixed in");
+});
+
+test("with no earlier pages to keep, an unreadable organization still stops the publish", () => {
+  const res = run({ cards: 1, treeStatus: 500, allowFailure: true });
+  assert.notEqual(res.status, 0, res.stdout);
+  assert.ok(!existsSync(join(res.dataDir, "index.json")));
 });
 
 test("a 404 is still an answer, not a failure", () => {

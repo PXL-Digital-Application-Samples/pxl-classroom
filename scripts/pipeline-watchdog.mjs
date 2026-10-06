@@ -272,29 +272,7 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     return { outcome: "ok", stuckRuns, failedRuns, cancelledRuns, capped, pagesRedeploy };
   }
 
-  // Find or create tracking issue
-  const openIssues = await ghAll(
-    `/repos/${owner}/${repo}/issues?labels=pxl-tracking&state=open&per_page=100`,
-    ghOpts
-  );
-  let issue = openIssues.find((i) => i.title === TRACKING_ISSUE_TITLE && !i.pull_request);
-
-  if (!issue) {
-    const created = await gh(
-      "POST",
-      `/repos/${owner}/${repo}/issues`,
-      {
-        title: TRACKING_ISSUE_TITLE,
-        body:
-          "This issue is automatically maintained by the PXL Classroom Pipeline Watchdog.\n\n" +
-          "When Actions runs are stuck or fail, alerts with @mentions are posted here to notify administrators via email.\n\n" +
-          "Labels: `pxl-tracking`",
-        labels: ["pxl-tracking"],
-      },
-      ghOpts
-    );
-    issue = created.data;
-  }
+  const issue = await trackingIssue(owner, repo, ghOpts);
 
   // Read existing comments for deduplication
   const comments = await ghAll(
@@ -366,6 +344,51 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   }
 
   return { outcome: capped.length ? "incomplete" : "notified", stuckRuns, failedRuns, cancelledRuns, capped, pagesRedeploy };
+}
+
+/** The hub's alert issue, found or created - one place, whoever alerts. */
+export async function trackingIssue(owner, repo, ghOpts) {
+  const openIssues = await ghAll(
+    `/repos/${owner}/${repo}/issues?labels=pxl-tracking&state=open&per_page=100`,
+    ghOpts
+  );
+  const found = openIssues.find((i) => i.title === TRACKING_ISSUE_TITLE && !i.pull_request);
+  if (found) return found;
+  const created = await gh(
+    "POST",
+    `/repos/${owner}/${repo}/issues`,
+    {
+      title: TRACKING_ISSUE_TITLE,
+      body:
+        "This issue is automatically maintained by the PXL Classroom Pipeline Watchdog.\n\n" +
+        "When Actions runs are stuck or fail, alerts with @mentions are posted here to notify administrators via email.\n\n" +
+        "Labels: `pxl-tracking`",
+      labels: ["pxl-tracking"],
+    },
+    ghOpts
+  );
+  return created.data;
+}
+
+/**
+ * Post one alert on the hub's alert issue, unless one with this key is there
+ * already. For alerts raised outside a watchdog scan (scripts/report-kept-orgs.mjs).
+ *
+ * @returns {Promise<boolean>} whether it was posted
+ */
+export async function alertOnce({ owner, repo, token, notifyLogins = [], dedupKey, title, body }) {
+  const ghOpts = { token, throwOnError: true };
+  const issue = await trackingIssue(owner, repo, ghOpts);
+  const comments = await ghAll(`/repos/${owner}/${repo}/issues/${issue.number}/comments?per_page=100`, ghOpts);
+  if (comments.some((c) => c.body?.includes(`${DEDUP_MARKER}${dedupKey}-->`))) return false;
+  const mentions = notifyLogins.map((l) => `@${l}`).join(" ");
+  await gh(
+    "POST",
+    `/repos/${owner}/${repo}/issues/${issue.number}/comments`,
+    { body: `${DEDUP_MARKER}${dedupKey}-->\n### ${title}\n\n${mentions ? `${mentions} - ` : ""}${body}\n` },
+    ghOpts
+  );
+  return true;
 }
 
 // CLI entry point

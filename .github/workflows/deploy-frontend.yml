@@ -35,6 +35,7 @@ on:
       # so would a fix to the privacy gate itself. Named individually rather
       # than `scripts/**`, which would deploy on every unrelated script change.
       - 'scripts/fetch-pages-data.mjs'
+      - 'scripts/report-kept-orgs.mjs'
       - 'pages/scan.mjs'
       - 'pages/beta-unavailable.html'
 
@@ -186,6 +187,14 @@ jobs:
     environment: provisioning
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The workflow's own three, plus: read the previous deployment's artifact,
+    # and alert on the hub's issue when an organization was kept as it was.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: read
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -236,11 +245,56 @@ jobs:
           git fetch origin participating-orgs:participating-orgs || true
           git show participating-orgs:participating-orgs.yml > participating-orgs.yml || true
 
+      # What the previous deployment published, so an organization this run
+      # cannot read keeps its last pages instead of stopping every other
+      # organization's (scripts/fetch-pages-data.mjs keepPrevious). The newest
+      # unexpired `github-pages` artifact is the previous deployment's site.
+      # None (more than a day without a deploy) or none readable is not an
+      # error: the fetch then fails an unreadable org as it always did.
+      - name: Unpack the previous deployment
+        run: |
+          set -uo pipefail
+          PREV="${RUNNER_TEMP}/previous-site"
+          ZIP="${RUNNER_TEMP}/previous.zip"
+          mkdir -p "$PREV"
+          LIST="repos/${GITHUB_REPOSITORY}/actions/artifacts?name=github-pages&per_page=30"
+          NEWEST='[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty'
+          if ! ID=$(gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "$LIST" --jq "$NEWEST"); then
+            ID=""
+          fi
+          if [ -z "$ID" ]; then
+            echo "No previous deployment to keep pages from."
+            exit 0
+          fi
+          if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ID}/zip" > "$ZIP" \
+            && unzip -q -o "$ZIP" -d "${RUNNER_TEMP}/previous" \
+            && tar -xf "${RUNNER_TEMP}/previous/artifact.tar" -C "$PREV"; then
+            echo "Previous deployment unpacked (artifact ${ID})."
+          else
+            echo "::warning::The previous deployment could not be unpacked; an unreadable organization fails this deploy."
+            rm -rf "$PREV" && mkdir -p "$PREV"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
+
       - name: Fetch public pages data from org control repos
         run: node scripts/fetch-pages-data.mjs
         env:
           PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
           PXL_APP_PRIVATE_KEY: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          PREVIOUS_SITE_DATA: ${{ runner.temp }}/previous-site/data
+          KEPT_ORGS_FILE: ${{ runner.temp }}/kept-orgs.json
+
+      # The deploy succeeds with an organization kept as it was, so nothing
+      # else would say its students are not getting its changes.
+      - name: Tell an administrator about organizations kept as they were
+        run: node scripts/report-kept-orgs.mjs
+        env:
+          KEPT_ORGS_FILE: ${{ runner.temp }}/kept-orgs.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
         run: npm run build

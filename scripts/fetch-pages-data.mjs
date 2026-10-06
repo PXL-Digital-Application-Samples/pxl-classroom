@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, rmSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -8,6 +8,7 @@ import { parse } from "yaml";
 import { generateAppJwt } from "../lib/app-jwt.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { gh } from "../lib/gh.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
 
 // Through lib/gh.mjs, the one carrier with the one retry policy
 // (lib/rate-limit.mjs): a 5xx on a GET, or a rate limit, is asked again with
@@ -88,9 +89,37 @@ async function main() {
 
   const activeOrgs = [];
   // Orgs the App IS installed on that could not be read for an unexpected
-  // reason. Not the same as a 404 (nothing published yet) or a missing
-  // installation (registered, not installed) - both of those are real answers.
+  // reason, and that had no earlier pages to keep. Not the same as a 404
+  // (nothing published yet) or a missing installation (registered, not
+  // installed) - both of those are real answers.
   const failedOrgs = [];
+  // Orgs that could not be read and keep the pages the previous deployment
+  // published for them (keepPrevious), with why.
+  const kept = [];
+
+  // ONE ORGANIZATION MUST NOT STOP EVERY OTHER ONE'S STUDENT PAGES (CLAUDE.md).
+  // An org that cannot be read used to fail the whole deploy, so a single
+  // org's lasting fault - its owner leaving the control repository out of the
+  // App's repository access is the likely one, and it has happened - froze the
+  // student pages of every organization until somebody fixed it. The deploy
+  // now unpacks the previous deployment into PREVIOUS_SITE_DATA, and an org
+  // that cannot be read keeps exactly what that deployment published for it:
+  // its own last complete state, never a half-read one. Only an org with no
+  // earlier pages to keep still fails the run, as before.
+  const previousData = process.env.PREVIOUS_SITE_DATA || "";
+  function keepPrevious(org, why) {
+    const orgDir = join(outDir, org);
+    rmSync(orgDir, { recursive: true, force: true });
+    const index = activeOrgs.findIndex((o) => sameLogin(o.login, org));
+    if (index !== -1) activeOrgs.splice(index, 1);
+    const before = previousData ? join(previousData, org) : "";
+    if (!before || !existsSync(join(before, "assignments.json"))) return false;
+    cpSync(before, orgDir, { recursive: true });
+    activeOrgs.push({ login: org });
+    kept.push({ org, why });
+    console.log(`::warning::${org} could not be read (${why}): its student pages are kept as the previous deployment published them.`);
+    return true;
+  }
 
   // 4. Fetch assignments.json for each participating org
   for (const org of orgs) {
@@ -160,9 +189,11 @@ async function main() {
         // Filenames are digests, so logging them is noise, not information.
         console.log(`[ok] Saved ${saved} invitation file(s) for ${org}`);
       } catch (iErr) {
-        if (iErr.status !== 404) {
-          console.warn(`[warning] Failed to fetch public/i for ${org}:`, iErr.message);
-        }
+        // A 404 is an org with no cards yet. Anything else used to be a
+        // warning, and the org was published WITHOUT its cards - every
+        // invitation link it had handed out answered "not found". It is an
+        // org that could not be read, like any other (keepPrevious below).
+        if (iErr.status !== 404) throw iErr;
       }
 
       // `public/teams/` IS NOT FETCHED, and that is the point.
@@ -182,8 +213,15 @@ async function main() {
       // card behind the digest.
     } catch (err) {
       if (err.status === 404) {
-        console.log(`[info] No assignments.json found in control repo for ${org} (or repository does not exist).`);
-      } else {
+        // Nothing published yet - unless the previous deployment had pages for
+        // it: then "not found" is far likelier to be lost access (the control
+        // repository left out of the App's repository access) than an org that
+        // un-published everything, and dropping it would empty every student
+        // page it has without a word.
+        if (!keepPrevious(org, "answered not found, although it had student pages - check the App's repository access")) {
+          console.log(`[info] No assignments.json found in control repo for ${org} (or repository does not exist).`);
+        }
+      } else if (!keepPrevious(org, `${err.status ?? "no answer"}: ${err.message}`)) {
         console.error(`[error] Failed to fetch data for ${org}:`, err.message);
         failedOrgs.push(`${org}: ${err.message}`);
       }
@@ -213,6 +251,19 @@ async function main() {
 
   await writeFile(join(outDir, "index.json"), JSON.stringify({ orgs: activeOrgs }, null, 2) + "\n");
   console.log(`[ok] Generated index.json with ${activeOrgs.length} org(s).`);
+
+  // Said where an administrator is told (scripts/report-kept-orgs.mjs), not
+  // only in a log nobody reads: an org kept as it was is an org whose new
+  // assignments and changes are not reaching its students.
+  if (kept.length && process.env.KEPT_ORGS_FILE) {
+    await writeFile(process.env.KEPT_ORGS_FILE, JSON.stringify(kept, null, 2) + "\n");
+  }
+  if (kept.length && process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `### Student pages kept as last published\n\n${kept.map((k) => `- **${k.org}**: ${k.why}`).join("\n")}\n`,
+    );
+  }
 }
 
 main().catch((err) => {

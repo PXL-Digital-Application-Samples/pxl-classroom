@@ -364,6 +364,24 @@ then read each and count those with no `claimed_through`; `0` in every organizat
 
 ---
 
+## 13. The Pages artifact lists every invitation card to any signed-in GitHub account
+
+**Status: open, accepted.** Found 2026-10-07, while making one organization's fault stop blocking every other's student pages.
+
+Invitation cards and team files are published at `data/<org>/i/<sha256 of the link secret>.json`, so that only a link holder can find one (ARCHITECTURE §4.3.3). But the deploy uploads the whole site as the `github-pages` artifact (`actions/upload-pages-artifact`, kept one day), and on a public repository any signed-in GitHub account can list and download an artifact - measured with an account outside the organization: list 200, download 302; anonymous 401. The artifact is the full file list, so the digest hides nothing from someone who downloads it.
+
+**Why this is accepted.** What it shows is little. A card holds no secret (the link's signing key is not in it) and nothing the student page does not show to anyone with the link. A team file's members are already public: every acceptance is a public issue on the broker repository, authored by the student and naming the team. What is new is only teams the lecturer seeded, before their members accept. No deployment method avoids it on a public hub - a `gh-pages` branch would be public too - and the hub is public by design (zero minutes).
+
+**How to tell it is closed** - no `github-pages` artifact is downloadable by an account that is not a member of the hub organization:
+
+```bash
+gh api "repos/PXL-Digital-Application-Samples/pxl-classroom/actions/artifacts?name=github-pages&per_page=1" --jq '.total_count'
+```
+
+`0`, or a download of the newest one refused with a non-member's token, means it is closed.
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog - 2026-08-31 unless the row says otherwise.
