@@ -2153,7 +2153,37 @@ if (!props.embedded) {
   onBeforeRouteLeave(() => confirmDiscard())
   onBeforeRouteUpdate((to, from) => to.params.assignmentId === from.params.assignmentId || confirmDiscard())
 }
-defineExpose({ hasUnsavedEdits: () => hasUnsavedEdits() })
+defineExpose({ hasUnsavedEdits: () => hasUnsavedEdits(), reloadFromStored })
+
+/**
+ * The assignment page wrote the document behind this form - the cap's quick
+ * bump in its banner. Kept mounted across tabs, the form still held the old
+ * value, and the next Save or state change rebuilt the document from it: +10
+ * on the banner, then Save on Settings, and the cap was back at 30 with
+ * nothing on screen saying so (review 2026-10-06).
+ *
+ * With nothing edited here the form is read again from what is stored. With
+ * edits waiting it is not - that would throw them away - and only the fields
+ * the page changed are carried in, into the form AND its snapshot, so they
+ * neither revert at Save nor look like the lecturer's own edit.
+ *
+ * @param {Record<string, unknown>} changed form fields the page wrote, as the form holds them
+ */
+async function reloadFromStored(changed = {}) {
+  if (!editing.value || isNew.value) return
+  if (!hasUnsavedEdits()) {
+    await loadAssignments()
+    const a = assignments.value.find((x) => x.id === editing.value?.id)
+    if (a) await editAssignment(a, { confirmed: true })
+    return
+  }
+  const snapshot = JSON.parse(savedSnapshot.value || '{}')
+  for (const [k, v] of Object.entries(changed)) {
+    form.value[k] = v
+    snapshot[k] = v
+  }
+  savedSnapshot.value = JSON.stringify(snapshot)
+}
 function onBeforeUnload(e) {
   if (hasUnsavedEdits()) {
     e.preventDefault()

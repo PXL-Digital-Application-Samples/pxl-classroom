@@ -1934,6 +1934,9 @@ async function bumpCapacity(delta) {
       } else {
         assignment.value.max_acceptances = newCap
       }
+      // The Settings tab stays mounted with the old cap in its form; its next
+      // Save would write that back. Tell it (AdminView reloadFromStored).
+      await editorRef.value?.reloadFromStored?.({ max_acceptances: newCap ?? '' })
       await loadAll()
     } else {
       toast.error(`Failed to update capacity: ${res.data?.message || 'unknown error'}`)

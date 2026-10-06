@@ -244,6 +244,46 @@ test.describe('74 - the cohort page', () => {
     expect(parse(writes.at(-1).content).max_acceptances).toBe(30);
   });
 
+  test('a raised cap is not written back by the next Save on Settings', async ({ page }) => {
+    // Review 2026-10-06: the Settings form stays mounted across tabs with the
+    // cap it opened with, and Save rebuilt the document from it - +10 on the
+    // banner, then a title fix, and the cap was 20 again.
+    const { writes } = await openCohort(page, liveAssignment({ max_acceptances: 20 }), fullReport(20));
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    const title = page.getByPlaceholder('e.g. Linux Processes 2026');
+    await expect(title).toHaveValue('.NET Advanced Labs', { timeout: 15000 });
+
+    await page.locator('.capacity-banner').getByRole('button', { name: '+10' }).click();
+    await expect(page.locator('.toast', { hasText: /Capacity increased to 30 slots/ })).toBeVisible();
+    // Nothing was edited here, so nothing is waiting.
+    await expect(page.locator('.editor-action-bar [data-unsaved]')).toHaveCount(0);
+
+    await title.fill('.NET Advanced Labs (fixed)');
+    await page.locator('.editor-action-buttons').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length, { timeout: 15000 }).toBe(2);
+    const saved = parse(writes.filter((w) => w.path === `assignments/${ID}.yml`).at(-1).content);
+    expect(saved.title).toBe('.NET Advanced Labs (fixed)');
+    expect(saved.max_acceptances, 'the bump survives the save').toBe(30);
+  });
+
+  test('with an edit already waiting, the bump is carried in and the edit kept', async ({ page }) => {
+    const { writes } = await openCohort(page, liveAssignment({ max_acceptances: 20 }), fullReport(20));
+    await page.locator('.assignment-tabs .primer-tab', { hasText: /^Settings$/ }).click();
+    const title = page.getByPlaceholder('e.g. Linux Processes 2026');
+    await expect(title).toHaveValue('.NET Advanced Labs', { timeout: 15000 });
+    await title.fill('.NET Advanced Labs (edited first)');
+
+    await page.locator('.capacity-banner').getByRole('button', { name: '+10' }).click();
+    await expect(page.locator('.toast', { hasText: /Capacity increased to 30 slots/ })).toBeVisible();
+    await expect(title, 'the waiting edit is not thrown away').toHaveValue('.NET Advanced Labs (edited first)');
+
+    await page.locator('.editor-action-buttons').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => writes.filter((w) => w.path === `assignments/${ID}.yml`).length, { timeout: 15000 }).toBe(2);
+    const saved = parse(writes.filter((w) => w.path === `assignments/${ID}.yml`).at(-1).content);
+    expect(saved.title).toBe('.NET Advanced Labs (edited first)');
+    expect(saved.max_acceptances).toBe(30);
+  });
+
   test('re-opening acceptance rebuilds the page that says it is closed', async ({ page }) => {
     const { writes, dispatches } = await openCohort(page, liveAssignment({ state: 'closed' }), fullReport(3));
 
