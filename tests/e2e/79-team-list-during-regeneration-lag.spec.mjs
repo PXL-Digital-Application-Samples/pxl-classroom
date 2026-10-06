@@ -164,4 +164,29 @@ test.describe('79 - the team list during the regeneration lag', () => {
 
     await expect(page.locator('.team-item-card')).toHaveCount(0);
   });
+
+  test('a student moving to another team leaves the old one on screen, before the file catches up', async ({ page }) => {
+    // Testbed, 2026-10-06: two students who changed their minds were each shown
+    // in both teams, 2/3 and 2/3, while each team held one. The published file
+    // still had them where they WERE; their newest attempt says where they are.
+    await injectAuth(page, STUDENT_2);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_2,
+      assignments: ASSIGNMENT,
+      teams: {
+        [ID]: [{ team_slug: 'alpha', team_name: 'Alpha', members: [STUDENT_1.login, 'carol'], member_count: 2, max_members: 3, is_full: false }],
+      },
+      brokerIssues: [
+        { ...handledAcceptance({ number: 3, login: 'carol', slug: 'beta', name: 'Beta' }), body: JSON.stringify({ team_slug: 'beta', team_name: 'Beta', team_action: 'switch' }) },
+        handledAcceptance({ number: 1, login: 'carol', slug: 'alpha', name: 'Alpha' }),
+      ],
+    });
+    await page.goto(inviteUrl(ORG, ID));
+    const alpha = page.locator('.team-item-card', { hasText: 'Alpha' });
+    const beta = page.locator('.team-item-card', { hasText: 'Beta' });
+    await expect(alpha).toContainText('1/3 members', { timeout: 10000 });
+    await expect(alpha).not.toContainText('@carol');
+    await expect(beta).toContainText('@carol');
+    await expect(beta).toContainText('1/3 members');
+  });
 });

@@ -20,6 +20,10 @@
 //         6. the public teams file says which teams need a code and holds none
 //         7. no hub run failed, no code reached a public run log
 //
+//   node tests/live/team-join-code.mjs check <drill-code-id> [code ...]
+//       steps 6 and 7 again for an assignment already started - Pages can lag
+//       by many minutes behind a burst of acceptances.
+//
 //   node tests/live/drill.mjs cleanup <drill-code-id>
 //       delete it afterwards, like any drill (after its deadline).
 //
@@ -162,6 +166,7 @@ async function start() {
   if (r.failures()) finish();
 
   const now = Date.now();
+  const startedAt = now - 60_000;
   const stamp = isoSeconds(now).replace(/[-:]/g, "").replace("T", "-").slice(0, 13).toLowerCase();
   const id = `drill-code-${stamp}`;
   const opensAt = new Date(now - 60_000).toISOString();
@@ -300,57 +305,95 @@ async function start() {
   if (alpha?.join_code === code3) ok(`alpha's code is the new one (${formatJoinCode(code3)}), not the one that left`);
   else bad(`alpha's code is ${alpha?.join_code}`);
 
-  console.log("\n7. The public teams file\n");
-  const url = `${PAGES}data/${ORG}/i/${inviteFileFor(secret)}.teams.json`;
-  let teams = null;
-  for (let waited = 0; waited < 420_000; waited += 15_000) {
-    const res = await fetch(`${url}?_t=${Date.now()}`, { cache: "no-store" });
-    if (res.ok) {
-      const text = await res.text();
-      for (const code of [code1, code2, code3]) {
-        if (text.includes(code)) bad(`the public teams file contains a join code (${formatJoinCode(code)})`);
-      }
-      const data = JSON.parse(text);
-      const alphaPub = (data.teams || []).find((t) => t.team_slug === "alpha");
-      if (alphaPub && same(members(alphaPub), logins(A))) {
-        teams = data.teams;
-        break;
-      }
-    }
-    await sleep(15_000);
-  }
-  if (!teams) bad(`the public teams file did not reach the final state within 7 minutes: ${url}`);
-  else {
-    const flags = Object.fromEntries(teams.map((t) => [t.team_slug, t.needs_code === true]));
-    if (flags.alpha && flags.beta) ok(`alpha and beta are published as needing a code, and no code is in the file`);
-    else bad(`needs_code flags: ${JSON.stringify(flags)}`);
-    if (!teams.some((t) => "join_code" in t)) ok("no join_code field in the public file");
-    else bad("a join_code field is in the public file");
-  }
-
-  console.log("\n8. No code in any public run log\n");
-  const runs = await api(`/repos/${HUB}/actions/workflows/acceptance-handler.yml/runs?per_page=30&event=repository_dispatch`, { token: LECTURER.token });
-  const mine = (runs.data?.workflow_runs || []).filter((x) => String(x.display_title || x.name).includes(broker)).slice(0, 3);
-  for (const run of mine) {
-    const logs = await fetch(`https://api.github.com/repos/${HUB}/actions/runs/${run.id}/logs`, {
-      headers: { Authorization: `Bearer ${LECTURER.token}` },
-      redirect: "follow",
-    });
-    if (!logs.ok) {
-      note(`run ${run.id}: logs not readable (HTTP ${logs.status}) - checked by name only`);
-      continue;
-    }
-    const buf = Buffer.from(await logs.arrayBuffer()).toString("latin1");
-    const leaked = [code1, code2, code3].filter((c) => buf.includes(c));
-    if (leaked.length) bad(`run ${run.id}'s logs contain ${leaked.map(formatJoinCode).join(", ")}`);
-    else ok(`run ${run.id}: no code in its logs`);
-  }
-
+  await publicAndLogs({ secret, broker, since: startedAt, codes: [code1, code2, code3] });
   note(`walk the student page as another account: ${PAGES}${ORG}/i/${secret}`);
   note(`clean up after ${deadlineAt} with: node tests/live/drill.mjs cleanup ${id}`);
   finish();
 }
 
-const [command] = process.argv.slice(2);
+/**
+ * Steps 7 and 8, which wait on things this script does not control: Pages
+ * (every acceptance regenerates, and in a burst each deploy cancels the one
+ * before, so the file lags by minutes), and the logs of finished runs.
+ */
+async function publicAndLogs({ secret, broker, since, codes }) {
+  console.log("\n7. The public teams file\n");
+  // The FINAL state, both teams as step 6 left them: alpha alone would also
+  // match the file as it stood after step 2.
+  const url = `${PAGES}data/${ORG}/i/${inviteFileFor(secret)}.teams.json`;
+  let teams = null;
+  for (let waited = 0; waited < 900_000; waited += 20_000) {
+    const res = await fetch(`${url}?_t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) {
+      const text = await res.text();
+      for (const code of codes) {
+        if (text.includes(code)) bad(`the public teams file contains a join code (${formatJoinCode(code)})`);
+      }
+      const data = JSON.parse(text);
+      const pub = (slug) => (data.teams || []).find((t) => t.team_slug === slug);
+      if (same(members(pub("alpha")), logins(A)) && same(members(pub("beta")), logins(B))) {
+        teams = data.teams;
+        break;
+      }
+    }
+    await sleep(20_000);
+  }
+  if (!teams) bad(`the public teams file did not reach the final state within 15 minutes: ${url}`);
+  else {
+    const flags = Object.fromEntries(teams.map((t) => [t.team_slug, t.needs_code === true]));
+    if (flags.alpha && flags.beta) ok(`alpha and beta are published as needing a code: ${JSON.stringify(flags)}`);
+    else bad(`needs_code flags: ${JSON.stringify(flags)}`);
+    if (!teams.some((t) => "join_code" in t)) ok("no join_code field, and no code, in the public file");
+    else bad("a join_code field is in the public file");
+  }
+
+  console.log("\n8. No code in any public run log\n");
+  // `created` bounds the list: without it GitHub does not hand back the newest
+  // runs first, and the filter below found none of these. Each JOB's log is
+  // plain text; the run's log is a zip, which a search cannot see into.
+  const q = new URLSearchParams({ created: `>=${isoSeconds(since)}`, per_page: "100", event: "repository_dispatch" });
+  const runs = await api(`/repos/${HUB}/actions/workflows/acceptance-handler.yml/runs?${q}`, { token: LECTURER.token });
+  const mine = (runs.data?.workflow_runs || []).filter((x) => String(x.display_title || "").includes(broker));
+  if (mine.length === 0) bad(`no hub run for ${broker} found since ${isoSeconds(since)}`);
+  let read = 0;
+  for (const run of mine) {
+    const jobs = await api(`/repos/${HUB}/actions/runs/${run.id}/jobs?per_page=100`, { token: LECTURER.token });
+    for (const job of jobs.data?.jobs || []) {
+      const res = await fetch(`https://api.github.com/repos/${HUB}/actions/jobs/${job.id}/logs`, {
+        headers: { Authorization: `Bearer ${LECTURER.token}` },
+        redirect: "follow",
+      });
+      if (!res.ok) {
+        bad(`run ${run.id} job ${job.name}: log not readable (HTTP ${res.status})`);
+        continue;
+      }
+      const text = await res.text();
+      read++;
+      const leaked = codes.filter((c) => text.includes(c) || text.includes(formatJoinCode(c)));
+      if (leaked.length) bad(`${run.display_title} (${job.name}) logs ${leaked.map(formatJoinCode).join(", ")}`);
+    }
+  }
+  if (read && !r.failures()) ok(`${read} job log(s) across ${mine.length} hub run(s): no join code in any`);
+  else if (read) note(`${read} job log(s) read across ${mine.length} hub run(s)`);
+}
+
+/** Steps 7 and 8 again, for an assignment `start` already ran. */
+async function check(id, extraCodes) {
+  console.log(`PXL Classroom live team join codes - CHECK ${id} on ${ORG} (reads only)`);
+  await checkAccounts(ACCOUNTS, r);
+  const res = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/assignments/${id}.yml`, { token: LECTURER.token });
+  if (!res.ok) die(`assignments/${id}.yml: HTTP ${res.status}`);
+  const text = decode(res.data.content);
+  const secret = linkSecretFrom(parseInviteFields(text));
+  const broker = brokerRepoName({ assignment: parse(text), assignmentId: id });
+  const stored = [await manifest(id, "alpha"), await manifest(id, "beta")].map((t) => t?.join_code).filter(Boolean);
+  const codes = [...new Set([...stored, ...extraCodes.map((c) => c.replace(/-/g, "").toUpperCase())])];
+  // A drill lives for under an hour; six hours back covers every run it had.
+  await publicAndLogs({ secret, broker, since: Date.now() - 6 * 3600_000, codes });
+  finish();
+}
+
+const [command, ...rest] = process.argv.slice(2);
 if (command === "start") await start();
-else die("usage: node tests/live/team-join-code.mjs start");
+else if (command === "check" && rest[0]) await check(rest[0], rest.slice(1));
+else die("usage: node tests/live/team-join-code.mjs start | check <drill-code-id> [code ...]");

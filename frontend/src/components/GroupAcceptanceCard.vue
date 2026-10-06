@@ -991,6 +991,16 @@ async function loadTeams() {
       // frontend/src/lib/broker-teams.js carries the whole story, and holds the
       // logic somewhere a test can call it.
       for (const row of teamsFromBrokerIssues(issues)) {
+        // Their newest attempt is where they are going: out of every other
+        // team, the published one included, which trails it.
+        for (const [slug, team] of teamsMap) {
+          if (slug === row.team_slug.toLowerCase().trim()) continue
+          const left = team.members.filter((m) => !row.members.some((x) => x.toLowerCase() === m.toLowerCase()))
+          if (left.length === team.members.length) continue
+          team.members = left
+          team.member_count = left.length
+          team.is_full = left.length >= team.max_members
+        }
         upsertTeam(row.team_slug, row.team_name, row.members)
       }
     }

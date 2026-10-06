@@ -55,15 +55,31 @@ function neverReachedHub(title) {
 /**
  * Team rows visible in a broker's issue list.
  *
- * One row per issue that names a team; the caller merges them, because the
- * capacity a row is judged against is the assignment's maximum as it is NOW
- * and belongs to the caller, not to a row.
+ * One row per STUDENT, for their newest attempt, and only a recent one; the
+ * caller merges them, because the capacity a row is judged against is the
+ * assignment's maximum as it is NOW and belongs to the caller, not to a row.
  *
- * @param {Array<{body?: unknown, title?: unknown, user?: {login?: string}}>} issues
+ * NEWEST ONLY. Every attempt a student ever made used to be a row, and the
+ * caller only ever adds members - so a student who made a team, joined
+ * another and came back was listed in all three, and three students who
+ * changed their minds made every team look full (testbed, 2026-10-06: both
+ * students shown in both teams, 2/3 each, while each team held one). A
+ * student is in one team; their newest attempt says which, and the caller
+ * takes them out of the others.
+ *
+ * RECENT ONLY. An older attempt is already in the published file, which is
+ * the record - and may be older than a lecturer's Move, which it would undo
+ * on screen. An issue with no date is kept, as before.
+ *
+ * @param {Array<{body?: unknown, title?: unknown, user?: {login?: string}, created_at?: string}>} issues
+ *   newest first, as GitHub lists them
+ * @param {{now?: number, maxAgeMs?: number}} [opts]
  * @returns {Array<{team_slug: string, team_name: string, members: string[]}>}
  */
-export function teamsFromBrokerIssues(issues) {
+export function teamsFromBrokerIssues(issues, { now = Date.now(), maxAgeMs = RECENT_ATTEMPT_MS } = {}) {
   const rows = []
+  const seen = new Set()
+  const cutoff = now - maxAgeMs
   for (const issue of issues || []) {
     // A REFUSED ATTEMPT FORMED NO TEAM. Counted, it put the refused student on
     // screen as the member of a team that exists nowhere - no team file, no
@@ -86,6 +102,11 @@ export function teamsFromBrokerIssues(issues) {
     // membership - but a student chooses a team from what the screen says, so
     // it must not be forgeable.
     const member = issue?.user?.login
+    const who = String(member || '').toLowerCase()
+    if (who && seen.has(who)) continue
+    if (who) seen.add(who)
+    const at = Date.parse(issue?.created_at || '')
+    if (Number.isFinite(at) && at < cutoff) continue
     rows.push({
       team_slug: slug,
       team_name: name || slug,

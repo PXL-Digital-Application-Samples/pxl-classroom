@@ -242,3 +242,52 @@ test("the newest attempt is the one in flight", () => {
   ];
   assert.equal(recentAttempt(issues, { now })?.number, 9);
 });
+
+test("a student who changed their mind is in the team of their newest attempt, and only that one", () => {
+  // Live on pxl-classroom-testbed, 2026-10-06: ann made alpha, bob joined it,
+  // both moved to beta, ann went back to alpha. Every attempt was a row and
+  // the page only ever adds members, so both were shown in both teams, 2/3
+  // each, while each team held one.
+  const now = Date.parse("2026-10-06T14:00:00Z");
+  const at = (min) => new Date(now - min * 60_000).toISOString();
+  const attempt = (number, login, slug, min, labels = []) => ({
+    number, title: "Acceptance (processed)", user: { login }, created_at: at(min), labels,
+    body: JSON.stringify({ team_slug: slug, team_name: slug, team_action: "join" }),
+  });
+  const issues = [
+    attempt(8, "ann", "alpha", 1),
+    attempt(7, "bob", "beta", 2),
+    attempt(6, "ann", "beta", 3),
+    attempt(5, "bob", "alpha", 4),
+    attempt(4, "bob", "alpha", 5, [{ name: REJECTED_LABEL }]),
+    attempt(1, "ann", "alpha", 9),
+  ];
+  assert.deepEqual(teamsFromBrokerIssues(issues, { now }), [
+    { team_slug: "alpha", team_name: "alpha", members: ["ann"] },
+    { team_slug: "beta", team_name: "beta", members: ["bob"] },
+  ]);
+  // A newest attempt that was refused moved nobody: the one before it stands.
+  const refusedLast = [attempt(9, "bob", "gamma", 0, [{ name: REJECTED_LABEL }]), ...issues];
+  assert.deepEqual(
+    teamsFromBrokerIssues(refusedLast, { now }).find((r) => r.members.includes("bob"))?.team_slug,
+    "beta",
+  );
+});
+
+test("an attempt older than the in-flight window is left to the published file", () => {
+  // It is already there - and may be older than a lecturer's Move, which it
+  // would undo on screen.
+  const now = Date.parse("2026-10-06T14:00:00Z");
+  const old = {
+    number: 1, title: "Acceptance (processed)", user: { login: "ann" },
+    created_at: new Date(now - RECENT_ATTEMPT_MS - 60_000).toISOString(),
+    body: JSON.stringify({ team_slug: "alpha", team_action: "create" }),
+  };
+  assert.deepEqual(teamsFromBrokerIssues([old], { now }), []);
+  // And it does not let an even older attempt of theirs through instead.
+  const older = { ...old, number: 0, created_at: new Date(now - RECENT_ATTEMPT_MS - 120_000).toISOString(), body: JSON.stringify({ team_slug: "beta" }) };
+  assert.deepEqual(teamsFromBrokerIssues([old, older], { now }), []);
+  // No date at all: kept, as before.
+  const undated = { ...old, created_at: undefined };
+  assert.equal(teamsFromBrokerIssues([undated], { now }).length, 1);
+});
