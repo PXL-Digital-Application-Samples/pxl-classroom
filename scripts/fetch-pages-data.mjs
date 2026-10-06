@@ -7,22 +7,31 @@ import { parse } from "yaml";
 // into an intermittently invalid credential rather than a visible error.
 import { generateAppJwt } from "../lib/app-jwt.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { withTransientRetry } from "../lib/transient-retry.mjs";
 
-async function request(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "User-Agent": "pxl-classroom-fetch-pages-data",
-      ...options.headers,
+// A 502/503/504 or a dropped connection is asked again before it fails the
+// whole deploy - one organization's gateway timeout took every organization's
+// student pages down with it during a GitHub incident (lib/transient-retry.mjs).
+function request(url, options = {}) {
+  return withTransientRetry(
+    async () => {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          "User-Agent": "pxl-classroom-fetch-pages-data",
+          ...options.headers,
+        },
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        const err = new Error(`Request to ${url} failed with status ${res.status}: ${errText.slice(0, 300)}`);
+        err.status = res.status;
+        throw err;
+      }
+      return res.json();
     },
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    const err = new Error(`Request to ${url} failed with status ${res.status}: ${errText}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
+    { onRetry: (e, ms) => console.log(`[retry] ${url}: ${e.status ?? e.message} - asking again in ${ms / 1000}s`) },
+  );
 }
 
 async function main() {
