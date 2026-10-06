@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // Not lazy: it is the frame every organization page renders in, so loading it
 // separately would only add a step before any of them can show.
 import OrgShell from '../views/OrgShell.vue'
+import { APP_NAME, assignmentDocumentTitle } from '../lib/assignment-crumb.js'
 
 const routes = [
   {
@@ -168,7 +169,6 @@ const router = createRouter({
 
 // Per-route document titles so tabs, history, and bookmarks are tellable
 // apart. Falls back to the bare app name on the home page.
-const APP_NAME = 'PXL Classroom'
 router.afterEach((to) => {
   let page = ''
   switch (to.name) {
@@ -193,8 +193,10 @@ router.afterEach((to) => {
       page = `Roster - ${to.params.org}`
       break
     case 'assignment-detail':
-      page = `${to.params.assignmentId} - ${to.params.org}`
-      break
+      // By its title once the page has read it, the slug until then
+      // (lib/assignment-crumb.js, which also replaces the slug on first read).
+      document.title = assignmentDocumentTitle(to.params.org, to.params.assignmentId)
+      return
     case 'usage-org':
       page = `Usage - ${to.params.org}`
       break

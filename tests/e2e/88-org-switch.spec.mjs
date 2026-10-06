@@ -42,8 +42,10 @@ test.describe('88 - Assignments, Roster, Organization', () => {
 
     await assignmentTabs(page).filter({ hasText: /^Settings$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings$`));
-    // Its title, not its slug (lib/assignment-crumb.js).
+    // Its title, not its slug (lib/assignment-crumb.js) - in the bar, and in the
+    // browser tab, which kept saying `lab-switch` after the bar stopped.
     await expect(page.locator('.app-header-heading')).toHaveText('Lab Switch');
+    await expect(page).toHaveTitle(`Lab Switch - ${ORG} · PXL Classroom`);
     await expect(page.locator('.assignment-tabs [aria-current="page"]')).toHaveText('Settings');
 
     await assignmentTabs(page).filter({ hasText: /^Progress$/ }).click();
