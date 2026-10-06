@@ -9,11 +9,12 @@
 // not wait for a check this session already passed.
 
 import { ref } from 'vue'
-import { getInstallations, listRepoDir } from './api.js'
+import { getInstallations, getRepoContent, listRepoDir } from './api.js'
 import { readTrackingIssue } from './tracking-issue.js'
+import { TIMED_OUT, withDeadline } from './section-deadline.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
-import { noticesForLecturer } from '../../../lib/org-notices.mjs'
-import { ASSIGNMENTS_DIR, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
+import { assignmentsToSettle, noticesForLecturer, provisionedLogins } from '../../../lib/org-notices.mjs'
+import { ASSIGNMENTS_DIR, assignmentIdFromFile, reportPath } from '../../../lib/control-layout.mjs'
 
 export const orgs = ref([])
 export const orgsLoaded = ref(false)
@@ -190,6 +191,28 @@ export function setNeedsYou(org, count) {
 export const needsYouCount = (org) => (org ? needsYouIn.value.get(normalizeLogin(org)) ?? null : null)
 
 /**
+ * Who has a repository in each of these assignments, from their reports: what
+ * settles a notice about one student (lib/org-notices.mjs `noticesForLecturer`).
+ * An assignment whose report cannot be read is left out, so its notices stay -
+ * unknown is not settled. One read per assignment, and only for those with
+ * such a notice (`assignmentsToSettle`), which is usually none.
+ *
+ * @returns {Promise<Map<string, Set<string>>>}
+ */
+export async function readProvisioned(token, org, controlRepo, ids) {
+  const map = new Map()
+  await Promise.all((ids || []).map(async (id) => {
+    try {
+      const text = await getRepoContent(token, org, controlRepo, reportPath(id))
+      if (text) map.set(id, provisionedLogins(JSON.parse(text)?.students))
+    } catch {
+      // unread: its notices stay
+    }
+  }))
+  return map
+}
+
+/**
  * The count for one organization, read once per session: its notices and the
  * names of its assignment files, through the rule the Organization page lists
  * them by (`noticesForLecturer`, lib/org-notices.mjs) - so the tab and the page
@@ -203,14 +226,20 @@ export async function loadNeedsYou(token, org, controlRepo) {
   const mine = session
   try {
     const [tracking, files] = await Promise.all([
-      readTrackingIssue(token, { org, controlRepo }),
+      withDeadline(readTrackingIssue(token, { org, controlRepo }))
+        .then((t) => (t === TIMED_OUT ? { state: 'unreadable' } : t)),
       listRepoDir(token, org, controlRepo, ASSIGNMENTS_DIR).catch((e) => (e?.status === 404 ? [] : null)),
     ])
     if (mine !== session) return
     if (tracking.state === 'unreadable' || tracking.state === 'no-repo' || !files) return
     const ids = new Set(files.map((f) => assignmentIdFromFile(f.name)).filter(Boolean))
     const comments = tracking.state === 'ok' ? tracking.comments : []
-    setNeedsYou(org, noticesForLecturer(comments, { assignmentIds: ids }).length)
+    const provisioned = await readProvisioned(token, org, controlRepo, assignmentsToSettle(comments).filter((id) => ids.has(id)))
+    if (mine !== session) return
+    setNeedsYou(org, noticesForLecturer(comments, { assignmentIds: ids, provisioned }).length)
+  } catch {
+    // A read that timed out or failed: the count stays unknown, and the tab
+    // shows nothing rather than a number it did not count.
   } finally {
     needsYouReading.delete(key)
   }

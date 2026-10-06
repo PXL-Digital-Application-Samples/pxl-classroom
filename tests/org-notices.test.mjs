@@ -8,7 +8,11 @@ import { fileURLToPath } from "node:url";
 import {
   DEDUP_MARKER,
   ORG_NOTICE_LABELS,
+  STUDENT_NOTICE_PREFIXES,
+  assignmentsToSettle,
   isOrgNotice,
+  noticeStudent,
+  provisionedLogins,
   noticeLines,
   noticesForLecturer,
   noticesNeedingYou,
@@ -84,6 +88,40 @@ test("a notice about an assignment that is gone is not listed; an organization-w
   assert.deepEqual(keys({ assignmentIds: null }), ["org", "gone", "live"]);
   assert.equal(isOrgNotice({ assignmentId: "" }), true);
   assert.equal(isOrgNotice({ assignmentId: "lab-3" }), false);
+});
+
+test("a notice about one student is settled once that student has their repository", () => {
+  // PXL-Java-Essentials, 2026-10-06: 25 "Failed to provision repo for X"
+  // notices from the 30 September incident, every student provisioned the
+  // same day - and all 25 still listed as needing the lecturer.
+  const comments = [
+    comment({ key: "prov-fail-java-2627-arnobarzan", type: "provisioning-failed", assignment: "java-2627", time: "2026-10-01T10:00:00Z" }),
+    comment({ key: "prov-fail-java-2627-still-stuck", type: "provisioning-failed", assignment: "java-2627", time: "2026-10-01T11:00:00Z" }),
+    comment({ key: "record-fail-java-2627-Ann-Dev", type: "provisioning-failed", assignment: "java-2627", time: "2026-10-01T12:00:00Z" }),
+    comment({ key: "orphans", type: "provisioning-failed", assignment: "unrecorded-repositories", time: "2026-10-01T13:00:00Z" }),
+  ];
+  assert.deepEqual(assignmentsToSettle(comments, { now }), ["java-2627"]);
+  const provisioned = new Map([["java-2627", provisionedLogins([
+    { github_login: "ArnoBarzan", acceptance_state: "provisioned" },
+    { github_login: "ann-dev", acceptance_state: "provisioned" },
+    { github_login: "still-stuck", acceptance_state: "failed" },
+  ])]]);
+  const keys = noticesForLecturer(comments, { now, assignmentIds: new Set(["java-2627"]), provisioned }).map((n) => n.key);
+  assert.deepEqual(keys, ["orphans", "prov-fail-java-2627-still-stuck"], "case-blind, and only the ones that went through");
+  // A report that could not be read settles nothing.
+  assert.equal(noticesForLecturer(comments, { now, assignmentIds: new Set(["java-2627"]), provisioned: new Map() }).length, 4);
+  assert.equal(noticeStudent({ key: "prov-fail-java-2627-arnobarzan", assignmentId: "java-2627" }), "arnobarzan");
+  assert.equal(noticeStudent({ key: "orphans", assignmentId: "unrecorded-repositories" }), null);
+});
+
+test("the student-notice prefixes are the ones the workflows write", () => {
+  // Read, not listed: a prefix spelled here and not there settles nothing.
+  const written = new Set();
+  for (const file of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
+    const src = readFileSync(join(root, ".github", "workflows", file), "utf8");
+    for (const m of src.matchAll(/dedup-key:\s*([a-z-]+-)\$\{\{[^}]*assignment_id\s*\}\}-\$\{\{[^}]*github_login\s*\}\}\s*$/gm)) written.add(m[1]);
+  }
+  assert.deepEqual([...written].sort(), [...STUDENT_NOTICE_PREFIXES].sort());
 });
 
 test("one sentence first, the rest on request - a wrapped first line is not a sentence", () => {
