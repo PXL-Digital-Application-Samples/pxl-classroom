@@ -16,8 +16,8 @@ import { sameLogin } from "../lib/github-login.mjs";
 // fetch, so on 2026-10-06, during a GitHub incident, one 504 on one
 // organization's index took every organization's student pages down with it
 // for a quarter of an hour. It sends the API version too, which it never did.
-async function request(url, { method = "GET", token } = {}) {
-  const res = await gh(method, url, null, { token });
+async function request(url, { method = "GET", token, repeatable = false } = {}) {
+  const res = await gh(method, url, null, { token, repeatable });
   if (!res.ok) {
     const said = res.data?.message ?? res.data?.raw ?? "";
     const err = new Error(`Request to ${url} failed with status ${res.status}: ${String(said).slice(0, 300)}`);
@@ -25,6 +25,32 @@ async function request(url, { method = "GET", token } = {}) {
     throw err;
   }
   return res.data;
+}
+
+/** One directory of the control repository, whole - or an error, never part of it. */
+async function treeEntries(org, sha, token) {
+  const tree = await request(`https://api.github.com/repos/${org}/${CONTROL_REPO}/git/trees/${sha}`, { token });
+  if (tree?.truncated) throw new Error(`${org}: GitHub returned only part of a directory listing`);
+  return tree?.tree || [];
+}
+
+/**
+ * The invitation cards: `public/i/*.json`, read one directory at a time.
+ *
+ * It was one recursive tree of the whole repository, whose observations grow
+ * without bound; a tree that size comes back truncated, and the cards beyond
+ * the cut were left out with a warning nobody reads. Three small listings
+ * cannot be. An org with no `i` directory has no cards - an answer. A listing
+ * that failed is not one, and throws (review 2026-10-07: a 404 here was taken
+ * for "no cards yet", which this listing never answers).
+ */
+async function listCards(org, token) {
+  const top = await treeEntries(org, "HEAD", token);
+  const pub = top.find((e) => e.path === "public" && e.type === "tree");
+  if (!pub) return [];
+  const dir = (await treeEntries(org, pub.sha, token)).find((e) => e.path === "i" && e.type === "tree");
+  if (!dir) return [];
+  return (await treeEntries(org, dir.sha, token)).filter((e) => e.type === "blob" && e.path.endsWith(".json"));
 }
 
 async function main() {
@@ -125,76 +151,73 @@ async function main() {
   for (const org of orgs) {
     const inst = installations.find((i) => i.account?.login?.toLowerCase() === org.toLowerCase());
     if (!inst) {
-      console.warn(`[warning] App is not installed on org: ${org}. Skipping.`);
+      // Registered and never installed: nothing to read, and nothing to lose.
+      // But an org the previous deployment had pages for had the App taken
+      // away while running, and skipping it emptied every student page it had
+      // without a word (review 2026-10-07).
+      if (!keepPrevious(org, "the PXL Classroom App is not installed on it")) {
+        console.warn(`[warning] App is not installed on org: ${org}. Skipping.`);
+      }
       continue;
     }
 
     console.log(`Fetching public data for org ${org} (installation ID: ${inst.id})...`);
+    // Whether its index was read. A "not found" before that is an org with
+    // nothing published; after it, the index was there a moment ago, so it is
+    // a read that failed.
+    let indexRead = false;
     try {
       // Mint installation token
+      // Asked again on a 5xx or no answer (`repeatable`): a second mint is a
+      // second token and nothing else, and failing here keeps the org's old
+      // pages over one 502.
       const tokenRes = await request(`https://api.github.com/app/installations/${inst.id}/access_tokens`, {
         method: "POST",
         token: jwt,
+        repeatable: true,
       });
       const token = tokenRes.token;
 
       // Fetch public/assignments.json from the control repo
       const contentsUrl = `https://api.github.com/repos/${org}/${CONTROL_REPO}/contents/public/assignments.json`;
       const fileData = await request(contentsUrl, { token });
-
-      if (fileData?.content) {
-        const bin = Buffer.from(fileData.content.replace(/\n/g, ""), "base64").toString("utf8");
-        const orgDir = join(outDir, org);
-        await mkdir(orgDir, { recursive: true });
-        await writeFile(join(orgDir, "assignments.json"), bin);
-        console.log(`[ok] Saved assignments.json for ${org}`);
-        activeOrgs.push({ login: org });
+      // A file GitHub answered for without its content is not an index.
+      if (typeof fileData?.content !== "string" || !fileData.content) {
+        throw new Error(`${org}: public/assignments.json came back without its content`);
       }
+      indexRead = true;
+      const orgDir = join(outDir, org);
+      await mkdir(orgDir, { recursive: true });
+      await writeFile(
+        join(orgDir, "assignments.json"),
+        Buffer.from(fileData.content.replace(/\n/g, ""), "base64").toString("utf8"),
+      );
+      console.log(`[ok] Saved assignments.json for ${org}`);
+      activeOrgs.push({ login: org });
 
       // Fetch public/i/*.json - the per-invitation assignment cards and their
       // teams files. Named by the sha256 of the invitation token, so the only
       // way to fetch one is to hold the link (ARCHITECTURE §4.3.3).
       //
-      // One Git Trees call, then one blob per file. The Contents API needed a
-      // directory listing PLUS a request per entry, on every frontend deploy,
-      // for every participating org - and its listing silently caps at 1000
-      // entries, which a long-running org's accumulated cards can reach.
-      try {
-        const orgInviteDir = join(outDir, org, "i");
-        const tree = await request(
-          `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/trees/HEAD?recursive=1`,
+      // EVERY CARD OR NONE: a card that cannot be read is an org that cannot
+      // be read (keepPrevious below), never one published without it - every
+      // invitation link it had handed out would answer "not found". Listed
+      // with Git Trees (listCards), then one blob per file; the Contents API
+      // needed a request per entry and its listing silently caps at 1000.
+      const orgInviteDir = join(outDir, org, "i");
+      const entries = await listCards(org, token);
+      if (entries.length) await mkdir(orgInviteDir, { recursive: true });
+      for (const entry of entries) {
+        const blob = await request(
+          `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/blobs/${entry.sha}`,
           { token }
         );
-        const entries = (tree?.tree || []).filter(
-          (e) => e.type === "blob" && e.path.startsWith("public/i/") && e.path.endsWith(".json")
-        );
-        if (tree?.truncated) {
-          console.warn(
-            `[warning] ${org}: the git tree came back truncated, so some invitation cards may be missing.`
-          );
-        }
-        if (entries.length) await mkdir(orgInviteDir, { recursive: true });
-        let saved = 0;
-        for (const entry of entries) {
-          const blob = await request(
-            `https://api.github.com/repos/${org}/${CONTROL_REPO}/git/blobs/${entry.sha}`,
-            { token }
-          );
-          if (blob?.content) {
-            const bin = Buffer.from(blob.content.replace(/\n/g, ""), "base64").toString("utf8");
-            await writeFile(join(orgInviteDir, entry.path.slice("public/i/".length)), bin);
-            saved++;
-          }
-        }
-        // Filenames are digests, so logging them is noise, not information.
-        console.log(`[ok] Saved ${saved} invitation file(s) for ${org}`);
-      } catch (iErr) {
-        // A 404 is an org with no cards yet. Anything else used to be a
-        // warning, and the org was published WITHOUT its cards - every
-        // invitation link it had handed out answered "not found". It is an
-        // org that could not be read, like any other (keepPrevious below).
-        if (iErr.status !== 404) throw iErr;
+        if (typeof blob?.content !== "string") throw new Error(`${org}: an invitation card came back without its content`);
+        const bin = Buffer.from(blob.content.replace(/\n/g, ""), "base64").toString("utf8");
+        await writeFile(join(orgInviteDir, entry.path), bin);
       }
+      // Filenames are digests, so logging them is noise, not information.
+      console.log(`[ok] Saved ${entries.length} invitation file(s) for ${org}`);
 
       // `public/teams/` IS NOT FETCHED, and that is the point.
       //
@@ -212,7 +235,7 @@ async function main() {
       // `data/<org>/teams` either; teams reach a student through the invitation
       // card behind the digest.
     } catch (err) {
-      if (err.status === 404) {
+      if (err.status === 404 && !indexRead) {
         // Nothing published yet - unless the previous deployment had pages for
         // it: then "not found" is far likelier to be lost access (the control
         // repository left out of the App's repository access) than an org that
@@ -257,6 +280,11 @@ async function main() {
   // assignments and changes are not reaching its students.
   if (kept.length && process.env.KEPT_ORGS_FILE) {
     await writeFile(process.env.KEPT_ORGS_FILE, JSON.stringify(kept, null, 2) + "\n");
+  }
+  // And to the run itself, so the watchdog does not read this deploy as one
+  // that brought every page up to date (lib/pages-kept.mjs).
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(process.env.GITHUB_OUTPUT, `kept=${kept.length > 0}\n`);
   }
   if (kept.length && process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(

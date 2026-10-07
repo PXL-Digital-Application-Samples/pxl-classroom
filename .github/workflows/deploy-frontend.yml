@@ -247,20 +247,36 @@ jobs:
 
       # What the previous deployment published, so an organization this run
       # cannot read keeps its last pages instead of stopping every other
-      # organization's (scripts/fetch-pages-data.mjs keepPrevious). The newest
-      # unexpired `github-pages` artifact is the previous deployment's site.
-      # None (more than a day without a deploy) or none readable is not an
-      # error: the fetch then fails an unreadable org as it always did.
+      # organization's (scripts/fetch-pages-data.mjs keepPrevious).
+      #
+      # The `github-pages` artifact of the newest run of THIS workflow on main,
+      # from this repository, that went through. Never "the newest artifact by
+      # that name": on a public hub a fork's pull request can run a workflow of
+      # its own that uploads one, and it would have been published as an
+      # organization's pages (review 2026-10-07). And never one page of the
+      # artifact list sorted by hand: that list is not in creation order, and
+      # deploys run several times an hour. Anything in it that is not a plain
+      # file or folder (a link could reach the runner's disk) refuses it.
+      #
+      # None, or none readable, is not an error: the fetch then fails an
+      # unreadable organization as it always did.
       - name: Unpack the previous deployment
         run: |
           set -uo pipefail
           PREV="${RUNNER_TEMP}/previous-site"
           ZIP="${RUNNER_TEMP}/previous.zip"
           mkdir -p "$PREV"
-          LIST="repos/${GITHUB_REPOSITORY}/actions/artifacts?name=github-pages&per_page=30"
-          NEWEST='[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .id // empty'
-          if ! ID=$(gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "$LIST" --jq "$NEWEST"); then
-            ID=""
+          RUNS="repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-frontend.yml/runs?branch=main&status=success&per_page=20"
+          OURS='[.workflow_runs[] | select(.head_repository.id == .repository.id and (.event == "push" or .event == "workflow_dispatch"))] | first | .id // empty'
+          if ! RUN=$(gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "$RUNS" --jq "$OURS"); then
+            RUN=""
+          fi
+          ID=""
+          if [ -n "$RUN" ]; then
+            ARTS="repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}/artifacts?name=github-pages"
+            if ! ID=$(gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "$ARTS" --jq '[.artifacts[] | select(.expired == false)] | first | .id // empty'); then
+              ID=""
+            fi
           fi
           if [ -z "$ID" ]; then
             echo "No previous deployment to keep pages from."
@@ -268,8 +284,9 @@ jobs:
           fi
           if gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ID}/zip" > "$ZIP" \
             && unzip -q -o "$ZIP" -d "${RUNNER_TEMP}/previous" \
-            && tar -xf "${RUNNER_TEMP}/previous/artifact.tar" -C "$PREV"; then
-            echo "Previous deployment unpacked (artifact ${ID})."
+            && tar -xf "${RUNNER_TEMP}/previous/artifact.tar" --no-same-owner -C "$PREV" \
+            && [ -z "$(find "$PREV" ! -type f ! -type d -print -quit)" ]; then
+            echo "Previous deployment unpacked (run ${RUN}, artifact ${ID})."
           else
             echo "::warning::The previous deployment could not be unpacked; an unreadable organization fails this deploy."
             rm -rf "$PREV" && mkdir -p "$PREV"
@@ -281,6 +298,7 @@ jobs:
           GITHUB_API_VERSION: "2026-03-10"
 
       - name: Fetch public pages data from org control repos
+        id: fetch
         run: node scripts/fetch-pages-data.mjs
         env:
           PXL_APP_CLIENT_ID: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -289,8 +307,12 @@ jobs:
           KEPT_ORGS_FILE: ${{ runner.temp }}/kept-orgs.json
 
       # The deploy succeeds with an organization kept as it was, so nothing
-      # else would say its students are not getting its changes.
+      # else would say its students are not getting its changes. It runs ONLY
+      # then, and that is itself the signal: the watchdog reads whether this
+      # step ran to know the pages are still behind (lib/pages-kept.mjs, which
+      # spells its name and the output; tests/pages-kept.test.mjs).
       - name: Tell an administrator about organizations kept as they were
+        if: steps.fetch.outputs.kept == 'true'
         run: node scripts/report-kept-orgs.mjs
         env:
           KEPT_ORGS_FILE: ${{ runner.temp }}/kept-orgs.json
@@ -369,6 +391,12 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: './frontend/dist'
+          # The next deploy keeps an unreadable organization's pages from this
+          # (the step "Unpack the previous deployment"). The action's default is
+          # one day, so after a quiet day there was nothing to keep and one
+          # organization stopped every other one's pages again. A month covers
+          # holidays; a current copy exists anyway (OPEN-ITEMS §13).
+          retention-days: 30
 
   deploy:
     environment:

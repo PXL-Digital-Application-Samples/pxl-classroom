@@ -35,8 +35,17 @@ function cardDigest(n) {
   return String(n).padStart(64, "0");
 }
 
-/** @returns {{ log: string[], outDir: string, stdout: string }} */
-function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignmentsFailTimes = 0, treeStatus = 200, previous = null, allowFailure = false } = {}) {
+/**
+ * @param {object} o
+ * @param {number} [o.cards]           cards in public/i (0: no i directory at all)
+ * @param {boolean} [o.truncated]      GitHub cut the card listing short
+ * @param {number} [o.treeStatus]      what the repository's top listing answers
+ * @param {number|null} [o.failCard]   this card's blob answers 404
+ * @param {boolean} [o.installed]      whether the App is installed on the org
+ * @param {number} [o.mintFailTimes]   502s before the installation token is minted
+ * @returns {{ log: string[], outDir: string, stdout: string }}
+ */
+function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignmentsFailTimes = 0, treeStatus = 200, failCard = null, installed = true, mintFailTimes = 0, previous = null, allowFailure = false } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "pxl-pages-"));
   mkdirSync(join(cwd, "frontend", "public", "data"), { recursive: true });
   // What the previous deployment published, as the deploy unpacks it.
@@ -47,23 +56,29 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
   }
   writeFileSync(join(cwd, "participating-orgs.yml"), `orgs:\n  - login: ${ORG}\n`);
 
-  const tree = [];
+  // The repository read one directory at a time: top, public/, public/i/.
+  const top = [
+    { path: "public", type: "tree", sha: "publicdir" },
+    { path: "students", type: "tree", sha: "studentsdir" },
+    { path: "README.md", type: "blob", sha: "readme" },
+  ];
+  const inPublic = [{ path: "assignments.json", type: "blob", sha: "index" }];
+  if (cards > 0) inPublic.push({ path: "i", type: "tree", sha: "carddir" });
+  const cardList = [];
   const blobRoutes = [];
   for (let i = 0; i < cards; i++) {
     const sha = `sha${i}`;
-    tree.push({ path: `public/i/${cardDigest(i)}.json`, type: "blob", sha });
+    cardList.push({ path: `${cardDigest(i)}.json`, type: "blob", sha });
     blobRoutes.push({
       match: `git/blobs/${sha}$`,
-      body: { content: b64(JSON.stringify({ schema_version: 1, assignment: { id: `lab-${i}` } })) },
+      status: i === failCard ? 404 : 200,
+      body: i === failCard ? { message: "Not Found" } : { content: b64(JSON.stringify({ schema_version: 1, assignment: { id: `lab-${i}` } })) },
     });
   }
-  // Files outside public/i must be ignored, not downloaded.
-  tree.push({ path: "students/roster.yml", type: "blob", sha: "roster" });
-  tree.push({ path: "public/i", type: "tree", sha: "dir" });
 
   const routes = [
-    { match: "app/installations\\?", body: [{ id: 42, account: { login: ORG } }] },
-    { match: "app/installations/42/access_tokens", body: { token: "ghs_stub" } },
+    { match: "app/installations\\?", body: installed ? [{ id: 42, account: { login: ORG } }] : [] },
+    { match: "app/installations/42/access_tokens", failTimes: mintFailTimes, failStatus: 502, body: { token: "ghs_stub" } },
     {
       match: "contents/public/assignments\\.json",
       status: assignmentsStatus,
@@ -74,7 +89,9 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
           ? { content: b64(JSON.stringify({ schema_version: 1, assignments: {} })) }
           : { message: "Server Error" },
     },
-    { match: "git/trees/HEAD", status: treeStatus, body: treeStatus === 200 ? { tree, truncated } : { message: "Server Error" } },
+    { match: "git/trees/HEAD$", status: treeStatus, body: treeStatus === 200 ? { tree: top, truncated: false } : { message: treeStatus === 404 ? "Not Found" : "Server Error" } },
+    { match: "git/trees/publicdir$", body: { tree: inPublic, truncated: false } },
+    { match: "git/trees/carddir$", body: { tree: cardList, truncated } },
     ...blobRoutes,
     { match: "contents/public/teams", status: 404, body: { message: "Not Found" } },
   ];
@@ -96,6 +113,7 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
       PXL_APP_PRIVATE_KEY: PEM,
       ...(previous ? { PREVIOUS_SITE_DATA: previousData } : {}),
       KEPT_ORGS_FILE: join(cwd, "kept.json"),
+      GITHUB_OUTPUT: join(cwd, "output.txt"),
     },
   });
   if (!allowFailure) assert.equal(proc.status, 0, `script failed:\n${proc.stderr}`);
@@ -110,11 +128,14 @@ function run({ cards = 3, truncated = false, assignmentsStatus = 200, assignment
   };
 }
 
-test("the invitation cards are listed in ONE request, not one per file", () => {
+test("the invitation cards are listed in three requests whatever their number, never one per file", () => {
+  // One directory at a time (top, public/, public/i/): a recursive tree of the
+  // whole repository grows with its observations and comes back truncated.
   const { log } = run({ cards: 5 });
 
   const trees = log.filter((l) => l.includes("git/trees/"));
-  assert.equal(trees.length, 1, `expected a single tree call, got:\n  ${trees.join("\n  ")}`);
+  assert.equal(trees.length, 3, `expected three listings, got:\n  ${trees.join("\n  ")}`);
+  assert.ok(!trees.some((l) => /recursive/.test(l)), "and never the whole repository at once");
 
   // The old shape: a directory listing plus a per-entry `item.url` fetch.
   const contentsDirListing = log.filter((l) => /contents\/public\/i(\?|$)/.test(l));
@@ -143,17 +164,66 @@ test("request count grows by one per card, not two", () => {
   assert.equal(large - small, 10, `10 more cards must cost 10 more requests, not 20 (got ${large - small})`);
 });
 
-test("a truncated tree is reported rather than silently short", () => {
-  // The git tree API truncates very large trees. Saying nothing would look
-  // exactly like an org that simply has fewer assignments.
-  const { stdout } = run({ cards: 2, truncated: true });
-  assert.match(stdout, /truncated/i, "a truncated tree must be called out");
+test("a card listing GitHub cut short is never published as the cards", () => {
+  // It was a warning, and the org went out with the cards before the cut:
+  // every invitation link beyond it answered "not found".
+  const kept = run({ cards: 2, truncated: true, previous: LAST, allowFailure: true });
+  assert.equal(kept.status, 0, kept.stdout);
+  assert.equal(readFileSync(join(kept.outDir, "assignments.json"), "utf8"), LAST[`${ORG}/assignments.json`], "kept as it was");
+  const none = run({ cards: 2, truncated: true, allowFailure: true });
+  assert.notEqual(none.status, 0, "and with nothing to keep, it stops the publish");
 });
 
 test("an org with no invitation cards is not an error", () => {
-  const { stdout, outDir } = run({ cards: 0 });
+  const { stdout, outDir, log } = run({ cards: 0 });
   assert.match(stdout, /Saved 0 invitation file\(s\)/);
   assert.ok(existsSync(join(outDir, "assignments.json")), "the index is still written");
+  assert.ok(!log.some((l) => l.includes("git/blobs/")), "nothing to download");
+});
+
+test("a card that cannot be read keeps the org as it was, never publishes the others without it", () => {
+  // Every card or none: a 404 on one blob was swallowed as "no cards yet".
+  const res = run({ cards: 3, failCard: 1, previous: LAST, allowFailure: true });
+  assert.equal(res.status, 0, res.stdout);
+  assert.ok(existsSync(join(res.outDir, "i", `${cardDigest(9)}.json`)), "its last complete cards");
+  assert.ok(!existsSync(join(res.outDir, "i", `${cardDigest(0)}.json`)), "and none of this run's");
+  const none = run({ cards: 3, failCard: 1, allowFailure: true });
+  assert.notEqual(none.status, 0, "nothing to keep: the publish stops");
+});
+
+test("'not found' AFTER the index was read is a failed read, not an org with nothing published", () => {
+  // The index was there a moment ago, so the org did not un-publish everything.
+  const none = run({ cards: 1, treeStatus: 404, allowFailure: true });
+  assert.notEqual(none.status, 0, `it must not drop the org from the index:\n${none.stdout}`);
+  const kept = run({ cards: 1, treeStatus: 404, previous: LAST, allowFailure: true });
+  assert.equal(kept.status, 0, kept.stdout);
+  assert.ok(existsSync(join(kept.outDir, "i", `${cardDigest(9)}.json`)));
+});
+
+test("an org whose App was uninstalled keeps its pages and is reported, instead of vanishing", () => {
+  const res = run({ installed: false, previous: LAST, allowFailure: true });
+  assert.equal(res.status, 0, res.stdout);
+  assert.ok(existsSync(join(res.outDir, "assignments.json")));
+  assert.match(kept(res)[0].why, /not installed/);
+  // Registered and never installed: nothing to keep, nothing to say.
+  const fresh = run({ installed: false });
+  assert.deepEqual(JSON.parse(readFileSync(join(fresh.dataDir, "index.json"), "utf8")).orgs, []);
+  assert.deepEqual(kept(fresh), []);
+});
+
+test("a 502 while getting the org's access token is asked again, not a reason to keep old pages", () => {
+  // A second token is a second token and nothing else; failing here kept an
+  // org's old pages over one 502, and the run went green.
+  const res = run({ cards: 1, mintFailTimes: 2, previous: LAST });
+  assert.equal(res.log.filter((l) => /access_tokens/.test(l)).length, 3, "asked three times");
+  assert.ok(existsSync(join(res.outDir, "i", `${cardDigest(0)}.json`)), "and this run's pages are published");
+  assert.deepEqual(kept(res), []);
+});
+
+test("the run says when it kept an org, so the watchdog does not read it as up to date", () => {
+  const output = (res) => (existsSync(join(res.cwd, "output.txt")) ? readFileSync(join(res.cwd, "output.txt"), "utf8") : "");
+  assert.match(output(run({ cards: 1, assignmentsStatus: 500, previous: LAST, allowFailure: true })), /^kept=true$/m);
+  assert.match(output(run({ cards: 1 })), /^kept=false$/m, "and says false when every org was read");
 });
 
 // --- what must NOT be published ----------------------------------------------

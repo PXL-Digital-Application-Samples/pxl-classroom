@@ -228,6 +228,24 @@ test("gh sends a POST once whatever happened to the connection - it may have bee
   assert.equal(calls, 1);
 });
 
+test("a POST the caller vouches is repeatable is asked again, after a 5xx and after no answer", async (t) => {
+  // Minting an installation token: a second mint is a second token and
+  // nothing else. Sent once, one 502 kept an org's old student pages (review
+  // 2026-10-07).
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) return new Response("bad gateway", { status: 502, headers: { "content-type": "text/plain" } });
+    if (calls === 2) return dropped();
+    return new Response('{"token":"ghs_x"}', { status: 201, headers: { "content-type": "application/json" } });
+  };
+  t.after(() => globalThis.fetch = originalFetch);
+  const res = await gh("POST", "/app/installations/1/access_tokens", null, { token: "jwt", repeatable: true });
+  assert.equal(res.status, 201);
+  assert.equal(calls, 3);
+});
+
 test("gh stops waiting on a stalled request and asks again, three times at most", async (t) => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

@@ -222,14 +222,19 @@ test("getRepoContent does not read a 1 MB+ file as missing", () => {
 // --- F20: one call per card, per org, per deploy -----------------------------
 
 test("the Pages fetch walks the git tree instead of the contents API", () => {
+  // The call pattern itself is driven in tests/fetch-pages-data.test.mjs; this
+  // guards the shape. One directory at a time since 2026-10-07: a recursive
+  // tree of the whole repository grows with its observations and came back
+  // truncated, and the cards past the cut were published as missing.
   const src = readFileSync(join(root, "scripts", "fetch-pages-data.mjs"), "utf8");
-  assert.match(src, /git\/trees\/HEAD\?recursive=1/, "one call for the listing");
+  assert.match(src, /git\/trees\/\$\{sha\}/, "a listing per directory");
+  assert.doesNotMatch(src, /recursive=1/, "never the whole repository at once");
   assert.match(src, /git\/blobs\//, "and one blob per file, with no directory walk");
   assert.ok(
     !/contents\/public\/i/.test(src),
     "the contents listing caps at 1000 entries and cost a request per file"
   );
-  assert.match(src, /truncated/, "a truncated tree must be reported, not silently short");
+  assert.match(src, /if \(tree\?\.truncated\) throw/, "a listing cut short is a failed read, never fewer cards");
 });
 
 // --- The generated workflow still validates ---------------------------------

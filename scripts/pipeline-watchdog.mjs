@@ -15,6 +15,7 @@
 import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
+import { keptAnOrganization } from "../lib/pages-kept.mjs";
 
 const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts";
 const DEDUP_MARKER = "<!-- pxl-watchdog-dedup:";
@@ -92,41 +93,85 @@ export const PAGES_FAILURES_TO_STOP = 3;
  * This watchdog already redeployed after a deploy that HUNG; one that FAILED,
  * or a dispatch that never started one, waited for the next change anywhere.
  *
- * Due when the data was regenerated after the last successful deploy (a
- * regeneration whose dispatch failed counts - its run fails), or the newest
- * deploy failed - and that is older than the grace, and no deploy is queued,
- * waiting or running. Not due after PAGES_FAILURES_TO_STOP failures in a row:
- * each failed run is alerted already, and a fourth deploy would fail the same.
+ * Due when the data was regenerated after the last deploy that brought every
+ * page up to date (a regeneration whose dispatch failed counts - its run
+ * fails), or the newest deploy did not - it failed, or it kept an
+ * organization's old pages because it could not read it (lib/pages-kept.mjs:
+ * such a deploy succeeds, and was read as up to date, so one 502 for one org
+ * left its new assignment off the site until the next change anywhere). And
+ * that is older than the grace, and no deploy is queued, waiting or running.
+ * Not due after PAGES_FAILURES_TO_STOP such deploys in a row: each was
+ * alerted already, and a fourth would end the same.
  *
- * @param {{completed: object[], active: object[], now: number}} runs
+ * `deploys` is the deploy workflow's own history (`deployHistory`), each run
+ * with `kept`; without it, the deploys among `completed`.
+ *
+ * @param {{completed?: object[], deploys?: object[]|null, active?: object[], now?: number}} runs
  * @returns {{due: boolean, reason: string}}
  */
-export function pagesRedeployDue({ completed = [], active = [], now = Date.now() }) {
+export function pagesRedeployDue({ completed = [], deploys = null, active = [], now = Date.now() }) {
   if (active.some((r) => isWorkflow(r, "deploy-frontend.yml"))) return { due: false, reason: "a deploy is on its way" };
-  const deploys = completed
-    .filter((r) => isWorkflow(r, "deploy-frontend.yml") && r.conclusion !== "cancelled" && r.conclusion !== "skipped")
+  const history = (deploys ?? completed.filter((r) => isWorkflow(r, "deploy-frontend.yml")))
+    .filter((r) => r.conclusion !== "cancelled" && r.conclusion !== "skipped")
     .sort((a, b) => finishedAt(b) - finishedAt(a));
-  const lastOk = deploys.find((r) => r.conclusion === "success");
+  const upToDate = (r) => r.conclusion === "success" && !r.kept;
+  const lastOk = history.find(upToDate);
   const lastOkAt = lastOk ? finishedAt(lastOk) : 0;
-  const failedInARow = deploys.findIndex((r) => r.conclusion === "success");
-  const streak = failedInARow === -1 ? deploys.length : failedInARow;
+  const firstOk = history.findIndex(upToDate);
+  const streak = firstOk === -1 ? history.length : firstOk;
   if (streak >= PAGES_FAILURES_TO_STOP) {
-    return { due: false, reason: `${streak} deploys failed in a row - alerted, not retried again` };
+    return { due: false, reason: `${streak} deploys in a row failed or kept an organization's old pages - alerted, not retried again` };
   }
   const newestRegen = completed
     .filter((r) => isWorkflow(r, "regenerate-dashboard.yml") && (r.conclusion === "success" || r.conclusion === "failure"))
     .map(finishedAt)
     .reduce((a, b) => Math.max(a, b), 0);
-  const newestDeployFailure = deploys[0]?.conclusion === "failure" ? finishedAt(deploys[0]) : 0;
-  const behindSince = Math.max(newestRegen > lastOkAt ? newestRegen : 0, newestDeployFailure);
+  const newest = history[0];
+  const newestBehind = newest && !upToDate(newest) ? finishedAt(newest) : 0;
+  const behindSince = Math.max(newestRegen > lastOkAt ? newestRegen : 0, newestBehind);
   if (!behindSince) return { due: false, reason: "the pages are as new as the data" };
   if (now - behindSince < PAGES_GRACE_MS) return { due: false, reason: "the ordinary path still has time" };
-  return {
-    due: true,
-    reason: newestDeployFailure && newestDeployFailure >= newestRegen
-      ? "the newest deploy failed"
-      : "the data was regenerated after the last successful deploy",
-  };
+  if (newestBehind && newestBehind >= newestRegen) {
+    return { due: true, reason: newest.kept ? "the newest deploy kept an organization's old pages" : "the newest deploy failed" };
+  }
+  return { due: true, reason: "the data was regenerated after the last successful deploy" };
+}
+
+/**
+ * The Pages deploys on main, newest first, from the deploy workflow's own
+ * list - not the scan's six-hour window, which forgot a failure as it aged,
+ * so a deploy that always fails was retried three times every six hours, for
+ * ever (review 2026-10-07). A successful run is asked whether it kept an
+ * organization's old pages (one jobs read each), newest first and only as far
+ * as the decision needs: to the first deploy that brought every page up to
+ * date, or PAGES_FAILURES_TO_STOP that did not.
+ */
+export async function deployHistory({ owner, repo, ghOpts }) {
+  const res = await gh(
+    "GET",
+    `/repos/${owner}/${repo}/actions/workflows/deploy-frontend.yml/runs?branch=main&status=completed&per_page=20`,
+    null,
+    ghOpts,
+  );
+  const runs = (res.data?.workflow_runs || [])
+    // Ours: a fork's pull request can run a workflow file by this name too.
+    .filter((r) => r.event === "push" || r.event === "workflow_dispatch")
+    .sort((a, b) => finishedAt(b) - finishedAt(a));
+  const out = [];
+  let behind = 0;
+  for (const r of runs) {
+    if (r.conclusion === "cancelled" || r.conclusion === "skipped") continue;
+    if (r.conclusion !== "success") {
+      out.push(r);
+    } else {
+      const jobs = await ghAllItems(`/repos/${owner}/${repo}/actions/runs/${r.id}/jobs?per_page=100`, "jobs", ghOpts);
+      const kept = keptAnOrganization(jobs);
+      out.push({ ...r, kept });
+      if (!kept) break;
+    }
+    if (++behind >= PAGES_FAILURES_TO_STOP) break;
+  }
+  return out;
 }
 
 export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, notifyLogins }) {
@@ -206,6 +251,10 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
 
   // Auto-cancel zombie runs waiting > 20m
   const cancelledRuns = [];
+  // A cancelled stuck deploy whose replacement was dispatched. Only once the
+  // dispatch went through: it was assumed, so a failed one was logged as
+  // "re-dispatched" and nothing deployed again (review 2026-10-07).
+  let deployRedispatched = false;
   if (autoCancel) {
     for (const r of stuckRuns) {
       if (r.reason === "waiting_timeout" && r.ageMs > 20 * 60 * 1000) {
@@ -223,9 +272,10 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
               { ref: "main" },
               ghOpts
             );
+            deployRedispatched = true;
           }
         } catch (err) {
-          console.warn(`Failed to auto-cancel run #${r.id}: ${err.message}`);
+          console.warn(`Failed to auto-cancel or re-dispatch run #${r.id}: ${err.message}`);
         }
       }
     }
@@ -233,21 +283,39 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
 
   // Student pages behind the data, with nothing on its way: deploy them. A
   // stuck deploy cancelled above was re-dispatched already, so it is on its way.
+  //
+  // NOTHING HERE MAY STOP THE ALERTS BELOW. The dispatch threw straight out of
+  // the scan, so during an incident a 502 on it skipped every stuck and failed
+  // run's alert, scan after scan, until those aged out unreported (review
+  // 2026-10-07). A dispatch that fails is itself alerted.
   let pagesRedeploy = { due: false, reason: "not checked" };
   if (autoCancel) {
-    const redeployedAbove = cancelledRuns.length > 0 && stuckRuns.some(
-      (r) => cancelledRuns.includes(r.id) && isWorkflow(r, "deploy-frontend.yml"),
-    );
-    pagesRedeploy = redeployedAbove
-      ? { due: false, reason: "re-dispatched after cancelling a stuck deploy" }
-      : pagesRedeployDue({
-          completed: completedAll.filter(watchedRun),
-          active: [...waitingAll, ...inProgressAll, ...queuedAll].filter(watchedRun),
-          now,
-        });
+    if (deployRedispatched) {
+      pagesRedeploy = { due: false, reason: "re-dispatched after cancelling a stuck deploy" };
+    } else {
+      let deploys = null;
+      try {
+        deploys = await deployHistory({ owner, repo, ghOpts });
+      } catch (err) {
+        // The scan's own list still answers, without knowing which deploy kept
+        // an organization's pages.
+        console.warn(`Could not read the deploy history (${err.message}); judging from this scan's runs.`);
+      }
+      pagesRedeploy = pagesRedeployDue({
+        completed: completedAll.filter(watchedRun),
+        deploys,
+        active: [...waitingAll, ...inProgressAll, ...queuedAll].filter(watchedRun),
+        now,
+      });
+    }
     console.log(`Student pages: ${pagesRedeploy.due ? "redeploying" : "no redeploy"} - ${pagesRedeploy.reason}.`);
     if (pagesRedeploy.due) {
-      await gh("POST", `/repos/${owner}/${repo}/actions/workflows/deploy-frontend.yml/dispatches`, { ref: "main" }, ghOpts);
+      try {
+        await gh("POST", `/repos/${owner}/${repo}/actions/workflows/deploy-frontend.yml/dispatches`, { ref: "main" }, ghOpts);
+      } catch (err) {
+        pagesRedeploy = { ...pagesRedeploy, failed: err.message };
+        console.warn(`Could not dispatch the Pages deploy: ${err.message}`);
+      }
     }
   }
 
@@ -266,6 +334,8 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   // A scan that could not read every run cannot be an all-clear, at any alert
   // level: what it did not read may be exactly the failure it exists to report.
   if (capped.length) shouldNotify = true;
+  // Student pages behind, and the deploy that would fix them refused.
+  if (pagesRedeploy.failed) shouldNotify = true;
 
   if (!shouldNotify) {
     console.log("No alerting conditions met for configured alert level.");
@@ -340,6 +410,21 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
         `Check the repository's Actions tab.\n`;
       await gh("POST", `/repos/${owner}/${repo}/issues/${issue.number}/comments`, { body: commentBody }, ghOpts);
       console.log(`Posted incomplete-scan warning to issue #${issue.number}.`);
+    }
+  }
+
+  // Once an hour at most, like the warning above: the next scan tries again.
+  if (pagesRedeploy.failed) {
+    const dedupKey = `pages-redeploy-${new Date(now).toISOString().slice(0, 13)}`;
+    if (!comments.some((c) => c.body?.includes(`${DEDUP_MARKER}${dedupKey}-->`))) {
+      const commentBody =
+        `${DEDUP_MARKER}${dedupKey}-->\n` +
+        `### [ALERT] Student pages are behind, and the deploy could not be started\n\n` +
+        `${mentions ? `${mentions} - ` : ""}The student pages need deploying (${pagesRedeploy.reason}), and GitHub ` +
+        `refused the dispatch: ${pagesRedeploy.failed}. The next scan tries again; to deploy now, run ` +
+        `"Deploy frontend to Pages" from the repository's Actions tab.\n`;
+      await gh("POST", `/repos/${owner}/${repo}/issues/${issue.number}/comments`, { body: commentBody }, ghOpts);
+      console.log(`Posted failed-redeploy alert to issue #${issue.number}.`);
     }
   }
 

@@ -314,11 +314,13 @@ test("runWatchdog - a failure on the SECOND page of finished runs is reported", 
     // It asked for finished runs CREATED within six hours: a run is listed by
     // when it started, and the deadline sentinel can run for 4h45m before it
     // fails. The hour that is reported is judged on when the run finished.
-    const first = new URL(calls.find((c) => c.url.includes("status=completed")).url);
+    // The repository-wide list, not the deploy workflow's own (deployHistory).
+    const finishedList = (c) => c.url.includes("/actions/runs?") && c.url.includes("status=completed");
+    const first = new URL(calls.find(finishedList).url);
     const since = Date.parse(first.searchParams.get("created").replace(/^>=/, ""));
     assert.ok(Math.abs(Date.now() - 6 * 3600_000 - since) < 60_000, `created filter was ${first.searchParams.get("created")}`);
     assert.equal(first.searchParams.get("per_page"), "100");
-    assert.equal(calls.filter((c) => c.url.includes("status=completed")).length, 2, "both pages were read");
+    assert.equal(calls.filter(finishedList).length, 2, "both pages were read");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -389,7 +391,7 @@ test("pagesRedeployDue - three failed deploys in a row are alerted, not retried 
   const completed = [deploy("success", "18:00"), deploy("failure", "18:30"), deploy("failure", "19:00"), deploy("failure", "19:30")];
   const verdict = pagesRedeployDue({ completed, now: T("20:30") });
   assert.equal(verdict.due, false);
-  assert.match(verdict.reason, /3 deploys failed in a row/);
+  assert.match(verdict.reason, /3 deploys in a row failed/);
   // A cancelled deploy is neither a failure nor a success.
   const withCancel = [deploy("success", "18:00"), deploy("failure", "18:30"), deploy("cancelled", "19:00"), deploy("failure", "19:30")];
   assert.equal(pagesRedeployDue({ completed: withCancel, now: T("20:30") }).due, true);
@@ -400,4 +402,126 @@ test("pagesRedeployDue - pages as new as the data need nothing", () => {
   assert.equal(pagesRedeployDue({ completed: [], now: T("20:00") }).due, false);
   // A cancelled regeneration changed nothing it could publish.
   assert.equal(pagesRedeployDue({ completed: [deploy("success", "19:00"), regen("cancelled", "19:30")], now: T("20:00") }).due, false);
+});
+
+// --- review 2026-10-07 ---------------------------------------------------------
+
+const keptDeploy = (hhmm) => ({ ...deploy("success", hhmm), kept: true });
+
+test("pagesRedeployDue - a deploy that KEPT an org's old pages is behind, not up to date", () => {
+  // One 502 for one org: that org kept its old pages, the deploy succeeded,
+  // and the publish that triggered it never reached its students.
+  const completed = [regen("success", "19:40")];
+  const deploys = [deploy("success", "19:00"), keptDeploy("19:42")];
+  assert.deepEqual(pagesRedeployDue({ completed, deploys, now: T("20:00") }), {
+    due: true, reason: "the newest deploy kept an organization's old pages",
+  });
+  assert.equal(pagesRedeployDue({ completed, deploys, now: T("19:45") }).due, false, "after the grace, like a failure");
+  // The redeploy read every org: nothing more is due.
+  assert.equal(pagesRedeployDue({ completed, deploys: [...deploys, deploy("success", "20:05")], now: T("20:30") }).due, false);
+});
+
+test("pagesRedeployDue - three deploys that failed or kept an org stop the retries, however long ago", () => {
+  // The scan's six-hour window forgot a failure as it aged, so a deploy that
+  // always fails was retried three times every six hours, for ever. The
+  // history is the deploy workflow's own list, whatever its age.
+  const deploys = [deploy("success", "01:00"), deploy("failure", "02:00"), keptDeploy("03:00"), deploy("failure", "04:00")];
+  const verdict = pagesRedeployDue({ completed: [], deploys, now: T("23:00") });
+  assert.equal(verdict.due, false);
+  assert.match(verdict.reason, /3 deploys in a row failed or kept/);
+});
+
+function stubRuns(routes) {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const method = opts.method || "GET";
+    const href = String(url);
+    calls.push({ method, url: href, body: opts.body ? JSON.parse(opts.body) : null });
+    for (const [pattern, answer] of routes) {
+      if (pattern.test(href) && (!answer.method || answer.method === method)) {
+        return answer.status === 204
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify(answer.body ?? {}), { status: answer.status ?? 200, headers: { "content-type": "application/json" } });
+      }
+    }
+    return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+const at = (minutesAgo) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+const deployRun = (id, conclusion, minutesAgo, event = "workflow_dispatch") => ({
+  id, path: ".github/workflows/deploy-frontend.yml", status: "completed", conclusion, event,
+  created_at: at(minutesAgo + 2), updated_at: at(minutesAgo),
+});
+const keptJobs = { jobs: [{ steps: [{ name: "Tell an administrator about organizations kept as they were", conclusion: "success" }] }] };
+const cleanJobs = { jobs: [{ steps: [{ name: "Tell an administrator about organizations kept as they were", conclusion: "skipped" }] }] };
+
+test("deployHistory - reads whether a deploy kept an org only as far as the decision needs, and only ours", async () => {
+  const { deployHistory } = await import("../scripts/pipeline-watchdog.mjs");
+  const gh = stubRuns([
+    [/actions\/workflows\/deploy-frontend\.yml\/runs/, { body: { workflow_runs: [
+      deployRun(5, "success", 10, "pull_request"), // a fork's run of a file by this name
+      deployRun(4, "success", 20),
+      deployRun(3, "failure", 30),
+      deployRun(2, "success", 40),
+      deployRun(1, "success", 50),
+    ] } }],
+    [/actions\/runs\/4\/jobs/, { body: keptJobs }],
+    [/actions\/runs\/2\/jobs/, { body: cleanJobs }],
+  ]);
+  try {
+    const history = await deployHistory({ owner: "o", repo: "r", ghOpts: { token: "t", throwOnError: true } });
+    assert.deepEqual(history.map((r) => [r.id, r.conclusion, r.kept ?? null]), [[4, "success", true], [3, "failure", null], [2, "success", false]]);
+    const jobReads = gh.calls.filter((c) => /\/jobs/.test(c.url)).map((c) => c.url.match(/runs\/(\d+)\/jobs/)[1]);
+    assert.deepEqual(jobReads, ["4", "2"], "never the fork's run, and nothing past the first up-to-date deploy");
+  } finally {
+    gh.restore();
+  }
+});
+
+test("runWatchdog - a redeploy GitHub refuses is alerted, and every other alert still goes out", async () => {
+  // The dispatch threw straight out of the scan: a 502 on it skipped the
+  // stuck and failed runs' alerts, scan after scan.
+  const gh = stubRuns([
+    [/status=completed&created/, { body: { workflow_runs: [
+      { id: 50, name: "Regenerate Dashboard", path: ".github/workflows/regenerate-dashboard.yml", status: "completed", conclusion: "failure", event: "workflow_dispatch", created_at: at(32), updated_at: at(30), html_url: "https://x/50" },
+    ] } }],
+    [/actions\/workflows\/deploy-frontend\.yml\/runs/, { body: { workflow_runs: [deployRun(9, "success", 120)] } }],
+    [/actions\/runs\/9\/jobs/, { body: cleanJobs }],
+    [/deploy-frontend\.yml\/dispatches/, { method: "POST", status: 502, body: { message: "Bad Gateway" } }],
+    [/issues\?labels=pxl-tracking/, { body: [{ number: 7, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }] }],
+    [/issues\/7\/comments/, { method: "GET", body: [] }],
+    [/issues\/7\/comments/, { method: "POST", status: 201, body: { id: 1 } }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.equal(res.pagesRedeploy.due, true);
+    assert.match(res.pagesRedeploy.failed, /502/);
+    const posted = gh.calls.filter((c) => c.method === "POST" && /issues\/7\/comments/.test(c.url)).map((c) => c.body.body);
+    assert.ok(posted.some((b) => /pxl-watchdog-dedup:failed-50-->/.test(b)), "the failed run's alert still went out");
+    assert.ok(posted.some((b) => /Student pages are behind, and the deploy could not be started/.test(b)), "and the refused redeploy is said");
+  } finally {
+    gh.restore();
+  }
+});
+
+test("runWatchdog - a stuck deploy whose replacement could not be dispatched is not reported as re-dispatched", async () => {
+  const gh = stubRuns([
+    [/status=waiting/, { body: { workflow_runs: [
+      { id: 77, name: "Deploy frontend to Pages", path: ".github/workflows/deploy-frontend.yml", status: "waiting", event: "workflow_dispatch", created_at: at(25), html_url: "https://x/77" },
+    ] } }],
+    [/actions\/runs\/77\/cancel/, { method: "POST", status: 202, body: {} }],
+    [/deploy-frontend\.yml\/dispatches/, { method: "POST", status: 502, body: { message: "Bad Gateway" } }],
+    [/issues\?labels=pxl-tracking/, { body: [{ number: 7, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }] }],
+    [/issues\/7\/comments/, { method: "GET", body: [] }],
+    [/issues\/7\/comments/, { method: "POST", status: 201, body: { id: 1 } }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.notEqual(res.pagesRedeploy.reason, "re-dispatched after cancelling a stuck deploy");
+  } finally {
+    gh.restore();
+  }
 });

@@ -226,11 +226,11 @@ When the check does report a genuine excess, fix it in **one** of two ways, both
 
 Posted on the hub's alert issue (with the watchdog's alerts) when a Pages deploy could not read that organization. Its student pages are kept exactly as they were last published, and every other organization's are updated, so nothing is broken for anyone yet - but new assignments, changed deadlines and new teams in that organization do not reach its students.
 
-1. The alert says why. A 403, or "answered not found, although it had student pages", is almost always the App's repository access: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Repository access** must include `pxl-classroom-control` (**All repositories** is simplest).
-2. A 5xx is GitHub. Check `https://www.githubstatus.com`; the next deploy reads the organization again by itself.
+1. The alert says why. A 403, or "answered not found, although it had student pages", is almost always the App's repository access: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Repository access** must include `pxl-classroom-control` (**All repositories** is simplest). "The PXL Classroom App is not installed on it" means it was uninstalled from an organization still listed as participating: install it again, or remove the organization (§4).
+2. A 5xx is GitHub. Check `https://www.githubstatus.com`. The watchdog deploys again by itself, ten minutes after the deploy that kept the organization and up to three times in a row; it stops there, because a fault that outlasts three deploys is not GitHub having a bad minute.
 3. Once fixed, the next deploy (any publish or acceptance, or the watchdog within half an hour) updates its pages; or run **Deploy frontend to Pages** by hand.
 
-The alert repeats at most once a day per organization. If the deploy cannot keep the organization's pages either - no deploy in the last day to keep them from - the deploy fails as it always did, and the previous site stays live.
+The alert repeats at most once a day per organization, and is not posted at all when `pipeline_alerts.level` is `off`. The pages are kept from the newest successful deploy of **Deploy frontend to Pages** on `main`, whose copy of the site is kept for 30 days. If there is none to keep them from, the deploy fails as it always did, and the previous site stays live.
 
 ## 4. Removing an organization
 
