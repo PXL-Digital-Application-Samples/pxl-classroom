@@ -469,13 +469,31 @@ test("deployHistory - reads whether a deploy kept an org only as far as the deci
       deployRun(1, "success", 50),
     ] } }],
     [/actions\/runs\/4\/jobs/, { body: keptJobs }],
+    [/actions\/runs\/3\/jobs/, { body: { jobs: [{ name: "build", conclusion: "failure", steps: [] }, { name: "deploy", conclusion: "skipped", steps: [] }] } }],
     [/actions\/runs\/2\/jobs/, { body: cleanJobs }],
   ]);
   try {
     const history = await deployHistory({ owner: "o", repo: "r", ghOpts: { token: "t", throwOnError: true } });
-    assert.deepEqual(history.map((r) => [r.id, r.conclusion, r.kept ?? null]), [[4, "success", true], [3, "failure", null], [2, "success", false]]);
+    assert.deepEqual(history.map((r) => [r.id, r.conclusion, r.kept]), [[4, "success", true], [3, "failure", false], [2, "success", false]]);
     const jobReads = gh.calls.filter((c) => /\/jobs/.test(c.url)).map((c) => c.url.match(/runs\/(\d+)\/jobs/)[1]);
-    assert.deepEqual(jobReads, ["4", "2"], "never the fork's run, and nothing past the first up-to-date deploy");
+    assert.deepEqual(jobReads, ["4", "3", "2"], "never the fork's run, and nothing past the first up-to-date deploy");
+  } finally {
+    gh.restore();
+  }
+});
+
+test("deployHistory - a run failed by the beta build, whose pages went live, is a deploy that worked", async () => {
+  // The run also builds the beta channel; a beta that failed failed the run,
+  // and the watchdog redeployed good pages and then stopped retrying real ones.
+  const { deployHistory } = await import("../scripts/pipeline-watchdog.mjs");
+  const gh = stubRuns([
+    [/actions\/workflows\/deploy-frontend\.yml\/runs/, { body: { workflow_runs: [deployRun(8, "failure", 20)] } }],
+    [/actions\/runs\/8\/jobs/, { body: { jobs: [{ name: "build-beta", conclusion: "failure", steps: [] }, { name: "build", conclusion: "success", steps: [] }, { name: "deploy", conclusion: "success", steps: [] }] } }],
+  ]);
+  try {
+    const history = await deployHistory({ owner: "o", repo: "r", ghOpts: { token: "t", throwOnError: true } });
+    assert.deepEqual(history.map((r) => [r.id, r.conclusion, r.kept]), [[8, "success", false]]);
+    assert.equal(pagesRedeployDue({ completed: [], deploys: history, now: Date.now() }).due, false);
   } finally {
     gh.restore();
   }

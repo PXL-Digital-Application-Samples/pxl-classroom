@@ -1070,7 +1070,13 @@ installations, the rosters and the sign-in proxy exist nowhere else. So the
 site carries a second build of the SPA, from the `beta` branch, at
 `<site>/beta/` (`/pxl-classroom/beta/`). It is the only branch besides
 `participating-orgs` and Dependabot's, and it exists only while there is
-something to test; operating it is [ADMIN.md §9](ADMIN.md).
+something to test; operating it is [ADMIN.md §9](ADMIN.md). **The channel is
+off unless the repository variable `BETA_CHANNEL` is `on`** (off since
+2026-10-07): `build-beta` and `beta-channel.yml` are skipped, the production
+build publishes the "no beta" page, and nothing about a beta can fail a
+deploy. Even on, the watchdog judges a deploy by its `deploy` job, never the
+run, so a failed beta does not read as failed student pages
+(`lib/pages-kept.mjs` `pagesOutcome`).
 
 - **Same origin, so same sign-in and same data.** The beta reads the stored
   sign-in production wrote and writes to the same control repos. Nothing about it

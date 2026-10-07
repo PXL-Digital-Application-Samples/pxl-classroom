@@ -15,7 +15,7 @@
 import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
-import { keptAnOrganization } from "../lib/pages-kept.mjs";
+import { pagesOutcome } from "../lib/pages-kept.mjs";
 
 const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts";
 const DEDUP_MARKER = "<!-- pxl-watchdog-dedup:";
@@ -141,10 +141,11 @@ export function pagesRedeployDue({ completed = [], deploys = null, active = [], 
  * The Pages deploys on main, newest first, from the deploy workflow's own
  * list - not the scan's six-hour window, which forgot a failure as it aged,
  * so a deploy that always fails was retried three times every six hours, for
- * ever (review 2026-10-07). A successful run is asked whether it kept an
- * organization's old pages (one jobs read each), newest first and only as far
- * as the decision needs: to the first deploy that brought every page up to
- * date, or PAGES_FAILURES_TO_STOP that did not.
+ * ever (review 2026-10-07). Each run is read by its jobs (one read each): did
+ * the pages go live, and did it keep an organization's old ones
+ * (`pagesOutcome`). Newest first and only as far as the decision needs: to the
+ * first deploy that brought every page up to date, or PAGES_FAILURES_TO_STOP
+ * that did not.
  */
 export async function deployHistory({ owner, repo, ghOpts }) {
   const res = await gh(
@@ -161,14 +162,14 @@ export async function deployHistory({ owner, repo, ghOpts }) {
   let behind = 0;
   for (const r of runs) {
     if (r.conclusion === "cancelled" || r.conclusion === "skipped") continue;
-    if (r.conclusion !== "success") {
-      out.push(r);
-    } else {
-      const jobs = await ghAllItems(`/repos/${owner}/${repo}/actions/runs/${r.id}/jobs?per_page=100`, "jobs", ghOpts);
-      const kept = keptAnOrganization(jobs);
-      out.push({ ...r, kept });
-      if (!kept) break;
-    }
+    // By the job that puts the pages live, and whether it kept an org's old
+    // ones (lib/pages-kept.mjs) - never the run's own conclusion, which a
+    // failed beta build sets to failure over pages that went out.
+    const jobs = await ghAllItems(`/repos/${owner}/${repo}/actions/runs/${r.id}/jobs?per_page=100`, "jobs", ghOpts);
+    const { conclusion, kept } = pagesOutcome(r, jobs);
+    if (conclusion === "cancelled" || conclusion === "skipped") continue;
+    out.push({ ...r, conclusion, kept });
+    if (conclusion === "success" && !kept) break;
     if (++behind >= PAGES_FAILURES_TO_STOP) break;
   }
   return out;

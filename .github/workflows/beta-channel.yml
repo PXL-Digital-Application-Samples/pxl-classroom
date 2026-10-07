@@ -21,6 +21,9 @@ concurrency:
 
 jobs:
   dispatch:
+    # Off unless the repository variable BETA_CHANNEL is `on`, like the beta
+    # build it would deploy (deploy-frontend.yml `build-beta`, ADMIN.md §9).
+    if: vars.BETA_CHANNEL == 'on'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { KEPT_STEP_NAME, keptAnOrganization } from "../lib/pages-kept.mjs";
+import { DEPLOY_JOB, KEPT_STEP_NAME, keptAnOrganization, pagesOutcome } from "../lib/pages-kept.mjs";
 import { reportKeptOrgs } from "../scripts/report-kept-orgs.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,6 +37,29 @@ test("keptAnOrganization: the step ran - not skipped, not absent", () => {
   assert.equal(keptAnOrganization(job(null)), false, "still running is not an answer");
   assert.equal(keptAnOrganization([{ steps: [{ name: "Build", conclusion: "success" }] }]), false);
   assert.equal(keptAnOrganization(undefined), false);
+});
+
+test("pagesOutcome: a deploy is judged by the job that puts the pages live, not by the run", () => {
+  const jobs = (beta, deploy) => [{ name: "build-beta", conclusion: beta, steps: [] }, { name: "build", conclusion: "success", steps: [] }, { name: DEPLOY_JOB, conclusion: deploy, steps: [] }];
+  assert.deepEqual(pagesOutcome({ conclusion: "failure" }, jobs("failure", "success")), { conclusion: "success", kept: false }, "a failed beta, pages live");
+  assert.equal(pagesOutcome({ conclusion: "failure" }, jobs("success", "skipped")).conclusion, "failure", "the build failed, nothing went live");
+  assert.equal(pagesOutcome({ conclusion: "failure" }, jobs("success", "failure")).conclusion, "failure");
+  assert.equal(pagesOutcome({ conclusion: "cancelled" }, jobs("success", "skipped")).conclusion, "cancelled");
+  assert.equal(pagesOutcome({ conclusion: "success" }, []).conclusion, "success", "no jobs listed: the run's own word");
+  // The name it looks for is the deploy workflow's job.
+  assert.ok(parse(WORKFLOW).jobs[DEPLOY_JOB]?.steps.some((s) => /actions\/deploy-pages@/.test(s.uses || "")), `deploy-frontend.yml has a job "${DEPLOY_JOB}" that deploys Pages`);
+});
+
+test("the beta channel is off unless the repository variable switches it on, and off costs production nothing", () => {
+  // Off since 2026-10-07, when no beta was in use: a beta that failed made
+  // every production deploy look failed.
+  assert.equal(parse(WORKFLOW).jobs["build-beta"].if, "vars.BETA_CHANNEL == 'on'");
+  const dispatch = parse(readFileSync(join(root, ".github/workflows/beta-channel.yml"), "utf8")).jobs.dispatch;
+  assert.equal(dispatch.if, "vars.BETA_CHANNEL == 'on'", "and a push to beta deploys nothing while it is off");
+  // A skipped beta still lets the production build run and says there is no beta.
+  assert.match(String(parse(WORKFLOW).jobs.build.if), /!cancelled\(\)/);
+  assert.match(steps.find((s) => s.name === "Download the beta build").if, /needs\.build-beta\.result == 'success'/);
+  assert.match(steps.find((s) => s.name === "Assemble the beta channel").run, /beta-unavailable\.html/);
 });
 
 test("the previous deployment is this workflow's own successful run on main, never any artifact by that name", () => {

@@ -464,6 +464,8 @@ A second copy of the web app, built from the `beta` branch, lives at `https://<p
 
 **It is production.** Same sign-in, same courses, same students: an assignment saved in the beta is saved. Signing out in the beta signs out every tab of the live app too. Try risky changes on `pxl-classroom-testbed` first.
 
+**It is switched off** (since 2026-10-07, while no beta is in use): nothing builds or deploys it, and the beta path shows "No beta is published right now". Switch it on first: the hub's **Settings** -> **Secrets and variables** -> **Actions** -> **Variables** -> **New repository variable**, name `BETA_CHANNEL`, value `on`. Delete the variable to switch it off again.
+
 **Start one.** Only a repository admin can create the branch (the `Block ad-hoc branch creation` ruleset). In PowerShell:
 
 ```
@@ -477,4 +479,4 @@ The push runs **Deploy beta channel**, which runs **Deploy frontend to Pages** o
 
 **What it does not do.** CI does not run on `beta`: run `npm run lint`, `npm test` and `npm run test:e2e` locally before pushing. Links the beta hands out (invitations, confirm-email) point at the live app, so students never land on the beta.
 
-**Finish one.** Merge it into `main` with a normal merge (`git switch main; git merge beta`), push `main`, then delete the branch: `$env:GITHUB_TOKEN=""; git push origin --delete beta`. The next deploy replaces the beta with the "no beta" page. Commit subjects on `beta` go into the release like any other, so they follow the same rules.
+**Finish one.** Merge it into `main` with a normal merge (`git switch main; git merge beta`), push `main`, then delete the branch: `$env:GITHUB_TOKEN=""; git push origin --delete beta`. The next deploy replaces the beta with the "no beta" page. Commit subjects on `beta` go into the release like any other, so they follow the same rules. Delete the `BETA_CHANNEL` variable too, unless another beta follows.

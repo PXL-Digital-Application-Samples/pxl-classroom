@@ -93,7 +93,12 @@ jobs:
   #
   # Its failure must not cost production its deploy, so `build` runs on
   # `!cancelled()` and publishes a page saying no beta is available instead.
+  #
+  # OFF unless the repository variable BETA_CHANNEL is `on` (ADMIN.md §9), and
+  # off since 2026-10-07, when no beta was in use: skipped, it boots no runner
+  # and cannot fail a deploy, and /beta/ says no beta is available.
   build-beta:
+    if: vars.BETA_CHANNEL == 'on'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
