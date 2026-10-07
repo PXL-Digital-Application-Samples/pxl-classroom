@@ -259,6 +259,15 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(login).toHaveAttribute('target', '_blank');
   });
 
+  test('on Progress too: the login opens the same repository, and the repository column stays', async ({ page }) => {
+    await setup(page, {});
+    const aliceRow = page.locator('tr', { hasText: 'student-alice' }).first();
+    const login = aliceRow.locator('a[data-progress-repo]');
+    await expect(login).toHaveText('student-alice', { timeout: 15000 });
+    await expect(login).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
+    await expect(aliceRow.locator('.col-repo a.repo-icon-link')).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
+  });
+
   test('Autograder table sorting on Earned points and Login headers', async ({ page }) => {
     await setup(page, { tab: 'grading' });
     const autogradeTable = page.locator('.autograde-section table');

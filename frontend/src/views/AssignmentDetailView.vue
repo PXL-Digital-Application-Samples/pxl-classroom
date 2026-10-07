@@ -505,7 +505,12 @@
             <tbody>
               <tr v-for="s in filteredStudents" :key="studentRowKey(s)">
                 <td>
-                  <a v-if="s.github_login" :href="`https://github.com/${s.github_login}`" target="_blank" :title="studentTooltip(s)">{{ s.github_login }}</a>
+                  <!-- The login opens the student's repository for this
+                       assignment, as it does on the Grading tab (asked
+                       2026-10-07) - not their GitHub profile. No repository
+                       yet: the login, unlinked. -->
+                  <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" :title="studentTooltip(s)" data-progress-repo>{{ s.github_login }}</a>
+                  <span v-else-if="s.github_login" :title="studentTooltip(s)">{{ s.github_login }}</span>
                   <!-- Admitted, with no GitHub username yet (lib/missing-students.js):
                        the heading asks for a login and the answer is that
                        there is none, so the cell says so, under the address
@@ -808,7 +813,8 @@
           </div>
           <article v-for="s in filteredStudents" :key="studentRowKey(s)" class="student-card">
             <header class="student-card-head" style="display: flex; align-items: center; justify-content: space-between;">
-              <a v-if="s.github_login" :href="`https://github.com/${s.github_login}`" target="_blank" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
+              <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
+              <span v-else-if="s.github_login" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</span>
               <div v-else class="no-username-cell">
                 <span class="student-card-login">{{ s.email || s.full_name || s.student_number }}</span>
                 <span class="text-muted text-xs">no GitHub username yet</span>
