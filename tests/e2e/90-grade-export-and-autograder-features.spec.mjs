@@ -249,6 +249,16 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(commitLink).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice/commit/${sha(1)}`);
   });
 
+  test('the login opens the student\'s repository for this assignment, not their GitHub profile', async ({ page }) => {
+    // Asked 2026-10-07: what a grader opens next is the work, not the person.
+    await setup(page, { tab: 'grading' });
+    const aliceRow = page.locator('.autograde-section table tr', { hasText: 'student-alice' });
+    const login = aliceRow.locator('a[data-grading-repo]');
+    await expect(login).toHaveText('student-alice');
+    await expect(login).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
+    await expect(login).toHaveAttribute('target', '_blank');
+  });
+
   test('Autograder table sorting on Earned points and Login headers', async ({ page }) => {
     await setup(page, { tab: 'grading' });
     const autogradeTable = page.locator('.autograde-section table');

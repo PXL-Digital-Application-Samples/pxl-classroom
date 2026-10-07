@@ -1171,7 +1171,20 @@
               <tbody>
                 <tr v-for="row in sortedAutogradeStudents" :key="row.login">
                   <td>
-                    <a :href="`https://github.com/${row.login}`" target="_blank">{{ row.login }}</a>
+                    <!-- The student's repository for THIS assignment, which is
+                         what a grader opens next - not their GitHub profile
+                         (asked 2026-10-07). No repository (a score by hand
+                         needs none): the login, unlinked, rather than a link
+                         that goes somewhere else on some rows. -->
+                    <a
+                      v-if="lastGradedSubmission(row).repoUrl"
+                      :href="lastGradedSubmission(row).repoUrl"
+                      target="_blank"
+                      rel="noopener"
+                      :title="`${row.login}'s repository for this assignment`"
+                      data-grading-repo
+                    >{{ row.login }}</a>
+                    <span v-else title="No repository for this assignment">{{ row.login }}</span>
                     <span
                       v-if="row.decided_by"
                       class="text-xs text-muted"
