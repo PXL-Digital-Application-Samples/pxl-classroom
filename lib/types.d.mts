@@ -205,6 +205,8 @@ export type GradingSummary = {
     ci_run_url?: string;
     score_source?: "annotation-json" | "points" | "conclusion" | "manual";
     graded_sha?: string;
+    graded_pushed_at?: string;
+    graded_pushed_from?: "run" | "log" | null;
     decided_by?: {
       kind?: "commit" | "score";
       by?: string;

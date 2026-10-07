@@ -40,7 +40,7 @@
               />
               <span v-if="r.number" class="commit-number">#{{ r.number }}</span>
               <code class="mono">{{ r.sha.slice(0, 7) }}</code>
-              <span class="text-secondary">{{ r.date ? formatDate(r.date) : 'unknown time' }}</span>
+              <span class="text-secondary" :title="r.whenTitle">{{ r.when }}</span>
               <span v-if="!marker" class="commit-message">{{ r.message }}</span>
               <!-- Status dots, not coloured words (DESIGN.md §1.3/§4): late and
                    over the limit need a look; "graded now" is the state in
@@ -140,7 +140,7 @@ import { ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
 import { readScoreAtCommit } from '../lib/grade-cohort.js'
-import { listHandIns, selectHandIn, messageMatchesMarker } from '../../../lib/submission-marker.mjs'
+import { listHandIns, selectHandIn, messageMatchesMarker, handInShownTime } from '../../../lib/submission-marker.mjs'
 import { decisionProblem } from '../../../lib/grade-override.mjs'
 import { rerunAvailability } from '../../../lib/grading-rerun.mjs'
 import { GRADE_ENTRY_MISSING, dispatchGrading, findGradingWorkflow, readRunScore } from '../../../lib/grade-dispatch.mjs'
@@ -189,10 +189,15 @@ const problem = computed(() => decisionProblem({ type: 'submission_sha', value: 
 const PER_PAGE = 30
 
 function commitRow(c, extra = {}) {
+  const date = c.date ?? c.commit?.committer?.date ?? c.commit?.author?.date ?? null
   return {
     sha: c.sha,
     message: String(c.message ?? c.commit?.message ?? '').split('\n')[0],
-    date: c.date ?? c.commit?.committer?.date ?? c.commit?.author?.date ?? null,
+    date,
+    // Without a hand-in message lateness is the commit's own time, so that is
+    // the time shown. A hand-in overrides both (`handInWhen`).
+    when: date ? formatDate(date) : 'unknown time',
+    whenTitle: null,
     number: null,
     flags: [],
     result: { state: 'loading' },
@@ -219,8 +224,31 @@ async function loadHandIns() {
   const out = listed.handIns.map((h, i) => commitRow(h, {
     number: i + 1,
     flags: [why.get(key(h)), h.onBranch === false && !h.dispatched ? 'no longer on the branch' : null].filter(Boolean),
+    ...handInWhen(h, props.student.effective_deadline_at || null),
   }))
   return out.reverse()
+}
+
+/**
+ * A hand-in is shown at the time its "late" flag was decided by: when GitHub
+ * recorded the push (lib/submission-marker.mjs `handInShownTime`). Shown at
+ * the commit's own date, a hand-in committed at 16:58 and pushed at 17:03
+ * read "16:58 late" against 17:00. The commit's own time, where it differs,
+ * is on hover.
+ */
+function handInWhen(h, deadline) {
+  const shown = handInShownTime(h, deadline)
+  if (!shown) return { when: 'unknown time', whenTitle: null }
+  // A run the student started is a run, not a push.
+  const verb = h.dispatched ? 'started' : shown.kind
+  const notes = []
+  if (shown.kind === 'pushed' && !h.dispatched && h.date && Math.abs(Date.parse(h.date) - Date.parse(shown.at)) >= 60_000) {
+    notes.push(`Committed ${formatDate(h.date)}.`)
+  }
+  if (shown.allowance) {
+    notes.push('GitHub started its run just after the deadline, within the margin allowed for its own delay, so it counts as on time.')
+  }
+  return { when: `${verb} ${formatDate(shown.at)}`, whenTitle: notes.join(' ') || null }
 }
 
 async function loadCommits() {

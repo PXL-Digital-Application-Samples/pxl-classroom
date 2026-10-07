@@ -180,7 +180,7 @@ scenario("over the cap: hand-in 2 is graded and hand-in 3 is named in the log", 
     { used: doc.students[0].hand_ins.used, allowed: doc.students[0].hand_ins.allowed },
     { used: 3, allowed: 2 },
   );
-  assert.match(res.stdout, /ada: hand-in 3 of 2 at .* ignored: over the limit/);
+  assert.match(res.stdout, /ada: hand-in 3 of 2 pushed .* ignored: over the limit/);
 });
 
 scenario("an allowance written to overrides/ is read: hand-in 3 counts", { cap: 2, overrides: { ada: [grant(1)] } }, {}, (res, dir) => {

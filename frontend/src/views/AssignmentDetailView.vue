@@ -509,8 +509,8 @@
                        assignment, as it does on the Grading tab (asked
                        2026-10-07) - not their GitHub profile. No repository
                        yet: the login, unlinked. -->
-                  <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" :title="studentTooltip(s)" data-progress-repo>{{ s.github_login }}</a>
-                  <span v-else-if="s.github_login" :title="studentTooltip(s)">{{ s.github_login }}</span>
+                  <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" :title="progressTitle(s)" data-progress-repo>{{ s.github_login }}</a>
+                  <span v-else-if="s.github_login" :title="progressTitle(s)">{{ s.github_login }}</span>
                   <!-- Admitted, with no GitHub username yet (lib/missing-students.js):
                        the heading asks for a login and the answer is that
                        there is none, so the cell says so, under the address
@@ -813,8 +813,8 @@
           </div>
           <article v-for="s in filteredStudents" :key="studentRowKey(s)" class="student-card">
             <header class="student-card-head" style="display: flex; align-items: center; justify-content: space-between;">
-              <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</a>
-              <span v-else-if="s.github_login" class="student-card-login" :title="studentTooltip(s)">{{ s.github_login }}</span>
+              <a v-if="s.github_login && s.repo_url" :href="s.repo_url" target="_blank" rel="noopener" class="student-card-login" :title="progressTitle(s)">{{ s.github_login }}</a>
+              <span v-else-if="s.github_login" class="student-card-login" :title="progressTitle(s)">{{ s.github_login }}</span>
               <div v-else class="no-username-cell">
                 <span class="student-card-login">{{ s.email || s.full_name || s.student_number }}</span>
                 <span class="text-muted text-xs">no GitHub username yet</span>
@@ -1187,10 +1187,10 @@
                       :href="lastGradedSubmission(row).repoUrl"
                       target="_blank"
                       rel="noopener"
-                      :title="`${row.login}'s repository for this assignment`"
+                      :title="gradingTitle(row)"
                       data-grading-repo
                     >{{ row.login }}</a>
-                    <span v-else title="No repository for this assignment">{{ row.login }}</span>
+                    <span v-else :title="`No repository for this assignment.\n${gradingTitle(row)}`" data-grading-no-repo>{{ row.login }}</span>
                     <span
                       v-if="row.decided_by"
                       class="text-xs text-muted"
@@ -1210,12 +1210,12 @@
                         target="_blank"
                         rel="noopener"
                         class="mono text-xs sha"
-                        :title="lastGradedSubmission(row).sha ? `SHA: ${lastGradedSubmission(row).sha}` : null"
+                        :title="gradedSubmissionTitle(row)"
                       >
                         {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
                       </a>
                     </template>
-                    <span v-else-if="lastGradedSubmission(row).sha" class="mono text-xs sha">
+                    <span v-else-if="lastGradedSubmission(row).sha" class="mono text-xs sha" :title="gradedSubmissionTitle(row)">
                       {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
                     </span>
                     <span v-else class="text-muted text-xs">-</span>
@@ -1494,6 +1494,7 @@ import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
+import { gradingLoginTitle, progressLoginTitle } from '../lib/login-tooltip.js'
 import { teamRows } from '../lib/team-rows.js'
 import { rememberAssignmentTitle } from '../lib/assignment-crumb.js'
 import { studentsMissingFromReport, studentRowKey } from '../lib/missing-students.js'
@@ -4397,16 +4398,66 @@ const autogradeHasClaimedEmails = computed(() =>
   hasClaimedEmails.value || (autogradeSummary.value?.students || []).some((r) => studentMap.value.get(r.login?.toLowerCase())?.claimed_email)
 )
 
+/** The login's tooltip on the Progress tab (frontend/src/lib/login-tooltip.js). */
+function progressTitle(s) {
+  return progressLoginTitle({
+    who: studentTooltip(s),
+    hasRepo: !!s.repo_url,
+    sha: latestSha(s),
+    // The commit's OWN time, never commitTime()'s fallback to when the
+    // collector looked.
+    committedAt: s.latest_commit_date || s.commit_date || null,
+    message: commitMsg(s),
+    commitCount: s.commit_count ?? null,
+    deadlineSentence: statusDetail(s),
+  }, fmt)
+}
+
+/** The Graded submission cell's tooltip: which time it shows, and the commit. */
+function gradedSubmissionTitle(row) {
+  const graded = lastGradedSubmission(row)
+  if (!graded.sha) return null
+  const which = graded.kind === 'pushed' ? 'When GitHub recorded the push. ' : graded.kind === 'committed' ? 'When it was committed. ' : ''
+  return `${which}SHA: ${graded.sha}`
+}
+
+/** The login's tooltip on the Grading tab. */
+function gradingTitle(row) {
+  const s = studentMap.value.get(row.login?.toLowerCase())
+  const graded = lastGradedSubmission(row)
+  return gradingLoginTitle({
+    who: s?.github_login ? studentTooltip(s) : null,
+    sha: graded.sha,
+    committedAt: graded.kind === 'committed' ? graded.time : null,
+    pushedAt: graded.kind === 'pushed' ? graded.time : null,
+    pushedFrom: graded.pushedFrom,
+    deadline: s?.effective_deadline_at || null,
+    handIns: row.hand_ins || null,
+    decidedBy: row.decided_by || null,
+  }, fmt)
+}
+
 function lastGradedSubmission(row) {
   const s = studentMap.value.get(row.login?.toLowerCase())
   // The last graded submission on or before the deadline within the given submission limit
   const sha = row.graded_sha || row.hand_ins?.graded_sha || s?.graded_sha || null
-  const time = (sha && (sha === s?.last_on_time_sha || sha === s?.latest_observed_sha || sha === s?.graded_sha))
-    ? (s?.commit_date || s?.latest_commit_date || null)
-    : null
   const repoUrl = s?.repo_url || (s?.repo_name ? (s.repo_name.startsWith('http') ? s.repo_name : `https://github.com/${s.repo_name.includes('/') ? s.repo_name : props.org + '/' + s.repo_name}`) : null)
   const href = repoUrl && sha ? `${repoUrl}/commit/${sha}` : null
-  return { sha, time, href, repoUrl }
+  // A hand-in: when GitHub recorded its push, the time its lateness was judged
+  // by - not the commit's own date, which the student's machine sets.
+  if (sha && row.graded_pushed_at) {
+    return { sha, time: row.graded_pushed_at, kind: 'pushed', pushedFrom: row.graded_pushed_from ?? null, href, repoUrl }
+  }
+  // Otherwise the report knows ONE commit's own time: the latest one's
+  // (`commit_date` and `latest_commit_date` are both its timestamp). It was
+  // paired with the graded commit whenever that matched `last_on_time_sha` too
+  // - so a student graded on an earlier, on-time commit showed the time of a
+  // later one. Only when the graded commit IS the latest is its time known;
+  // otherwise the SHA.
+  const time = sha && sha === s?.latest_observed_sha
+    ? (s?.latest_commit_date || s?.commit_date || null)
+    : null
+  return { sha, time, kind: time ? 'committed' : null, pushedFrom: null, href, repoUrl }
 }
 
 const autogradeSortKey = ref('login')

@@ -43,7 +43,9 @@ const summaryPath = `grading/${ID}/summary.json`;
 
 // `cancelAll`: every run cancelled, so the rules can grade nothing.
 // `startSummary`: the summary on record when the page opens.
-async function setup(page, { overrides = null, cancelAll = false, startSummary = summary } = {}) {
+// `pushedLate`: hand-in 6 was committed at 10:00 and pushed at 12:10, after
+// the noon deadline - late by the rule, whatever its own date says.
+async function setup(page, { overrides = null, cancelAll = false, startSummary = summary, pushedLate = false } = {}) {
   const contentWrites = [];
   const reruns = [];
   let rerunDone = false;
@@ -69,7 +71,7 @@ async function setup(page, { overrides = null, cancelAll = false, startSummary =
       // (lib/submission-marker.mjs). The hand-in time, never the wall clock:
       // "a day before now" passed the fixed 2026-10-01T12:00Z deadline at
       // noon UTC on 2026-10-02, and every hand-in turned late at once.
-      created_at: at(n * 10), head_commit: { message: MSG, timestamp: at(n * 10) },
+      created_at: pushedLate && n === 6 ? at(190) : at(n * 10), head_commit: { message: MSG, timestamp: at(n * 10) },
     })).reverse();
     const first = Number(u.searchParams.get('page') || 1) === 1;
     const runs = headSha ? all.filter((r) => r.head_sha === headSha) : (first ? all : []);
@@ -120,6 +122,20 @@ test.describe('87 - grading decisions', () => {
     await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
     await expect(page.locator('.toast', { hasText: 'Could not read the students\' overrides' })).toHaveCount(0);
     expect(lastSummary(contentWrites).students[0].earned_points).toBe(5);
+    // When GitHub recorded the graded hand-in's push: what it was judged by.
+    expect(lastSummary(contentWrites).students[0]).toMatchObject({ graded_sha: sha(5), graded_pushed_at: at(50), graded_pushed_from: 'run' });
+  });
+
+  test('a hand-in committed before the deadline and pushed after it is shown at its push, beside "late"', async ({ page }) => {
+    await setup(page, { pushedLate: true });
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
+    const six = picker(page).locator('.commit-row').filter({ hasText: '#6' });
+    await expect(six).toContainText('late', { timeout: 15000 });
+    await expect(six).toContainText('pushed ');
+    // Its own, earlier date is on hover, said as what it is.
+    await expect(six.locator('[title^="Committed "]')).toHaveCount(1);
+    await expect(picker(page).locator('.commit-row').filter({ hasText: '#5' })).toContainText('pushed ');
   });
 
   test('three actions, and what is in force said first', async ({ page }) => {

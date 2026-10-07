@@ -302,6 +302,8 @@ export function registerGradeCommand(program) {
         let ciRow = null;
         // The hand-in count under a cap, carried to the summary row.
         let handIns = null;
+        // The graded hand-in itself, for when GitHub recorded its push.
+        let handIn = null;
         // A LECTURER'S DECISION FIRST, as every other grader does.
         const decision = gradeDecisionFor(s.github_login, { overrides, team: teamOf(s, eligible) });
         if (decision?.kind === "score") {
@@ -331,6 +333,7 @@ export function registerGradeCommand(program) {
           };
           ciRow = cached.ciRow;
           handIns = cached.handIns;
+          handIn = cached.handIn;
         } else if (isGitHubActions) {
           try {
             // WITH A MARKER, THE HAND-IN COMMIT IS THE SUBMISSION - the
@@ -372,6 +375,7 @@ export function registerGradeCommand(program) {
                 summary.failed.push({ login: s.github_login, reason: found.reason, ...(handIns ? { hand_ins: handIns } : {}) });
                 return;
               }
+              handIn = found.commit;
               outcome = await readScoreAtCommit(s, found.commit.sha);
             } else {
               outcome = await readScoreAtCommit(s, s.preserved_sha);
@@ -435,7 +439,7 @@ export function registerGradeCommand(program) {
               }]
             };
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, { result, ciRow, handIns });
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, handIn });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
@@ -461,7 +465,7 @@ export function registerGradeCommand(program) {
               login: s.github_login, sha: archive.sha, archive, gradedBy,
             });
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, { result, ciRow, handIns });
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, handIn });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
@@ -505,6 +509,7 @@ export function registerGradeCommand(program) {
                   handIns,
                   gradedSha: result.archive_sha ?? null,
                   decidedBy: decisionRecord(decision),
+                  handIn,
                 })
               : gradedRowFromLocalRun({
                   login: s.github_login,

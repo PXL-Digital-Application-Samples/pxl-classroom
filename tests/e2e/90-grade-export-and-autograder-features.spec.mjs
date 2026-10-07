@@ -49,7 +49,11 @@ const students = [
     repo_url: `https://github.com/${ORG}/${ID}-student-alice`,
     effective_deadline_at: DEADLINE,
     last_on_time_sha: sha(1),
+    // As report.mjs writes it: the latest commit's SHA beside its own time.
+    latest_observed_sha: sha(1),
     commit_date: '2026-10-01T10:15:00.000Z',
+    latest_commit_date: '2026-10-01T10:15:00.000Z',
+    commit_message: 'Finish the playbook\n\nwith handlers',
     commit_count: 5,
   },
   {
@@ -64,6 +68,7 @@ const students = [
     repo_url: `https://github.com/${ORG}/${ID}-student-bob`,
     effective_deadline_at: DEADLINE,
     last_on_time_sha: sha(2),
+    latest_observed_sha: sha(2),
     commit_date: '2026-10-01T09:30:00.000Z',
     commit_count: 3,
   },
@@ -79,6 +84,7 @@ const students = [
     repo_url: `https://github.com/${ORG}/${ID}-student-charlie`,
     effective_deadline_at: DEADLINE,
     last_on_time_sha: sha(3),
+    latest_observed_sha: sha(3),
     commit_date: '2026-10-01T11:45:00.000Z',
     commit_count: 4,
   },
@@ -177,7 +183,7 @@ async function setup(page, options = {}) {
     currentUser: LECTURER,
     contentWrites,
     assignments: { [ID]: assignment },
-    reports: { [ID]: report },
+    reports: { [ID]: options.report || report },
     gradingSummaries: { [ID]: options.summary || initialSummary },
   });
 
@@ -266,6 +272,61 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(login).toHaveText('student-alice', { timeout: 15000 });
     await expect(login).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
     await expect(aliceRow.locator('.col-repo a.repo-icon-link')).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
+  });
+
+  test('hovering a login on Progress says who it is, the last commit and how it stands to the deadline', async ({ page }) => {
+    await setup(page, {});
+    const title = await page.locator('tr', { hasText: 'student-alice' }).first().locator('a[data-progress-repo]').getAttribute('title', { timeout: 15000 });
+    expect(title.split('\n')[0]).toMatch(/alice\.alison@student\.pxl\.be|Alice Alison/);
+    expect(title).toMatch(new RegExp(`Last commit ${sha(1).slice(0, 7)}, .+: Finish the playbook$`, 'm'));
+    expect(title).not.toContain('with handlers');
+    expect(title).toContain('Last commit 1h 45m before the deadline.');
+  });
+
+  test('hovering a login on Grading says which commit was graded, when it was committed, and against the deadline', async ({ page }) => {
+    await setup(page, { tab: 'grading' });
+    const title = await page.locator('.autograde-section tr', { hasText: 'student-alice' }).locator('a[data-grading-repo]').getAttribute('title', { timeout: 15000 });
+    expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}, committed .+ \\(1h 45m before the deadline\\)`));
+    expect(title).not.toMatch(/on time/i);
+  });
+
+  test('a graded hand-in is shown at when GitHub recorded its push, in the cell and on the login', async ({ page }) => {
+    // Committed 10:15 (the report's time), pushed 10:20: the push is what the
+    // hand-in was judged by, so that is the time shown, and said to be one.
+    const summary = {
+      ...initialSummary,
+      students: initialSummary.students.map((r) => (r.login === 'student-alice'
+        ? { ...r, graded_pushed_at: '2026-10-01T10:20:00.000Z', graded_pushed_from: 'run' }
+        : r)),
+    };
+    await setup(page, { tab: 'grading', summary });
+    const aliceRow = page.locator('.autograde-section tr', { hasText: 'student-alice' });
+    await expect(aliceRow.locator('a.sha')).toHaveAttribute('title', `When GitHub recorded the push. SHA: ${sha(1)}`, { timeout: 15000 });
+    const title = await aliceRow.locator('a[data-grading-repo]').getAttribute('title');
+    expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}, pushed .+ \\(1h 40m before the deadline\\)`));
+    expect(title).not.toContain('committed');
+    // Bob has no push recorded (graded before this was kept): his commit time, said as such.
+    const bobTitle = await page.locator('.autograde-section tr', { hasText: 'student-bob' }).locator('a[data-grading-repo]').getAttribute('title');
+    expect(bobTitle).toMatch(/Graded commit \w{7}(, committed .+)?$/m);
+    expect(bobTitle).not.toContain('pushed');
+  });
+
+  test('a graded commit that is not the latest shows its SHA, never the later commit\'s time', async ({ page }) => {
+    // Graded on an on-time commit, then pushed again after the deadline. The
+    // report's one commit time is the LATEST commit's; it was shown beside the
+    // graded one, dating it 4 hours later than it was.
+    const late = {
+      ...report,
+      students: report.students.map((s) => (s.github_login === 'student-alice'
+        ? { ...s, latest_observed_sha: sha(9), commit_date: '2026-10-01T16:00:00.000Z', latest_commit_date: '2026-10-01T16:00:00.000Z', submission_status: 'late' }
+        : s)),
+    };
+    await setup(page, { tab: 'grading', report: late });
+    const aliceRow = page.locator('.autograde-section tr', { hasText: 'student-alice' });
+    await expect(aliceRow.locator('a.sha')).toHaveText(sha(1).slice(0, 7), { timeout: 15000 });
+    const title = await aliceRow.locator('a[data-grading-repo]').getAttribute('title');
+    expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}$`, 'm'));
+    expect(title).not.toContain('committed');
   });
 
   test('Autograder table sorting on Earned points and Login headers', async ({ page }) => {

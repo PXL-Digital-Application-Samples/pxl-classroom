@@ -102,6 +102,11 @@ test("A CHOSEN COMMIT skips the rules - deadline, cap, which hand-in - and reads
   assert.equal(graded.earned_points, 7);
   assert.equal(graded.graded_sha, SHA_A);
   assert.deepEqual(graded.decided_by, { kind: "commit", by: "tomcoolpxl", at: "2026-09-26T10:00:00Z", reason: "wifi dropped" });
+  // No hand-in was judged, so no push time is recorded for one - not even a
+  // hand-in the outcome happens to carry.
+  assert.equal(graded.graded_pushed_at, undefined);
+  const carrying = rowFromOutcome("kim", { ...out, handIn: { sha: SHA_A, pushedAt: "2026-08-31T10:00:00Z", pushedFrom: "run" } }, 10);
+  assert.equal(carrying.graded.graded_pushed_at, undefined);
 });
 
 test("a chosen commit with NO grading result is a named refusal, never a zero", async () => {

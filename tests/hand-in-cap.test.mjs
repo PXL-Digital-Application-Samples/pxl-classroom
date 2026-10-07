@@ -20,6 +20,7 @@ import {
   selectHandIn,
   describeIgnoredHandIn,
   handInTime,
+  handInShownTime,
   PUSH_TO_RUN_ALLOWANCE_MS,
 } from "../lib/submission-marker.mjs";
 import {
@@ -30,7 +31,7 @@ import {
   allowanceEntry,
   allowanceProblem,
 } from "../lib/hand-in-allowance.mjs";
-import { gradeCohort, gradeStudent, resolveHandIn, teamOf } from "../lib/grade-cohort.mjs";
+import { gradeCohort, gradeStudent, resolveHandIn, rowFromOutcome, teamOf } from "../lib/grade-cohort.mjs";
 import { buildGradingSummary } from "../lib/grading-summary.mjs";
 import { buildAssignmentDoc } from "../lib/assignment-doc.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
@@ -288,8 +289,46 @@ test("OVER THE CAP: the last VALID hand-in counts and every later one is named",
   ]);
   assert.equal(
     describeIgnoredHandIn(r.ignored[0], { allowed: 5 }),
-    `hand-in 6 of 5 at ${at(60)} (${sha(6).slice(0, 7)}) ignored: over the limit`,
+    `hand-in 6 of 5 pushed ${at(60)} (${sha(6).slice(0, 7)}) ignored: over the limit`,
   );
+});
+
+test("a hand-in is SHOWN at the time it was judged by: the push, never the commit's own date", () => {
+  // Committed at 11:58, pushed at 12:03 against a 12:00 deadline: late by the
+  // rule. Shown at the commit's date it read "hand-in at 11:58 ... ignored:
+  // after the deadline" - a sentence that contradicts itself.
+  const late = h(2, 178, { pushedAt: at(183), pushedFrom: "log" });
+  const r = selectHandIn([h(1, 10), late], { until: DEADLINE, limit: 2 });
+  assert.deepEqual(r.ignored.map((i) => i.reason), ["late"]);
+  assert.equal(
+    describeIgnoredHandIn(r.ignored[0], { allowed: 2 }),
+    `hand-in pushed ${at(183)} (${sha(2).slice(0, 7)}) ignored: after the deadline`,
+  );
+  // No push time recorded: the commit's date, and it says so.
+  assert.match(describeIgnoredHandIn({ ...r.ignored[0], pushed_at: null }, { allowed: 2 }), new RegExp(`^hand-in committed ${at(178)} `));
+  // Neither: said, not guessed.
+  assert.match(describeIgnoredHandIn({ ...r.ignored[0], pushed_at: null, date: null }, { allowed: 2 }), /^hand-in at an unknown time /);
+});
+
+test("handInShownTime: the push where known, which kind it is, and the run's two-minute margin", () => {
+  // A run started 45s after the deadline: the rule counts it on time.
+  const inMargin = { pushedAt: "2026-10-01T12:00:45Z", pushedFrom: "run", date: "2026-10-01T11:59:00Z" };
+  assert.ok(handInTime(inMargin) <= Date.parse(DEADLINE), "precondition: the rule counts it on time");
+  assert.deepEqual(handInShownTime(inMargin, DEADLINE), { at: inMargin.pushedAt, kind: "pushed", allowance: true });
+  // The push log's time is the push itself: no margin, so it is simply after.
+  assert.equal(handInShownTime({ ...inMargin, pushedFrom: "log" }, DEADLINE).allowance, false);
+  // A run started past the margin is late, and not "in the margin".
+  assert.equal(handInShownTime({ ...inMargin, pushedAt: "2026-10-01T12:02:01Z" }, DEADLINE).allowance, false);
+  // Before the deadline there is nothing to explain.
+  assert.equal(handInShownTime({ ...inMargin, pushedAt: "2026-10-01T11:59:30Z" }, DEADLINE).allowance, false);
+  // No deadline: no margin to be inside of.
+  assert.equal(handInShownTime(inMargin, null).allowance, false);
+  // The summary's spelling reads the same.
+  assert.deepEqual(handInShownTime({ pushed_at: inMargin.pushedAt, pushed_from: "run" }, DEADLINE), { at: inMargin.pushedAt, kind: "pushed", allowance: true });
+  // No push time: the commit's own date, named as such. Neither: null.
+  assert.deepEqual(handInShownTime({ pushedAt: null, date: inMargin.date }, DEADLINE), { at: inMargin.date, kind: "committed", allowance: false });
+  assert.equal(handInShownTime({ pushedAt: "not a date", date: null }, DEADLINE), null);
+  assert.equal(handInShownTime(null, DEADLINE), null);
 });
 
 test("a cap of one grades the first hand-in", () => {
@@ -634,6 +673,26 @@ test("SCENARIO 1 - exceeding the limit: hand-in 5 is graded, hand-in 6 is named"
   assert.equal(res.handIns.graded_number, 5);
   assert.equal(res.handIns.graded_sha, sha(5));
   assert.deepEqual(res.handIns.ignored.map((i) => [i.number, i.reason]), [[6, "over-limit"]]);
+});
+
+test("the summary row keeps when GitHub recorded the graded hand-in's push, and the schema accepts it", async () => {
+  const res = await gradeStudent(world({ handIns: SIX }).request, { row: row(), marker: capped(5) });
+  assert.equal(res.handIn.sha, sha(5));
+  assert.ok(res.handIn.pushedAt, "precondition: the fake records a push time");
+  const { graded } = rowFromOutcome("ada", res, 100);
+  assert.equal(graded.graded_sha, sha(5));
+  assert.equal(graded.graded_pushed_at, res.handIn.pushedAt);
+  assert.equal(graded.graded_pushed_from, res.handIn.pushedFrom);
+  const doc = buildGradingSummary({ assignmentId: "exam", gradedBy: "tomcoolpxl", runner: "github_actions", students: [graded] });
+  assert.equal(validateAgainst("grading-summary", doc).valid, true);
+
+  // Uncapped, a hand-in message still decides the commit - and its push.
+  const open = await gradeStudent(world({ handIns: SIX }).request, { row: row(), marker: marker() });
+  assert.equal(open.handIns ?? null, null);
+  assert.equal(rowFromOutcome("ada", open, 100).graded.graded_pushed_at, open.handIn.pushedAt);
+
+  // A push time belongs to the commit it was read for, never to another.
+  assert.equal(rowFromOutcome("ada", { ...res, sha: sha(6) }, 100).graded.graded_pushed_at, undefined);
 });
 
 test("SCENARIO 2 - an exception makes the ignored hand-in count", async () => {

@@ -125,7 +125,7 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 5');
     const ignored = panel(page).locator('.autograde-ignored');
     await expect(ignored).toContainText('1 hand-in not graded:');
-    await expect(ignored).toContainText(`hand-in 6 of 5 at`);
+    await expect(ignored).toContainText(`hand-in 6 of 5 pushed`);
     await expect(ignored).toContainText(`(${sha(6).slice(0, 7)}) ignored: over the limit`);
   });
 
