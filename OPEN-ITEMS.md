@@ -382,6 +382,23 @@ gh api "repos/PXL-Digital-Application-Samples/pxl-classroom/actions/artifacts?na
 
 ---
 
+## 14. Two ways the student pages stay behind until the next change, each needing two failures at once
+
+**Status: open, accepted.** Found 2026-10-07 by the review of the night's incident fixes; the user chose to record them rather than fix them.
+
+The watchdog redeploys the student pages when they are behind the data (`pagesRedeployDue`, `scripts/pipeline-watchdog.mjs`). Two cases slip past it. In both, the next publish or acceptance anywhere repairs the pages, usually within the hour.
+
+1. **A deploy that read the data before a regeneration, but finished after it, counts as covering it.** "Behind" compares when runs FINISHED, not when the deploy read each organization. So a regeneration whose own deploy dispatch failed (three attempts), finishing while an unrelated deploy that had already fetched is still running, is taken as deployed. Both have to happen at once. Fixing it means the deploy recording what it read per organization, and changing how "behind" is decided - which risks the ordinary publish path, so it was left.
+2. **A regeneration cut short is ignored.** The nightly regenerates every organization in one run; an acceptance's own regeneration of one organization cancels that organization's leg (one group per organization), so the run ends `cancelled` while the other legs committed. The run still dispatches the deploy (`if: always()`), so this matters only when that dispatch ALSO fails: the watchdog skips a cancelled regeneration, and the others' new data waits.
+
+**How to tell it is closed** - the comparison is no longer by finish time and a cancelled regeneration is no longer skipped; while open, both lines print:
+
+```bash
+grep -n "newestRegen > lastOkAt\|r.conclusion === \"success\" || r.conclusion === \"failure\"" scripts/pipeline-watchdog.mjs
+```
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog - 2026-08-31 unless the row says otherwise.
