@@ -301,7 +301,8 @@ test.describe('90 - Grade exports and autograder features', () => {
     };
     await setup(page, { tab: 'grading', summary });
     const aliceRow = page.locator('.autograde-section tr', { hasText: 'student-alice' });
-    await expect(aliceRow.locator('a.sha')).toHaveAttribute('title', `When GitHub recorded the push. SHA: ${sha(1)}`, { timeout: 15000 });
+    // A time read off a grading run is the run's start, seconds after the push.
+    await expect(aliceRow.locator('a.sha')).toHaveAttribute('title', `When GitHub started grading it, seconds after the push. SHA: ${sha(1)}`, { timeout: 15000 });
     const title = await aliceRow.locator('a[data-grading-repo]').getAttribute('title');
     expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}, pushed .+ \\(1h 40m before the deadline\\)`));
     expect(title).not.toContain('committed');

@@ -25,4 +25,5 @@ export {
   readSubmissionMarker,
   submissionBranch,
   describeIgnoredHandIn,
+  handInShownTime,
 } from '../../../lib/submission-marker.mjs'

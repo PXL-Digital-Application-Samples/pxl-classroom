@@ -5,10 +5,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   GITHUB_STATUS_URL,
+  PAGE_MISSING_MINUTES,
   SLOW_START_MINUTES,
   deployRunsPath,
   newestRun,
-  publishRunsPath,
+  publishRunIdFrom,
+  publishRunPath,
   publishStage,
   publishStageMessage,
 } from "../frontend/src/lib/publish-progress.js";
@@ -67,11 +69,33 @@ test("nothing read is nothing claimed", () => {
   assert.equal(newestRun({ ok: true, data: { workflow_runs: [a, b] } }), b);
 });
 
-test("the paths ask for this lecturer's dispatched publishes, and deploys since it finished", () => {
-  const p = publishRunsPath({ owner: "O", repo: "R", since: T("19:42"), actor: "WimBervoetsPXL" });
-  assert.match(p, /^\/repos\/O\/R\/actions\/workflows\/publish-assignment\.yml\/runs\?/);
-  assert.match(p, /event=workflow_dispatch/);
-  assert.match(p, /actor=WimBervoetsPXL/);
-  assert.match(decodeURIComponent(p), /created=>=2026-10-06T19:42:00Z/);
+test("the line follows the run this publish started, by id, and the deploys since it finished", () => {
+  // It was "this lecturer's newest publish run": another tab's, another
+  // organization's or an earlier failed one could be reported as this one.
+  assert.equal(publishRunPath({ owner: "O", repo: "R", runId: "18320775543" }), "/repos/O/R/actions/runs/18320775543");
   assert.match(decodeURIComponent(deployRunsPath({ owner: "O", repo: "R", since: T("19:46") })), /deploy-frontend\.yml\/runs\?created=>=2026-10-06T19:46:00Z/);
+  // The id travels in the address after a new assignment's page moves.
+  assert.equal(publishRunIdFrom("18320775543"), "18320775543");
+  // `1` is the flag for "publishing, no run named" - never run 1.
+  for (const nothing of ["1", "", "abc", "12; DROP", "0123456", undefined, ["18320775543"]]) {
+    assert.equal(publishRunIdFrom(nothing), null, JSON.stringify(nothing));
+  }
+});
+
+test("GitHub named no run: said, never a run guessed from a list", () => {
+  const s = publishStage({ publishRun: null, deployRun: null, untracked: true });
+  assert.equal(s.step, "untracked");
+  assert.match(publishStageMessage(s).text, /did not say which run it started/);
+});
+
+test("the pages were updated without this assignment's page: said after the CDN's minute, not 'on its way' for half an hour", () => {
+  // Called only while this page is not on the site. A deploy that could not
+  // read this organization keeps its old pages and still succeeds.
+  const published = run("completed", "success", "19:29", "19:30");
+  const deployed = run("completed", "success", "19:31", "19:33");
+  assert.equal(stage(published, deployed, "19:34").step, "deployed", "a minute: the CDN catching up");
+  const late = stage(published, deployed, "19:41");
+  assert.deepEqual(late, { step: "deployed-without-page", minutes: 8, url: deployed.html_url });
+  assert.equal(publishStageMessage(late).text, "Published, but the student pages were updated 8 min ago without this assignment's page.");
+  assert.equal(PAGE_MISSING_MINUTES, 3);
 });

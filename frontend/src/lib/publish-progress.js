@@ -18,18 +18,34 @@ const NOT_STARTED = new Set(['queued', 'pending', 'waiting', 'requested'])
 /** Minutes past which a wait for GitHub to start is GitHub being slow. */
 export const SLOW_START_MINUTES = 3
 
+/**
+ * Minutes after a deploy finished past which this assignment's page not being
+ * on the site is a fact to say, not the CDN catching up.
+ */
+export const PAGE_MISSING_MINUTES = 3
+
 export const GITHUB_STATUS_URL = 'https://www.githubstatus.com'
 
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 /**
- * This lecturer's publish runs since the watch began (a little before, so a
- * publish dispatched just before the watch started is found).
+ * The publish run this click started, by the id GitHub gave when it was
+ * dispatched (`dispatchWorkflowRun`). It was "this lecturer's newest publish
+ * run", which is any publish of theirs - another tab's, another
+ * organization's, a failed one a minute earlier - so the line could report
+ * someone else's run as this one's (review 2026-10-07).
  */
-export function publishRunsPath({ owner, repo, since, actor }) {
-  const q = new URLSearchParams({ event: 'workflow_dispatch', created: `>=${iso(since)}`, per_page: '10' })
-  if (actor) q.set('actor', actor)
-  return `/repos/${owner}/${repo}/actions/workflows/publish-assignment.yml/runs?${q}`
+export function publishRunPath({ owner, repo, runId }) {
+  return `/repos/${owner}/${repo}/actions/runs/${encodeURIComponent(runId)}`
+}
+
+/**
+ * A run id as it travels in the address (`?publishing=<id>`), or null. GitHub's
+ * run ids are in the billions; `1` is the flag the address carries when GitHub
+ * named no run (and carried before it named any), never an id.
+ */
+export function publishRunIdFrom(value) {
+  return typeof value === 'string' && /^[1-9]\d{3,19}$/.test(value) ? value : null
 }
 
 /** Pages deploys created since the publish finished. */
@@ -52,14 +68,19 @@ const minutesSince = (stamp, now) => {
 /**
  * The step a publish is at.
  *
+ * Called only while this assignment's page is NOT yet on the site (the watch
+ * checks that first), so a finished deploy is a deploy without it once the
+ * CDN has had its minute.
+ *
  * @param {object} args
- * @param {object|null} args.publishRun  newest publish run of this lecturer, or null
+ * @param {object|null} args.publishRun  the publish run this click started, or null
+ * @param {boolean} [args.untracked]     GitHub gave no run id to follow
  * @param {object|null} args.deployRun   newest Pages deploy since it finished, or null
  * @param {number} [args.now]
  * @returns {{step: string, minutes: number, url: string|null}}
  */
-export function publishStage({ publishRun, deployRun, now = Date.now() }) {
-  if (!publishRun) return { step: 'unknown', minutes: 0, url: null }
+export function publishStage({ publishRun, deployRun, untracked = false, now = Date.now() }) {
+  if (!publishRun) return { step: untracked ? 'untracked' : 'unknown', minutes: 0, url: null }
   const url = publishRun.html_url || null
   if (NOT_STARTED.has(publishRun.status)) {
     return { step: 'waiting-start', minutes: minutesSince(publishRun.created_at, now), url }
@@ -72,7 +93,14 @@ export function publishStage({ publishRun, deployRun, now = Date.now() }) {
     return { step: 'waiting-deploy', minutes: minutesSince(deployRun.created_at, now), url: deployUrl }
   }
   if (deployRun.status !== 'completed') return { step: 'deploying', minutes: 0, url: deployUrl }
-  if (deployRun.conclusion === 'success') return { step: 'deployed', minutes: 0, url: deployUrl }
+  if (deployRun.conclusion === 'success') {
+    // It said "on its way" for the rest of the half hour, also when the
+    // deploy could not read this organization and kept its old pages.
+    const since = minutesSince(deployRun.updated_at, now)
+    return since >= PAGE_MISSING_MINUTES
+      ? { step: 'deployed-without-page', minutes: since, url: deployUrl }
+      : { step: 'deployed', minutes: 0, url: deployUrl }
+  }
   // A cancelled deploy was replaced by a newer one, which the next read finds;
   // one that failed is tried again by the watchdog (pagesRedeployDue).
   return { step: deployRun.conclusion === 'cancelled' ? 'waiting-deploy' : 'deploy-failed', minutes: 0, url: deployUrl }
@@ -103,6 +131,10 @@ export function publishStageMessage(stage) {
       return { text: 'Published, but GitHub could not put the student page live. It is tried again automatically.', slow: false }
     case 'deployed':
       return { text: 'Published. The student page is on its way - it can take a minute to appear.', slow: false }
+    case 'deployed-without-page':
+      return { text: `Published, but the student pages were updated ${stage.minutes} min ago without this assignment's page.`, slow: false }
+    case 'untracked':
+      return { text: 'Publishing. GitHub did not say which run it started, so this page only checks for the student page.', slow: false }
     default:
       return { text: 'Publishing: checking with GitHub.', slow: false }
   }

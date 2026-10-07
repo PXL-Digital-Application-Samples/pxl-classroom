@@ -200,16 +200,26 @@
               <template v-if="publishProgressMessage.slow">
                 GitHub is slow right now: <a :href="GITHUB_STATUS_URL" target="_blank" rel="noopener">githubstatus.com</a>.
               </template>
-              <a v-if="publishProgress.step === 'failed' && publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
+              <a v-if="publishProgress.step === 'deployed-without-page' && publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
             </span>
           </div>
           <div v-else-if="!isNew && publishWatch === 'ready'" class="publish-watch publish-ready" role="status">
             <Icon name="check-circle" :size="15" />
             <span>Live. The Invite link at the top of the page works now.</span>
           </div>
+          <!-- A publish that did not finish will not go live by waiting, so the
+               page stops checking and stops spinning. -->
+          <div v-else-if="!isNew && publishWatch === 'failed'" class="publish-watch" role="status" data-publish-step="failed">
+            <span class="text-warning">
+              The publish did not finish on GitHub.
+              <a v-if="publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
+            </span>
+          </div>
+          <!-- What is true after half an hour: the page stopped looking. Not the
+               last step, which read as if it were still going on. -->
           <div v-else-if="!isNew && publishWatch === 'timeout'" class="publish-watch" role="status">
             <span class="text-warning">
-              Not live after 30 minutes. {{ publishProgressMessage.text }}
+              Not live after 30 minutes, and this page has stopped checking.
               <a :href="publishProgress.url || `https://github.com/${config.hubOwner}/${config.hubRepo}/actions/workflows/publish-assignment.yml`" target="_blank" rel="noopener">See the run.</a>
             </span>
           </div>
@@ -1521,7 +1531,7 @@ import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deploy
 import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff } from '../lib/org-session.js'
-import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, dispatchWorkflowRun, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
@@ -1588,7 +1598,7 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
-import { GITHUB_STATUS_URL, publishStageMessage } from '../lib/publish-progress.js'
+import { GITHUB_STATUS_URL, publishRunIdFrom, publishStageMessage } from '../lib/publish-progress.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
 import { republishRefusal } from '../../../lib/finished-assignment.mjs'
@@ -1733,9 +1743,11 @@ function onTeamsSeeded() {
   loadAssignments()
 }
 
-function onDiagnosticFixed({ type }) {
-  if (type === 'publish_broker' || type === 'deploy_pages') {
-    startPublishWatch()
+function onDiagnosticFixed({ type, runId = null }) {
+  // Only a publish has a publish to follow. A Pages-only redeploy started one
+  // too, which read "checking with GitHub" for half an hour over no publish.
+  if (type === 'publish_broker') {
+    startPublishWatch({ runId })
   } else if (type === 'mark_template' || type === 'make_broker_public') {
     verifyLiveInfrastructure(form.value.id)
   }
@@ -1796,7 +1808,6 @@ const {
   hasUnsavedEdits,
   snapshotForm,
   onReady: (msg) => toast.success(msg),
-  login: () => user.value?.login,
 })
 // What the publishing line says: the step GitHub is at, read from its runs.
 const publishProgressMessage = computed(() => publishStageMessage(publishProgress.value))
@@ -2370,14 +2381,17 @@ function leaveEditor() {
 // while a Save & publish is still running - the new-assignment page goes away
 // when this navigates, and a publish cut off half way is the wreck
 // revertAfterFailedPublish exists for. That flow navigates when it is done,
-// and says so (`publishing=1`), so the Settings tab picks the watch up.
+// and says so (`publishing=<run id>`, or `1` when GitHub named no run), so the
+// Settings tab picks the watch up - of that run.
 let inPublishFlow = false
+// The publish run the last dispatch started, as GitHub named it.
+let lastPublishRunId = null
 function goToSavedAssignment({ publishing = false } = {}) {
   if (props.mode !== 'new' || !editing.value || isNew.value) return
   return router.replace({
     name: 'assignment-detail',
     params: { org: props.org, assignmentId: editing.value.id },
-    query: { tab: 'settings', ...(publishing ? { publishing: '1' } : {}) },
+    query: { tab: 'settings', ...(publishing ? { publishing: String(lastPublishRunId || '1') } : {}) },
   })
 }
 
@@ -4855,9 +4869,12 @@ async function finishedRefusal() {
 // sent, so the only way to rotate a leaked link was the Actions tab.
 async function publishExisting({ regenerate = false, prior = form.value.state } = {}) {
   publishing.value = true
+  lastPublishRunId = null
   try {
     const token = getToken()
-    const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
+    // WITH the run it started (`return_run_details`), so the publishing line
+    // follows this publish and nobody else's (lib/publish-progress.js).
+    const res = await dispatchWorkflowRun(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
       org: props.org,
       assignment_id: form.value.id,
       // workflow_dispatch boolean inputs arrive as strings over the REST API.
@@ -4869,7 +4886,8 @@ async function publishExisting({ regenerate = false, prior = form.value.state } 
     })
     if (res.ok || res.status === 204) {
       toast.success('Publish workflow triggered. Watching for the broker to appear…')
-      startPublishWatch()
+      lastPublishRunId = res.runId
+      startPublishWatch({ runId: res.runId })
       return true
     }
     toast.error(explainDispatchFailure(res, 'Publish failed'))
@@ -5310,7 +5328,7 @@ async function applyRouteIntent() {
   if (!action && !section && !publishing) return
   await router.replace({ query: rest })
   await nextTick()
-  if (publishing === '1') startPublishWatch()
+  if (typeof publishing === 'string' && publishing) startPublishWatch({ runId: publishRunIdFrom(publishing) })
   if (section === 'grading') await scrollToSection('settings-grading')
   if (typeof action === 'string') runStateAction(action)
 }

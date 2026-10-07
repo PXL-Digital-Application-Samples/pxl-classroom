@@ -30,7 +30,7 @@ import { config } from '../lib/config.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { inviteDataUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
-import { deployRunsPath, newestRun, publishRunsPath, publishStage } from '../lib/publish-progress.js'
+import { deployRunsPath, newestRun, publishRunPath, publishStage } from '../lib/publish-progress.js'
 
 /**
  * Thirty minutes: every 10s for the first five, then every 20s. It was eight,
@@ -43,8 +43,6 @@ const FIRST_TICK_MS = 5000
 const TICK_MS = 10000
 const SLOW_TICK_MS = 20000
 const SLOW_AFTER_MS = 5 * 60_000
-/** A publish dispatched just before the watch began is still this one. */
-const LOOKBACK_MS = 3 * 60_000
 
 /**
  * @param {object} deps
@@ -53,27 +51,33 @@ const LOOKBACK_MS = 3 * 60_000
  * @param {() => boolean} deps.hasUnsavedEdits
  * @param {() => void} deps.snapshotForm
  * @param {(msg: string) => void} deps.onReady     told once, when it is live
- * @param {() => string|undefined} [deps.login]   the signed-in lecturer, whose publish run it is
  */
-export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onReady, login = () => undefined }) {
+export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onReady }) {
   const publishWatch = ref('')
   const publishPollCount = ref(0)
   // The step GitHub is at (lib/publish-progress.js), read from the hub's runs.
   const publishProgress = ref({ step: 'unknown', minutes: 0, url: null })
   let watchStartedAt = 0
+  // The run the publish started, as GitHub named it when it was dispatched.
+  let watchedRunId = null
 
   /**
-   * Which step the publish is at: this lecturer's publish run, then the Pages
-   * deploy after it. A read that fails leaves the last answer standing - a
-   * failed read is not a step.
+   * Which step the publish is at: the run it started, then the Pages deploy
+   * after it. A read that fails leaves the last answer standing - a failed
+   * read is not a step.
    */
   async function readPublishProgress() {
     const token = getToken()
     if (!token) return
+    // GitHub gave no run to follow: say so, never guess one from a list.
+    if (!watchedRunId) {
+      publishProgress.value = publishStage({ publishRun: null, deployRun: null, untracked: true })
+      return
+    }
     const where = { owner: config.hubOwner, repo: config.hubRepo }
-    const publishRes = await ghApi(token, 'GET', publishRunsPath({ ...where, since: watchStartedAt - LOOKBACK_MS, actor: login() }))
+    const publishRes = await ghApi(token, 'GET', publishRunPath({ ...where, runId: watchedRunId }))
     if (!publishRes.ok) return
-    const publishRun = newestRun(publishRes)
+    const publishRun = publishRes.data || null
     let deployRun = null
     if (publishRun?.status === 'completed' && publishRun.conclusion === 'success') {
       const deployRes = await ghApi(token, 'GET', deployRunsPath({ ...where, since: Date.parse(publishRun.updated_at) || watchStartedAt }))
@@ -81,6 +85,12 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
       deployRun = newestRun(deployRes)
     }
     publishProgress.value = publishStage({ publishRun, deployRun })
+    // A publish that did not finish will not go live by waiting: stop, and
+    // stop spinning (it went on for the rest of the half hour).
+    if (publishProgress.value.step === 'failed') {
+      stopPublishWatch()
+      publishWatch.value = 'failed'
+    }
   }
   const liveCheckLoading = ref(false)
   const brokerExists = ref(null) // null = unchecked, true = exists, false = missing
@@ -163,12 +173,14 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     }
   }
 
-  function startPublishWatch() {
+  /** @param {{runId?: string|number|null}} [opts] the publish run GitHub said it started */
+  function startPublishWatch({ runId = null } = {}) {
     stopPublishWatch()
     publishWatch.value = 'watching'
     publishPollCount.value = 0
     publishProgress.value = { step: 'unknown', minutes: 0, url: null }
     watchStartedAt = Date.now()
+    watchedRunId = runId ? String(runId) : null
     brokerExists.value = null
     pagesLive.value = null
 
@@ -197,6 +209,8 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
       } catch {
         // A failed poll is not a failed publish; the next tick asks again.
       }
+      // The read above may have ended the watch (a publish that failed).
+      if (publishWatch.value !== 'watching') return
       const elapsed = Date.now() - watchStartedAt
       if (elapsed >= WATCH_MS) {
         publishWatch.value = 'timeout'

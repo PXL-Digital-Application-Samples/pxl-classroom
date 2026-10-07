@@ -1468,7 +1468,7 @@ import { validateAgainst } from '../lib/validate.js'
 // `findMarkedCommit` were imported here to drive the score reading inline. That
 // orchestration is lib/grade-cohort.mjs now - the workflow needs the same
 // answers - and this view only asks it questions.
-import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn } from '../lib/check-run-score.js'
+import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
 import { gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { formatDate, formatRelative } from '../lib/format.js'
@@ -4407,17 +4407,36 @@ function progressTitle(s) {
     // The commit's OWN time, never commitTime()'s fallback to when the
     // collector looked.
     committedAt: s.latest_commit_date || s.commit_date || null,
-    message: commitMsg(s),
+    // The recorded message only: commitMsg() falls back to the words
+    // "Initial commit" for a single commit, which the tooltip would state as
+    // that commit's message.
+    message: s.commit_message || s.latest_commit_message || null,
     commitCount: s.commit_count ?? null,
     deadlineSentence: statusDetail(s),
   }, fmt)
 }
 
-/** The Graded submission cell's tooltip: which time it shows, and the commit. */
+/**
+ * The Graded submission cell's tooltip: which time it shows, and the commit.
+ * A time read off a grading run is when GitHub started grading it, seconds
+ * after the push - not the push itself - and inside the two-minute margin it
+ * can read 17:01 against a 17:00 deadline beside a hand-in that counted.
+ */
 function gradedSubmissionTitle(row) {
   const graded = lastGradedSubmission(row)
   if (!graded.sha) return null
-  const which = graded.kind === 'pushed' ? 'When GitHub recorded the push. ' : graded.kind === 'committed' ? 'When it was committed. ' : ''
+  const s = studentMap.value.get(row.login?.toLowerCase())
+  let which = ''
+  if (graded.kind === 'pushed' && graded.pushedFrom === 'run') {
+    which = 'When GitHub started grading it, seconds after the push. '
+    if (handInShownTime({ pushedAt: graded.time, pushedFrom: 'run' }, s?.effective_deadline_at || null)?.allowance) {
+      which += 'That is just after the deadline, within the two minutes allowed for GitHub\'s own delay, so it counted as on time. '
+    }
+  } else if (graded.kind === 'pushed') {
+    which = 'When GitHub recorded the push. '
+  } else if (graded.kind === 'committed') {
+    which = 'When it was committed. '
+  }
   return `${which}SHA: ${graded.sha}`
 }
 

@@ -262,13 +262,25 @@ test("the publish watcher fetches the invitation before it claims the link is li
   const timeout = body.indexOf("publishWatch.value = 'timeout'");
   assert.ok(ready > -1 && timeout > -1, "both terminal states must exist");
 
-  for (const [label, from] of [["ready", ready], ["timeout", timeout]]) {
-    assert.match(
-      body.slice(from, from + 700),
-      /await verifyLiveInfrastructure\(/,
-      `the ${label} branch must re-read the invitation before it stops polling`
-    );
-  }
+  // EACH BRANCH ON ITS OWN. This was one 700-character window after each
+  // state, and 'ready' passed only because the timeout branch's call sat
+  // inside its window - a check that greps for a call cannot tell whose it is
+  // (found 2026-10-07, when two lines between them pushed it out of reach).
+  //
+  // 'ready': the invitation is read in the same tick, BEFORE it is declared.
+  const readFirst = body.lastIndexOf("await refreshInvitation(", ready);
+  assert.ok(readFirst > -1, "the ready branch must read the invitation before it claims the link is live");
+  assert.ok(
+    /if \(inviteToken && \(await acceptanceCardIsLive\(inviteToken\)\)\)/.test(body.slice(readFirst, ready)),
+    "and declare ready only on the invitation it just read",
+  );
+  // 'timeout': the link is often there already, so it is read again.
+  const afterTimeout = body.slice(timeout);
+  assert.match(
+    afterTimeout.slice(0, afterTimeout.indexOf("return")),
+    /await verifyLiveInfrastructure\(/,
+    "the timeout branch must re-read the invitation before it stops polling",
+  );
 });
 
 test("the publish watch stops itself when the view goes away", () => {

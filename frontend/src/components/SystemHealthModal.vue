@@ -144,7 +144,7 @@
 import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getToken, getUser, startDeviceFlow } from '../lib/auth.js'
-import { ghApi, triggerWorkflow } from '../lib/api.js'
+import { dispatchWorkflowRun, ghApi, triggerWorkflow } from '../lib/api.js'
 import { READ_TIMEOUT_MS, fetchWithTimeout } from '../lib/http.js'
 import { formatRelative } from '../lib/format.js'
 import { config } from '../lib/config.js'
@@ -351,13 +351,15 @@ async function executeFix(c) {
         toast.error(`Failed to update broker visibility: ${res.data?.message || 'unknown error'}`)
       }
     } else if (fix.type === 'publish_broker') {
-      const res = await triggerWorkflow(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
+      // With the run it started, so the editor's publishing line follows
+      // this publish (lib/publish-progress.js).
+      const res = await dispatchWorkflowRun(token, config.hubOwner, config.hubRepo, 'publish-assignment.yml', {
         org: props.org,
         assignment_id: props.assignmentId,
       })
       if (res.ok || res.status === 204) {
         toast.success('Publish workflow triggered! Setting up broker on GitHub Actions…')
-        emit('fixed', { type: fix.type })
+        emit('fixed', { type: fix.type, runId: res.runId })
         scheduleRecheck(4000)
       } else {
         toast.error(`Publish workflow dispatch failed (HTTP ${res.status}).`)
