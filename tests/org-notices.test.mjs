@@ -9,6 +9,8 @@ import {
   DEDUP_MARKER,
   ORG_NOTICE_LABELS,
   STUDENT_NOTICE_PREFIXES,
+  UNRECORDED_NOTICE,
+  unrecordedLineSettled,
   assignmentsToSettle,
   isOrgNotice,
   noticeStudent,
@@ -28,6 +30,27 @@ const comment = ({ key, type, assignment = "lab-3", time = "2026-10-02T10:00:00.
   body: `${DEDUP_MARKER}${key}-->\n### [ERROR] ${type}\n\n**Assignment:** ${assignment}\n**Time:** ${time}\n\n${details}\n`,
   html_url: `https://github.com/o/c/issues/1#c-${key}`,
   updated_at: time,
+});
+
+test("a notice marked dealt with (a 👍 on its comment) leaves the list, and is what 'dealt' asks for", () => {
+  const now = new Date("2026-10-08T10:00:00Z");
+  const open = { ...comment({ key: "a", type: "run-failed", time: "2026-10-08T02:00:00.000Z" }), id: 1, reactions: { "+1": 0 } };
+  const done = { ...comment({ key: "b", type: "run-failed", time: "2026-10-08T02:00:00.000Z" }), id: 2, reactions: { "+1": 1 } };
+  assert.deepEqual(noticesForLecturer([open, done], { now }).map((n) => n.id), [1]);
+  assert.deepEqual(noticesForLecturer([open, done], { now, dealt: true }).map((n) => n.id), [2]);
+  assert.equal(parseNotice(done).dealtWith, true);
+  assert.equal(parseNotice({ ...open, reactions: undefined }).dealtWith, false, "no reactions read is not dealt with");
+});
+
+test("repositories nobody recorded: settled once every student on it has been added", () => {
+  const now = new Date("2026-10-08T10:00:00Z");
+  const details = "A student repository exists.\n\n- `lab-ann` - student `Ann` (assignment `lab`)\n- `lab-bo` - student `bo` (assignment `lab`)\n\nAdvice.";
+  const notice = comment({ key: "unrecorded-x", type: "run-failed", assignment: UNRECORDED_NOTICE, time: "2026-10-08T02:00:00.000Z", details });
+  assert.deepEqual(assignmentsToSettle([notice], { now }), ["lab"], "its assignments' reports are read");
+  assert.equal(noticesForLecturer([notice], { now, provisioned: new Map([["lab", new Set(["ann"])]]) }).length, 1, "one still to add");
+  assert.equal(noticesForLecturer([notice], { now, provisioned: new Map([["lab", new Set(["ann", "bo"])]]) }).length, 0, "both added");
+  assert.equal(noticesForLecturer([notice], { now, provisioned: null }).length, 1, "unknown settles nothing");
+  assert.equal(unrecordedLineSettled({ assignmentId: "lab", login: "ANN" }, new Map([["lab", new Set(["ann"])]])), true, "logins compared lowercased");
 });
 
 test("the marker is the one notify.mjs writes", () => {

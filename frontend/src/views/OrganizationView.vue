@@ -62,10 +62,54 @@
                   <span class="text-muted text-xs">{{ fmt(n.at) }}</span>
                 </div>
                 <p class="org-needs-text">{{ noticeLines(n.details).first }}</p>
-                <details v-if="noticeLines(n.details).rest" class="org-needs-more">
+                <!-- REPOSITORIES NOBODY RECORDED: one line each, with what
+                     to do about THAT one (2026-10-08: the notice said "press
+                     Retry on the assignment page", where such a student has no
+                     row; it linked nowhere; and it could not tell a lecturer's
+                     own test from a student). lib/unrecorded-repos.mjs reads
+                     the lines the nightly wrote. -->
+                <ul v-if="unrecordedLinesOf(n).length" class="org-needs-repos" data-unrecorded-lines>
+                  <li v-for="l in unrecordedLinesOf(n)" :key="l.repo" :data-advice="lineAdvice(l).kind">
+                    <div class="org-needs-repo-head">
+                      <a :href="`https://github.com/${org}/${l.repo}`" target="_blank" rel="noopener" class="mono">{{ l.repo }}</a>
+                      <template v-if="l.login"><span class="text-muted">·</span><span>@{{ l.login }}</span></template>
+                      <span class="text-muted">·</span>
+                      <router-link
+                        v-if="!assignmentIds || assignmentIds.has(l.assignmentId)"
+                        :to="{ name: 'assignment-detail', params: { org, assignmentId: l.assignmentId } }"
+                      >{{ titleOf(l.assignmentId) }}</router-link>
+                      <span v-else>{{ l.assignmentId }}</span>
+                    </div>
+                    <p class="org-needs-text">{{ lineAdvice(l).text }}</p>
+                    <div v-if="retryOffered(l) || retries[lineKey(l)]" class="org-needs-actions">
+                      <button
+                        v-if="retryOffered(l) && !retries[lineKey(l)]?.started"
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        :disabled="retries[lineKey(l)]?.busy"
+                        @click="retryLine(l)"
+                      >{{ retries[lineKey(l)]?.busy ? 'Starting…' : `Retry @${l.login}` }}</button>
+                      <span v-if="retries[lineKey(l)]?.started" class="status-indicator text-sm" role="status">
+                        <span class="status-dot dot-success" aria-hidden="true"></span>
+                        <span>Retry started. @{{ l.login }} is on the assignment's list in a minute or two.</span>
+                      </span>
+                      <span v-else-if="retries[lineKey(l)]?.error" class="text-danger text-sm" role="alert">{{ retries[lineKey(l)].error }}</span>
+                    </div>
+                  </li>
+                </ul>
+                <details v-else-if="noticeLines(n.details).rest" class="org-needs-more">
                   <summary>More</summary>
                   <p class="org-needs-rest">{{ noticeLines(n.details).rest }}</p>
                 </details>
+                <!-- Handled: a 👍 on the notice's comment, so it leaves this list
+                     for every lecturer and survives the nightly rewriting it
+                     (lib/org-notices.mjs DEALT_WITH_REACTION). -->
+                <div v-if="n.id" class="org-needs-actions">
+                  <button class="btn-link text-sm" type="button" :disabled="marking[n.id]" @click="markDealtWith(n, true)" data-dealt-with>
+                    {{ marking[n.id] ? 'Marking…' : 'Dealt with' }}
+                  </button>
+                  <span v-if="markErrors[n.id]" class="text-danger text-sm" role="alert">{{ markErrors[n.id] }}</span>
+                </div>
               </li>
             </ul>
             <p class="text-muted text-sm">
@@ -85,6 +129,24 @@
               <template v-else>Nothing has been reported in the last {{ NEEDS_YOU_DAYS }} days.</template>
             </p>
           </template>
+          <!-- What was marked dealt with, after the list or after "All quiet",
+               so a mark made by mistake can be taken back. -->
+          <details v-if="!loading && noticesState !== 'unreadable' && dealtNotices.length" class="org-needs-more" data-dealt-list>
+            <summary>{{ dealtNotices.length === 1 ? '1 notice marked dealt with' : `${dealtNotices.length} notices marked dealt with` }}</summary>
+            <ul class="org-needs-list">
+              <li v-for="n in dealtNotices" :key="n.key || n.at" class="org-needs-item">
+                <div class="org-needs-head">
+                  <span class="org-needs-what">{{ isOrgNotice(n) ? ORG_NOTICE_LABELS[n.assignmentId] : titleOf(n.assignmentId) }}</span>
+                  <span class="text-muted text-xs">{{ fmt(n.at) }}</span>
+                </div>
+                <p class="org-needs-text">{{ noticeLines(n.details).first }}</p>
+                <div class="org-needs-actions">
+                  <button class="btn-link text-sm" type="button" :disabled="marking[n.id]" @click="markDealtWith(n, false)" data-not-dealt-with>Not dealt with</button>
+                  <span v-if="markErrors[n.id]" class="text-danger text-sm" role="alert">{{ markErrors[n.id] }}</span>
+                </div>
+              </li>
+            </ul>
+          </details>
         </section>
 
         <!-- THE ORGANIZATION ITSELF (2026-10-06): its plan and what that means for
@@ -222,12 +284,15 @@ import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff, readProvisioned, setNeedsYou } from '../lib/org-session.js'
-import { getRepo, getRepoContent, ghApi, listRepoDir } from '../lib/api.js'
+import { explainDispatchFailure, getRepo, getRepoContent, ghApi, listRepoDir, triggerWorkflow } from '../lib/api.js'
+import { askConfirm } from '../lib/confirm.js'
+import { parseUnrecordedLines } from '../../../lib/unrecorded-repos.mjs'
+import { normalizeLogin, sameLogin } from '../../../lib/github-login.mjs'
 import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 import { readTrackingIssue } from '../lib/tracking-issue.js'
 import { formatDate, formatRelative } from '../lib/format.js'
-import { NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, assignmentsToSettle, isOrgNotice, noticeLines, noticesForLecturer } from '../../../lib/org-notices.mjs'
+import { DEALT_WITH_REACTION, NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, UNRECORDED_NOTICE, assignmentsToSettle, isOrgNotice, noticeLines, noticesForLecturer, unrecordedLineSettled } from '../../../lib/org-notices.mjs'
 import { ASSIGNMENTS_DIR, DASHBOARD_PATH, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
 import { RUN_NAME_PREFIX } from '../../../lib/acceptance-run-name.mjs'
 import { orgFacts } from '../../../lib/org-facts.mjs'
@@ -269,6 +334,107 @@ const titleOf = (id) => titles.value[id] || id
 // settles those notices. Null when it could not be read - nothing is settled.
 const provisioned = ref(null)
 const needsYou = computed(() => noticesForLecturer(comments.value, { assignmentIds: assignmentIds.value, provisioned: provisioned.value }))
+// The ones a lecturer marked dealt with, kept reachable to take a mark back.
+const dealtNotices = computed(() => noticesForLecturer(comments.value, { assignmentIds: assignmentIds.value, provisioned: provisioned.value, dealt: true }))
+
+// Each assignment's deadline, from the same dashboard file as the titles: what
+// a repository nobody recorded can still have done about it.
+const deadlines = ref({})
+
+// REPOSITORIES NOBODY RECORDED, line by line (lib/unrecorded-repos.mjs).
+const unrecordedLinesOf = (n) => (n.assignmentId === UNRECORDED_NOTICE ? parseUnrecordedLines(n.details) : [])
+const lineKey = (l) => `${l.assignmentId}/${normalizeLogin(l.login || l.repo)}`
+const isOwn = (l) => !!(l.login && user.value?.login && sameLogin(l.login, user.value.login))
+const assignmentGone = (l) => !!(assignmentIds.value && !assignmentIds.value.has(l.assignmentId))
+const deadlinePassed = (l) => {
+  const d = Date.parse(deadlines.value[l.assignmentId] || '')
+  return Number.isFinite(d) && d < Date.now()
+}
+/** What to do about one repository nobody recorded, from what this page read. */
+function lineAdvice(l) {
+  if (unrecordedLineSettled(l, provisioned.value)) {
+    return { kind: 'added', text: "Added since: the student is on the assignment's list now." }
+  }
+  if (assignmentGone(l)) {
+    return { kind: 'gone', text: 'Its assignment no longer exists, so there is no list to add them to. If the repository is not needed, delete it on GitHub.' }
+  }
+  if (isOwn(l)) {
+    return { kind: 'own', text: 'Your own test acceptance: nothing needs doing for students. If you do not need the repository, delete it on GitHub, then mark this dealt with.' }
+  }
+  if (!l.login) {
+    return { kind: 'unknown', text: "Which student it belongs to cannot be read from its name, so it cannot be retried from here. Open the repository to see whose it is." }
+  }
+  if (deadlinePassed(l)) {
+    return { kind: 'late', text: "Its deadline has passed, so this student was not collected at it; their work is in the repository. Retry adds them to the assignment's list now, and asks first." }
+  }
+  return { kind: 'open', text: "Retry adds the student to the assignment's list, keeping the repository and the work in it." }
+}
+const retryOffered = (l) => ['open', 'late'].includes(lineAdvice(l).kind)
+
+// Per line: { busy } while dispatching, { started } after, { error } on a refusal.
+const retries = ref({})
+async function retryLine(l) {
+  const key = lineKey(l)
+  if (lineAdvice(l).kind === 'late') {
+    const ok = await askConfirm({
+      title: `Retry @${l.login}'s acceptance after the deadline?`,
+      paragraphs: [
+        `The deadline of ${titleOf(l.assignmentId)} has passed, so nobody can accept any more.`,
+        "Retrying lets this one acceptance through anyway. Their repository and the work in it are kept.",
+      ],
+      confirmLabel: 'Retry anyway',
+    })
+    if (!ok) return
+  }
+  retries.value = { ...retries.value, [key]: { busy: true } }
+  const res = await triggerWorkflow(getToken(), config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
+    org: props.org,
+    assignment_id: l.assignmentId,
+    github_login: l.login,
+    bypass_window: 'true',
+  })
+  retries.value = {
+    ...retries.value,
+    [key]: res.ok || res.status === 204 ? { started: true } : { error: explainDispatchFailure(res, 'Retry could not be started') },
+  }
+}
+
+// DEALT WITH: a 👍 on the notice's comment (lib/org-notices.mjs). Taken back by
+// removing this account's own 👍; one another lecturer left is theirs to take.
+const marking = ref({})
+const markErrors = ref({})
+async function markDealtWith(n, dealt) {
+  marking.value = { ...marking.value, [n.id]: true }
+  markErrors.value = { ...markErrors.value, [n.id]: '' }
+  const token = getToken()
+  const base = `/repos/${props.org}/${config.controlRepo}/issues/comments/${n.id}/reactions`
+  let ok = false
+  let error = ''
+  if (dealt) {
+    const res = await ghApi(token, 'POST', base, { content: DEALT_WITH_REACTION })
+    ok = res.ok
+    if (!ok) error = `Could not mark it dealt with (HTTP ${res.status}).`
+  } else {
+    const list = await ghApi(token, 'GET', `${base}?content=${encodeURIComponent(DEALT_WITH_REACTION)}&per_page=100`)
+    const mine = list.ok && Array.isArray(list.data) ? list.data.filter((r) => sameLogin(r?.user?.login, user.value?.login)) : []
+    if (!list.ok) error = `Could not read who marked it (HTTP ${list.status}).`
+    else if (!mine.length) error = `Marked by ${list.data.map((r) => `@${r?.user?.login}`).join(', ') || 'someone else'}: only they can take it back.`
+    else {
+      const results = await Promise.all(mine.map((r) => ghApi(token, 'DELETE', `${base}/${r.id}`)))
+      ok = results.every((r) => r.ok || r.status === 404)
+      if (!ok) error = 'Could not take the mark back.'
+    }
+  }
+  if (ok) {
+    // What GitHub now holds, without reading the whole issue again.
+    comments.value = comments.value.map((c) => (c.id === n.id
+      ? { ...c, reactions: { ...(c.reactions || {}), [DEALT_WITH_REACTION]: dealt ? 1 : 0 } }
+      : c))
+    setNeedsYou(props.org, noticesState.value === 'ok' && assignmentIds.value ? needsYou.value.length : null)
+  }
+  markErrors.value = { ...markErrors.value, [n.id]: error }
+  marking.value = { ...marking.value, [n.id]: false }
+}
 
 // The Advanced section stays as the viewer left it: a per-browser convenience,
 // so a lecturer who never needs it never sees it open, and one who does is not
@@ -462,6 +628,9 @@ async function load() {
     titles.value = Object.fromEntries(
       Object.entries(parsed?.assignments || {}).map(([id, a]) => [id, a?.title || id]),
     )
+    deadlines.value = Object.fromEntries(
+      Object.entries(parsed?.assignments || {}).map(([id, a]) => [id, a?.deadline_at || null]),
+    )
     noticesState.value = tracking.state === 'unreadable' ? 'unreadable' : 'ok'
     comments.value = tracking.state === 'ok' ? tracking.comments : []
     issueUrl.value = tracking.issueUrl || null
@@ -519,6 +688,10 @@ onMounted(() => {
 .org-needs-what { font-weight: 600; }
 .org-needs-text { margin: var(--space-xs) 0 0; color: var(--text-secondary); font-size: 0.9rem; }
 .org-needs-more > summary { cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; margin-top: var(--space-xs); }
+.org-needs-repos { list-style: none; padding: 0; margin: var(--space-sm) 0 0; display: flex; flex-direction: column; gap: var(--space-sm); }
+.org-needs-repo-head { display: flex; align-items: baseline; gap: var(--space-xs); flex-wrap: wrap; min-width: 0; font-size: 0.9rem; }
+.org-needs-repo-head .mono { overflow-wrap: anywhere; }
+.org-needs-actions { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; margin-top: var(--space-xs); }
 .org-needs-rest { margin: var(--space-xs) 0 0; white-space: pre-line; color: var(--text-secondary); font-size: 0.85rem; }
 .org-about { padding: var(--space-lg); margin-bottom: var(--space-lg); }
 .org-about-title { font-size: 1rem; margin: 0 0 var(--space-sm); }

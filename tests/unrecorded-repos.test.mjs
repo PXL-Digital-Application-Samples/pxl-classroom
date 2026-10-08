@@ -18,7 +18,22 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { generatedFrom, loginFromRepoName, unrecordedCandidates } from "../lib/unrecorded-repos.mjs";
+import { generatedFrom, loginFromRepoName, parseUnrecordedLines, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+
+test("a notice line and its reading are one pair: every finding round-trips", () => {
+  const findings = [
+    { repo: "2526-sysex-ek2-test2-tomcoolpxl", login: "tomcoolpxl", assignment_id: "2526-sysex-ek2-test2" },
+    { repo: "lab-x", login: null, assignment_id: "lab" },
+  ];
+  const details = `Intro.\n\n${findings.map(unrecordedNoticeLine).join("\n")}\n\nAdvice.`;
+  assert.deepEqual(parseUnrecordedLines(details), [
+    { repo: "2526-sysex-ek2-test2-tomcoolpxl", login: "tomcoolpxl", assignmentId: "2526-sysex-ek2-test2" },
+    { repo: "lab-x", login: null, assignmentId: "lab" },
+  ]);
+  assert.deepEqual(parseUnrecordedLines("No list here."), []);
+  // The notice as it was posted on 2026-10-08, before this pair existed.
+  assert.equal(parseUnrecordedLines("- `2526-sysex-ek2-test2-tomcoolpxl` - student `tomcoolpxl` (assignment `2526-sysex-ek2-test2`)")[0].login, "tomcoolpxl");
+});
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "scripts", "find-unrecorded-repos.mjs");
@@ -137,7 +152,9 @@ test("the script reports the unrecorded student, and not a hand-made repository 
   assert.match(res.outputs, /`lab-TimoHubner444` - student `TimoHubner444` \(assignment `lab`\)/);
   assert.doesNotMatch(res.outputs, /lab-byhand/, "not generated from the template, so not ours to report");
   assert.doesNotMatch(res.outputs, /lab-ann/, "recorded");
-  assert.match(res.outputs, /Press \*\*Retry\*\*/);
+  assert.match(res.outputs, /\*\*Retry\*\* beside each one adds the student/);
+  // Written in the one format the Organization page reads back.
+  assert.deepEqual(parseUnrecordedLines(res.outputs.match(/details<<(\w+)\n([\s\S]*?)\n\1/)[2]).map((l) => [l.repo, l.login]), [["lab-TimoHubner444", "TimoHubner444"]]);
   assert.match(res.outputs, /^dedup=unrecorded-[0-9a-f]{16}$/m);
 });
 

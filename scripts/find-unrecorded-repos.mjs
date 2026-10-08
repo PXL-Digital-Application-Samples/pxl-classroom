@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
-import { generatedFrom, loginFromRepoName, unrecordedCandidates } from "../lib/unrecorded-repos.mjs";
+import { generatedFrom, loginFromRepoName, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 
 // One GET per candidate. A candidate is rare, so a cap this size is never the
 // reason something goes unreported in practice - and when it is, it says so.
@@ -110,13 +110,15 @@ async function main() {
   await setOutput("count", found.length);
   if (found.length === 0) return;
 
-  const lines = found.map((f) => `- \`${f.repo}\`${f.login ? ` - student \`${f.login}\`` : ""} (assignment \`${f.assignment_id}\`)`);
+  // One line each, in the format the Organization page reads back to put a
+  // Retry and the right advice beside it (lib/unrecorded-repos.mjs).
+  const lines = found.map((f) => unrecordedNoticeLine(f));
   await setOutput(
     "details",
     `${found.length === 1 ? "A student repository exists" : `${found.length} student repositories exist`} that PXL Classroom has no record of. ` +
       `The student can work in it, but is missing from the student list and would be left out at the deadline.\n\n` +
       `${lines.join("\n")}\n\n` +
-      `Press **Retry** for each of them on the assignment page. It keeps the repository and the work in it.`,
+      `On the **Organization** page of PXL Classroom, **Retry** beside each one adds the student and keeps the repository and the work in it.`,
   );
   await setOutput("dedup", `unrecorded-${createHash("sha256").update(found.map((f) => f.repo.toLowerCase()).sort().join("\n")).digest("hex").slice(0, 16)}`);
 }
