@@ -218,6 +218,24 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     }
   }
 
+  // A PAGES DEPLOY GITHUB NEVER STARTED. deploy-frontend.yml lets a running
+  // deploy finish (`cancel-in-progress: false`, 2026-10-08), so one that never
+  // gets a runner holds every deploy behind it: a newer one no longer cancels
+  // it. Stuck like a waiting run, so it is cancelled after 20 minutes below
+  // and dispatched again. Only the deploy: it reads everything afresh, while a
+  // queued acceptance cancelled would be a student's attempt lost.
+  for (const r of queuedAll.filter(watchedRun).filter((q) => isWorkflow(q, "deploy-frontend.yml"))) {
+    const ageMs = now - new Date(r.created_at).getTime();
+    if (ageMs > 15 * 60 * 1000) {
+      stuckRuns.push({
+        ...r,
+        ageMs,
+        durationMin: Math.max(1, Math.round(ageMs / 60000)),
+        reason: "waiting_timeout",
+      });
+    }
+  }
+
   const runningRuns = inProgressAll.filter(watchedRun);
   for (const r of runningRuns) {
     const ageMs = now - new Date(r.created_at).getTime();

@@ -113,7 +113,7 @@ jobs:
         # Asked again on failure: this dispatch is the only thing that puts a
         # publish or an acceptance on the student pages, and a 5xx here left
         # them out of date until the next change anywhere. A second dispatch is
-        # harmless - deploy-frontend.yml cancels the older run.
+        # harmless - deploy-frontend.yml keeps only the newest one waiting.
         # gh writes GitHub's error to stdout, so it is kept and said, and the
         # last attempt does not wait before giving up.
         run: |

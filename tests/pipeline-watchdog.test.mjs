@@ -525,6 +525,31 @@ test("runWatchdog - a redeploy GitHub refuses is alerted, and every other alert 
   }
 });
 
+test("runWatchdog - a deploy GitHub never started is cancelled and dispatched again, because it now holds the queue", async () => {
+  // deploy-frontend.yml lets a running deploy finish, so a newer one no longer
+  // cancels a run that never got a runner. A queued ACCEPTANCE is never
+  // cancelled: that would be a student's attempt lost.
+  const gh = stubRuns([
+    [/status=queued/, { body: { workflow_runs: [
+      { id: 91, name: "Deploy frontend to Pages", path: ".github/workflows/deploy-frontend.yml", status: "queued", event: "workflow_dispatch", created_at: at(25), html_url: "https://x/91" },
+      { id: 92, name: "acceptance o/broker-x#3", path: ".github/workflows/acceptance-handler.yml", status: "queued", event: "repository_dispatch", created_at: at(25), html_url: "https://x/92" },
+    ] } }],
+    [/actions\/runs\/91\/cancel/, { method: "POST", status: 202, body: {} }],
+    [/deploy-frontend\.yml\/dispatches/, { method: "POST", status: 204 }],
+    [/issues\?labels=pxl-tracking/, { body: [{ number: 7, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }] }],
+    [/issues\/7\/comments/, { method: "GET", body: [] }],
+    [/issues\/7\/comments/, { method: "POST", status: 201, body: { id: 1 } }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.deepEqual(res.cancelledRuns, [91]);
+    assert.equal(res.pagesRedeploy.reason, "re-dispatched after cancelling a stuck deploy");
+    assert.ok(!gh.calls.some((c) => /runs\/92\/cancel/.test(c.url)), "the acceptance is left alone");
+  } finally {
+    gh.restore();
+  }
+});
+
 test("runWatchdog - a stuck deploy whose replacement could not be dispatched is not reported as re-dispatched", async () => {
   const gh = stubRuns([
     [/status=waiting/, { body: { workflow_runs: [

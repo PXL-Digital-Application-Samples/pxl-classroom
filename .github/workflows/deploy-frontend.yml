@@ -74,10 +74,21 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
+# One deployment at a time, and A RUNNING ONE IS NEVER CANCELLED. GitHub keeps
+# one run waiting behind it - the newest; each new arrival replaces the one
+# waiting - which is exactly what a deploy wants: every run reads every
+# organization, so the newest has everything the others had.
+#
+# It was `cancel-in-progress: true`, and every acceptance dispatches a deploy:
+# on 2026-10-08 a lab's students accepted every 10-20 seconds for half an
+# hour, each deploy (90 seconds) was cancelled by the next, and none finished
+# from 07:08 to 07:57 - for any organization, so another course's published
+# assignment waited for that lab to end. The case the old setting guarded
+# against, a run stuck in `waiting` holding the group, is the watchdog's: it
+# cancels a run waiting longer than 20 minutes.
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # THE BETA CHANNEL: the `beta` branch's SPA, published at `<site>/beta/` on
