@@ -382,8 +382,51 @@ test.describe('78 - the one button', () => {
     await openForm(page);
     await titleBox(page).fill('Portfolio');
     const field = page.locator('.field', { has: templateBox(page) });
-    // The refresh icon and the blank starter. Nothing else, and no primary.
-    await expect(field.locator('button')).toHaveCount(2);
+    // The refresh icon, open-on-GitHub (disabled: nothing to open yet) and the
+    // blank starter. Nothing else, and no primary.
+    await expect(field.locator('button')).toHaveCount(3);
+    await expect(field.locator('button[data-template-open]')).toBeDisabled();
     await expect(field.locator('.btn-primary')).toHaveCount(0);
+  });
+});
+
+// Asked 2026-10-08: after creating an empty template there was no way to get
+// to it. A button beside Refresh opens whatever template the field holds, in
+// a new tab - one created here or one picked.
+test.describe('78 - open the template on GitHub', () => {
+  const openLink = (page) => page.locator('a[data-template-open]');
+
+  test('a template created from scratch opens in a new tab', async ({ page }) => {
+    await openForm(page);
+    await routeCreate(page, {
+      status: 201,
+      body: { id: 9001, name: 'starter-portfolio', full_name: `${ORG}/starter-portfolio` },
+    });
+    await routeStarterRepo(page, 'starter-portfolio');
+    await titleBox(page).fill('Portfolio');
+    await createBtn(page).click();
+
+    await expect(openLink(page)).toHaveAttribute('href', `https://github.com/${ORG}/starter-portfolio`, { timeout: 10000 });
+    await expect(openLink(page)).toHaveAttribute('target', '_blank');
+    await expect(openLink(page)).toHaveAttribute('rel', /noopener/);
+  });
+
+  test('a template picked by hand opens too', async ({ page }) => {
+    await openForm(page);
+    await routeStarterRepo(page, 'java-start');
+    await templateBox(page).fill(`${ORG}/java-start`);
+    await expect(openLink(page)).toHaveAttribute('href', `https://github.com/${ORG}/java-start`, { timeout: 10000 });
+  });
+
+  test('a repository GitHub cannot find has nothing to open', async ({ page }) => {
+    await openForm(page);
+    await page.route(`**/repos/${ORG}/does-not-exist`, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Not Found' }) });
+    });
+    await templateBox(page).fill(`${ORG}/does-not-exist`);
+    await expect(page.locator('.template-preflight-badge .badge-error')).toBeVisible({ timeout: 10000 });
+    await expect(openLink(page)).toHaveCount(0);
+    await expect(page.locator('button[data-template-open]')).toBeDisabled();
   });
 });

@@ -358,6 +358,31 @@
                 >
                   <Icon name="refresh-cw" :size="14" :class="{ 'spin-animation': loadingTemplates }" />
                 </button>
+                <!-- A link, not a button with window.open: it opens in a new
+                     tab in every browser, Firefox's pop-up rules included. -->
+                <a
+                  v-if="templateGithubUrl"
+                  class="btn template-open"
+                  :href="templateGithubUrl"
+                  target="_blank"
+                  rel="noopener"
+                  title="Open the template on GitHub"
+                  aria-label="Open the template on GitHub"
+                  data-template-open
+                >
+                  <Icon name="external-link" :size="14" />
+                </a>
+                <button
+                  v-else
+                  class="btn template-open"
+                  type="button"
+                  disabled
+                  title="Choose a template repository GitHub can find, and it opens here"
+                  aria-label="Open the template on GitHub"
+                  data-template-open
+                >
+                  <Icon name="external-link" :size="14" />
+                </button>
               </div>
               <!-- Said WHILE the template is being changed, not only after the
                    save: a changed template reaches only students who accept
@@ -2800,6 +2825,21 @@ const submissionBranchWarning = computed(() => {
   return templateSourceMessage(finding, { templateOwner, templateRepo, org: props.org })
 })
 
+/**
+ * The template on GitHub, for the button beside Refresh (asked 2026-10-08:
+ * after creating an empty template from scratch there was no way to get to
+ * it). Only once the check found the repository - an empty or not-yet-ticked
+ * one included, since those are what a lecturer goes there to fix - and only
+ * for the repository still in the field: the check waits 400ms and may be
+ * answering for the previous one.
+ */
+const templateGithubUrl = computed(() => {
+  const s = templateValidationStatus.value
+  if (!s?.valid || !s.fullName || !s.probed) return null
+  if (String(form.value.template || '').trim().toLowerCase() !== s.probed.toLowerCase()) return null
+  return `https://github.com/${s.fullName}`
+})
+
 async function checkTemplateValidity(templateStr) {
   if (templateValidationTimer) clearTimeout(templateValidationTimer)
   if (!templateStr || !templateStr.includes('/')) {
@@ -2867,6 +2907,10 @@ async function checkTemplateValidity(templateStr) {
         const content = templateHasCommits({ commitsStatus: res.commitsStatus })
         templateValidationStatus.value = {
           valid: true,
+          // What was asked, as typed: GitHub answers a renamed repository
+          // under its new `fullName`, so that is not what to compare the
+          // field against (templateGithubUrl).
+          probed: `${owner}/${repo}`,
           empty:
             content.code === EMPTY_TEMPLATE
               ? templateSourceMessage(content, { templateOwner: owner, templateRepo: repo, org: props.org })
@@ -5975,7 +6019,11 @@ details .field { padding: 0 var(--space-sm); }
   cursor: default;
   background: transparent;
 }
-.btn-refresh {
+/* Refresh, and open-on-GitHub beside it: one face, two names, so a test (or
+   a reader) asking for the refresh button finds exactly one. Not a `btn-`
+   name: DESIGN.md §3 lists every button variant there is. */
+.btn-refresh,
+.template-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5987,11 +6035,17 @@ details .field { padding: 0 var(--space-sm); }
   color: var(--text-secondary);
   transition: border-color var(--transition-normal), color var(--transition-normal);
 }
-.btn-refresh:hover:not(:disabled) {
+.btn-refresh:hover:not(:disabled),
+.template-open:hover:not(:disabled) {
   border-color: var(--text-secondary);
   color: var(--text-primary);
 }
-.btn-refresh:disabled {
+/* The link wears the button's face; not the global link hover. */
+a.template-open:hover {
+  text-decoration: none;
+}
+.btn-refresh:disabled,
+.template-open:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
