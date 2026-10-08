@@ -240,11 +240,13 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(page.locator('.students-table, table')).toBeVisible({ timeout: 15000 });
   }
 
-  // Refreshing them is a Grading-tab action; the column they land in is on
-  // Progress. One page, so what the refresh read is still there on the way back.
+  // Refreshing them is a Grading-tab action, in its More menu (as on Progress);
+  // the column they land in is on Progress. One page, so what the refresh read
+  // is still there on the way back.
   const refreshFeedbackPrs = async (page) => {
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
-    await page.getByRole('button', { name: /Refresh feedback PRs/i }).click();
+    await page.locator('.grading-actions').getByRole('button', { name: /More/ }).click();
+    await page.getByRole('menuitem', { name: /Refresh feedback PRs/i }).click();
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Progress$/ }).click();
   };
 
@@ -307,7 +309,8 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(page.locator('.students-table, table')).toBeVisible({ timeout: 15000 });
 
     await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
-    const control = page.getByRole('button', { name: /Refresh feedback PRs/i });
+    await page.locator('.grading-actions').getByRole('button', { name: /More/ }).click();
+    const control = page.getByRole('menuitem', { name: /Refresh feedback PRs/i });
     await expect(control).toBeDisabled();
     // The reason, on the control, rather than a button that silently does nothing.
     await expect(control).toHaveAttribute('title', /No feedback PRs have been opened yet/i);

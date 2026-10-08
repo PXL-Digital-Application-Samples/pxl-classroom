@@ -97,7 +97,9 @@ async function setup(page, { summary = summaryOver, overrides = null, malformedO
   return { contentWrites };
 }
 
-const panel = (page) => page.locator('.autograde-section');
+const panel = (page) => page.locator('[data-grading-table]');
+// The hand-ins nothing graded are named in the box above the table.
+const ignoredList = (page) => page.locator('[data-grading-box] [data-ignored-hand-ins]');
 const actions = (page) => page.locator('.modal-overlay .modal');
 const handSection = (page) => actions(page).locator('[data-section="hand-ins"]');
 const lastWrite = (writes, path) => [...writes].reverse().find((w) => w.path === path);
@@ -114,7 +116,7 @@ async function openActions(page) {
 async function toGrading(page) {
   if (await actions(page).isVisible()) await actions(page).locator('.modal-close').click();
   await page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ }).click();
-  await expect(panel(page).locator('table')).toBeVisible();
+  await expect(panel(page)).toBeVisible();
 }
 
 test.describe('83 - A cap on hand-ins, and the exception that raises it', () => {
@@ -123,8 +125,9 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     await toGrading(page);
     await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toBeVisible();
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 5');
-    const ignored = panel(page).locator('.autograde-ignored');
-    await expect(ignored).toContainText('1 hand-in not graded:');
+    const ignored = ignoredList(page);
+    await expect(ignored).toContainText('1 hand-in was not graded: over the limit or after the deadline');
+    await ignored.locator('summary').click();
     await expect(ignored).toContainText(`hand-in 6 of 5 pushed`);
     await expect(ignored).toContainText(`(${sha(6).slice(0, 7)}) ignored: over the limit`);
   });
@@ -139,7 +142,7 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
       await expect(handSection(page)).toHaveCount(0);
       await toGrading(page);
       await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toHaveCount(0);
-      await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
+      await expect(ignoredList(page)).toHaveCount(0);
     } finally {
       assignment.submission_marker = { type: 'commit_message', value: MSG, multiple: true, max_hand_ins: 5 };
     }
@@ -182,7 +185,7 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     await expect(actions(page), 'the dialog closes once the score is read again').toHaveCount(0);
     await toGrading(page);
     await expect(panel(page).locator('tbody tr').first()).toContainText('6 / 6 (+1)');
-    await expect(panel(page).locator('.autograde-ignored')).toHaveCount(0);
+    await expect(ignoredList(page)).toHaveCount(0);
   });
 
   test('REVOKE: +0 with its own reason is appended, and hand-in 6 is ignored again', async ({ page }) => {

@@ -1,12 +1,12 @@
-// 90 - Grade exports, autograder table enhancements, and regrade progress panel
+// 90 - Grade exports, the Grading table, its cards and its box
 //
 // Tests:
-// 1. Autograder table dedicated columns: Confirmed address & Last commit with links.
-// 2. Autograder table interactive sorting across all headers (numeric, string, date).
-// 3. Submissions table sorting on CI Status, Score, and Last commit.
-// 4. Regrade Run Progress Panel with live counters and dismiss button.
-// 5. Export Grades (CSV) with confirmed_email first, github_login second, full_name third.
-// 6. Export Detailed Breakdown (CSV) with multi-line feedback_breakdown snippet.
+// 1. Grading table dedicated columns: Confirmed address & Graded submission with links.
+// 2. Grading table sorting on the Score and Login headers.
+// 3. Submissions table sorting on Score.
+// 4. The box under the cards says when the scores were read, and the average.
+// 5. The cards count and filter the table; a student with no score is a row.
+// 6. Export grades and Export breakdown, from the Export menu.
 
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -182,7 +182,7 @@ async function setup(page, options = {}) {
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     contentWrites,
-    assignments: { [ID]: assignment },
+    assignments: { [ID]: options.assignment || assignment },
     reports: { [ID]: options.report || report },
     gradingSummaries: { [ID]: options.summary || initialSummary },
   });
@@ -240,7 +240,7 @@ async function setup(page, options = {}) {
 test.describe('90 - Grade exports and autograder features', () => {
   test('Autograder table dedicated columns: Confirmed address & Graded submission with links', async ({ page }) => {
     await setup(page, { tab: 'grading' });
-    const autogradeTable = page.locator('.autograde-section table');
+    const autogradeTable = page.locator('[data-grading-table] table');
     await expect(autogradeTable).toBeVisible();
 
     // Headers must include Confirmed address and Graded submission
@@ -258,7 +258,7 @@ test.describe('90 - Grade exports and autograder features', () => {
   test('the login opens the student\'s repository for this assignment, not their GitHub profile', async ({ page }) => {
     // Asked 2026-10-07: what a grader opens next is the work, not the person.
     await setup(page, { tab: 'grading' });
-    const aliceRow = page.locator('.autograde-section table tr', { hasText: 'student-alice' });
+    const aliceRow = page.locator('[data-grading-table] table tr', { hasText: 'student-alice' });
     const login = aliceRow.locator('a[data-grading-repo]');
     await expect(login).toHaveText('student-alice');
     await expect(login).toHaveAttribute('href', `https://github.com/${ORG}/${ID}-student-alice`);
@@ -285,7 +285,7 @@ test.describe('90 - Grade exports and autograder features', () => {
 
   test('hovering a login on Grading says which commit was graded, when it was committed, and against the deadline', async ({ page }) => {
     await setup(page, { tab: 'grading' });
-    const title = await page.locator('.autograde-section tr', { hasText: 'student-alice' }).locator('a[data-grading-repo]').getAttribute('title', { timeout: 15000 });
+    const title = await page.locator('[data-grading-table] tr', { hasText: 'student-alice' }).locator('a[data-grading-repo]').getAttribute('title', { timeout: 15000 });
     expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}, committed .+ \\(1h 45m before the deadline\\)`));
     expect(title).not.toMatch(/on time/i);
   });
@@ -300,14 +300,14 @@ test.describe('90 - Grade exports and autograder features', () => {
         : r)),
     };
     await setup(page, { tab: 'grading', summary });
-    const aliceRow = page.locator('.autograde-section tr', { hasText: 'student-alice' });
+    const aliceRow = page.locator('[data-grading-table] tr', { hasText: 'student-alice' });
     // A time read off a grading run is the run's start, seconds after the push.
     await expect(aliceRow.locator('a.sha')).toHaveAttribute('title', `When GitHub started grading it, seconds after the push. SHA: ${sha(1)}`, { timeout: 15000 });
     const title = await aliceRow.locator('a[data-grading-repo]').getAttribute('title');
     expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}, pushed .+ \\(1h 40m before the deadline\\)`));
     expect(title).not.toContain('committed');
     // Bob has no push recorded (graded before this was kept): his commit time, said as such.
-    const bobTitle = await page.locator('.autograde-section tr', { hasText: 'student-bob' }).locator('a[data-grading-repo]').getAttribute('title');
+    const bobTitle = await page.locator('[data-grading-table] tr', { hasText: 'student-bob' }).locator('a[data-grading-repo]').getAttribute('title');
     expect(bobTitle).toMatch(/Graded commit \w{7}(, committed .+)?$/m);
     expect(bobTitle).not.toContain('pushed');
   });
@@ -323,40 +323,45 @@ test.describe('90 - Grade exports and autograder features', () => {
         : s)),
     };
     await setup(page, { tab: 'grading', report: late });
-    const aliceRow = page.locator('.autograde-section tr', { hasText: 'student-alice' });
+    const aliceRow = page.locator('[data-grading-table] tr', { hasText: 'student-alice' });
     await expect(aliceRow.locator('a.sha')).toHaveText(sha(1).slice(0, 7), { timeout: 15000 });
     const title = await aliceRow.locator('a[data-grading-repo]').getAttribute('title');
     expect(title).toMatch(new RegExp(`Graded commit ${sha(1).slice(0, 7)}$`, 'm'));
     expect(title).not.toContain('committed');
   });
 
-  test('Autograder table sorting on Earned points and Login headers', async ({ page }) => {
+  test('Grading table sorting on the Score and Login headers', async ({ page }) => {
     await setup(page, { tab: 'grading' });
-    const autogradeTable = page.locator('.autograde-section table');
+    const autogradeTable = page.locator('[data-grading-table] table');
 
     // Click Login header to sort descending
     const loginTh = autogradeTable.locator('th', { hasText: 'Login' });
     await loginTh.click();
     await expect(loginTh).toHaveAttribute('aria-sort', 'descending');
+    // Every student is a row now, david too: in no summary, "Not read yet".
     let rows = autogradeTable.locator('tbody tr');
-    await expect(rows.nth(0)).toContainText('student-charlie');
+    await expect(rows.nth(0)).toContainText('student-david');
+    await expect(rows.nth(1)).toContainText('student-charlie');
 
-    // Click Earned header to sort ascending (10, 18, 20)
-    const earnedTh = autogradeTable.locator('th', { hasText: 'Earned' });
+    // Click the Score header to sort ascending (10, 18, 20, then no score)
+    const earnedTh = autogradeTable.locator('th', { hasText: 'Score' });
     await earnedTh.click();
     await expect(earnedTh).toHaveAttribute('aria-sort', 'ascending');
     rows = autogradeTable.locator('tbody tr');
     await expect(rows.nth(0)).toContainText('student-bob');
     await expect(rows.nth(1)).toContainText('student-charlie');
     await expect(rows.nth(2)).toContainText('student-alice');
+    await expect(rows.nth(3)).toContainText('student-david');
 
-    // Click Earned header again for descending (20, 18, 10)
+    // Click the Score header again for descending (20, 18, 10) - no score
+    // stays last whichever way it is sorted.
     await earnedTh.click();
     await expect(earnedTh).toHaveAttribute('aria-sort', 'descending');
     rows = autogradeTable.locator('tbody tr');
     await expect(rows.nth(0)).toContainText('student-alice');
     await expect(rows.nth(1)).toContainText('student-charlie');
     await expect(rows.nth(2)).toContainText('student-bob');
+    await expect(rows.nth(3)).toContainText('student-david');
   });
 
   test('Submissions table sorting on its Score header', async ({ page }) => {
@@ -385,33 +390,71 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(rows.nth(3)).toContainText('student-david');   // null
   });
 
-  test('Regrade Run Progress Panel appears on regrade action and can be dismissed', async ({ page }) => {
-    await setup(page, { tab: 'grading' });
+  test('Read all scores again: the box under the cards says where the read is, then when the scores were read', async ({ page }) => {
+    const { contentWrites } = await setup(page, { tab: 'grading' });
+    const box = page.locator('[data-grading-box]');
+    await expect(box).toHaveAttribute('data-state', 'read');
+    await expect(box).toContainText('Scores read');
+    await expect(box).toContainText('by @lecturer1, from GitHub Actions');
 
     // Read all scores again, on the Grading tab (it reads the runs; it starts none)
     const regradeBtn = page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ });
     await expect(regradeBtn).toBeVisible();
     await regradeBtn.click();
 
-    // The regrade progress panel should appear
-    const progressPanel = page.locator('.regrade-progress-panel');
-    await expect(progressPanel).toBeVisible();
+    // Done: the box says when, from the summary just saved - a status worked
+    // out from what is on record, not a panel that goes away (DESIGN.md §1.5).
+    await expect.poll(() => contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), { timeout: 15000 }).toBe(true);
+    await expect(box).toHaveAttribute('data-state', 'read');
+    await expect(box).toContainText(`by @${LECTURER.login}, from GitHub Actions`);
+  });
 
-    // After completion, it shows success message
-    await expect(progressPanel).toContainText(/Scores updated|successfully read/i);
+  test('the cards count the table, filter it, and the box gives the average', async ({ page }) => {
+    const summaryWithFailed = {
+      ...initialSummary,
+      failed: [{ login: 'student-david', reason: 'no CI run at commit 04aaaaa', kind: 'no-result' }],
+    };
+    await setup(page, { summary: summaryWithFailed, tab: 'grading' });
+    const card = (label) => page.locator('[data-grading-cards] .summary-card', { hasText: label }).locator('.summary-value');
+    await expect(card('Students')).toHaveText('4');
+    await expect(card('Scored')).toHaveText('3');
+    await expect(card('Needs a look')).toHaveText('1');
+    // The deadline has passed, so nothing handed in is red - none here.
+    await expect(card('Not handed in')).toHaveText('0');
+    await expect(card('Not handed in')).toHaveClass(/stat-red/);
+    await expect(page.locator('[data-grading-box]')).toContainText('Average 16 / 20 over 3 students, 1 at full marks.');
 
-    // Dismiss the panel
-    const dismissBtn = progressPanel.getByRole('button', { name: 'Dismiss progress panel' });
-    await dismissBtn.click();
-    await expect(progressPanel).not.toBeVisible();
+    // The card filters the table, as on Progress.
+    await page.locator('[data-grading-cards] .summary-card', { hasText: 'Needs a look' }).click();
+    const rows = page.locator('[data-grading-table] tbody tr');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('student-david');
+    await expect(rows.first()).toContainText('No score to read');
+    await expect(rows.first()).toContainText('no CI run at commit 04aaaaa');
+    await expect(rows.first().locator('.status-dot')).toHaveClass(/dot-danger/);
+  });
+
+  test('a score is the Progress badge, and a failed run is not called a failure beside its score', async ({ page }) => {
+    await setup(page, { tab: 'grading' });
+    const bob = page.locator('[data-grading-table] tr', { hasText: 'student-bob' });
+    const badge = bob.locator('[data-grading-score]');
+    await expect(badge).toHaveText(/10\/20 pts/);
+    await expect(badge).toHaveClass(/badge-warning/);
+    await expect(page.locator('[data-grading-table] th', { hasText: 'CI status' })).toHaveCount(0);
+    await expect(page.locator('[data-grading-table]')).not.toContainText('failure');
+    await badge.click();
+    const dialog = page.locator('.autograde-modal');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).not.toContainText('failure');
   });
 
   test('Export Grades (Excel XLSX) exports confirmed_email, login, name, and authentic commit date in .xlsx format', async ({ page }) => {
     await setup(page, { tab: 'grading' });
 
+    await page.locator('.grading-actions').getByRole('button', { name: /^Export/ }).click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.grading-actions').getByRole('button', { name: 'Export grades' }).click(),
+      page.locator('.grading-actions').getByRole('menuitem', { name: /Export grades/ }).click(),
     ]);
 
     expect(download.suggestedFilename()).toBe(`${ID}-grades.xlsx`);
@@ -436,9 +479,10 @@ test.describe('90 - Grade exports and autograder features', () => {
   test('Export Breakdown (Excel) skips detailed log for max points and includes breakdown for partial points', async ({ page }) => {
     await setup(page, { tab: 'grading' });
 
+    await page.locator('.grading-actions').getByRole('button', { name: /^Export/ }).click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('.grading-actions').getByRole('button', { name: 'Export breakdown' }).click(),
+      page.locator('.grading-actions').getByRole('menuitem', { name: /Export breakdown/ }).click(),
     ]);
 
     expect(download.suggestedFilename()).toBe(`${ID}-breakdown.xlsx`);
@@ -485,31 +529,44 @@ test.describe('90 - Grade exports and autograder features', () => {
     expect(fileBytes[3]).toBe(0x04);
   });
 
-  test('Grading failures disclosure is collapsible and expands on click', async ({ page }) => {
-    const summaryWithFailed = {
+  test('NOTHING HANDED IN IS NOT A GRADING FAILURE: a row of its own, grey before the deadline, red after', async ({ page }) => {
+    // 2026-10-08: twenty students four days before an exam's deadline were a
+    // red "20 grading failure(s)" at the bottom of the tab. A row written before
+    // failed rows carried a kind is read from its sentence.
+    const notHandedIn = {
       ...initialSummary,
       failed: [{ login: 'student-david', reason: 'no commit says "final submission", so nothing was handed in' }],
     };
-    await setup(page, { summary: summaryWithFailed, tab: 'grading' });
-    const failureDetails = page.locator('details.autograde-failed').first();
-    await expect(failureDetails).toBeVisible();
-    await expect(failureDetails).not.toHaveAttribute('open', '');
+    await setup(page, { summary: notHandedIn, tab: 'grading' });
+    await expect(page.locator('details.autograde-failed')).toHaveCount(0);
+    const david = page.locator('[data-grading-table] tr', { hasText: 'student-david' });
+    await expect(david).toHaveAttribute('data-grading-status', 'not-handed-in');
+    // The deadline here has passed: red, and no "yet".
+    await expect(david).toContainText('Not handed in');
+    await expect(david).not.toContainText('Not handed in yet');
+    await expect(david.locator('.status-dot')).toHaveClass(/dot-danger/);
+    const card = page.locator('[data-grading-cards] .summary-card', { hasText: 'Not handed in' });
+    await expect(card.locator('.summary-value')).toHaveText('1');
+    await expect(page.locator('[data-grading-cards] .summary-card', { hasText: 'Needs a look' }).locator('.summary-value')).toHaveText('0');
+  });
 
-    const summary = failureDetails.locator('summary');
-    await expect(summary).toContainText('grading failure(s)');
-
-    // List items are hidden when collapsed
-    await expect(failureDetails.locator('li', { hasText: 'student-david' })).not.toBeVisible();
-
-    // Click to open
-    await summary.click();
-    await expect(failureDetails).toHaveAttribute('open', '');
-    await expect(failureDetails.locator('li', { hasText: 'student-david' })).toBeVisible();
-
-    // Click to collapse again
-    await summary.click();
-    await expect(failureDetails).not.toHaveAttribute('open', '');
-    await expect(failureDetails.locator('li', { hasText: 'student-david' })).not.toBeVisible();
+  test('before the deadline it is "not handed in yet", in grey', async ({ page }) => {
+    const future = '2099-01-01T12:00:00.000Z';
+    const notHandedIn = {
+      ...initialSummary,
+      failed: [{ login: 'student-david', reason: 'no commit says "final submission", so nothing was handed in', kind: 'not-handed-in' }],
+    };
+    await setup(page, {
+      summary: notHandedIn,
+      tab: 'grading',
+      assignment: { ...assignment, deadline_at: future, state: 'published' },
+      report: { ...report, students: students.map((s) => ({ ...s, effective_deadline_at: future })) },
+    });
+    const david = page.locator('[data-grading-table] tr', { hasText: 'student-david' });
+    await expect(david).toContainText('Not handed in yet');
+    await expect(david.locator('.status-dot')).toHaveClass(/dot-neutral/);
+    const card = page.locator('[data-grading-cards] .summary-card', { hasText: 'Not handed in yet' });
+    await expect(card.locator('.summary-value')).toHaveClass(/stat-neutral/);
   });
 });
 

@@ -145,3 +145,28 @@ export const GRADING_RUNNER_LABELS = Object.freeze({
 export function gradingRunnerLabel(value) {
   return GRADING_RUNNER_LABELS[value] || (value ? `via ${value}` : "")
 }
+
+/**
+ * What the Grading tab says about a student with no score (frontend/src/lib/
+ * grading-rows.js): a failed row's `kind`, enumerated in
+ * schemas/grading-summary.schema.json, plus the two states only the page knows.
+ *
+ * "Not handed in" before the student's deadline says "yet": it is the ordinary
+ * state of somebody who has not finished, and the tab shows it grey until then.
+ */
+export const GRADING_STATUS_LABELS = Object.freeze({
+  scored: "Scored",
+  "not-handed-in": "Not handed in",
+  late: "Handed in after the deadline",
+  "no-result": "No score to read",
+  "not-read": "Not read yet",
+});
+
+/**
+ * @param {string|null|undefined} value
+ * @param {{ beforeDeadline?: boolean }} [opts]
+ */
+export function gradingStatusLabel(value, { beforeDeadline = false } = {}) {
+  if (value === "not-handed-in" && beforeDeadline) return "Not handed in yet";
+  return label(GRADING_STATUS_LABELS, value);
+}

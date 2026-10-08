@@ -990,18 +990,27 @@ pxl-classroom download --org PXLAutomation \
 
 It never replaces a reading **you** made. A summary carrying your login, or one produced by `pxl-classroom grade` on your machine, is left alone and the run log says so; only its own earlier reading is replaced. To overrule it, re-grade.
 
+**The assignment's Grading tab** is laid out like Progress:
+
+- **Four cards**, each of which filters the table: *Students*, *Scored*, *Needs a look* and *Not handed in*. A card shows a dash until scores have been read at least once.
+- *Needs a look* is a student who handed in and has no score to read (no grading run, a cancelled run, a commit you chose that has no result), or who handed in only after the deadline.
+- *Not handed in* is grey until the deadline (*Not handed in yet*) and red after it. The Progress tab's *No submission* card follows the same rule.
+- **The box under the cards** says when the scores were read and by whom, gives the average and how many have full marks, and says whether the deadline will read them again. While *Read all scores again* runs, the box shows its progress; if the read stops, the box shows why and offers *Try again*.
+- **Every student is a row** with a score or the reason there is none. The score is the same badge as on Progress and opens the same breakdown. The row's **⋯** is the same dialog.
+- **Export** holds *Export grades* and *Export breakdown*. **More** holds the feedback pull requests.
+
 **Re-grading, when a run was re-run or a check was fixed:**
 
 | | Where | What it does |
 |---|---|---|
 | **One student** | Roster & progress → their row → **⋯** → **Grading** → *Read score again* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
-| **The whole cohort** | **More** → *Read all scores again (N)*, or the button on the Autograding panel | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
+| **The whole cohort** | **Grading** tab → *Read all scores again (N)* | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
 
-A student whose commit has **no grading run** is listed by name with the reason, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
+A student whose commit has **no grading run** is a row with the reason, under *Needs a look*, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
 
 #### Grading one student differently from the rules
 
-The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) and in the Autograding panel, and are kept by every later *Read score again*, *Read all scores again*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.
+The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) on both tabs, and are kept by every later *Read score again*, *Read all scores again*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.
 
 - **Choose the commit that counts…** lists every hand-in (with a hand-in message) or every commit on the submission branch (without one), newest first, each with the result its grading run produced - *late*, *over the limit* and *graded now* labelled. Late and over-the-limit hand-ins almost always have a result: every hand-in push was graded, and the rules only decide which one counts. Pick one and **Grade on #4 (20/20)**. On a team repository it applies to the whole team.
 - A commit **with no result** says why. Where GitHub can still help it offers **Re-run its grading on GitHub**: a run exists for that exact commit, it is not a hand-in-gated run that skipped (it would skip again - measured), and it is under 30 days old. It re-runs the tests **as they were at that commit**, costs its usual Actions minutes, and on a cloud exam whose sandbox is gone the result will be a fail.
@@ -1010,7 +1019,7 @@ The same **Grading** section of the student's **⋯** dialog has two decisions t
 - Going back to the rules, or removing a score by hand, when the rules find no score for that student removes their old score from the results and names the reason, rather than leaving the undone decision on record.
 - The assignment's **Export CSV** carries the graded commit and your decision - `grade_decision` (*chosen commit* or *score by hand*), who, when and why - beside the score, for a grade dispute read in a spreadsheet.
 - Two lecturers deciding about the same student at the same moment both keep their decision: a save that finds the student's file changed underneath it reads it again and adds its own entry to what is there.
-- **How many are graded** shows once at least one student has a score: a **Graded** card beside *No submission* on the assignment page, and a **Graded** figure on the assignment's card in the overview. Both count students with a score of any kind (a run or a score by hand), move as soon as a re-grade is saved, and are read from the assignment's grade summary, so the overview is current without waiting for the nightly.
+- **How many are graded** is the **Scored** card on the Grading tab, and a **Graded** figure on the assignment's card in the overview once at least one student has a score. Both count students with a score of any kind (a run or a score by hand), move as soon as a re-grade is saved, and are read from the assignment's grade summary, so the overview is current without waiting for the nightly.
 - When **Read all scores again** or the nightly cannot read some students, the message names them. A commit graded with **Start a grading run on this commit** whose run was later deleted is refused for that one student (*no longer exists*): grade the commit again, or go back to the rules.
 
 The local runner (`pxl-classroom grade --runner docker|host`) grades the preserved submission only, so for a student with a chosen commit it refuses by name rather than grade something else; read that commit's result on the page instead.
@@ -1054,7 +1063,7 @@ pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run   
 
 Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only - uses `/bin/sh`).
 
-Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the **Autograder** panel on `AssignmentDetailView`.
+Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the assignment's **Grading** tab.
 
 #### What provisioning does with a template that already grades
 

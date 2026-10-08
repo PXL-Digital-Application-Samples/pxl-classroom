@@ -9,7 +9,7 @@
     >
       <header class="modal-head flex justify-between items-center">
         <div class="flex items-center gap-sm">
-          <Icon name="check-circle" :size="20" :class="item.ci_status === 'success' ? 'text-success' : 'text-danger'" />
+          <Icon name="check-circle" :size="20" :class="fullMarks ? 'text-success' : 'text-warning'" />
           <h3 style="margin: 0;">
             <slot name="title">Autograding: <code>{{ subject }}</code></slot>
           </h3>
@@ -21,7 +21,7 @@
         <!-- Summary Banner -->
         <div
           class="score-banner flex justify-between items-center p-md"
-          :class="item.ci_status === 'success' ? 'banner-success' : 'banner-warning'"
+          :class="fullMarks ? 'banner-success' : 'banner-warning'"
         >
           <div>
             <div class="text-xs text-secondary uppercase font-semibold">{{ scoreLabel }}</div>
@@ -46,14 +46,13 @@
               {{ SCORE_SOURCE_LABELS[item.score_source] }}
             </div>
           </div>
-          <div>
-            <span
-              class="score-banner-status badge"
-              :class="item.ci_status === 'success' ? 'badge-success' : item.ci_status === 'failure' ? 'badge-error' : 'badge-warning'"
-            >
-              {{ item.ci_status || 'completed' }}
-            </span>
-          </div>
+          <!-- The run, not its conclusion. A graded run ended `success` or
+               `failure` (lib/check-run-score.mjs `graded`), and `failure` only
+               means a check failed: a red "failure" beside 12 / 20 read as a
+               grading problem (2026-10-08). The colour above follows the score. -->
+          <a v-if="item.ci_run_url" :href="item.ci_run_url" target="_blank" rel="noopener" class="btn-link">
+            Open the run →
+          </a>
         </div>
 
         <!-- Test Breakdown List -->
@@ -80,11 +79,8 @@
              the real one. -->
         <div v-else class="text-secondary text-sm">
           <p style="margin: 0;">
-            The per-check breakdown is in the grading run itself.
-            <a v-if="item.ci_run_url" :href="item.ci_run_url" target="_blank" rel="noopener" class="btn-link">
-              Open the run →
-            </a>
-            <a v-else-if="item.repo_url" :href="`${item.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
+            The per-check breakdown is in the grading run itself{{ item.ci_run_url ? ': Open the run, above.' : '.' }}
+            <a v-if="!item.ci_run_url && item.repo_url" :href="`${item.repo_url}/actions`" target="_blank" rel="noopener" class="btn-link">
               Open GitHub Actions →
             </a>
           </p>
@@ -139,6 +135,14 @@ const emit = defineEmits(['close'])
 const subject = computed(
   () => props.subjectLabel || props.item?.github_login || props.item?.team_slug || 'this submission',
 )
+
+// Green for every point, amber for anything less - the same rule as the Score
+// badge that opened this dialog.
+const fullMarks = computed(() => {
+  const earned = Number(props.item?.earned_points)
+  const total = Number(props.item?.total_points)
+  return Number.isFinite(earned) && total > 0 && earned >= total
+})
 </script>
 
 <style scoped>
@@ -172,11 +176,6 @@ const subject = computed(
 
 .score-banner-value {
   font-size: 1.4rem;
-}
-
-.score-banner-status {
-  font-size: 0.85rem;
-  padding: 4px 10px;
 }
 
 /* Where the number came from, under the number. Secondary rather than a

@@ -370,26 +370,25 @@ test.describe('87 - grading decisions', () => {
 
 // --- the Graded count (2026-09-27) ------------------------------------------
 //
-// The Grading tab's summary line says how many students have a score (it was a
-// sixth card on the page until the tabs, 2026-10-02), and the overview's card
-// carries it too. Shown only once somebody has a score, and moved by a re-grade
-// without a reload.
+// The Grading tab's Scored card says how many students have a score (a line of
+// text until 2026-10-08, when the tab took Progress's layout), and the
+// overview's card carries it too. Moved by a re-grade without a reload.
 
 const gradingTab = (page) => page.locator('.assignment-tabs .primer-tab', { hasText: /^Grading$/ });
-const gradedLine = (page) => page.locator('.grading-actions');
+const scoredCard = (page) => page.locator('[data-grading-cards] .summary-card', { hasText: 'Scored' });
 
 test.describe('87 - the Graded count', () => {
   test('the assignment page shows how many students have a score', async ({ page }) => {
     await setup(page);
     await gradingTab(page).click();
-    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
+    await expect(scoredCard(page).locator('.summary-value')).toHaveText('1');
   });
 
-  test('NOBODY GRADED: no count - a 0 would read as graded and nobody passed', async ({ page }) => {
-    await setup(page, { startSummary: { ...summary, students: [] } });
+  test('NOBODY READ YET: a dash, not a 0 - a 0 would read as graded and nobody passed', async ({ page }) => {
+    await setup(page, { startSummary: null });
     await gradingTab(page).click();
-    await expect(gradedLine(page)).toContainText('No scores read yet');
-    await expect(gradedLine(page)).not.toContainText('have a score');
+    await expect(scoredCard(page).locator('.summary-value')).toHaveText('-');
+    await expect(page.locator('[data-grading-box]')).toContainText('No scores read yet');
   });
 
   test('a RE-GRADE moves it at once, with no reload', async ({ page }) => {
@@ -400,7 +399,7 @@ test.describe('87 - the Graded count', () => {
     // The dialog may have closed itself after the read; close it if not.
     if (await dialog(page).isVisible()) await dialog(page).locator('.modal-close').click();
     await gradingTab(page).click();
-    await expect(gradedLine(page)).toContainText(/1 of \d+ students have a score/);
+    await expect(scoredCard(page).locator('.summary-value')).toHaveText('1');
   });
 
   test('the overview card carries it too, from the grade summary - and not where nobody is graded', async ({ page }) => {

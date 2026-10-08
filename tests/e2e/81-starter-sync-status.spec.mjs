@@ -78,7 +78,7 @@ async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus
   return calls;
 }
 
-const line = (page) => page.locator('.sync-status');
+const line = (page) => page.locator('[data-sync-status]');
 
 test.describe('81 - The assignment page says where the last starter sync stands', () => {
   test('completed and current: a quiet success line, no action', async ({ page }) => {
@@ -156,7 +156,7 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     });
     await page.goto(`/dashboard/${ORG}/${ID}`);
     await expect(line(page)).toHaveAttribute('data-state', 'completed-with-failures');
-    await expect(line(page).locator('.sync-status-failed')).toContainText('@ada: could not read main (HTTP 404)');
+    await expect(line(page).locator('[data-sync-failed]')).toContainText('@ada: could not read main (HTTP 404)');
     await expect(line(page).locator('.status-dot.dot-danger')).toBeVisible();
   });
 

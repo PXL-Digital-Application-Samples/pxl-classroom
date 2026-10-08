@@ -232,6 +232,7 @@ export type GradingSummary = {
   failed?: Array<{
     login?: string;
     reason?: string;
+    kind?: "not-handed-in" | "late" | "no-result";
     hand_ins?: {
       used?: number;
       allowed?: number;

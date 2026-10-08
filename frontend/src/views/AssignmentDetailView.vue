@@ -218,8 +218,10 @@
             <span class="summary-value stat-yellow">{{ lateCount }}</span>
             <span class="summary-label">Late</span>
           </div>
+          <!-- Grey until the deadline, red after (asked 2026-10-08): before
+               it, nothing pushed yet is where every student starts. -->
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'no-submission'" title="Filter unstarted / no submissions">
-            <span class="summary-value stat-red">{{ noSubCount }}</span>
+            <span class="summary-value" :class="deadlinePassed ? 'stat-red' : 'stat-neutral'">{{ noSubCount }}</span>
             <span class="summary-label">No submission</span>
           </div>
         </div>
@@ -627,7 +629,7 @@
                        saying Late, and the classification bug would have been
                        caught the day it shipped rather than after an exam. -->
                   <span class="status-indicator" :title="statusDetail(s)">
-                    <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? 'dot-neutral' : 'dot-info'))"></span>
+                    <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? (pastDeadline(s.effective_deadline_at || currentDeadline) ? 'dot-danger' : 'dot-neutral') : 'dot-info'))"></span>
                     <span class="text-sm">{{ submissionLabel(s.submission_status) }}</span>
                   </span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
@@ -696,7 +698,7 @@
                     v-if="s.earned_points != null"
                     type="button"
                     class="badge badge-clickable"
-                    :class="s.earned_points >= s.total_points && s.total_points > 0 ? 'badge-success' : (s.earned_points > 0 ? 'badge-warning' : 'badge-error')"
+                    :class="scoreBadgeClass(s)"
                     @click="openAutogradeModal(s)"
                     :title="scoreTitle(s)"
                     style="font-size: 0.75rem;"
@@ -980,77 +982,15 @@
              It was a table under the student list, its buttons duplicated in
              the Export and More menus above it, and its scores shown twice
              more in the lists (BETA-UX.md). -->
+        <!-- GRADING IS LAID OUT LIKE PROGRESS (asked 2026-10-08): the cards that
+             filter the table, one box saying where the scores stand, the
+             search and pills with the actions on the right, and ONE table of
+             every student. It was a line of small text, a divider, an
+             "Autograder" heading over a sentence that never changed, a table of
+             only the students with a score, and every other student in a red
+             "N grading failure(s)" at the bottom - twenty of them, four days
+             before an exam's deadline, none of them a failure. -->
         <template v-if="activeTab === 'grading' && !reportError">
-          <section
-            v-if="regradePanel.visible"
-            class="regrade-progress-panel diag-banner fade-in"
-            :class="{
-              'regrade-running': regradePanel.status === 'running',
-              'regrade-success': regradePanel.status === 'success',
-              'regrade-error': regradePanel.status === 'error',
-            }"
-            aria-live="polite"
-          >
-            <div class="flex items-center justify-between gap-md flex-wrap w-full">
-              <div class="flex items-center gap-sm">
-                <span
-                  class="status-dot"
-                  :class="{
-                    'dot-info': regradePanel.status === 'running',
-                    'dot-success': regradePanel.status === 'success',
-                    'dot-danger': regradePanel.status === 'error',
-                  }"
-                ></span>
-                <div>
-                  <strong v-if="regradePanel.status === 'running'">
-                    Reading scores from GitHub Actions: {{ regradePanel.synced }} / {{ regradePanel.total }} students
-                    ({{ regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0 }}%)
-                  </strong>
-                  <strong v-else-if="regradePanel.status === 'success'">
-                    Scores updated: successfully read and recorded grades for all {{ regradePanel.total }} students.
-                  </strong>
-                  <strong v-else-if="regradePanel.status === 'error'" class="text-danger">
-                    Reading scores stopped: {{ regradePanel.error }}
-                  </strong>
-                  <p v-if="regradePanel.status === 'running'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    Querying test check runs, calculating point totals, and synchronizing autograding summaries...
-                  </p>
-                  <p v-else-if="regradePanel.status === 'success'" class="text-xs text-secondary" style="margin: 2px 0 0 0;">
-                    New scores committed to <code>grading/{{ assignmentId }}/summary.json</code>.
-                  </p>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-xs">
-                <button
-                  v-if="regradePanel.status === 'error'"
-                  type="button"
-                  class="btn btn-xs btn-secondary"
-                  @click="syncGradesFromGitHub"
-                >
-                  Retry
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-icon btn-xs"
-                  @click="dismissRegradePanel"
-                  aria-label="Dismiss progress panel"
-                  title="Dismiss"
-                >
-                  <Icon name="x" :size="14" />
-                </button>
-              </div>
-            </div>
-
-            <!-- Progress track bar while running -->
-            <div v-if="regradePanel.status === 'running'" class="regrade-track-wrap">
-              <div
-                class="regrade-track-fill"
-                :style="{ width: `${regradePanel.total > 0 ? Math.round((regradePanel.synced / regradePanel.total) * 100) : 0}%` }"
-              ></div>
-            </div>
-          </section>
-
           <!-- Nothing grades this assignment: say so, and where to change it.
                The old bottom table simply did not appear, so a lecturer who had
                not set grading up never learned where it was. -->
@@ -1064,12 +1004,97 @@
           </div>
 
           <template v-else>
-            <div class="actions-bar grading-actions flex items-center justify-between flex-wrap gap-sm">
-              <span class="text-secondary text-sm">
-                <template v-if="hasGrades">{{ gradedCount }} of {{ report.students.length }} students have a score.</template>
-                <template v-else-if="autogradeEnabled || ciGradingAvailable">No scores read yet.</template>
-              </span>
-              <div class="flex gap-xs items-center flex-wrap">
+            <!-- Cards: they filter the table below, as on Progress. Before the
+                 first read nothing is known, so a dash rather than a 0. -->
+            <div v-if="scoresOnThisTab" class="summary-row" data-grading-cards>
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = ''" title="Show all students">
+                <span class="summary-value">{{ gradingCountsNow.students }}</span>
+                <span class="summary-label">Students</span>
+              </div>
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'scored'" title="Students with a score">
+                <span class="summary-value stat-green">{{ gradingCard('scored') }}</span>
+                <span class="summary-label">Scored</span>
+              </div>
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'needs-look'" title="Handed in, and no score could be read - or handed in only after the deadline">
+                <span class="summary-value stat-yellow">{{ gradingCard('needs-look') }}</span>
+                <span class="summary-label">Needs a look</span>
+              </div>
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'not-handed-in'" :title="deadlinePassed ? 'Nothing handed in by the deadline' : 'Nothing handed in yet, which is normal before the deadline'">
+                <span class="summary-value" :class="deadlinePassed ? 'stat-red' : 'stat-neutral'">{{ gradingCard('not-handed-in') }}</span>
+                <span class="summary-label">{{ deadlinePassed ? 'Not handed in' : 'Not handed in yet' }}</span>
+              </div>
+            </div>
+
+            <!-- Where the scores stand, from the summary on record (DESIGN.md
+                 §1.5): a finished read is the date in this box, not a panel
+                 that goes away. A read in progress and one that stopped are
+                 said here too, with the way forward. -->
+            <section
+              v-if="scoresOnThisTab"
+              :class="['status-box', 'diag-banner', `tone-${gradingBox.tone}`]"
+              :data-state="gradingBox.state"
+              aria-live="polite"
+              data-grading-box
+            >
+              <span :class="['status-dot', gradingBox.dot]"></span>
+              <div class="status-box-body">
+                <strong>{{ gradingBox.title }}</strong>
+                <p v-if="gradingBox.detail" class="text-muted text-sm">{{ gradingBox.detail }}</p>
+                <div v-if="regradePanel.status === 'running'" class="regrade-track-wrap">
+                  <div class="regrade-track-fill" :style="{ width: `${regradeProgressPercent}%` }"></div>
+                </div>
+                <!-- EVERY hand-in the limit or the deadline left out, by name and
+                     with why - never dropped silently. The sentence is
+                     lib/submission-marker.mjs `describeIgnoredHandIn`, the same
+                     one the nightly log and the CLI print. -->
+                <details v-if="ignoredHandIns.length" class="text-sm" data-ignored-hand-ins>
+                  <summary>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? ' was' : 's were' }} not graded: over the limit or after the deadline</summary>
+                  <ul class="status-box-list">
+                    <li v-for="i in ignoredHandIns" :key="`${i.login}-${i.sha}`"><code>@{{ i.login }}</code>: {{ i.text }}</li>
+                  </ul>
+                </details>
+                <p v-if="regradePanel.status === 'error'" class="status-box-actions text-sm">
+                  <button type="button" class="btn-link" @click="syncGradesFromGitHub">Try again</button>
+                </p>
+              </div>
+            </section>
+
+            <!-- As on Progress: search and filters on the left, the tab's own
+                 action on the right, everything else in a menu. -->
+            <div class="actions-bar grading-actions flex items-center flex-wrap gap-sm" :class="scoresOnThisTab ? 'justify-between' : 'justify-end'">
+              <div v-if="scoresOnThisTab" class="flex items-center gap-md flex-wrap">
+                <input
+                  v-model="gradingSearch"
+                  type="search"
+                  placeholder="Search by login, email or repo…"
+                  class="search-input"
+                  aria-label="Search students"
+                />
+                <div v-if="autogradeSummary" class="tab-pill-selector quick-filter-pills" role="tablist" aria-label="Grading filters">
+                  <button type="button" class="tab-pill" :class="{ active: gradingFilter === '' }" @click="gradingFilter = ''">
+                    All ({{ gradingCountsNow.students }})
+                  </button>
+                  <button type="button" class="tab-pill" :class="{ active: gradingFilter === 'scored' }" @click="gradingFilter = 'scored'">
+                    Scored ({{ gradingCountsNow.scored }})
+                  </button>
+                  <button type="button" class="tab-pill" :class="{ active: gradingFilter === 'needs-look' }" @click="gradingFilter = 'needs-look'">
+                    Needs a look ({{ gradingCountsNow['needs-look'] }})
+                  </button>
+                  <button type="button" class="tab-pill" :class="{ active: gradingFilter === 'not-handed-in' }" @click="gradingFilter = 'not-handed-in'">
+                    Not handed in ({{ gradingCountsNow['not-handed-in'] }})
+                  </button>
+                  <button
+                    v-if="gradingCountsNow['not-read'] > 0"
+                    type="button"
+                    class="tab-pill"
+                    :class="{ active: gradingFilter === 'not-read' }"
+                    @click="gradingFilter = 'not-read'"
+                  >
+                    Not read yet ({{ gradingCountsNow['not-read'] }})
+                  </button>
+                </div>
+              </div>
+              <div class="flex gap-xs items-center">
                 <button v-if="localRunnerDeclared" class="btn btn-secondary btn-sm btn-with-icon" type="button" @click="copyGradeCmd" title="Command to run the checks on your own machine">
                   <Icon name="copy" :size="13" />
                   <span>Copy grading command</span>
@@ -1078,203 +1103,224 @@
                   <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': syncingGrades }" />
                   <span>{{ syncingGrades ? `Reading (${syncedGradesCount}/${totalGradesToSync})` : regradeLabel }}</span>
                 </button>
-                <button
-                  v-if="hasGrades"
-                  class="btn btn-secondary btn-sm btn-with-icon"
-                  type="button"
-                  @click="exportGradesXLSX"
-                  :disabled="exporting"
-                  title="Confirmed email, login, name and score per student, for a grading system"
-                >
-                  <Icon name="download" :size="13" />
-                  <span>Export grades</span>
-                </button>
-                <button
-                  v-if="hasGrades"
-                  class="btn btn-secondary btn-sm btn-with-icon"
-                  type="button"
-                  @click="exportBreakdownXLSX"
-                  :disabled="exporting"
-                  title="Grades with every check's result, as an Excel workbook"
-                >
-                  <Icon :name="exporting ? 'refresh-cw' : 'file-text'" :size="13" :class="{ 'spin-icon': exporting }" />
-                  <span>{{ exporting ? exportStatusText : 'Export breakdown' }}</span>
-                </button>
-                <button
-                  v-if="feedbackPrEnabled"
-                  class="btn btn-secondary btn-sm btn-with-icon"
-                  type="button"
-                  @click="openFeedbackPrs"
-                  :disabled="openingFeedbackPrs"
-                  title="Create a review pull request in each student's repository"
-                >
-                  <Icon name="message-square" :size="13" />
-                  <span>{{ openingFeedbackPrs ? 'Opening…' : 'Open feedback PRs' }}</span>
-                </button>
-                <button
-                  v-if="feedbackPrEnabled"
-                  class="btn btn-secondary btn-sm btn-with-icon"
-                  type="button"
-                  @click="refreshFeedbackPrStatus"
-                  :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
-                  :title="feedbackPrAlreadyOpenedCount === 0 ? 'No feedback PRs have been opened yet' : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)`"
-                >
-                  <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingFeedbackPrs }" />
-                  <span>{{ refreshingFeedbackPrs ? 'Checking…' : 'Refresh feedback PRs' }}</span>
-                </button>
+
+                <div v-if="hasGrades" class="dropdown-container" ref="gradingExportRef">
+                  <button
+                    class="btn btn-secondary btn-sm btn-with-icon"
+                    type="button"
+                    @click.stop="toggleGradingExport"
+                    :disabled="exporting"
+                    :aria-expanded="gradingExportOpen"
+                    aria-haspopup="true"
+                    title="Export the scores"
+                  >
+                    <Icon :name="exporting ? 'refresh-cw' : 'download'" :size="13" :class="{ 'spin-icon': exporting }" />
+                    <span v-if="exporting">{{ exportStatusText }}</span>
+                    <span v-else>Export</span>
+                    <Icon v-if="!exporting" :name="gradingExportOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+                  </button>
+                  <div v-if="gradingExportOpen" class="export-dropdown-menu fade-in" role="menu">
+                    <button class="export-dropdown-item" type="button" role="menuitem" @click="fromGradingMenu(exportGradesXLSX)">
+                      <Icon name="download" :size="14" class="dropdown-icon" />
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Export grades</span>
+                        <span class="dropdown-item-sub">Confirmed email, login, name and score per student, for a grading system</span>
+                      </div>
+                    </button>
+                    <button class="export-dropdown-item" type="button" role="menuitem" @click="fromGradingMenu(exportBreakdownXLSX)">
+                      <Icon name="file-text" :size="14" class="dropdown-icon" />
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Export breakdown</span>
+                        <span class="dropdown-item-sub">Grades with every check's result, as an Excel workbook</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="feedbackPrEnabled" class="dropdown-container" ref="gradingMoreRef">
+                  <button
+                    class="btn btn-secondary btn-sm btn-with-icon"
+                    type="button"
+                    @click.stop="toggleGradingMore"
+                    :aria-expanded="gradingMoreOpen"
+                    aria-haspopup="true"
+                    title="Feedback pull requests"
+                  >
+                    <Icon :name="openingFeedbackPrs || refreshingFeedbackPrs ? 'refresh-cw' : 'more-horizontal'" :size="14" :class="{ 'spin-icon': openingFeedbackPrs || refreshingFeedbackPrs }" />
+                    <span>{{ openingFeedbackPrs ? 'Opening…' : refreshingFeedbackPrs ? 'Checking…' : 'More' }}</span>
+                    <Icon :name="gradingMoreOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
+                  </button>
+                  <div v-if="gradingMoreOpen" class="export-dropdown-menu fade-in" role="menu">
+                    <button
+                      class="export-dropdown-item"
+                      type="button"
+                      role="menuitem"
+                      :disabled="openingFeedbackPrs"
+                      @click="fromGradingMenu(openFeedbackPrs)"
+                    >
+                      <Icon name="message-square" :size="14" class="dropdown-icon" />
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Open feedback PRs</span>
+                        <span class="dropdown-item-sub">A review pull request in each student's repository</span>
+                      </div>
+                    </button>
+                    <button
+                      class="export-dropdown-item"
+                      type="button"
+                      role="menuitem"
+                      :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
+                      :class="{ 'disabled-item': feedbackPrAlreadyOpenedCount === 0 }"
+                      :title="feedbackPrAlreadyOpenedCount === 0 ? 'No feedback PRs have been opened yet' : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)`"
+                      @click="fromGradingMenu(refreshFeedbackPrStatus)"
+                    >
+                      <Icon name="refresh-cw" :size="14" class="dropdown-icon" />
+                      <div class="dropdown-item-text">
+                        <span class="dropdown-item-title">Refresh feedback PRs</span>
+                        <span class="dropdown-item-sub">
+                          {{ feedbackPrAlreadyOpenedCount === 0 ? 'No feedback PRs have been opened yet' : `Whether each is open, and its review comments` }}
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-        <section v-if="autogradeEnabled || ciGradingAvailable" class="autograde-section">
-          <header class="autograde-head">
-            <h3>Autograder</h3>
-            <span class="text-muted text-xs">
-              {{ autogradeSummary
-                ? gradingProvenance
-                : 'No results yet. Execution stays off-platform.' }}
-            </span>
-          </header>
-          <div class="autograde-banner">
-            <template v-if="autogradeDeclared">
-              Configured tests: <strong>{{ assignment?.autograde?.tests?.length || 0 }}</strong>.
-              Total points: <strong>{{ autogradeTotalPoints }}</strong>.
-            </template>
-            <template v-else>
-              The checks are defined by a workflow inside the template repository, not here.
-            </template>
-            <template v-if="ciGradingAvailable">{{ gradingBlurb }}</template>
-          </div>
-          <div v-if="autogradeSummary && autogradeSummary.students?.length" class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th @click="sortAutogradeBy('login')" @keydown.enter="sortAutogradeBy('login')" @keydown.space.prevent="sortAutogradeBy('login')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('login')">
-                    <span class="th-label">Login<SortIcon :dir="sortAutogradeDir('login')" /></span>
-                  </th>
-                  <th v-if="autogradeHasClaimedEmails" @click="sortAutogradeBy('claimed_email')" @keydown.enter="sortAutogradeBy('claimed_email')" @keydown.space.prevent="sortAutogradeBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('claimed_email')">
-                    <span class="th-label">Confirmed address<SortIcon :dir="sortAutogradeDir('claimed_email')" /></span>
-                  </th>
-                  <th @click="sortAutogradeBy('graded_submission')" @keydown.enter="sortAutogradeBy('graded_submission')" @keydown.space.prevent="sortAutogradeBy('graded_submission')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_submission')" title="Last graded submission before deadline within limit">
-                    <span class="th-label">Graded submission<SortIcon :dir="sortAutogradeDir('graded_submission')" /></span>
-                  </th>
-                  <th @click="sortAutogradeBy('earned_points')" @keydown.enter="sortAutogradeBy('earned_points')" @keydown.space.prevent="sortAutogradeBy('earned_points')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('earned_points')">
-                    <span class="th-label">Earned<SortIcon :dir="sortAutogradeDir('earned_points')" /></span>
-                  </th>
-                  <th @click="sortAutogradeBy('total_points')" @keydown.enter="sortAutogradeBy('total_points')" @keydown.space.prevent="sortAutogradeBy('total_points')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('total_points')">
-                    <span class="th-label">Total<SortIcon :dir="sortAutogradeDir('total_points')" /></span>
-                  </th>
-                  <!-- Only under a hand-in cap: the column is a count against
-                       a limit, and with no limit there is nothing to count. -->
-                  <th v-if="handInsShown" @click="sortAutogradeBy('hand_ins')" @keydown.enter="sortAutogradeBy('hand_ins')" @keydown.space.prevent="sortAutogradeBy('hand_ins')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('hand_ins')" title="Hand-ins made on or before the deadline, of how many count">
-                    <span class="th-label">Hand-ins<SortIcon :dir="sortAutogradeDir('hand_ins')" /></span>
-                  </th>
-                  <th v-if="summaryIsCiBased" @click="sortAutogradeBy('ci_status')" @keydown.enter="sortAutogradeBy('ci_status')" @keydown.space.prevent="sortAutogradeBy('ci_status')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('ci_status')">
-                    <span class="th-label">CI status<SortIcon :dir="sortAutogradeDir('ci_status')" /></span>
-                  </th>
-                  <th @click="sortAutogradeBy('graded_at')" @keydown.enter="sortAutogradeBy('graded_at')" @keydown.space.prevent="sortAutogradeBy('graded_at')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_at')">
-                    <span class="th-label">Last graded<SortIcon :dir="sortAutogradeDir('graded_at')" /></span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in sortedAutogradeStudents" :key="row.login">
-                  <td>
-                    <!-- The student's repository for THIS assignment, which is
-                         what a grader opens next - not their GitHub profile
-                         (asked 2026-10-07). No repository (a score by hand
-                         needs none): the login, unlinked, rather than a link
-                         that goes somewhere else on some rows. -->
-                    <a
-                      v-if="lastGradedSubmission(row).repoUrl"
-                      :href="lastGradedSubmission(row).repoUrl"
-                      target="_blank"
-                      rel="noopener"
-                      :title="gradingTitle(row)"
-                      data-grading-repo
-                    >{{ row.login }}</a>
-                    <span v-else :title="`No repository for this assignment.\n${gradingTitle(row)}`" data-grading-no-repo>{{ row.login }}</span>
-                    <span
-                      v-if="row.decided_by"
-                      class="text-xs text-muted"
-                      :title="`${row.decided_by.kind === 'score' ? 'Set by hand' : `Graded on ${String(row.graded_sha || '').slice(0, 7)}`} by @${row.decided_by.by} on ${fmt(row.decided_by.at)}: ${row.decided_by.reason}`"
-                    > · {{ row.decided_by.kind === 'score' ? 'by hand' : `chosen ${String(row.graded_sha || '').slice(0, 7)}` }}</span>
-                  </td>
-                  <td v-if="autogradeHasClaimedEmails">
-                    <span v-if="studentMap.get(row.login?.toLowerCase())?.claimed_email" class="text-sm claimed-address" :title="studentMap.get(row.login?.toLowerCase()).claimed_email">
-                      {{ studentMap.get(row.login?.toLowerCase()).claimed_email }}
-                    </span>
-                    <span v-else class="text-muted text-xs">-</span>
-                  </td>
-                  <td>
-                    <template v-if="lastGradedSubmission(row).href">
+            <!-- ONE TABLE, EVERY STUDENT: a score, or why there is none on the
+                 same row (frontend/src/lib/grading-rows.js). The score is the
+                 Progress tab's badge, and opens the same breakdown. The run's
+                 own conclusion is not a column any more: only runs that ended
+                 `success` or `failure` are ever graded (lib/check-run-score.mjs
+                 `graded`), and `failure` only means a check failed - a red
+                 "failure" beside 12 / 20 read as a grading problem. -->
+            <div v-if="scoresOnThisTab && gradingRowsShown.length" class="table-wrapper" data-grading-table>
+              <table>
+                <thead>
+                  <tr>
+                    <th @click="sortAutogradeBy('login')" @keydown.enter="sortAutogradeBy('login')" @keydown.space.prevent="sortAutogradeBy('login')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('login')">
+                      <span class="th-label">Login<SortIcon :dir="sortAutogradeDir('login')" /></span>
+                    </th>
+                    <th v-if="isGroupAssignment" @click="sortAutogradeBy('team')" @keydown.enter="sortAutogradeBy('team')" @keydown.space.prevent="sortAutogradeBy('team')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('team')">
+                      <span class="th-label">Team<SortIcon :dir="sortAutogradeDir('team')" /></span>
+                    </th>
+                    <th v-if="autogradeHasClaimedEmails" @click="sortAutogradeBy('claimed_email')" @keydown.enter="sortAutogradeBy('claimed_email')" @keydown.space.prevent="sortAutogradeBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('claimed_email')">
+                      <span class="th-label">Confirmed address<SortIcon :dir="sortAutogradeDir('claimed_email')" /></span>
+                    </th>
+                    <th @click="sortAutogradeBy('score')" @keydown.enter="sortAutogradeBy('score')" @keydown.space.prevent="sortAutogradeBy('score')" tabindex="0" class="sortable col-score" :aria-sort="ariaSortAutograde('score')">
+                      <span class="th-label">Score<SortIcon :dir="sortAutogradeDir('score')" /></span>
+                    </th>
+                    <th @click="sortAutogradeBy('graded_submission')" @keydown.enter="sortAutogradeBy('graded_submission')" @keydown.space.prevent="sortAutogradeBy('graded_submission')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_submission')" title="Last graded submission before deadline within limit">
+                      <span class="th-label">Graded submission<SortIcon :dir="sortAutogradeDir('graded_submission')" /></span>
+                    </th>
+                    <!-- Only under a hand-in cap: the column is a count against
+                         a limit, and with no limit there is nothing to count. -->
+                    <th v-if="handInsShown" @click="sortAutogradeBy('hand_ins')" @keydown.enter="sortAutogradeBy('hand_ins')" @keydown.space.prevent="sortAutogradeBy('hand_ins')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('hand_ins')" title="Hand-ins made on or before the deadline, of how many count">
+                      <span class="th-label">Hand-ins<SortIcon :dir="sortAutogradeDir('hand_ins')" /></span>
+                    </th>
+                    <th class="col-actions"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in gradingRowsShown" :key="row.login" :data-grading-status="row.status">
+                    <td>
+                      <!-- The student's repository for THIS assignment, which is
+                           what a grader opens next - not their GitHub profile
+                           (asked 2026-10-07). No repository (a score by hand
+                           needs none): the login, unlinked, rather than a link
+                           that goes somewhere else on some rows. -->
                       <a
-                        :href="lastGradedSubmission(row).href"
+                        v-if="lastGradedSubmission(row.record).repoUrl"
+                        :href="lastGradedSubmission(row.record).repoUrl"
                         target="_blank"
                         rel="noopener"
-                        class="mono text-xs sha"
-                        :title="gradedSubmissionTitle(row)"
+                        :title="gradingTitle(row.record)"
+                        data-grading-repo
+                      >{{ row.login }}</a>
+                      <span v-else :title="`No repository for this assignment.\n${gradingTitle(row.record)}`" data-grading-no-repo>{{ row.login }}</span>
+                    </td>
+                    <td v-if="isGroupAssignment">
+                      <span v-if="row.student?.team_name || row.student?.team_slug" class="text-sm font-medium">
+                        {{ row.student.team_name || row.student.team_slug }}
+                      </span>
+                      <span v-else class="text-muted text-xs">-</span>
+                    </td>
+                    <td v-if="autogradeHasClaimedEmails">
+                      <span v-if="row.student?.claimed_email" class="text-sm claimed-address" :title="row.student.claimed_email">
+                        {{ row.student.claimed_email }}
+                      </span>
+                      <span v-else class="text-muted text-xs">-</span>
+                    </td>
+                    <td class="col-score">
+                      <!-- The Progress tab's badge, with the same marks: * for a
+                           score inferred from the run's outcome, and a lecturer's
+                           decision named on it. -->
+                      <button
+                        v-if="row.status === 'scored'"
+                        type="button"
+                        class="badge badge-clickable"
+                        :class="scoreBadgeClass(row.graded)"
+                        @click="openAutogradeModal(scoreItem(row))"
+                        :title="scoreTitle(scoreItem(row))"
+                        style="font-size: 0.75rem;"
+                        data-grading-score
                       >
-                        {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
-                      </a>
-                    </template>
-                    <span v-else-if="lastGradedSubmission(row).sha" class="mono text-xs sha" :title="gradedSubmissionTitle(row)">
-                      {{ lastGradedSubmission(row).time ? fmt(lastGradedSubmission(row).time) : lastGradedSubmission(row).sha.slice(0, 7) }}
-                    </span>
-                    <span v-else class="text-muted text-xs">-</span>
-                  </td>
-                  <td class="num">{{ row.earned_points }}</td>
-                  <td class="num">{{ row.total_points }}</td>
-                  <td v-if="handInsShown" class="num">
-                    <!-- "6 / 5" is the fact; clamping it to 5 would hide the
-                         one that was ignored. Named below. -->
-                    <span v-if="row.hand_ins" :class="{ 'stat-yellow': row.hand_ins.used > row.hand_ins.allowed }"
-                          :title="row.hand_ins.extra ? `${row.hand_ins.allowed} allowed, ${row.hand_ins.extra} of them granted to this student` : null">
-                      {{ row.hand_ins.used }} / {{ row.hand_ins.allowed }}{{ row.hand_ins.extra ? ` (+${row.hand_ins.extra})` : '' }}
-                    </span>
-                    <span v-else>-</span>
-                  </td>
-                  <td v-if="summaryIsCiBased">
-                    <!-- The run's own conclusion where it was recorded. Deriving
-                         "passed / partial / failed" from the score alone reads a
-                         cancelled or timed-out run as a legitimate zero. -->
-                    <a v-if="row.ci_run_url" :href="row.ci_run_url" target="_blank" rel="noopener"
-                       :class="['badge', row.ci_status === 'success' ? 'badge-success' : row.ci_status === 'failure' ? 'badge-error' : 'badge-warning']">
-                      {{ row.ci_status || 'completed' }}
-                    </a>
-                    <span v-else :class="['badge', row.earned_points >= row.total_points && row.total_points > 0 ? 'badge-success' : (row.earned_points > 0 ? 'badge-warning' : 'badge-error')]">
-                      {{ row.ci_status || (row.earned_points >= row.total_points && row.total_points > 0 ? 'passed' : (row.earned_points > 0 ? 'partial' : 'failed')) }}
-                    </span>
-                  </td>
-                  <td>{{ fmt(row.graded_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <details v-if="autogradeSummary?.failed?.length" class="autograde-failed">
-            <summary class="autograde-failed-summary">
-              <Icon name="chevron-down" :size="13" class="autograde-failed-caret" />
-              <strong>{{ autogradeSummary.failed.length }} grading failure(s)</strong>
-              <span class="text-secondary text-xs" style="margin-left: auto;">click to view</span>
-            </summary>
-            <ul>
-              <li v-for="f in autogradeSummary.failed" :key="f.login"><code>{{ f.login }}</code>: {{ f.reason }}</li>
-            </ul>
-          </details>
-          <!-- EVERY hand-in the limit or the deadline left out, by name and
-               with why - never dropped silently. The sentence is
-               lib/submission-marker.mjs `describeIgnoredHandIn`, the same one
-               the nightly log and the CLI print. -->
-          <details v-if="ignoredHandIns.length" class="autograde-failed autograde-ignored">
-            <summary class="autograde-failed-summary">
-              <Icon name="chevron-down" :size="13" class="autograde-failed-caret" />
-              <strong>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? '' : 's' }} not graded:</strong>
-              <span class="text-secondary text-xs" style="margin-left: auto;">click to view</span>
-            </summary>
-            <ul>
-              <li v-for="i in ignoredHandIns" :key="`${i.login}-${i.sha}`"><code>{{ i.login }}</code>: {{ i.text }}</li>
-            </ul>
-          </details>
-        </section>
+                        {{ row.graded.earned_points }}/{{ row.graded.total_points }} pts<!--
+                        --><span v-if="scoreWasInferred(row.graded.score_source)" class="score-inferred" aria-hidden="true">*</span><!--
+                        --><span v-if="row.graded.decided_by" class="score-decided">
+                          {{ row.graded.decided_by.kind === 'score' ? ' · by hand' : ' · chosen' }}</span>
+                      </button>
+                      <!-- No score: why, in a word and a dot, and the sentence
+                           behind it where it is something to act on. "Not handed
+                           in" is grey until this student's deadline and red after
+                           (asked 2026-10-08). -->
+                      <div v-else class="grading-status-cell">
+                        <span class="status-indicator" :title="row.reason || null">
+                          <span class="status-dot" :class="gradingDot(row)"></span>
+                          <span>{{ gradingStatusText(row) }}</span>
+                        </span>
+                        <span v-if="row.reason && (row.status === 'late' || row.status === 'no-result')" class="text-muted text-xs">{{ row.reason }}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <template v-if="lastGradedSubmission(row.record).href">
+                        <a
+                          :href="lastGradedSubmission(row.record).href"
+                          target="_blank"
+                          rel="noopener"
+                          class="mono text-xs sha"
+                          :title="gradedSubmissionTitle(row.record)"
+                        >
+                          {{ lastGradedSubmission(row.record).time ? fmt(lastGradedSubmission(row.record).time) : lastGradedSubmission(row.record).sha.slice(0, 7) }}
+                        </a>
+                      </template>
+                      <span v-else-if="lastGradedSubmission(row.record).sha" class="mono text-xs sha" :title="gradedSubmissionTitle(row.record)">
+                        {{ lastGradedSubmission(row.record).time ? fmt(lastGradedSubmission(row.record).time) : lastGradedSubmission(row.record).sha.slice(0, 7) }}
+                      </span>
+                      <span v-else class="text-muted text-xs">-</span>
+                    </td>
+                    <td v-if="handInsShown" class="num">
+                      <!-- "6 / 5" is the fact; clamping it to 5 would hide the
+                           one that was ignored. Named in the box above. -->
+                      <span v-if="row.handIns" :class="{ 'stat-yellow': row.handIns.used > row.handIns.allowed }"
+                            :title="row.handIns.extra ? `${row.handIns.allowed} allowed, ${row.handIns.extra} of them granted to this student` : null">
+                        {{ row.handIns.used }} / {{ row.handIns.allowed }}{{ row.handIns.extra ? ` (+${row.handIns.extra})` : '' }}
+                      </span>
+                      <span v-else class="text-muted text-xs">-</span>
+                    </td>
+                    <td class="col-actions">
+                      <!-- The same dialog as on Progress, where a commit is chosen
+                           or a score set by hand. -->
+                      <button v-if="row.student" class="row-action" type="button" @click="openActions(row.student)" :aria-label="`Actions for ${row.login}`">
+                        <Icon name="more-horizontal" :size="18" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else-if="scoresOnThisTab && (gradingSearch || gradingFilter)" class="text-muted text-sm" data-grading-no-match>
+              No student matches.
+            </p>
           </template>
         </template>
 
@@ -1461,7 +1507,7 @@ import {
 import { REPORT_ROW_COLUMNS, RENDER_JOIN_COLUMNS } from '../../../lib/report-csv.mjs'
 import { isGitHubNoreplyAddress } from '../../../lib/github-noreply.mjs'
 // The shape of grading/<id>/summary.json, shared with `pxl-classroom grade`.
-import { buildGradingSummary, countGraded } from '../../../lib/grading-summary.mjs'
+import { buildGradingSummary } from '../../../lib/grading-summary.mjs'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns, listClaims } from '../lib/api.js'
@@ -1496,7 +1542,8 @@ import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
 } from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel } from '../lib/status-labels.js'
+import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel, gradingStatusLabel } from '../lib/status-labels.js'
+import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline } from '../lib/grading-rows.js'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { gradingLoginTitle, progressLoginTitle } from '../lib/login-tooltip.js'
@@ -1770,8 +1817,6 @@ const progressStudents = computed(() => [...(report.value?.students || []), ...m
 function claimLoginFor(row) {
   return claimIndex.value ? bindingForEntry(row, claimIndex.value).login : null
 }
-// Students with a score, from the grades joined onto the rows (lib/grading-summary.mjs).
-const gradedCount = computed(() => countGraded(report.value?.students))
 const feedbackPrEnabled = computed(() => assignment.value?.feedback_pr === true)
 
 // Three separate questions, and conflating them is what hid scores from every
@@ -2319,10 +2364,6 @@ const syncingGrades = ref(false)
 const syncedGradesCount = ref(0)
 const totalGradesToSync = ref(0)
 
-// CI-derived summaries carry a single pass/fail conclusion, not per-test
-// points - display them as such instead of implying granular grading.
-const summaryIsCiBased = computed(() => autogradeSummary.value?.runner === 'github_actions')
-
 // The Hand-ins column exists only where the summary carries a count - which is
 // only under a hand-in cap (lib/grade-cohort.mjs `resolveHandIn`).
 const handInsShown = computed(() => (autogradeSummary.value?.students || []).some((s) => s.hand_ins))
@@ -2383,37 +2424,201 @@ const gradableCount = computed(
   () => (report.value?.students || []).filter((s) => s.github_login && s.repo_name).length,
 )
 
+// --- The Grading tab: cards, box, rows ---------------------------------------
+//
+// Laid out like Progress (asked 2026-10-08). What each student's row says is
+// frontend/src/lib/grading-rows.js; this is the wiring.
+
+// Whether anything here produces SCORES. Feedback pull requests alone put the
+// tab to work too (gradingOnThisTab), with nothing to count or list.
+const scoresOnThisTab = computed(() => autogradeEnabled.value || ciGradingAvailable.value || localRunnerDeclared.value)
+
+const gradingSearch = ref('')
+const gradingFilter = ref('')
+
+/** Every student with something to grade, and what grading says about them. */
+const gradingRowsAll = computed(() =>
+  gradingRows({ students: report.value?.students || [], summary: autogradeSummary.value }),
+)
+const gradingCountsNow = computed(() => gradingCounts(gradingRowsAll.value))
+
+/** A card's number - a dash before the first read, when nothing is known yet. */
+function gradingCard(key) {
+  return autogradeSummary.value ? gradingCountsNow.value[key] : '-'
+}
+
 /**
- * What the Autograding panel says about where scores come from.
- *
- * The deadline reads them now, so the honest sentence depends on whether that
- * has happened yet. "Scores are read automatically at the deadline" is true
- * ahead of one and a DEAD PROMISE after it - nothing re-queues a finalize that
- * is already complete, so a lecturer looking at a finished assignment with no
- * scores would be waiting for a run that will never come. That is the shape of
- * `rejected:cap-reached` telling somebody their acceptance was queued for a
- * review that had been deleted.
+ * Whether the deadline will read the scores by itself: the finalize asks the
+ * same question (scripts/grade-at-deadline.mjs), and never overwrites a summary
+ * a local runner wrote.
  */
-const gradingBlurb = computed(() => {
-  if (hasGrades.value) return 'Reads every student’s grading run again and replaces the results below.'
-  if (!deadlinePassed.value) {
-    return 'Scores are read automatically at the deadline. Reading them now covers the run so far.'
-  }
-  return 'No scores on record for this assignment. Reading them now covers the whole cohort.'
+const readsAtDeadline = computed(() =>
+  gradesInCi(assignment.value, { hasSubmissionMarker: Boolean(readSubmissionMarker(assignment.value)) }) &&
+  !['docker', 'host'].includes(autogradeSummary.value?.runner),
+)
+
+const regradeProgressPercent = computed(() => {
+  const p = regradePanel.value
+  return p.total > 0 ? Math.round((p.synced / p.total) * 100) : 0
 })
 
-const gradingProvenance = computed(() => {
+/**
+ * The box under the cards: where the scores stand, from what is on record.
+ *
+ * "Read automatically at the deadline" is said only ahead of the deadline and
+ * only where the finalize will do it - after one it would be a DEAD PROMISE:
+ * nothing re-queues a finalize that is already complete, so a lecturer looking
+ * at a finished assignment with no scores would wait for a run that will never
+ * come (the shape of `rejected:cap-reached` telling somebody their acceptance
+ * was queued for a review that had been deleted).
+ */
+const gradingBox = computed(() => {
+  const p = regradePanel.value
+  if (p.status === 'running') {
+    return {
+      state: 'running', tone: 'neutral', dot: 'dot-info',
+      title: `Reading scores from GitHub Actions: ${p.synced} of ${p.total} students`,
+      detail: hasGrades.value ? 'The table keeps the scores on record until this finishes.' : '',
+    }
+  }
+  if (p.status === 'error') {
+    return {
+      state: 'error', tone: 'danger', dot: 'dot-danger',
+      title: `Reading scores stopped: ${p.error}`,
+      detail: hasGrades.value ? 'The scores below are from the last read that finished.' : '',
+    }
+  }
+  const atDeadline = readsAtDeadline.value && !deadlinePassed.value && deadlineAbs.value
   const s = autogradeSummary.value
-  if (!s) return ''
-  const when = fmt(s.generated_at)
-  // The map lives in status-labels.js, where a test reads the enum out of the
-  // schema: a runner added upstream fails there rather than reaching a lecturer
-  // as `github_actions` (DESIGN.md §1.7).
-  const how = gradingRunnerLabel(s.runner)
-  return s.graded_by
-    ? `Read ${when} by @${s.graded_by}, ${how}`
-    : `Read automatically at the deadline, ${when}, ${how}`
+  if (s) {
+    const when = fmt(s.generated_at)
+    // The map lives in status-labels.js, where a test reads the enum out of the
+    // schema: a runner added upstream fails there rather than reaching a
+    // lecturer as `github_actions` (DESIGN.md §1.7).
+    const how = gradingRunnerLabel(s.runner)
+    return {
+      state: 'read', tone: 'neutral', dot: 'dot-success',
+      title: s.graded_by ? `Scores read ${when} by @${s.graded_by}, ${how}` : `Scores read automatically at the deadline, ${when}, ${how}`,
+      detail: [
+        scoreStatsSentence(scoreStats(gradingRowsAll.value)),
+        atDeadline ? `Read again automatically at the deadline, ${deadlineAbs.value}.` : '',
+      ].filter(Boolean).join(' '),
+    }
+  }
+  const tests = assignment.value?.autograde?.tests?.length || 0
+  const checks = autogradeDeclared.value
+    ? `${tests} check${tests === 1 ? '' : 's'} configured here, ${autogradeTotalPoints.value} points in total.`
+    : ''
+  const next = localRunnerDeclared.value
+    ? 'They come from running the checks on your own machine: copy the grading command and run it.'
+    : atDeadline
+      ? `They are read automatically at the deadline, ${deadlineAbs.value}. Reading them now covers the runs so far.`
+      : 'Reading them now covers the whole cohort.'
+  return { state: 'none', tone: 'neutral', dot: 'dot-neutral', title: 'No scores read yet.', detail: [checks, next].filter(Boolean).join(' ') }
 })
+
+/** The deadline that applies to this row's student. */
+function gradingDeadline(row) {
+  return row.student?.effective_deadline_at || currentDeadline.value
+}
+
+function gradingDot(row) {
+  if (row.status === 'not-handed-in') return pastDeadline(gradingDeadline(row)) ? 'dot-danger' : 'dot-neutral'
+  if (row.status === 'late') return 'dot-warning'
+  if (row.status === 'no-result') return 'dot-danger'
+  return 'dot-neutral'
+}
+
+function gradingStatusText(row) {
+  return gradingStatusLabel(row.status, { beforeDeadline: !pastDeadline(gradingDeadline(row)) })
+}
+
+/** The Score badge's colour, on both tabs: all points, some, none. */
+function scoreBadgeClass(g) {
+  if (g?.earned_points >= g?.total_points && g?.total_points > 0) return 'badge-success'
+  return g?.earned_points > 0 ? 'badge-warning' : 'badge-error'
+}
+
+/**
+ * What the score's breakdown dialog is given: the student's report row, which
+ * carries the grades joined onto it (mergeGradesIntoReport), or - for a score
+ * on record whose student is no longer in the report - the same fields read
+ * off the summary.
+ */
+function scoreItem(row) {
+  if (row.student && row.student.earned_points != null) return row.student
+  const g = row.graded || {}
+  return {
+    github_login: row.login,
+    earned_points: g.earned_points,
+    total_points: g.total_points,
+    score_source: g.score_source ?? null,
+    ci_status: g.ci_status ?? null,
+    ci_run_url: g.ci_run_url ?? null,
+    graded_sha: g.graded_sha ?? null,
+    grade_decided_by: g.decided_by ?? null,
+  }
+}
+
+/** The rows on screen: filtered by the cards or pills, searched, sorted. */
+const gradingRowsShown = computed(() => {
+  const q = gradingSearch.value.toLowerCase().trim()
+  const rows = gradingRowsAll.value.filter((row) => {
+    if (!inGradingFilter(row, gradingFilter.value)) return false
+    if (!q) return true
+    const s = row.student
+    const roster = rosterByLogin.value.get(row.login.toLowerCase())
+    return [row.login, s?.claimed_email, s?.email, roster?.email, s?.repo_name, s?.full_name, roster?.full_name, s?.team_name, s?.team_slug]
+      .some((v) => v && String(v).toLowerCase().includes(q))
+  })
+  const key = autogradeSortKey.value
+  const valueOf = (row) => {
+    if (key === 'login') return row.login.toLowerCase()
+    if (key === 'team') return row.student?.team_name || row.student?.team_slug || null
+    if (key === 'claimed_email') return row.student?.claimed_email || null
+    if (key === 'score') return row.graded?.earned_points ?? null
+    if (key === 'hand_ins') return row.handIns?.used ?? null
+    if (key === 'graded_submission') {
+      const g = lastGradedSubmission(row.record)
+      const t = g.time ? new Date(g.time).getTime() : NaN
+      return Number.isFinite(t) ? t : (g.sha || null)
+    }
+    return null
+  }
+  return [...rows].sort((a, b) => {
+    const av = valueOf(a)
+    const bv = valueOf(b)
+    // Nulls last, whichever way it is sorted.
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv))
+    return autogradeSortAsc.value ? cmp : -cmp
+  })
+})
+
+// The Grading tab's two menus, with the same open/close contract as the
+// Progress tab's (document click and Escape, onDocumentClick / onKeydown).
+const gradingExportOpen = ref(false)
+const gradingExportRef = ref(null)
+const gradingMoreOpen = ref(false)
+const gradingMoreRef = ref(null)
+
+function toggleGradingExport() {
+  gradingExportOpen.value = !gradingExportOpen.value
+  if (gradingExportOpen.value) keepMenuInView(gradingExportRef)
+}
+
+function toggleGradingMore() {
+  gradingMoreOpen.value = !gradingMoreOpen.value
+  if (gradingMoreOpen.value) keepMenuInView(gradingMoreRef)
+}
+
+function fromGradingMenu(action) {
+  gradingExportOpen.value = false
+  gradingMoreOpen.value = false
+  action()
+}
 
 // login -> override doc from overrides/<assignment>/<login>.json, so granted
 // extensions are visible (and inspectable before granting again).
@@ -2995,6 +3200,12 @@ function onDocumentClick(e) {
   if (preservationMenuRef.value && !preservationMenuRef.value.contains(e.target)) {
     preservationMenuOpen.value = false
   }
+  if (gradingExportRef.value && !gradingExportRef.value.contains(e.target)) {
+    gradingExportOpen.value = false
+  }
+  if (gradingMoreRef.value && !gradingMoreRef.value.contains(e.target)) {
+    gradingMoreOpen.value = false
+  }
 }
 
 function onKeydown(e) {
@@ -3002,6 +3213,8 @@ function onKeydown(e) {
     if (exportDropdownOpen.value) exportDropdownOpen.value = false
     if (moreActionsOpen.value) moreActionsOpen.value = false
     if (preservationMenuOpen.value) preservationMenuOpen.value = false
+    if (gradingExportOpen.value) gradingExportOpen.value = false
+    if (gradingMoreOpen.value) gradingMoreOpen.value = false
     if (actionStudent.value) closeActions()
   }
 }
@@ -4383,22 +4596,15 @@ function capAllowancesReadable() {
   return false
 }
 
+// A read of every student's scores while it runs, and why it stopped if it did.
+// A finished read is not kept here: the summary it saved is what the box says
+// (gradingBox), so it is the same after a reload.
 const regradePanel = ref({
-  visible: false,
-  status: 'idle', // 'running' | 'success' | 'error'
+  status: 'idle', // 'running' | 'error'
   synced: 0,
   total: 0,
   error: null,
 })
-let regradeDismissTimer = null
-
-function dismissRegradePanel() {
-  if (regradeDismissTimer) {
-    clearTimeout(regradeDismissTimer)
-    regradeDismissTimer = null
-  }
-  regradePanel.value.visible = false
-}
 
 const studentMap = computed(() => {
   const map = new Map()
@@ -4511,37 +4717,7 @@ function ariaSortAutograde(key) {
   return autogradeSortAsc.value ? 'ascending' : 'descending'
 }
 
-const sortedAutogradeStudents = computed(() => {
-  const students = autogradeSummary.value?.students || []
-  return [...students].sort((a, b) => {
-    let av = a[autogradeSortKey.value]
-    let bv = b[autogradeSortKey.value]
-    if (autogradeSortKey.value === 'claimed_email') {
-      av = studentMap.value.get(a.login?.toLowerCase())?.claimed_email || null
-      bv = studentMap.value.get(b.login?.toLowerCase())?.claimed_email || null
-    } else if (autogradeSortKey.value === 'graded_submission' || autogradeSortKey.value === 'last_commit') {
-      av = lastGradedSubmission(a)?.time || lastGradedSubmission(a)?.sha || null
-      bv = lastGradedSubmission(b)?.time || lastGradedSubmission(b)?.sha || null
-    } else if (autogradeSortKey.value === 'hand_ins') {
-      av = a.hand_ins?.used ?? null
-      bv = b.hand_ins?.used ?? null
-    }
-    if (av == null && bv == null) return 0
-    if (av == null) return 1
-    if (bv == null) return -1
-    if ((autogradeSortKey.value === 'graded_submission' || autogradeSortKey.value === 'last_commit') && av && bv) {
-      const at = new Date(av).getTime()
-      const bt = new Date(bv).getTime()
-      if (!Number.isNaN(at) && !Number.isNaN(bt)) {
-        return autogradeSortAsc.value ? at - bt : bt - at
-      }
-    }
-    const cmp = typeof av === 'number' && typeof bv === 'number'
-      ? av - bv
-      : String(av).localeCompare(String(bv))
-    return autogradeSortAsc.value ? cmp : -cmp
-  })
-})
+// The Grading table's order is gradingRowsShown.
 
 async function syncGradesFromGitHub() {
   const token = getToken()
@@ -4558,16 +4734,14 @@ async function syncGradesFromGitHub() {
   }
   if (!capAllowancesReadable()) return
 
-  totalGradesToSync.value = queue.length + manual.length
+  // What gradeCohort walks, counted the way it counts: under a hand-in message
+  // a student with no commit on record is read too, so "queue + manual" could
+  // show "25 of 17".
+  totalGradesToSync.value = gradeQueue(report.value.students, overridesByLogin.value).length
   syncedGradesCount.value = 0
   syncingGrades.value = true
 
-  if (regradeDismissTimer) {
-    clearTimeout(regradeDismissTimer)
-    regradeDismissTimer = null
-  }
   regradePanel.value = {
-    visible: true,
     status: 'running',
     synced: 0,
     total: totalGradesToSync.value,
@@ -4643,15 +4817,11 @@ async function syncGradesFromGitHub() {
       toast.error(saveErr)
       return
     }
-    const partial = res.failed.length ? ` ${res.failed.length} could not be read.` : ''
-    regradePanel.value.status = 'success'
-    regradePanel.value.synced = res.graded.length
-    regradePanel.value.total = totalGradesToSync.value
-    regradeDismissTimer = setTimeout(() => {
-      regradePanel.value.visible = false
-    }, 6000)
-
-    toast.success(`Read ${res.graded.length} score(s) from GitHub Actions.${partial}`)
+    // Done: the box now says when the scores were read, from the summary just
+    // saved. Not "N could not be read" - most students without a score have
+    // simply not handed in, and the cards say which is which.
+    regradePanel.value.status = 'idle'
+    toast.success(`Read ${res.graded.length} score${res.graded.length === 1 ? '' : 's'} from GitHub Actions.`)
   } catch (e) {
     console.error('Failed to sync grades', e)
     regradePanel.value.status = 'error'
@@ -5676,63 +5846,11 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
   .rejections-who { grid-column: 2; white-space: normal; }
 }
 
-.autograde-section {
-  margin-top: var(--space-xl);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--border-default);
-}
-.autograde-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); margin-bottom: var(--space-sm); }
-.autograde-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
 .text-xs { font-size: 0.75rem; }
-.autograde-banner {
-  background: var(--tint-accent-subtle);
-  border-left: 3px solid var(--accent-blue);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  margin-bottom: var(--space-md);
-}
-.autograde-banner code { font-size: 0.85rem; }
-/* A hand-in the limit or the deadline left out is the assignment working as
-   set up, not a failure: amber, "needs a look" (DESIGN.md §4), not red. */
-.autograde-failed.autograde-ignored {
-  background: var(--tint-attention-subtle);
-  border-left-color: var(--accent-yellow);
-}
-
-.autograde-failed {
-  margin-top: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  background: var(--tint-danger-subtle);
-  border-left: 3px solid var(--accent-red);
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-.autograde-failed-summary {
-  cursor: pointer;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  list-style: none;
-}
-.autograde-failed-summary::-webkit-details-marker {
-  display: none;
-}
-.autograde-failed-summary:hover {
-  opacity: 0.85;
-}
-.autograde-failed-caret {
-  transition: transform 0.15s ease;
-  flex-shrink: 0;
-}
-.autograde-failed:not([open]) .autograde-failed-caret {
-  transform: rotate(-90deg);
-}
-.autograde-failed[open] .autograde-failed-summary {
-  margin-bottom: var(--space-xs);
-}
-.autograde-failed ul { margin: var(--space-xs) 0 0 var(--space-md); padding: 0; }
+/* A Grading row with no score: the word and its dot, and under it the sentence
+   to act on - two lines, like the Confirmed address cell, rather than one wide
+   one. */
+.grading-status-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .badge-with-icon { display: inline-flex; align-items: center; gap: 4px; }
 .commit-time-top {
   font-size: 0.85rem;

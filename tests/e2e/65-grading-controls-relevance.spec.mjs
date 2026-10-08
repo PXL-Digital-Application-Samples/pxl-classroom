@@ -88,9 +88,9 @@ test.describe('65 - grading controls appear only where there is grading', () => 
 
     await openGradingTab(page);
     await expect(page.getByRole('button', { name: CI_CONTROL })).toHaveCount(0);
-    // ...and no Autograding panel behind it either. The tab says so instead,
+    // ...and no scores box or table behind it either. The tab says so instead,
     // and where to change it.
-    await expect(page.locator('.autograde-section')).toHaveCount(0);
+    await expect(page.locator('[data-grading-box], [data-grading-table], [data-grading-cards]')).toHaveCount(0);
     await expect(page.locator('.grading-empty')).toContainText('Nothing grades this assignment yet');
     await expect(page.locator('.grading-empty').getByRole('link', { name: 'Set up grading' }))
       .toHaveAttribute('href', new RegExp(`/dashboard/${ORG}/${ID}\\?tab=settings&section=grading$`));

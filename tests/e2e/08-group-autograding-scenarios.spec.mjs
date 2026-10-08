@@ -136,7 +136,9 @@ test.describe('08 - Autograding Scenarios: GitHub Actions & Docker Group Assignm
     await expect(autogradeModal).toContainText('Team Autograding');
     await expect(autogradeModal).toContainText('Team Partial Fail');
     await expect(autogradeModal).toContainText('20 / 30 pts');
-    await expect(autogradeModal).toContainText('failure');
+    // The run's conclusion is not shown: `failure` only means a check failed,
+    // and beside a partial score it read as a grading problem (2026-10-08).
+    await expect(autogradeModal).not.toContainText('failure');
     await expect(autogradeModal).toContainText('per-check breakdown is in the grading run');
     await expect(autogradeModal.locator('a', { hasText: 'Open the run' })).toHaveAttribute(
       'href',

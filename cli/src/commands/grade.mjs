@@ -317,7 +317,7 @@ export function registerGradeCommand(program) {
           // lecturer chose ${sha} would be the opposite of their decision.
           const reason = `@${decision.by} chose commit ${decision.sha.slice(0, 7)}, and the local runner only grades the preserved submission - read that commit's result on the assignment page instead`;
           process.stderr.write(`  ! ${s.github_login}: ${reason}\n`);
-          summary.failed.push({ login: s.github_login, reason });
+          summary.failed.push({ login: s.github_login, reason, kind: "no-result" });
           return;
         }
         if (s.team_slug && !decision && teamResultsCache.has(s.team_slug)) {
@@ -372,7 +372,7 @@ export function registerGradeCommand(program) {
               }
               if (found.verdict !== "found") {
                 process.stderr.write(`  ! ${s.github_login}: ${found.reason}\n`);
-                summary.failed.push({ login: s.github_login, reason: found.reason, ...(handIns ? { hand_ins: handIns } : {}) });
+                summary.failed.push({ login: s.github_login, reason: found.reason, kind: found.kind || "no-result", ...(handIns ? { hand_ins: handIns } : {}) });
                 return;
               }
               handIn = found.commit;
@@ -383,7 +383,7 @@ export function registerGradeCommand(program) {
 
             if (outcome.verdict !== "graded") {
               process.stderr.write(`  ! ${s.github_login}: ${outcome.reason}\n`);
-              summary.failed.push({ login: s.github_login, reason: outcome.reason });
+              summary.failed.push({ login: s.github_login, reason: outcome.reason, kind: "no-result" });
               return;
             }
 
@@ -443,7 +443,7 @@ export function registerGradeCommand(program) {
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
-            summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}` });
+            summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}`, kind: "no-result" });
             return;
           }
         } else {
@@ -456,7 +456,7 @@ export function registerGradeCommand(program) {
             });
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: archive fetch failed - ${err.message}\n`);
-            summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}` });
+            summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}`, kind: "no-result" });
             return;
           }
           try {
@@ -469,7 +469,7 @@ export function registerGradeCommand(program) {
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
-            summary.failed.push({ login: s.github_login, reason: `grading: ${err.message}` });
+            summary.failed.push({ login: s.github_login, reason: `grading: ${err.message}`, kind: "no-result" });
             try { await rm(archive.workdir, { recursive: true, force: true }); } catch { /* best effort */ }
             return;
           } finally {
@@ -520,7 +520,7 @@ export function registerGradeCommand(program) {
           );
         } catch (err) {
           process.stderr.write(`  ! ${s.github_login}: ${err.message}\n`);
-          summary.failed.push({ login: s.github_login, reason: err.message });
+          summary.failed.push({ login: s.github_login, reason: err.message, kind: "no-result" });
         }
       });
 

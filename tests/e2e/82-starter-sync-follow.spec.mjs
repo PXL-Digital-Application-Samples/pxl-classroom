@@ -187,7 +187,7 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     state.run = { status: 'in_progress' };
     state.rec = record({ results: res(12) });
     await page.goto(`/dashboard/${ORG}/${ID}`);
-    const line = page.locator('.sync-status');
+    const line = page.locator('[data-sync-status]');
     await expect(line).toHaveAttribute('data-state', 'running');
     const treesBefore = state.trees;
     await line.getByRole('button', { name: 'Follow' }).click();

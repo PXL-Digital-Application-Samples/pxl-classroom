@@ -82,6 +82,7 @@
         "properties": {
           "login": { "type": "string", "minLength": 1 },
           "reason": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "enum": ["not-handed-in", "late", "no-result"], "description": "Why there is no score. `not-handed-in`: nothing to grade (no hand-in, no commit, no repository). `late`: handed in only after the deadline. `no-result`: handed in, and no score could be read. Absent on a row written before 2026-10-08, read from its reason by lib/grade-cohort.mjs `failedKind`." },
           "hand_ins": { "$ref": "#/definitions/hand_ins" }
         }
       }
