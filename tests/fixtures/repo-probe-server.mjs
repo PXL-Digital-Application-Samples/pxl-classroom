@@ -23,8 +23,9 @@
 //   { "repos": { "portfolio-alice": { "rulesets": ["pxl-classroom-deadline"] } } }
 //
 // A name present means the repository exists; `rulesets` names what
-// `GET /repos/{o}/{r}/rulesets` returns. Absent file, absent name: 404, which is
-// what every test that does not care about this wants.
+// `GET /repos/{o}/{r}/rulesets` returns, and `branches` / `commits` what those
+// two reads return. Absent file, absent name: 404, which is what every test
+// that does not care about this wants.
 
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -67,6 +68,20 @@ const server = createServer((req, res) => {
       200,
       names.map((name, i) => ({ id: 100 + i, name, target: "branch", source_type: "Repository" })),
     );
+  }
+
+  // GET /repos/{org}/{repo}/branches and /commits - what lib/untouched-repo.mjs
+  // asks about a team's repository when a switch leaves the team empty.
+  // `branches` defaults to one, `commits` to none; `commitsStatus` stages the
+  // 409 GitHub answers for an empty repository.
+  m = /^\/repos\/[^/]+\/([^/]+)\/(branches|commits)$/.exec(path);
+  if (m) {
+    const entry = repos[m[1]];
+    if (!entry) return json(res, 404, { message: "Not Found" });
+    if (entry.status) return json(res, entry.status, { message: "Forbidden" });
+    if (m[2] === "branches") return json(res, 200, entry.branches ?? [{ name: "main" }]);
+    if (entry.commitsStatus) return json(res, entry.commitsStatus, { message: "Git Repository is empty." });
+    return json(res, 200, entry.commits ?? []);
   }
 
   // GET /repos/{org}/{repo}

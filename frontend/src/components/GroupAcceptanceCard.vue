@@ -7,6 +7,18 @@
       <div v-if="myCurrentTeam" class="team-badge-banner">
         <span>Team: <strong>{{ myCurrentTeam.team_name }}</strong> (<code>{{ myCurrentTeam.team_slug }}</code>)</span>
       </div>
+      <!-- RIGHT UNDER THE NAME, where a typo or the wrong team is noticed
+           (asked 2026-10-08). It sat at the bottom of this card, under the
+           repository, the members, the join code and the status, and a student
+           who had misspelled their team asked the lecturer to fix it instead.
+           Only where the hub allows a switch: self-service, before this
+           student's deadline. -->
+      <p v-if="canSwitchTeam" class="team-switch-line text-sm" data-team-switch>
+        Wrong team, or a typo in the name?
+        <button type="button" class="btn-link" :disabled="accepting" @click="startSwitchTeam">Switch team</button>
+        <br />
+        <span class="text-muted">You can change team yourself until {{ switchUntil }}.</span>
+      </p>
 
       <div class="repo-link-card">
         <a :href="repoUrl" target="_blank" rel="noopener" class="repo-link">
@@ -68,11 +80,6 @@
         </div>
       </div>
 
-      <div class="team-actions">
-        <button class="btn btn-secondary btn-sm" @click="startSwitchTeam" :disabled="accepting">
-          Switch to another team
-        </button>
-      </div>
     </div>
 
     <!-- State: Provisioning Pending -->
@@ -524,6 +531,7 @@ import {
 import { INSTITUTION } from '../lib/deployment.js'
 import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
+import { formatDate } from '../lib/format.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim, encryptTeamCode } from '../lib/claim.js'
 import {
   isWellFormedJoinCode, newJoinCode, normalizeJoinCode, requiresJoinCode,
@@ -1119,6 +1127,16 @@ const isPastDeadline = computed(() => {
 
 const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value))
 
+// Whether a switch would be allowed: the hub's own rule (acceptance/accept.mjs
+// step 5) - self-service, which is what `canChooseAnother` says, and before the
+// deadline on an assignment that is accepting.
+const canSwitchTeam = computed(() =>
+  canChooseAnother.value && !isPastDeadline.value && props.assignment?.state === 'published',
+)
+const switchUntil = computed(() =>
+  effectiveDeadline.value ? formatDate(effectiveDeadline.value.toISOString(), props.assignment?.timezone) : 'the deadline',
+)
+
 const teamSubmissionStatus = computed(() => {
   if (!teamLatestCommit.value) return 'no-submission'
   if (!effectiveDeadline.value) return 'on-time'
@@ -1682,9 +1700,7 @@ function copyRepoUrl() {
    and puts the appearance where DESIGN.md says it belongs.
    ------------------------------------------------------------------------ */
 
-.team-actions {
-  margin-top: var(--space-md);
-  border-top: 1px solid var(--border-default);
-  padding-top: var(--space-sm);
+.team-switch-line {
+  margin: var(--space-xs) 0 var(--space-md);
 }
 </style>

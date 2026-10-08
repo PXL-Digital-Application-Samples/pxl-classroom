@@ -19,6 +19,7 @@ import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchT
 import { parse, stringify as stringifyYaml } from "yaml";
 import { resolveTemplatePin } from "../lib/template-source.mjs";
 import { emptyFromCommits, mayStillBeFilling } from "../lib/existing-repo.mjs";
+import { repoTouched } from "../lib/untouched-repo.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
 import { submissionBranch } from "../lib/submission-marker.mjs";
@@ -42,6 +43,10 @@ const cfg = {
   feedbackPr: env("FEEDBACK_PR", "false") === "true",
   baselineBranch: env("FEEDBACK_PR_BASELINE_BRANCH", "pxl-baseline"),
   previousRepo: env("PREVIOUS_REPO", ""),
+  // Exactly "true", as for recreateEmpty below: accept.mjs removed the team the
+  // student left, and its repository goes too if it STILL holds nothing
+  // anybody pushed when this step gets to it.
+  removePreviousRepo: env("REMOVE_PREVIOUS_REPO", "") === "true",
   // Exactly "true". Absent, empty or anything else keeps an existing
   // repository: the safe default is never to delete.
   recreateEmpty: env("RECREATE_EMPTY", "") === "true",
@@ -658,6 +663,27 @@ async function main() {
         }
       } catch (e) {
         log("cancel-old-invitation", { ok: false, note: `non-critical invitation check error: ${e.message}` });
+      }
+
+      // 5.2 The team they left was empty and held nothing anybody pushed, so
+      // accept.mjs removed it; its repository goes too. Asked AGAIN here,
+      // because seconds have passed since that decision: anything pushed in
+      // between is kept, and the nightly reports it as a repository nobody
+      // recorded rather than this step deleting work. Never fails the
+      // acceptance - the student is in their new team either way.
+      if (cfg.removePreviousRepo) {
+        const full = `${cfg.org}/${prevRepoName}`;
+        try {
+          const state = await repoTouched((path) => gh("GET", path), full);
+          if (state === "untouched") {
+            const del = await gh("DELETE", `/repos/${full}`);
+            log("remove-old-repo", { ok: del.ok || del.status === 404, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });
+          } else {
+            log("remove-old-repo", { ok: true, note: `kept ${prevRepoName}: ${state === "absent" ? "already gone" : state === "touched" ? "something was pushed to it since" : "could not read it"}` });
+          }
+        } catch (e) {
+          log("remove-old-repo", { ok: false, note: `kept ${prevRepoName}: ${e.message}` });
+        }
       }
     }
   }

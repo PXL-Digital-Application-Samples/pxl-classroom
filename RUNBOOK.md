@@ -146,6 +146,8 @@ Drop `--dry-run` to apply. `--from-roster` uses the roster columns instead; `--y
 
 Under self-service, a carried-over group is a strong default rather than a lock: the student can still use **Choose a different group**. Under pre-assigned, they cannot, and a request naming another team is rejected server-side.
 
+**A student in the wrong team, or with a typo in its name, fixes it themselves.** Under self-service, until their deadline, their assignment page says *Wrong team, or a typo in the name?* right under the team name, with **Switch team**. That opens the team list: they join another team (with its code, where codes are on) or start a new one with the right name. Tell them: *open your assignment page and press Switch team*. When the switch leaves their old team empty and nobody pushed anything to its repository, the team and its repository are removed by themselves, so the name is free again. A team with work in it stays, empty, until you delete it. You only need **Move to…** on the Teams tab after the deadline, under pre-assigned teams, or for a student who will not do it.
+
 **Join codes.** With **Joining a team needs a code from someone in it** ticked (on by default for a new group assignment), a team a student creates gets a six-character code such as `K7P-4QX`. The creator sees it on their page at once, while the repository is still being made, and gives it to their teammates; joining that team, or switching into it, asks for it. Without it nobody can join, so strangers stay out of a team.
 
 - **A student lost the code:** the Teams tab shows each team's code under its name. Read it out to them, or **Move to…** them in yourself.

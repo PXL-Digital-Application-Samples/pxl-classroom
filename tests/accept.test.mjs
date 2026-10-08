@@ -761,7 +761,9 @@ template:
   });
   assert.equal(res.status, 0);
 
-  // Old team should now be vacant with 0 members
+  // Old team should now be vacant with 0 members. (The stand-in knows no
+  // repository for it, and a 404 never removes a team - the tests below "A
+  // TEAM LEFT EMPTY WITH NOTHING IN IT IS REMOVED".)
   const oldTeam = JSON.parse(readFileSync(join(dir, "teams", "test-asgn", "old-team.json"), "utf8"));
   assert.deepEqual(oldTeam.members, []);
   assert.equal(oldTeam.vacant, true);
@@ -1104,6 +1106,89 @@ test("self-service - a student may switch away from their seeded team", () => {
   const alpha = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha.json"), "utf8"));
   assert.deepEqual(alpha.members, ["bob"]);
   assert.notEqual(alpha.vacant, true);
+});
+
+// A TEAM LEFT EMPTY WITH NOTHING IN IT IS REMOVED (2026-10-08). A student's
+// typo team stayed listed, its name taken and its repository kept, after they
+// switched to the right team - until a lecturer deleted it by hand.
+const GENERATED_ROOT = {
+  sha: "93acd0a", parents: [],
+  author: { login: "pxl-classroom-provisioner[bot]" }, committer: { login: "web-flow" },
+  commit: { verification: { verified: true } },
+};
+const STUDENT_COMMIT = {
+  sha: "5717d3e", parents: [{ sha: "93acd0a" }],
+  author: { login: "alice" }, committer: { login: "alice" },
+  commit: { verification: { verified: false } },
+};
+const ALONE_IN_TYPO = {
+  schema_version: 1, assignment_id: "test-asgn", team_slug: "typo-team", team_name: "Typo Team",
+  members: ["alice"], repo_name: "TestOrg/asgn-typo-team",
+};
+function switchOutOfTypo(repos) {
+  probe.setRepos(repos);
+  try {
+    return runAccept(
+      { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Right Team", TEAM_ACTION: "switch" },
+      { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "typo-team": ALONE_IN_TYPO } } },
+    );
+  } finally {
+    probe.setRepos({});
+  }
+}
+
+test("switching out of a team leaves it empty, and its repository holds only what GitHub generated: the team is removed, and the repository with it", () => {
+  const res = switchOutOfTypo({ "asgn-typo-team": { commits: [GENERATED_ROOT] } });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(res.outputs.outcome, "accepted");
+  assert.equal(existsSync(join(res.dir, "teams", "test-asgn", "typo-team.json")), false, "the empty team is gone");
+  assert.equal(res.outputs.previous_repo, "asgn-typo-team");
+  assert.equal(res.outputs.previous_repo_remove, "true", "provisioning is told to delete the repository");
+  const right = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "right-team.json"), "utf8"));
+  assert.deepEqual(right.members, ["alice"]);
+});
+
+test("...but a repository somebody pushed to is their work: the team stays, vacant, and nothing is deleted", () => {
+  const res = switchOutOfTypo({ "asgn-typo-team": { commits: [STUDENT_COMMIT, GENERATED_ROOT] } });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const typo = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
+  assert.deepEqual(typo.members, []);
+  assert.equal(typo.vacant, true);
+  assert.equal(res.outputs.previous_repo_remove, "false");
+});
+
+test("...and a repository that cannot be read is not a repository with nothing in it", () => {
+  const res = switchOutOfTypo({ "asgn-typo-team": { status: 403 } });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const typo = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
+  assert.equal(typo.vacant, true);
+  assert.equal(res.outputs.previous_repo_remove, "false");
+});
+
+test("...and a 404 is not 'there is nothing': kept, vacant, as before", () => {
+  // It is also what an App that cannot see the repository is told. A team that
+  // really never got one needs nothing: whoever enters it makes it again.
+  const res = switchOutOfTypo({});
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const typo = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
+  assert.equal(typo.vacant, true);
+  assert.equal(res.outputs.previous_repo_remove, "false");
+});
+
+test("a team a student leaves with others still in it is not touched by any of this", () => {
+  probe.setRepos({ "asgn-alpha": { commits: [GENERATED_ROOT] } });
+  try {
+    const res = runAccept(
+      { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Fresh Start" },
+      { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { alpha: SEEDED_ALPHA } } },
+    );
+    assert.equal(res.status, 0);
+    const alpha = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha.json"), "utf8"));
+    assert.deepEqual(alpha.members, ["bob"]);
+    assert.equal(res.outputs.previous_repo_remove, "false");
+  } finally {
+    probe.setRepos({});
+  }
 });
 
 test("a per-assignment teams map on the roster is not a pre-assignment either", () => {

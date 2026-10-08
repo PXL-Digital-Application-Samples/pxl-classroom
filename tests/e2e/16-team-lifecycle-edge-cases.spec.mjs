@@ -454,8 +454,11 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     await expect(page.locator('.provisioned-state')).toBeVisible();
     await expect(page.locator('.provisioned-state')).toContainText('Team Red');
 
-    // Click "Switch to another team"
-    const switchBtn = page.getByRole('button', { name: /Switch to another team/i });
+    // "Switch team", right under the team name (asked 2026-10-08)
+    const switchLine = page.locator('[data-team-switch]');
+    await expect(switchLine).toContainText('Wrong team, or a typo in the name?');
+    await expect(switchLine).toContainText('You can change team yourself until');
+    const switchBtn = switchLine.getByRole('button', { name: 'Switch team' });
     await expect(switchBtn).toBeVisible();
     await switchBtn.click();
 
@@ -470,5 +473,40 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     // Verify transition feedback
     await expect(page.locator('.pending-state, .provisioned-state, .status-badge')).toBeVisible();
   });
+
+  // The switch is offered only where the hub allows one (acceptance/accept.mjs
+  // step 5): a deadline that has passed, or teams the lecturer assigned, would
+  // only produce a refusal.
+  for (const [what, extra] of [
+    ['after the deadline', { deadline_at: '2026-01-01T12:00:00.000Z' }],
+    ['when the lecturer assigned the teams', { group_config: { max_team_size: 3, formation_mode: 'pre-assigned' } }],
+  ]) {
+    test(`no "Switch team" ${what}`, async ({ page }) => {
+      const assignmentId = 'cloud-group-no-switch';
+      const team = {
+        team_slug: 'team-red', team_name: 'Team Red', members: [STUDENT_1.login],
+        repo_name: `${ORG}/${assignmentId}-team-red`, repo_url: `https://github.com/${ORG}/${assignmentId}-team-red`,
+        submission_status: 'on-time', commit_count: 1,
+      };
+      const assignment = {
+        id: assignmentId, title: 'No Switch', organization: ORG, assignment_type: 'group', roster_mode: 'open',
+        state: 'published', group_config: { max_team_size: 3, allow_team_creation: true },
+        template: { owner: ORG, repository: 'group-template' }, repository_name_pattern: `${assignmentId}-{team_slug}`,
+        ...extra,
+      };
+      await injectAuth(page, STUDENT_1);
+      await setupStandardMockRoutes(page, {
+        assignments: { [assignmentId]: assignment },
+        reports: { [assignmentId]: { schema_version: 1, assignment_id: assignmentId, org: ORG, generated_at: new Date().toISOString(), teams: [team], students: [{ github_login: STUDENT_1.login, team_slug: 'team-red', repo_name: team.repo_name, repo_url: team.repo_url }] } },
+        teams: { [assignmentId]: [team] },
+        userRepos: [{ id: 401, name: `${assignmentId}-team-red`, full_name: team.repo_name, owner: { login: ORG }, html_url: team.repo_url }],
+        currentUser: STUDENT_1,
+      });
+      await page.goto(inviteUrl(ORG, assignmentId));
+      await expect(page.locator('.provisioned-state')).toContainText('Team Red');
+      await expect(page.locator('[data-team-switch]')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /Switch team/ })).toHaveCount(0);
+    });
+  }
 
 });

@@ -70,6 +70,12 @@ inputs:
     description: Previous repository to remove collaborator from if switching teams
     required: false
     default: ""
+  remove-previous-repo:
+    description: >-
+      "true" to delete the previous repository - its team was left empty and
+      removed. Deleted only if it still holds nothing anybody pushed.
+    required: false
+    default: "false"
   recreate-empty:
     description: >-
       "true" lets provisioning remove an existing repository that has no commit
@@ -148,5 +154,6 @@ runs:
         FEEDBACK_PR: ${{ inputs.feedback-pr }}
         FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
         PREVIOUS_REPO: ${{ inputs.previous-repo }}
+        REMOVE_PREVIOUS_REPO: ${{ inputs.remove-previous-repo }}
         RECREATE_EMPTY: ${{ inputs.recreate-empty }}
       run: node "$GITHUB_ACTION_PATH/provision.mjs"

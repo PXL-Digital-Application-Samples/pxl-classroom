@@ -209,8 +209,8 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     await expect(page.locator('.provisioned-state')).toBeVisible();
     await expect(page.locator('.provisioned-state')).toContainText('Team Alpha');
 
-    // Click "Switch to another team"
-    const switchBtn = page.getByRole('button', { name: /Switch to another team/i });
+    // "Switch team", right under the team name
+    const switchBtn = page.locator('[data-team-switch]').getByRole('button', { name: 'Switch team' });
     await expect(switchBtn).toBeVisible();
     await switchBtn.click();
 

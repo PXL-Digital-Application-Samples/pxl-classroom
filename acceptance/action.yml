@@ -186,6 +186,12 @@ outputs:
   previous_repo:
     description: Previous team repository name if switching teams
     value: ${{ steps.accept.outputs.previous_repo }}
+  previous_repo_remove:
+    description: >-
+      "true" when the team the student left is now empty and its repository
+      held nothing anybody pushed: the team was removed, and provisioning
+      deletes the repository after checking again.
+    value: ${{ steps.accept.outputs.previous_repo_remove }}
   own_earlier_attempt:
     description: >-
       "true" when a repository at the student's name is this assignment's own

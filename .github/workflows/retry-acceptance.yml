@@ -210,6 +210,7 @@ jobs:
           feedback-pr: ${{ steps.accept.outputs.feedback_pr }}
           feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
           previous-repo: ${{ steps.accept.outputs.previous_repo }}
+          remove-previous-repo: ${{ steps.accept.outputs.previous_repo_remove }}
           recreate-empty: ${{ steps.accept.outputs.own_earlier_attempt }}
           student-permission: ${{ steps.accept.outputs.student_permission }}
 

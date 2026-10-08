@@ -25,6 +25,7 @@ import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
 import { lockdownRecordPath } from "../lib/control-layout.mjs";
+import { repoTouched } from "../lib/untouched-repo.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
@@ -1093,6 +1094,9 @@ async function main() {
   let teamName = env("TEAM_NAME", "");
   let previousTeamSlug = null;
   let previousRepo = null;
+  // The team this student left is removed, and its repository with it - set
+  // only when that repository held nothing anybody pushed (step 5).
+  let previousRepoRemove = false;
   let isFirstMember = true;
   // Set by step 7. Recorded on the acceptance so the lecturer's report can say
   // this student did not start from the template - `outcome: "reused"` already
@@ -1231,10 +1235,37 @@ async function main() {
         // repository for a student doing nothing but switching team, which is
         // the failure the target-team read below was hardened against.
         oldTeam.members = oldTeam.members.filter((m) => String(m).toLowerCase() !== login.toLowerCase());
+        // A TEAM LEFT EMPTY WITH NOTHING IN IT IS REMOVED (asked 2026-10-08).
+        // A typo in a team's name, or the wrong team joined: the student
+        // switches, and the team they left stayed listed with its name taken
+        // and its repository kept, until a lecturer deleted it. Nobody is in it
+        // and nobody wrote anything in its repository, so there is nothing to
+        // keep: the manifest goes in this decision's commit, and provisioning
+        // deletes the repository after asking again (`previous_repo_remove`).
+        // Anything pushed, or a repository that cannot be read, keeps the team
+        // vacant as before - its repository is the work, and a former member
+        // gets back in with its code.
+        let removed = false;
         if (oldTeam.members.length === 0) {
-          oldTeam.vacant = true;
+          const oldRepoFull = String(oldTeam.repo_name || "").includes("/") ? String(oldTeam.repo_name) : `${org}/${previousRepo}`;
+          const state = await repoTouched((path) => gh("GET", path), oldRepoFull);
+          // ONLY a repository that is there and holds nothing. A 404 is not
+          // "there is none": it is also what an App that cannot see the
+          // repository is told (an owner's "Only select repositories",
+          // PXL-Java-Essentials 2026-09-30). And a team that really never got
+          // a repository needs nothing: whoever enters it makes it again.
+          if (state === "untouched") {
+            await rm(oldTeamFile, { force: true });
+            removed = true;
+            previousRepoRemove = true;
+            log("team-removed", { ok: true, note: `${oldTeam.team_slug} is empty and its repository holds nothing anybody pushed - removed` });
+          } else {
+            oldTeam.vacant = true;
+            const why = { touched: "its repository is somebody's work", absent: "GitHub shows no repository for it", unknown: "its repository could not be read" }[state];
+            log("team-vacant", { ok: true, note: `${oldTeam.team_slug} is empty and kept: ${why}` });
+          }
         }
-        await writeFile(oldTeamFile, JSON.stringify(oldTeam, null, 2) + "\n");
+        if (!removed) await writeFile(oldTeamFile, JSON.stringify(oldTeam, null, 2) + "\n");
       }
     }
 
@@ -1417,6 +1448,7 @@ async function main() {
     await setOutput("team_name", teamName);
     await setOutput("is_first_member", isFirstMember ? "true" : "false");
     await setOutput("previous_repo", previousRepo || "");
+    await setOutput("previous_repo_remove", previousRepoRemove ? "true" : "false");
     // Whether an EMPTY repository at this name may be removed and created
     // again by provisioning (lib/existing-repo.mjs `leftoverOfOwnAttempt`): an
     // earlier attempt of this student's that failed after GitHub created it.
@@ -1642,6 +1674,7 @@ async function main() {
   await setOutput("team_name", teamName);
   await setOutput("is_first_member", isFirstMember ? "true" : "false");
   await setOutput("previous_repo", previousRepo || "");
+  await setOutput("previous_repo_remove", previousRepoRemove ? "true" : "false");
   await setOutput("own_earlier_attempt", ownEarlierAttempt ? "true" : "false");
   await setOutput("student_permission", studentPermission);
   await setOutput("template_owner", assignment.template.owner);
