@@ -23,6 +23,9 @@
         <div class="field">
           <label>New deadline (just for this student)</label>
           <input type="datetime-local" v-model="ext.deadline_local" />
+          <!-- The browser draws the box in its own language; this is the same
+               moment in 24-hour time (lib/date-readout.js). -->
+          <small v-if="readout(ext.deadline_local)" data-date-readout>{{ readout(ext.deadline_local) }}</small>
         </div>
         <div class="field">
           <label>Reason (recorded in the override)</label>
@@ -70,6 +73,7 @@
         <div class="field">
           <label for="hand-in-deadline">Also extend their deadline to (optional)</label>
           <input id="hand-in-deadline" v-model="hand.deadline_local" type="datetime-local" />
+          <small v-if="readout(hand.deadline_local)" data-date-readout>{{ readout(hand.deadline_local) }}</small>
           <small>For a hand-in made after the deadline that should count too.</small>
         </div>
         <div class="field">
@@ -298,6 +302,8 @@
 import { computed, reactive, ref } from 'vue'
 import Icon from './Icon.vue'
 import { formatDate } from '../lib/format.js'
+import { config } from '../lib/config.js'
+import { dateReadout } from '../lib/date-readout.js'
 import { utcToLocalInput } from '../lib/assignment-doc.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
 import { allowanceProblem } from '../../../lib/hand-in-allowance.mjs'
@@ -375,6 +381,13 @@ const undoReason = ref('')
 const unlockReason = ref('')
 
 const { el, onKeydown } = useFocusTrap()
+
+// The zone the boxes are read in (this computer's) and the one dates are shown
+// to students in, for the line under each box.
+const browserTimeZone = (() => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { return '' }
+})()
+const readout = (local) => dateReadout(local, { studentTimeZone: config.timezone, browserTimeZone })
 
 // Seeded from the deadline that applies to THIS student, so a lecturer edits
 // the date rather than typing it from scratch.

@@ -7,12 +7,17 @@ import {
   GITHUB_STATUS_URL,
   PAGE_MISSING_MINUTES,
   SLOW_START_MINUTES,
+  USUAL_WAIT,
   deployRunsPath,
+  deploySince,
   newestRun,
+  publishBarText,
   publishRunIdFrom,
   publishRunPath,
   publishStage,
   publishStageMessage,
+  publishSteps,
+  runSeconds,
 } from "../frontend/src/lib/publish-progress.js";
 
 const T = (hhmm) => Date.parse(`2026-10-06T${hhmm}:00Z`);
@@ -25,7 +30,7 @@ const stage = (publishRun, deployRun, now) => publishStage({ publishRun, deployR
 test("2026-10-06: GitHub had not started the publish - and the line says so, with GitHub's status page", () => {
   // The lecturer's second publish was created 19:45 and started 19:55.
   const s = stage(run("queued", null, "19:45"), null, "19:52");
-  assert.deepEqual(s, { step: "waiting-start", minutes: 7, url: "https://github.com/o/r/actions/runs/19:45" });
+  assert.deepEqual(s, { step: "waiting-start", minutes: 7, url: "https://github.com/o/r/actions/runs/19:45", publishSeconds: null, deploySeconds: null });
   const m = publishStageMessage(s);
   assert.equal(m.text, "Waiting for GitHub to start the publish (7 min).");
   assert.equal(m.slow, true, "past the threshold, GitHub's status page goes beside it");
@@ -95,7 +100,58 @@ test("the pages were updated without this assignment's page: said after the CDN'
   const deployed = run("completed", "success", "19:31", "19:33");
   assert.equal(stage(published, deployed, "19:34").step, "deployed", "a minute: the CDN catching up");
   const late = stage(published, deployed, "19:41");
-  assert.deepEqual(late, { step: "deployed-without-page", minutes: 8, url: deployed.html_url });
+  assert.deepEqual(late, { step: "deployed-without-page", minutes: 8, url: deployed.html_url, publishSeconds: 60, deploySeconds: 120 });
   assert.equal(publishStageMessage(late).text, "Published, but the student pages were updated 8 min ago without this assignment's page.");
   assert.equal(PAGE_MISSING_MINUTES, 3);
+});
+
+// --- 2026-10-08: "I don't know in which step I am, or how long to wait" ------
+
+const states = (steps) => steps.map((s) => `${s.key}:${s.state}`).join(" ");
+
+test("the four steps, and which one a publish is in, at every stage", () => {
+  const published = run("completed", "success", "19:29", "19:30");
+  const cases = [
+    [publishStage({ publishRun: null, deployRun: null }), "saved:done github:active site:todo live:todo"],
+    [stage(run("queued", null, "19:29"), null, "19:31"), "saved:done github:active site:todo live:todo"],
+    [stage(run("completed", "failure", "19:29", "19:30"), null, "19:31"), "saved:done github:failed site:todo live:todo"],
+    [stage(published, null, "19:31"), "saved:done github:done site:active live:todo"],
+    [stage(published, run("in_progress", null, "19:31"), "19:32"), "saved:done github:done site:active live:todo"],
+    [stage(published, run("completed", "failure", "19:31", "19:33"), "19:34"), "saved:done github:done site:active live:todo"],
+    [stage(published, run("completed", "success", "19:31", "19:33"), "19:34"), "saved:done github:done site:done live:active"],
+  ];
+  for (const [s, want] of cases) assert.equal(states(publishSteps(s)), want, s.step);
+  // The page answered: every step done, whatever the runs said last.
+  assert.equal(states(publishSteps(stage(published, null, "19:31"), { ready: true })), "saved:done github:done site:done live:done");
+});
+
+test("a finished step says how long it took; GitHub naming no run shows no list rather than a guessed step", () => {
+  const published = { ...run("completed", "success", "19:29", "19:30"), run_started_at: new Date(T("19:29") + 19_000).toISOString() };
+  const deployed = run("completed", "success", "19:31", "19:33");
+  const steps = publishSteps(stage(published, deployed, "19:34"));
+  assert.equal(steps.find((s) => s.key === "github").detail, "41 s");
+  assert.equal(steps.find((s) => s.key === "site").detail, "2 min");
+  assert.equal(publishSteps({ step: "untracked" }), null);
+  assert.equal(runSeconds({ status: "in_progress", created_at: published.created_at }), null, "not finished, no duration");
+  assert.equal(runSeconds(null), null);
+});
+
+test("the bar's short version: step of four, what it is doing, how long so far", () => {
+  const published = run("completed", "success", "19:29", "19:30");
+  assert.equal(
+    publishBarText(stage(published, run("in_progress", null, "19:31"), "19:33"), { minutesSoFar: 4 }),
+    "Publishing, step 3 of 4: updating the student site (4 min so far).",
+  );
+  assert.equal(publishBarText(stage(run("in_progress", null, "19:29"), null, "19:29")), "Publishing, step 2 of 4: setting it up on GitHub.");
+  assert.equal(publishBarText(stage(run("completed", "failure", "19:29", "19:30"), null, "19:31")), "The publish did not finish on GitHub.");
+  assert.equal(publishBarText({ step: "deployed" }, { ready: true }), "Published, and the student page is live.");
+  assert.equal(publishBarText({ step: "untracked" }, { minutesSoFar: 2 }), "Publishing (2 min so far).");
+});
+
+test("the deploys that can carry a publish are those since it STARTED, not since it finished", () => {
+  // The publish's own regeneration can dispatch the deploy before the publish
+  // run ends; counting from its end missed that deploy.
+  assert.equal(deploySince({ created_at: "2026-10-08T07:46:43Z", updated_at: "2026-10-08T07:47:24Z" }), Date.parse("2026-10-08T07:46:43Z"));
+  assert.equal(deploySince(null), null);
+  assert.match(USUAL_WAIT, /^\d+ to \d+ minutes$/);
 });

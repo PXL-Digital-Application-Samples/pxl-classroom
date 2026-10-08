@@ -244,6 +244,8 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
           organization: ORG,
           state: 'published',
           assignment_type: 'group',
+          // As every saved assignment carries (the editor writes it).
+          repository_name_pattern: 'group-preassigned-lab-{team_slug}',
           group_config: {
             formation_mode: 'pre-assigned',
             max_team_size: 4,
@@ -291,6 +293,8 @@ test.describe('12 - Assignment Creation, Provisioning, Roster Management & Edge-
           organization: ORG,
           state: 'published',
           assignment_type: 'group',
+          // As every saved assignment carries (the editor writes it).
+          repository_name_pattern: 'group-preassigned-lab-{team_slug}',
           group_config: {
             formation_mode: 'pre-assigned',
             max_team_size: 4,

@@ -193,14 +193,30 @@
                (lib/publish-progress.js), not a count of the page's own checks:
                on 2026-10-06 "a minute or two (checked 45×)" ran for half an
                hour while GitHub had not even started the publish. -->
-          <div v-if="!isNew && publishWatch === 'watching'" class="publish-watch" role="status" :data-publish-step="publishProgress.step">
-            <div class="spinner sm"></div>
-            <span class="text-secondary">
+          <div v-if="!isNew && publishWatch === 'watching'" class="publish-watch publish-progress" role="status" :data-publish-step="publishProgress.step">
+            <!-- Which step of how many, each finished one with how long it
+                 took (2026-10-08: "I don't know in which step I am"). -->
+            <!-- Status dots (DESIGN.md §1.3, §4), the one in progress a spinner;
+                 the state is said in words to a screen reader, not by colour
+                 alone. -->
+            <ol v-if="publishStepList" class="publish-steps" aria-label="Publishing steps">
+              <li v-for="(st, i) in publishStepList" :key="st.key" :class="['status-indicator', 'publish-step', `is-${st.state}`]" :data-step-state="st.state">
+                <span v-if="st.state === 'active'" class="spinner sm" aria-hidden="true"></span>
+                <span v-else :class="['status-dot', STEP_DOT[st.state]]" aria-hidden="true"></span>
+                <span>{{ i + 1 }}. {{ st.label }}<template v-if="st.detail"> ({{ st.detail }})</template></span>
+                <span class="sr-only">{{ STEP_WORDS[st.state] }}</span>
+              </li>
+            </ol>
+            <span class="text-secondary publish-progress-line">
+              <span v-if="!publishStepList" class="spinner sm" aria-hidden="true"></span>
               {{ publishProgressMessage.text }}
               <template v-if="publishProgressMessage.slow">
                 GitHub is slow right now: <a :href="GITHUB_STATUS_URL" target="_blank" rel="noopener">githubstatus.com</a>.
               </template>
               <a v-if="publishProgress.step === 'deployed-without-page' && publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
+              <span class="text-muted" data-publish-usual>
+                Usually {{ USUAL_WAIT }} in total<template v-if="publishMinutes >= 1">; {{ publishMinutes }} min so far</template>.
+              </span>
             </span>
           </div>
           <div v-else-if="!isNew && publishWatch === 'ready'" class="publish-watch publish-ready" role="status">
@@ -215,6 +231,47 @@
               <a v-if="publishProgress.url" :href="publishProgress.url" target="_blank" rel="noopener">See the run.</a>
             </span>
           </div>
+          <!-- DO STUDENTS SEE WHAT IS SAVED? For a published (or closed)
+               assignment, from the facts (props.studentPage): the card the saved
+               document makes against the one students are served. Said after a
+               refresh as much as after a save - which used to be a toast that
+               vanished (2026-10-08). Not while a publish is being followed above. -->
+          <div
+            v-if="!isNew && studentPageShown"
+            :class="['publish-watch', 'publish-progress', { 'publish-ready': studentPage.state === 'current' }]"
+            role="status"
+            :data-student-page="studentPage.state"
+          >
+            <ol v-if="studentPageStepList" class="publish-steps" aria-label="Getting the saved version to students">
+              <li v-for="(st, i) in studentPageStepList" :key="st.key" :class="['status-indicator', 'publish-step', `is-${st.state}`]" :data-step-state="st.state">
+                <span v-if="st.state === 'active'" class="spinner sm" aria-hidden="true"></span>
+                <span v-else :class="['status-dot', STEP_DOT[st.state]]" aria-hidden="true"></span>
+                <span>{{ i + 1 }}. {{ st.label }}</span>
+                <span class="sr-only">{{ STEP_WORDS[st.state] }}</span>
+              </li>
+            </ol>
+            <span class="publish-progress-line">
+              <template v-if="studentPage.state === 'current'">
+                <Icon name="check-circle" :size="15" />
+                <span>Students see what is saved.</span>
+              </template>
+              <span v-else class="text-secondary">{{ studentPageMessage }}</span>
+              <button
+                v-if="studentPage.state === 'stuck' || studentPage.state === 'failed'"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="emit('update-student-page')"
+              >{{ studentPage.state === 'failed' ? 'Try again' : 'Update the student page now' }}</button>
+            </span>
+            <!-- What differs, in the lecturer's words: the evidence behind
+                 "students still see the previous version". -->
+            <ul v-if="studentPage.differences?.length" class="student-page-differences text-sm text-secondary" data-student-page-differences>
+              <li v-for="d in studentPage.differences.slice(0, 4)" :key="d.key">
+                {{ d.label }}: students see {{ cardValue(d.key, d.served) }}, saved {{ cardValue(d.key, d.saved) }}
+              </li>
+            </ul>
+          </div>
+
           <!-- What is true after half an hour: the page stopped looking. Not the
                last step, which read as if it were still going on. -->
           <div v-else-if="!isNew && publishWatch === 'timeout'" class="publish-watch" role="status">
@@ -711,11 +768,16 @@
               <div class="field">
                 <label>Opens at <span class="req">*</span></label>
                 <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
+                <!-- The box is the browser's, in the browser's language (AM/PM
+                     in a US-English Chrome); this is the same moment in 24-hour
+                     time (lib/date-readout.js). -->
+                <small v-if="openReadout" data-date-readout>{{ openReadout }}</small>
                 <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
               </div>
               <div class="field">
                 <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
                 <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
+                <small v-if="deadlineReadout" data-date-readout>{{ deadlineReadout }}</small>
                 <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
               </div>
             </div>
@@ -1433,25 +1495,34 @@
                  a draft is saved, it is just not open to students. These are
                  edits that exist in this tab only, until Save. Said only when
                  true; a saved form says nothing. -->
-            <span v-if="isNew || unsaved" class="unsaved-note" data-unsaved>
+            <span v-if="(isNew || unsaved) && !actionStep" class="unsaved-note" data-unsaved>
               <span class="status-dot dot-warning" aria-hidden="true"></span>
               {{ isNew ? 'Not saved yet' : 'Unsaved changes' }}
             </span>
+            <!-- WHERE IT WAS PRESSED. Pressed at the bottom of a long form,
+                 Save & publish showed nothing for three seconds of checks, and
+                 then only a line at the top of the page (2026-10-08). The press
+                 says what it is doing at once, and a publish going live says
+                 its step here as well as at the top. -->
+            <span v-if="actionStep || publishBarStatus" class="publish-bar-status" role="status" data-publish-bar>
+              <span v-if="actionStep || publishWatch === 'watching'" class="spinner sm" aria-hidden="true"></span>
+              {{ actionStep || publishBarStatus }}
+            </span>
             <div class="editor-action-buttons">
-              <button class="btn" type="button" @click="cancelEdit" :disabled="saving">Cancel</button>
+              <button class="btn" type="button" @click="cancelEdit" :disabled="saving || !!actionStep">Cancel</button>
               <button
                 v-if="isNew || form.state === 'draft'"
                 class="btn"
                 type="button"
                 @click="saveAssignment('draft')"
-                :disabled="saving || !canSave"
+                :disabled="saving || !!actionStep || !canSave"
               >{{ saving ? 'Saving…' : 'Save as draft' }}</button>
               <button
                 :class="['btn', saveIsPrimary ? 'btn-primary' : '']"
                 type="button"
                 @click="saveKeepsState ? saveKeepingState() : saveAndPublish()"
-                :disabled="saving || !canSave"
-              >{{ saving ? 'Saving…' : saveLabel }}</button>
+                :disabled="saving || !!actionStep || !canSave"
+              >{{ actionStep || (saving ? 'Saving…' : saveLabel) }}</button>
             </div>
           </div>
         </form>
@@ -1623,7 +1694,10 @@ import { normalizeRepoRef } from '../lib/github-repo-ref.js'
 import { toast } from '../lib/toast.js'
 import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
-import { GITHUB_STATUS_URL, publishRunIdFrom, publishStageMessage } from '../lib/publish-progress.js'
+import { GITHUB_STATUS_URL, USUAL_WAIT, publishBarText, publishRunIdFrom, publishStageMessage, publishSteps } from '../lib/publish-progress.js'
+import { dateReadout } from '../lib/date-readout.js'
+import { formatDate } from '../lib/format.js'
+import { studentPageBarText, studentPageLine, studentPageSteps } from '../lib/student-page-status.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
 import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
 import { republishRefusal } from '../../../lib/finished-assignment.mjs'
@@ -1669,12 +1743,19 @@ const props = defineProps({
   mode: { type: String, default: 'single', validator: (v) => ['single', 'new'].includes(v) },
   /** Inside the assignment page as its Settings tab (BETA-UX.md, 2026-10-03). */
   embedded: { type: Boolean, default: false },
+  /**
+   * Do students see what is saved - worked out by the page around the editor
+   * (composables/useStudentPageStatus.js), shown here as steps. Null outside it.
+   */
+  studentPage: { type: Object, default: null },
 })
 // `changed`: the stored document is different now (saved, state changed,
 // published), so the page around the editor reads it again for its header.
 // `regenerated`: the invitation secret passed with it was just retired; the
 // page's Invite link must stop offering it until the new one is written.
-const emit = defineEmits(['changed', 'regenerated', 'save-primary', 'unsaved'])
+// `student-page-failed`: starting the student page update after a save failed;
+// `update-student-page`: the lecturer asked for it again.
+const emit = defineEmits(['changed', 'regenerated', 'save-primary', 'unsaved', 'student-page-failed', 'update-student-page'])
 const route = useRoute()
 const router = useRouter()
 
@@ -1821,6 +1902,7 @@ const unsaved = computed(() => hasUnsavedEdits())
 const {
   publishWatch,
   publishProgress,
+  publishMinutes,
   liveCheckLoading,
   brokerExists,
   pagesLive,
@@ -1836,6 +1918,40 @@ const {
 })
 // What the publishing line says: the step GitHub is at, read from its runs.
 const publishProgressMessage = computed(() => publishStageMessage(publishProgress.value))
+// The steps, at the top; and the short version in the bar at the bottom of the
+// window, where Save & publish was pressed (asked 2026-10-08: a lecturer at the
+// bottom of the form saw nothing happen, and did not know which step it was in
+// or how long to wait). lib/publish-progress.js.
+// A finished, failed or later step's dot (DESIGN.md §4), and its state in words.
+const STEP_DOT = { done: 'dot-success', failed: 'dot-danger', todo: 'dot-neutral' }
+const STEP_WORDS = { done: 'done', active: 'in progress', failed: 'did not finish', todo: 'not yet' }
+const publishStepList = computed(() =>
+  publishSteps(publishProgress.value, { ready: publishWatch.value === 'ready' }))
+const publishBarStatus = computed(() => {
+  if (['watching', 'ready', 'failed'].includes(publishWatch.value)) {
+    return publishBarText(publishProgress.value, { ready: publishWatch.value === 'ready', minutesSoFar: publishMinutes.value })
+  }
+  // A save of a live assignment: getting it to students, in the bar too.
+  return studentPageShown.value ? studentPageBarText(props.studentPage) : ''
+})
+
+// Do students see what is saved (props.studentPage): shown at the top of the
+// tab whenever it is known and no publish is being followed there instead.
+const studentPageShown = computed(() =>
+  ['updating', 'stuck', 'failed', 'current'].includes(props.studentPage?.state) &&
+  !['watching', 'ready', 'failed'].includes(publishWatch.value))
+const studentPageStepList = computed(() =>
+  props.studentPage?.state === 'current' ? null : studentPageSteps(props.studentPage))
+const studentPageMessage = computed(() => (props.studentPage ? studentPageLine(props.studentPage) : ''))
+/** A card value in the lecturer's words: dates in 24-hour time, the rest plainly. */
+function cardValue(key, value) {
+  if (value == null || value === '') return 'nothing'
+  if (key === 'opens_at' || key === 'deadline_at') return formatDate(value, form.value.timezone || null)
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  if (typeof value === 'object') return JSON.stringify(value)
+  const s = String(value)
+  return s.length > 60 ? `"${s.slice(0, 57)}..."` : `"${s}"`
+}
 
 // The page around the editor reads the assignment for its header (state,
 // deadline, Invite link). A publish going live, and an invitation the watch
@@ -3139,6 +3255,11 @@ const browserTimeZone = (() => {
 })()
 // The zone students are shown dates in (Advanced, "Time zone students see").
 const studentTimeZone = computed(() => form.value.timezone || TIMEZONE)
+// Each date box's moment in 24-hour time, under the box (lib/date-readout.js).
+const openReadout = computed(() =>
+  dateReadout(form.value.opens_at_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
+const deadlineReadout = computed(() =>
+  dateReadout(form.value.deadline_at_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
 
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {
@@ -3531,7 +3652,10 @@ async function editAssignment(a, { confirmed = false } = {}) {
     ]
   }
   publishWatch.value = ''
-  if (a.state === 'published') {
+  // Not while a publish is being carried onto this page (`?publishing=`, a new
+  // assignment's Save & publish): its broker is still being made, and the
+  // check flashed the red "Publish Incomplete" card until the watch began.
+  if (a.state === 'published' && !route.query.publishing) {
     verifyLiveInfrastructure(a.id)
   } else {
     brokerExists.value = null
@@ -4198,7 +4322,25 @@ async function armSentinelIfImminent(doc) {
   }
 }
 
+// WHAT THE PRESS IS DOING, from the instant of the click. Save & publish ran
+// three seconds of checks - the form, the slug against the control repo, the
+// name against the organization's repositories - before anything showed, and a
+// lecturer was about to press again (2026-10-08). Shown on the button and in
+// the bar; cleared by whoever set it, so a save inside a publish keeps the
+// publish's words.
+const actionStep = ref('')
+
 async function saveAssignment(stateOverride = null) {
+  const own = !actionStep.value
+  if (own) actionStep.value = 'Checking…'
+  try {
+    return await saveAssignmentSteps(stateOverride)
+  } finally {
+    if (own) actionStep.value = ''
+  }
+}
+
+async function saveAssignmentSteps(stateOverride) {
   // Touch all fields to show error styling
   for (const k of Object.keys(touchedFields.value)) {
     touchedFields.value[k] = true
@@ -4325,6 +4467,9 @@ async function saveAssignment(stateOverride = null) {
     }
   }
   saving.value = true
+  if (actionStep.value) actionStep.value = 'Saving…'
+  // This save writes `published` for a publish about to be dispatched.
+  const startsPublish = inPublishFlow && stateOverride === 'published'
   try {
     const token = getToken()
     const path = assignmentPath(form.value.id)
@@ -4334,7 +4479,11 @@ async function saveAssignment(stateOverride = null) {
     const permissionBefore = isNew.value ? null : storedStudentPermission.value
     const res = await commitFile(token, props.org, config.controlRepo, path, yaml, isNew.value ? `Create assignment ${form.value.id}` : `Update assignment ${form.value.id}`)
     if (res.ok) {
-      toast.success(`Saved ${form.value.id}`)
+      // A save that starts a publish (draft to published) is said by the
+      // publish's steps (Saved, then the rest); a toast that flashed and
+      // vanished beside them was one more box to read. Saving an assignment
+      // already published still says Saved.
+      if (!startsPublish) toast.success(`Saved ${form.value.id}`)
       // What the document now says, so the next save compares against it.
       storedTemplate.value = doc.template || null
       storedStudentPermission.value = doc.student_permission || 'admin'
@@ -4354,7 +4503,11 @@ async function saveAssignment(stateOverride = null) {
       // A new assignment has an address now - unless a publish is about to
       // follow this save, which navigates itself when it is done.
       if (stillExists && !inPublishFlow) await goToSavedAssignment()
-      if (form.value.state === 'published') {
+      // Not inside a publish: the document says published a moment BEFORE the
+      // publish is dispatched, so the broker is missing for a good reason, and
+      // checking flashed the red "Publish Incomplete ... Action Required" card
+      // over a publish that was going fine (2026-10-08). The watch checks it.
+      if (form.value.state === 'published' && !startsPublish) {
         verifyLiveInfrastructure(form.value.id)
       }
       await armSentinelIfImminent(doc)
@@ -4660,21 +4813,24 @@ async function saveKeepingState() {
   if (!(await saveAssignment())) return
   // A closed assignment still has a card on the student page (lib/publish.js).
   if (writeReachesStudentPage(state, state)) {
-    await republishStudentPages({
+    const started = await republishStudentPages({
       token: getToken(),
       org: props.org,
       failure: 'Saved, but updating the student page failed',
     })
+    if (!started) emit('student-page-failed', 'GitHub refused to start it')
   }
 }
 
 async function saveAndPublish() {
   inPublishFlow = true
+  actionStep.value = 'Checking…'
   let started = false
   try {
     started = await saveAndPublishSteps()
   } finally {
     inPublishFlow = false
+    actionStep.value = ''
   }
   // A new assignment moves to its page now that nothing is left running here.
   await goToSavedAssignment({ publishing: started })
@@ -4708,13 +4864,17 @@ async function saveAndPublishSteps() {
     // go red over a plain edit); its student page is rebuilt instead.
     if (publishedSaveWorkflow(brokerExists.value) === 'publish-assignment.yml' && !(await finishedRefusal())) {
       await publishExisting()
-    } else if (await republishStudentPages({
+    } else if (!(await republishStudentPages({
       token: getToken(),
       org: props.org,
       failure: 'Saved, but publishing the change to students failed',
-    })) {
-      toast.info('Students see this change in about two minutes, once their page is rebuilt.')
+    }))) {
+      // The toast says why, once; the status at the top keeps saying it.
+      emit('student-page-failed', 'GitHub refused to start it')
     }
+    // No "students see this in about two minutes" toast that vanished: the
+    // page says, from what students are actually served, when they do
+    // (props.studentPage; 2026-10-08).
     return false
   }
   // Where to go back to if the dispatch does not happen. Captured BEFORE the
@@ -4914,6 +5074,8 @@ async function finishedRefusal() {
 async function publishExisting({ regenerate = false, prior = form.value.state } = {}) {
   publishing.value = true
   lastPublishRunId = null
+  const own = !actionStep.value
+  actionStep.value = 'Starting the publish…'
   try {
     const token = getToken()
     // WITH the run it started (`return_run_details`), so the publishing line
@@ -4929,7 +5091,7 @@ async function publishExisting({ regenerate = false, prior = form.value.state } 
       prior_state: ['draft', 'published', 'closed', 'archived'].includes(prior) ? prior : '',
     })
     if (res.ok || res.status === 204) {
-      toast.success('Publish workflow triggered. Watching for the broker to appear…')
+      // No toast: the steps at the top and in the bar say it, and stay.
       lastPublishRunId = res.runId
       startPublishWatch({ runId: res.runId })
       return true
@@ -4938,6 +5100,7 @@ async function publishExisting({ regenerate = false, prior = form.value.state } 
     return false
   } finally {
     publishing.value = false
+    if (own) actionStep.value = ''
   }
 }
 
@@ -5975,6 +6138,43 @@ details .field { padding: 0 var(--space-sm); }
   font-size: 0.9rem;
 }
 .publish-ready { color: var(--accent-green); }
+/* The steps above the line, while a publish goes live. */
+.publish-progress {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.publish-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* `.status-indicator` lays out dot and text; only the weight says which step
+   is the current one, and steps not reached yet are muted. */
+.publish-step.is-todo { color: var(--text-muted); }
+.publish-step.is-active { color: var(--text-primary); font-weight: 600; }
+/* What students see against what is saved, one line per field. */
+.student-page-differences {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+.publish-progress-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+/* The short version, in the bar where Save & publish was pressed. */
+.publish-bar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  min-width: 0;
+}
 
 /* COMBOBOX */
 .combobox-wrapper {

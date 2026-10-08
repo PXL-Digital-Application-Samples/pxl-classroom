@@ -84,6 +84,22 @@
       </div>
     </div>
 
+    <!-- WHILE STUDENTS DO NOT SEE WHAT IS SAVED, said on every tab - worked
+         out from facts (composables/useStudentPageStatus.js), so it is there
+         after a refresh too (2026-10-08: the only status was a toast). Not on
+         Settings, which shows the same with its steps. Nothing when they do. -->
+    <p v-if="studentLine && current !== 'settings'" class="status-indicator student-page-line" role="status" :data-student-page="studentPage.state">
+      <span v-if="studentPage.state === 'updating'" class="spinner-sm" aria-hidden="true"></span>
+      <span v-else :class="['status-dot', studentPage.state === 'failed' ? 'dot-danger' : 'dot-warning']" aria-hidden="true"></span>
+      <span>{{ studentLine }}</span>
+      <button
+        v-if="studentPage.state === 'stuck' || studentPage.state === 'failed'"
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="emit('update-student-page')"
+      >{{ studentPage.state === 'failed' ? 'Try again' : 'Update the student page now' }}</button>
+    </p>
+
     <!-- The tab is in the address: Progress has none, Teams and Grading are
          `?tab=`, Settings is its own page (the editor). -->
     <nav class="primer-tabs assignment-tabs" aria-label="Assignment sections">
@@ -114,6 +130,7 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { stateActions, everPublished } from '../lib/state-actions.js'
 import { keepMenuInView } from '../lib/menu-position.js'
+import { studentPageLine } from '../lib/student-page-status.js'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -134,8 +151,12 @@ const props = defineProps({
   retiredInviteKey: { type: String, default: '' },
   /** The Settings tab holds edits nobody has saved yet. */
   settingsUnsaved: { type: Boolean, default: false },
+  /** Do students see what is saved (lib/student-page-status.js), or null. */
+  studentPage: { type: Object, default: null },
 })
-const emit = defineEmits(['state-action'])
+const emit = defineEmits(['state-action', 'update-student-page'])
+
+const studentLine = computed(() => (props.studentPage ? studentPageLine(props.studentPage) : ''))
 
 const state = computed(() => props.assignment?.state || null)
 const deadline = computed(() => props.assignment?.deadline_at || null)
@@ -215,6 +236,12 @@ onUnmounted(() => {
 
 <style scoped>
 .assignment-head { margin-bottom: var(--space-sm); }
+.student-page-line {
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-sm);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
 .assignment-head-deadline { display: flex; align-items: baseline; gap: var(--space-xs); flex-wrap: wrap; min-width: 0; }
 /* A divider, not a box (DESIGN.md §1.1): between the way out and the
    assignment's own controls, the height of the buttons' text. */

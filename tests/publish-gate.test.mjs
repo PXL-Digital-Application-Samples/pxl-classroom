@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasStudentCard } from "../lib/student-card.mjs";
 
 import {
   needsBrokerDispatch,
@@ -75,11 +76,12 @@ test("both answers name a workflow that exists", () => {
 
 // The generator's own filter, read rather than restated. A state added to it
 // and not here is a card students read that no lecturer write refreshes.
+// Which states have a card: asked of the function the generator itself
+// filters by (lib/student-card.mjs), and checked that it still does.
 function cardStates() {
   const source = readFileSync(join(ROOT, "pages", "generate.mjs"), "utf8");
-  const line = source.match(/if \((def\.state !== "[a-z]+"(?: && def\.state !== "[a-z]+")*)\) continue;/);
-  assert.ok(line, "pages/generate.mjs no longer filters cards by state in the shape this test reads");
-  return [...line[1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+  assert.match(source, /if \(!hasStudentCard\(def\)\) continue;/, "pages/generate.mjs no longer filters cards by hasStudentCard");
+  return ["draft", "published", "closed", "archived"].filter((state) => hasStudentCard({ state }));
 }
 
 test("a write reaches the student page whenever either side has a card", () => {

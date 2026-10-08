@@ -557,6 +557,10 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
           assignment_type: 'group',
           deadline_at: futureDeadline,
           group_config: { max_team_size: 3 },
+          // Every saved assignment carries one (the editor writes it); without
+          // it the generator publishes the individual default, which no team
+          // repository matches.
+          repository_name_pattern: 'group-status-lab-{team_slug}',
         },
       },
       teams: {

@@ -103,6 +103,7 @@ test("nothing decides roster-gating with a bare enforced comparison any more", (
     "lib/seed-teams.mjs",
     "lib/promote-roster.mjs",
     "pages/generate.mjs",
+    "lib/student-card.mjs",
     "frontend/src/views/AdminView.vue",
     "frontend/src/views/AssignmentView.vue",
     "frontend/src/components/StudentDiagnosticsModal.vue",

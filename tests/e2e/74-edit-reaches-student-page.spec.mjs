@@ -146,9 +146,10 @@ test.describe('74 - saving a live assignment', () => {
     // the publish workflow regenerates anyway, so doing both is two.
     expect(named(dispatches, PUBLISH)).toHaveLength(0);
 
-    // The hub enforces the edit now and the page shows it in a couple of
-    // minutes. Saying so is what stops "I just changed it, why am I refused".
-    await expect(page.locator('.toast', { hasText: 'Students see this change in about two minutes' })).toBeVisible();
+    // The hub enforces the edit now and the page shows it a few minutes later.
+    // That used to be a toast that vanished; it is a status worked out from
+    // what students are served now (tests/e2e/106), so no toast.
+    await expect(page.locator('.toast', { hasText: 'Students see this change' })).toHaveCount(0);
   });
 
   test('a retitle, which is on every card, is rebuilt too', async ({ page }) => {

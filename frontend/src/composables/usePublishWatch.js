@@ -30,7 +30,7 @@ import { config } from '../lib/config.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { assignmentPath } from '../../../lib/control-layout.mjs'
 import { inviteDataUrl, parseInviteFields, linkSecretFrom } from '../lib/invite.js'
-import { deployRunsPath, newestRun, publishRunPath, publishStage } from '../lib/publish-progress.js'
+import { deployRunsPath, deploySince, newestRun, publishRunPath, publishStage } from '../lib/publish-progress.js'
 
 /**
  * Thirty minutes: every 10s for the first five, then every 20s. It was eight,
@@ -58,6 +58,11 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
   // The step GitHub is at (lib/publish-progress.js), read from the hub's runs.
   const publishProgress = ref({ step: 'unknown', minutes: 0, url: null })
   let watchStartedAt = 0
+  // Minutes since the publish began - its run's own start where GitHub has
+  // said, since a new assignment's page starts watching only after the save
+  // and the move to its page.
+  const publishMinutes = ref(0)
+  let publishBeganAt = 0
   // The run the publish started, as GitHub named it when it was dispatched.
   let watchedRunId = null
 
@@ -80,11 +85,14 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     const publishRun = publishRes.data || null
     let deployRun = null
     if (publishRun?.status === 'completed' && publishRun.conclusion === 'success') {
-      const deployRes = await ghApi(token, 'GET', deployRunsPath({ ...where, since: Date.parse(publishRun.updated_at) || watchStartedAt }))
+      const deployRes = await ghApi(token, 'GET', deployRunsPath({ ...where, since: deploySince(publishRun) || watchStartedAt }))
       if (!deployRes.ok) return
       deployRun = newestRun(deployRes)
     }
     publishProgress.value = publishStage({ publishRun, deployRun })
+    const runBegan = Date.parse(publishRun?.created_at || '')
+    if (Number.isFinite(runBegan) && runBegan < publishBeganAt) publishBeganAt = runBegan
+    publishMinutes.value = Math.floor((Date.now() - publishBeganAt) / 60_000)
     // A publish that did not finish will not go live by waiting: stop, and
     // stop spinning (it went on for the rest of the half hour).
     if (publishProgress.value.step === 'failed') {
@@ -180,12 +188,15 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     publishPollCount.value = 0
     publishProgress.value = { step: 'unknown', minutes: 0, url: null }
     watchStartedAt = Date.now()
+    publishBeganAt = watchStartedAt
+    publishMinutes.value = 0
     watchedRunId = runId ? String(runId) : null
     brokerExists.value = null
     pagesLive.value = null
 
     const tick = async () => {
       publishPollCount.value++
+      publishMinutes.value = Math.floor((Date.now() - publishBeganAt) / 60_000)
       try {
         const token = getToken()
         const brokerRepo = brokerRepoName({ assignment: form.value })
@@ -233,6 +244,7 @@ export function usePublishWatch({ org, form, hasUnsavedEdits, snapshotForm, onRe
     publishWatch,
     publishPollCount,
     publishProgress,
+    publishMinutes,
     liveCheckLoading,
     brokerExists,
     pagesLive,

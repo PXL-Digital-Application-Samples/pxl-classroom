@@ -16,6 +16,8 @@ import { ROSTER_SCHEMA_VERSION } from '../../lib/roster-entries.mjs'
 import { handledTitleFor } from '../../lib/broker-issue-titles.mjs'
 import { REJECTED_LABEL } from '../../lib/acceptance-labels.mjs'
 import { verifyAcceptanceTitle } from '../../lib/acceptance-signature.mjs'
+import { studentCard } from '../../lib/student-card.mjs'
+import { TIMEZONE as FIXTURE_TIMEZONE } from '../../lib/deployment.mjs'
 
 /**
  * Which schema governs a control-repo path.
@@ -896,13 +898,26 @@ export async function setupStandardMockRoutes(page, {
       // Serving the raw document instead made a closed assignment look live,
       // which is how the confirm page shipped offering to confirm through a
       // broker that had been switched off.
+      //
+      // Built by the generator's own function now (lib/student-card.mjs), so the
+      // editor's "do students see what is saved" check compares like with like
+      // here as in production. Fields a card does not carry are absent, as they
+      // are on the real site; `broker_repo` stays overridable for a spec that
+      // names a broker of its own.
+      // A spec's own extra fields (a team status, a count) are kept underneath,
+      // for the student pages that a spec stages them for; every field the
+      // generator writes is the generator's.
       const def = orgAssignmentMap[asgnId] || {};
+      const card = studentCard({ id: asgnId, ...def }, { timezone: FIXTURE_TIMEZONE, acceptedCount: def.accepted_count ?? 0 });
       body = {
         schema_version: 1,
         assignment: {
           id: asgnId,
           ...def,
-          broker_repo: def.state === 'published' ? (def.broker_repo || `broker-${asgnId}`) : null,
+          // Unnormalised: a field the generator leaves undefined is then absent
+          // from the file, as on the real site, not the raw document's value.
+          ...card,
+          broker_repo: def.state === 'published' ? (def.broker_repo || card.broker_repo || `broker-${asgnId}`) : null,
         },
       };
     }

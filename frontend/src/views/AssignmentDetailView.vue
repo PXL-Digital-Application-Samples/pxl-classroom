@@ -190,7 +190,9 @@
           :primary-invite="activeTab !== 'settings' || !settingsSavePrimary"
           :settings-unsaved="settingsUnsaved"
           :retired-invite-key="retiredInviteKey"
+          :student-page="studentPage"
           @state-action="onStateAction"
+          @update-student-page="updateStudentPage"
         />
 
         <!-- The report could not be read: said where the report would be, not
@@ -1285,7 +1287,10 @@
             mode="single"
             :org="org"
             :assignment-id="assignmentId"
+            :student-page="studentPage"
             @changed="reloadAssignment"
+            @student-page-failed="reportStudentPageFailure"
+            @update-student-page="updateStudentPage"
             @regenerated="(key) => { retiredInviteKey = key }"
             @save-primary="(primary) => { settingsSavePrimary = primary }"
             @unsaved="(u) => { settingsUnsaved = u }"
@@ -1495,6 +1500,7 @@ import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { gradingLoginTitle, progressLoginTitle } from '../lib/login-tooltip.js'
+import { useStudentPageStatus } from '../composables/useStudentPageStatus.js'
 import { teamRows } from '../lib/team-rows.js'
 import { rememberAssignmentTitle } from '../lib/assignment-crumb.js'
 import { studentsMissingFromReport, studentRowKey } from '../lib/missing-students.js'
@@ -1517,6 +1523,14 @@ const user = ref(getUser())
 const loading = ref(true)
 const report = ref(null)
 const assignment = ref(null)
+// Do students see what is saved? Worked out from facts on open, after each
+// save and while an update runs, for the header on every tab and the Settings
+// tab's steps (composables/useStudentPageStatus.js; 2026-10-08).
+const { studentPage, updateStudentPage, reportStudentPageFailure } = useStudentPageStatus({
+  org: () => props.org,
+  assignmentId: () => props.assignmentId,
+  assignment,
+})
 // The org bar's breadcrumb names the assignment by its title once it is read
 // here; until then it has only the slug (lib/assignment-crumb.js).
 watch(

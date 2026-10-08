@@ -91,6 +91,27 @@ test.describe('104 - the publishing line', () => {
     await expect(line.getByRole('link', { name: 'See the run.' })).toHaveAttribute('href', 'https://github.com/x/runs/3');
   });
 
+  test('which step of four it is in, how long the finished ones took, and how long it usually takes - at the top and in the bar', async ({ page }) => {
+    // 2026-10-08: "I don't know in which step I am ... I have no clue how long
+    // I should wait". Pressed at the bottom of the form, the top was off screen.
+    await watch(page, {
+      publishRun: { status: 'completed', conclusion: 'success', created_at: minutesAgo(4), run_started_at: minutesAgo(4), updated_at: new Date(Date.now() - 4 * 60_000 + 41_000).toISOString(), html_url: 'https://github.com/x/runs/1' },
+      deployRuns: [{ status: 'in_progress', conclusion: null, created_at: minutesAgo(2), updated_at: minutesAgo(1), html_url: 'https://github.com/x/runs/3' }],
+    });
+    const steps = page.locator('.publish-steps li');
+    await expect(steps).toHaveCount(4, { timeout: 20000 });
+    // The first read is five seconds in; until then step 2 is the one going on.
+    await expect(steps.nth(2)).toHaveAttribute('data-step-state', 'active', { timeout: 20000 });
+    await expect(steps.nth(0)).toHaveAttribute('data-step-state', 'done');
+    await expect(steps.nth(1)).toHaveAttribute('data-step-state', 'done');
+    await expect(steps.nth(1)).toContainText('Set up on GitHub (41 s)');
+    await expect(steps.nth(2)).toHaveAttribute('data-step-state', 'active');
+    await expect(steps.nth(3)).toHaveAttribute('data-step-state', 'todo');
+    await expect(page.locator('[data-publish-usual]')).toContainText('Usually 3 to 4 minutes in total; 4 min so far.');
+    // The bar at the bottom of the window, where Save & publish is.
+    await expect(page.locator('[data-publish-bar]')).toHaveText(/Publishing, step 3 of 4: updating the student site \(4 min so far\)\./);
+  });
+
   test('GitHub named no run: the line says so instead of guessing one', async ({ page }) => {
     const asked = await watch(page, { publishing: '1' });
     const line = page.locator('.publish-watch');

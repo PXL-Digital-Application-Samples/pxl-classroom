@@ -65,6 +65,19 @@ const minutesSince = (stamp, now) => {
   return Number.isFinite(at) ? Math.max(0, Math.floor((now - at) / 60_000)) : 0
 }
 
+/** How long a finished run ran, in seconds, or null when GitHub did not say. */
+export function runSeconds(run) {
+  if (run?.status !== 'completed') return null
+  const start = Date.parse(run.run_started_at || run.created_at || '')
+  const end = Date.parse(run.updated_at || '')
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null
+}
+
+/** The deploys that can carry this publish: any started since it began. */
+export function deploySince(publishRun) {
+  return Date.parse(publishRun?.created_at || '') || null
+}
+
 /**
  * The step a publish is at.
  *
@@ -77,9 +90,15 @@ const minutesSince = (stamp, now) => {
  * @param {boolean} [args.untracked]     GitHub gave no run id to follow
  * @param {object|null} args.deployRun   newest Pages deploy since it finished, or null
  * @param {number} [args.now]
- * @returns {{step: string, minutes: number, url: string|null}}
+ * @returns {{step: string, minutes: number, url: string|null, publishSeconds?: number|null, deploySeconds?: number|null}}
  */
 export function publishStage({ publishRun, deployRun, untracked = false, now = Date.now() }) {
+  const stage = stepOf({ publishRun, deployRun, untracked, now })
+  // How long each finished step took, for the step list (publishSteps).
+  return { ...stage, publishSeconds: runSeconds(publishRun), deploySeconds: runSeconds(deployRun) }
+}
+
+function stepOf({ publishRun, deployRun, untracked, now }) {
   if (!publishRun) return { step: untracked ? 'untracked' : 'unknown', minutes: 0, url: null }
   const url = publishRun.html_url || null
   if (NOT_STARTED.has(publishRun.status)) {
@@ -138,4 +157,58 @@ export function publishStageMessage(stage) {
     default:
       return { text: 'Publishing: checking with GitHub.', slow: false }
   }
+}
+
+/**
+ * Start to "the student site has it", measured on the hub (2026-10-08): 2 min
+ * 40 s, 3 min 58 s and 4 min 7 s for three ordinary publishes. Said so a
+ * lecturer knows how long to wait; one waited without knowing, and nearly
+ * pressed again.
+ */
+export const USUAL_WAIT = '3 to 4 minutes'
+
+const took = (s) => (s == null ? '' : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`)
+
+/**
+ * The four steps of a publish, in the order a lecturer sees them, for the list
+ * at the top of the editor: each `{ key, label, state, detail }`, state one of
+ * `done`, `active`, `failed`, `todo`. `ready`: the watch found the student page
+ * itself, so every step is done. Null where nothing says where it is (GitHub
+ * named no run): no list then, rather than a guessed step.
+ *
+ * @param {{step: string, publishSeconds?: number|null, deploySeconds?: number|null}} stage
+ * @param {{ready?: boolean}} [opts]
+ */
+export function publishSteps(stage, { ready = false } = {}) {
+  const s = stage?.step || 'unknown'
+  if (!ready && s === 'untracked') return null
+  const onGithub = ['unknown', 'waiting-start', 'publishing'].includes(s)
+  const pageBuilt = ['deployed', 'deployed-without-page'].includes(s)
+  const github = ready || !(onGithub || s === 'failed') ? 'done' : s === 'failed' ? 'failed' : 'active'
+  const site = ready || pageBuilt ? 'done' : ['waiting-deploy', 'deploying', 'deploy-failed'].includes(s) ? 'active' : 'todo'
+  const live = ready ? 'done' : pageBuilt ? 'active' : 'todo'
+  return [
+    { key: 'saved', label: 'Saved', state: 'done', detail: '' },
+    { key: 'github', label: 'Set up on GitHub', state: github, detail: github === 'done' ? took(stage?.publishSeconds) : '' },
+    { key: 'site', label: 'Student site updated', state: site, detail: site === 'done' ? took(stage?.deploySeconds) : '' },
+    { key: 'live', label: 'Live', state: live, detail: '' },
+  ]
+}
+
+/**
+ * The short version, for the bar at the bottom of the window where Save &
+ * publish was pressed: which step of how many, and how long so far.
+ *
+ * @param {{step: string}} stage
+ * @param {{ready?: boolean, minutesSoFar?: number}} [opts]
+ */
+export function publishBarText(stage, { ready = false, minutesSoFar = 0 } = {}) {
+  if (ready) return 'Published, and the student page is live.'
+  if (stage?.step === 'failed') return 'The publish did not finish on GitHub.'
+  const steps = publishSteps(stage)
+  const so = minutesSoFar >= 1 ? ` (${minutesSoFar} min so far)` : ''
+  if (!steps) return `Publishing${so}.`
+  const at = steps.findIndex((x) => x.state === 'active')
+  const doing = { github: 'setting it up on GitHub', site: 'updating the student site', live: 'checking the student page' }
+  return at === -1 ? `Publishing${so}.` : `Publishing, step ${at + 1} of ${steps.length}: ${doing[steps[at].key]}${so}.`
 }

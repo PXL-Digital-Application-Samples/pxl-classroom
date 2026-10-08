@@ -156,13 +156,22 @@ Under self-service, a carried-over group is a strong default rather than a lock:
 
 ### 1.4 Publish
 
-In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). A line at the top of the form says what GitHub is doing until the accept link is live: waiting to start the publish, publishing, putting the student page live, then *Live*. It usually takes one to three minutes. When GitHub is slow to start something, the line says how long it has waited and links GitHub's status page: nothing is wrong on your side, and leaving the page does not stop it. If GitHub could not put the student page live, it is tried again automatically. If the student pages were updated and this assignment's page is still not among them a few minutes later, the line says that and links the run; tell your administrator if it stays that way. A publish that did not finish says so, links its run and stops checking: publish again, or open the run to see why. After 30 minutes the page stops checking and says so.
+In the editor -> click **Save & publish** in the bar at the bottom of the window (on an existing draft, the **state button** at the top -> **Publish** does the same). The button says *Checking…*, then *Saving…*, the moment you press it. Then four steps are shown at the top of the form, and the same step in short in the bar at the bottom: **1. Saved**, **2. Set up on GitHub**, **3. Student site updated**, **4. Live**, each finished one with how long it took. It usually takes 3 to 4 minutes in total, and the line says how long so far. When GitHub is slow to start something, the line says how long it has waited and links GitHub's status page: nothing is wrong on your side, and leaving the page does not stop it. If GitHub could not put the student page live, it is tried again automatically. If the student pages were updated and this assignment's page is still not among them a few minutes later, the line says that and links the run; tell your administrator if it stays that way. A publish that did not finish says so, links its run and stops checking: publish again, or open the run to see why. After 30 minutes the page stops checking and says so.
 
 Once it is published, its **Settings** tab - the last tab of the assignment's page - is the same form, with a list of its sections on the left to jump between them, and a *Broker* section at the end holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings.
 
 **Is it saved?** Nothing you change is saved until you press **Save**. While something is waiting, the bar says *Unsaved changes* and the Settings tab has a yellow dot, also when you are looking at Progress or Grading; your edits stay there until you come back. A new assignment's bar says *Not saved yet* until its first save. (*Draft* is something else: a saved assignment that students cannot open yet.) Leaving the assignment, switching organization or signing out with unsaved changes asks first, and *Cancel* in that question keeps you where you were with your edits. **Stop accepting**, **Back to draft** and **Archive** will not run while changes are unsaved - save or cancel them first - so a state change never saves something you did not mean to save. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
 
-**Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it about two minutes later (the regeneration and frontend deploy from §1.5). So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait two minutes before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way. If a toast says *publishing the change to students failed*, the save did land: use **Run it manually** in the toast, or §3.8.
+**Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it a few minutes later (the regeneration and frontend deploy from §1.5), usually 3 to 4. The page tells you when: it compares the page students open with what you saved, every time the assignment opens, so it is right after a refresh too.
+
+- *Students see what is saved* at the top of **Settings**: they have your change.
+- *Students still see the version before your last save: updating the student site (2 min so far…)*, at the top of every tab, with the steps on Settings and which fields differ (*deadline: students see 12 Oct 2026, 22:30, saved 14 Oct 2026, 22:30*): wait; it goes away by itself.
+- *… and nothing is updating it now*, with **Update the student page now**: ten minutes on, students still have the old version and nothing is running. Press it; if it comes back, tell your administrator.
+- *Saved, but starting the student page update failed*, with **Try again**: the save did land, the rebuild did not start.
+
+So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait until the page says students see it before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way.
+
+The date boxes are drawn by your browser in its own language, so a browser in US English shows *AM/PM* and month first. The line under each box gives the same moment in 24-hour time; to change the boxes themselves, put English (United Kingdom) or Nederlands first in your browser's language settings.
 
 If the workflow dispatch fails (typically 403 - you're not a hub collaborator, see ADMIN.md §1.4), the panel automatically reverts the assignment to **draft** so the YAML never claims "published" while no broker exists. Fix hub access, then publish again. If the workflow itself fails or refuses, it puts back the state the assignment had before you pressed the button (draft, closed or archived) and never demotes one that was already published.
 
@@ -1236,14 +1245,14 @@ It appears only once the deadline has actually frozen something, and only for a 
 
 Central deployment and regeneration workflows (`deploy-frontend.yml`, `regenerate-dashboard.yml`) rely on GitHub Actions concurrency locks.
 
-1. **Deadlock Prevention (cancel-in-progress: true):**
-   - Concurrency groups `pages` and `dashboard-${{ matrix.org }}` both declare `cancel-in-progress: true`.
-   - When a newer run or dispatch starts, any older or queued run is superseded and cancelled immediately, preventing runs waiting in environment protection queues from deadlocking subsequent deploys.
+1. **Deadlock Prevention:**
+   - `dashboard-${{ matrix.org }}` declares `cancel-in-progress: true`: a newer regeneration of an organization cancels the older one.
+   - `pages` (`deploy-frontend.yml`) declares `cancel-in-progress: false`: a running deploy always finishes, and only the newest one waits behind it. Every acceptance dispatches a deploy, so cancelling the running one meant that during a lab's acceptances no deploy ever finished, for any organization.
 
 2. **Automated Pipeline Watchdog (pipeline-watchdog.yml):**
    - A scheduled sentinel runs every 30 minutes (`*/30 * * * *`) on the hub repository.
-   - Inspects hub Actions runs for zombie runs: waiting over 15 minutes or running over 45 minutes.
-   - Automatically cancels zombie waiting runs over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked.
+   - Inspects hub Actions runs for zombie runs: waiting over 15 minutes, running over 45 minutes, or a Pages deploy queued over 15 minutes without a runner.
+   - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A queued acceptance is never cancelled.
    - Posts deduplicated alert comments with `@<login>` mentions on open tracking issues (`[NOTICE] PXL Classroom - Pipeline Watchdog Alerts`), triggering immediate email notifications through GitHub.
 
 3. **Alert Level Preferences & Picklists:**

@@ -16,8 +16,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { normalizeRosterMode } from "../lib/roster-mode.mjs";
-import { brokerRepoName } from "../lib/broker-repo.mjs";
+import { hasStudentCard, studentCard } from "../lib/student-card.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
 import { linkSecretFrom } from "../lib/invite-token-format.mjs";
 import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
@@ -149,7 +148,7 @@ async function main() {
     const def = await loadYaml(join(assignmentsDir, file));
 
     // Only include published or closed assignments in public output
-    if (def.state !== "published" && def.state !== "closed") continue;
+    if (!hasStudentCard(def)) continue;
 
     let acceptedCount = 0;
     const acceptancesDir = join(dataDir, "acceptances", def.id);
@@ -181,76 +180,10 @@ async function main() {
       }
     }
 
-    // Extract ONLY public metadata - no roster, no repo URLs, no tokens
-    const card = {
-      id: def.id,
-      title: def.title,
-      description: def.description || null,
-      organization: def.organization,
-      state: def.state,
-      opens_at: def.opens_at,
-      deadline_at: def.deadline_at,
-      timezone: def.timezone || TIMEZONE,
-      acceptance_mode: def.acceptance_mode || "self-service",
-      // Policy flag, not student data - the SPA uses it to explain accurately
-      // why an acceptance may not complete. Never carries roster contents.
-      roster_mode: normalizeRosterMode(def.roster_mode),
-      // Pattern is public - it's a template, not student data. SPA needs it
-      // to compute the expected repo URL after acceptance (P0-10).
-      repository_name_pattern: def.repository_name_pattern || `${def.id}-{github_login}`,
-      // The broker repo name is public (the broker is a public repo)
-      broker_repo: def.state === "published" ? brokerRepoName({ assignment: def }) : null,
-      // No cap means NO cap. `accept.mjs` reads `if (maxAcceptances && ...)`,
-      // so an absent value is unlimited there - publishing `?? 150` invented a
-      // limit the assignment does not have, and `AssignmentView` then refused
-      // student 151 an acceptance the server would have granted.
-      max_acceptances: def.max_acceptances ?? null,
-      accepted_count: acceptedCount,
-      assignment_type: def.assignment_type || "individual",
-      group_config: def.assignment_type === "group" ? (def.group_config || null) : undefined,
-      // The student's browser filters their own verified addresses by this and
-      // refuses one outside it before sealing. Without it the page fell back to
-      // the deployment default and enforced THAT: a lecturer who set
-      // `claim_domains: ["howest.be"]` had students refused at the button for
-      // an address the hub would have accepted, and one who set `[]` to lift
-      // the restriction still had the defaults imposed on them.
-      //
-      // ABSENT and EMPTY stay different answers on the wire, exactly as in the
-      // YAML: an array is published verbatim (including `[]`, the deliberate
-      // opt-out) and an absent key is OMITTED, so the browser falls back to the
-      // deployment default rather than to "no restriction".
-      //
-      // These are domains, not addresses - public by nature, and the scanner's
-      // email-address rule needs an `@`, so a bare domain cannot trip it.
-      claim_domains: Array.isArray(def.claim_domains) ? def.claim_domains : undefined,
-      // The same reason, for the address FORM: the page filters and refuses by
-      // it, so an assignment that switched it off must say so on the wire or
-      // the browser enforces the deployment's rule the hub no longer does.
-      // Only the opt-out is published; absent is the deployment default.
-      // Under `claim` the ROSTER decides, and the hub admits an address it
-      // registers whatever its form - so a page filtering by form would hide
-      // the one address that can get in from a student registered as
-      // `12345678@`. Off on the page; the hub still refuses an unregistered
-      // address without the form, and counts it as a failed attempt.
-      claim_address_format: def.claim_address_format === false || normalizeRosterMode(def.roster_mode) === "claim" ? false : undefined,
-      // WHETHER THE STUDENT IS ASKED FOR AN ADDRESS AT ALL, under `open`.
-      //
-      // `accept.mjs` enforces this and the page decides whether to show the
-      // field, so leaving it unpublished made the two disagree in the worst
-      // possible direction: the student was never shown the input, accepted
-      // without a claim, and was refused with `rejected:no-claim` for omitting
-      // something nobody asked them for. The waiting page then hid the claim
-      // causes on the same missing field, so it could not even name what had
-      // happened - it offered "the registration cap has been reached" instead.
-      // PXL-Automation-II/test-pe3, 2026-09-03.
-      //
-      // Under `claim` the mode already says so and the page reads roster_mode;
-      // this is the `open` + require_claim combination, which has no other
-      // signal on the wire. Published as a boolean rather than omitted-when-
-      // false, because "absent" here would be indistinguishable from an
-      // assignment written before the field existed.
-      require_claim: def.roster_mode === "open" ? def.require_claim === true : undefined,
-    };
+    // Extract ONLY public metadata - no roster, no repo URLs, no tokens. Built
+    // by lib/student-card.mjs, which the editor also builds from the saved
+    // document to tell whether students see what was saved.
+    const card = studentCard(def, { acceptedCount, timezone: TIMEZONE });
 
     // The full card is published under the DIGEST of the invitation token, so
     // fetching it requires the link. The org-wide index below keeps only the

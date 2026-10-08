@@ -47,7 +47,8 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     await expect(page.locator('[data-state-menu]')).toContainText('Draft');
     await chooseState(page, 'Publish');
 
-    await expect(page.locator('.toast', { hasText: /Publish workflow triggered/i })).toBeVisible();
+    // Followed in steps on the page, not a toast that vanished (tests/e2e/104).
+    await expect(page.locator('.publish-steps li')).toHaveCount(4, { timeout: 15000 });
   });
 
   test('Scenario 2 (Preservation Manifest Download, CLI Copy & CSV Export): Exports preserved submission manifest, copies CLI commands, and exports CSV', async ({ page, context }) => {

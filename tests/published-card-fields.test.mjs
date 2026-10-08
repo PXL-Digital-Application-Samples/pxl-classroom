@@ -31,6 +31,7 @@ const ACCEPT = readFileSync(join(ROOT, "acceptance", "accept.mjs"), "utf8");
 const VIEW = readFileSync(join(ROOT, "frontend", "src", "views", "AssignmentView.vue"), "utf8");
 const GROUP = readFileSync(join(ROOT, "frontend", "src", "components", "GroupAcceptanceCard.vue"), "utf8");
 const ROSTER_MODE = readFileSync(join(ROOT, "lib", "roster-mode.mjs"), "utf8");
+import { studentCard } from "../lib/student-card.mjs";
 
 /**
  * Assignment fields the STUDENT PAGE reads to decide what to ask for, which the
@@ -49,12 +50,21 @@ const MUST_PUBLISH = [
   ["max_acceptances", "the cap the page reports against"],
 ];
 
+// The card, as the generator builds it (lib/student-card.mjs since 2026-10-08,
+// shared with the editor's "do students see what was saved" check), run rather
+// than grepped.
+const OPEN_WITH_CLAIM = studentCard(
+  { id: "x", organization: "o", state: "published", roster_mode: "open", require_claim: true, claim_domains: ["pxl.be"], max_acceptances: 5 },
+  { timezone: "Europe/Brussels" },
+);
+
 test("every field the student page is judged on is published to it", () => {
-  const missing = MUST_PUBLISH.filter(([field]) => !new RegExp(`^\\s*${field}:`, "m").test(GENERATE));
+  assert.match(GENERATE, /studentCard\(def, \{ acceptedCount, timezone: TIMEZONE \}\)/, "pages/generate.mjs no longer builds its card with studentCard");
+  const missing = MUST_PUBLISH.filter(([field]) => !(field in OPEN_WITH_CLAIM));
   assert.deepEqual(
     missing.map(([f, why]) => `${f} - ${why}`),
     [],
-    "pages/generate.mjs does not publish these, so the student page cannot obey them",
+    "the card does not publish these, so the student page cannot obey them",
   );
 });
 
@@ -75,16 +85,15 @@ test("require_claim is enforced by the hub, read by the page, and published", ()
   assert.match(ACCEPT, /\bclaimRequired\(assignment\)/, "accept.mjs no longer asks claimRequired");
   assert.match(VIEW, /\bclaimRequired\(assignment\.value\)/, "AssignmentView no longer asks claimRequired");
   assert.match(GROUP, /\bclaimRequired\(props\.assignment\)/, "the team page no longer asks claimRequired");
-  assert.match(GENERATE, /^\s*require_claim:/m, "generate.mjs no longer PUBLISHES require_claim");
+  assert.equal(OPEN_WITH_CLAIM.require_claim, true, "the card no longer PUBLISHES require_claim");
 });
 
 test("require_claim is published as a boolean, not omitted when false", () => {
   // Absent would be indistinguishable from an assignment written before the
   // field existed, and the page would fall back to "no claim needed" - the
   // exact direction that produced the incident.
-  assert.match(
-    GENERATE,
-    /require_claim:\s*def\.roster_mode === "open" \? def\.require_claim === true : undefined/,
-    "require_claim must be an explicit boolean under open",
-  );
+  const card = (over) => studentCard({ id: "x", organization: "o", state: "published", ...over }, { timezone: "Europe/Brussels" });
+  assert.equal(card({ roster_mode: "open" }).require_claim, false, "require_claim must be an explicit boolean under open");
+  assert.equal(card({ roster_mode: "open", require_claim: true }).require_claim, true);
+  assert.equal(card({ roster_mode: "claim" }).require_claim, undefined, "under claim the mode says it");
 });
