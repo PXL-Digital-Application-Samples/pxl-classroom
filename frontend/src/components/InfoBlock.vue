@@ -6,20 +6,19 @@
        looking for every time. Two lines - what, then when - in the summary
        cards' quiet type, divided from the buttons rather than boxed like one. -->
   <div class="info-block" :title="title || null" data-info-block>
-    <Icon :name="icon" :size="14" class="info-block-icon" aria-hidden="true" />
+    <Icon name="clock" :size="14" class="info-block-icon" aria-hidden="true" />
     <div class="info-block-text">
       <span class="info-block-label">{{ label }}</span>
       <span v-if="at" class="info-block-value">
         <time :datetime="at" class="mono">{{ absolute }}</time><span class="info-block-ago"> · {{ ago }}</span>
       </span>
-      <span v-else-if="value" class="info-block-value">{{ value }}</span>
     </div>
   </div>
 </template>
 
 <script setup>
-// One fact, read at a glance: a label and either a time (absolute, and how
-// long ago - kept current while the page is open) or a value.
+// One fact, read at a glance: a label and a time (absolute, and how long ago -
+// kept current while the page is open).
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import { formatDate, formatRelative } from '../lib/format.js'
@@ -29,14 +28,11 @@ const props = defineProps({
   label: { type: String, required: true },
   /** An ISO time, shown as a date and as how long ago. */
   at: { type: String, default: null },
-  /** Shown instead of a time. */
-  value: { type: String, default: '' },
   /** The timezone the page shows dates in. */
   timezone: { type: String, default: null },
   /** What hovering adds - only something the two lines do not say already;
    *  empty gives no tooltip at all. */
   title: { type: String, default: '' },
-  icon: { type: String, default: 'clock' },
 })
 
 // "2h ago" goes stale while the page stays open; a minute is the finest step

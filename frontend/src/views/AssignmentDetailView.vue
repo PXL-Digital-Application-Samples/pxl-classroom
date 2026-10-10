@@ -306,14 +306,6 @@
               :timezone="assignment?.timezone || null"
               data-commits-read
             />
-            <InfoBlock
-              v-if="quotaBlock"
-              :label="quotaBlock.label"
-              :value="quotaBlock.value"
-              :title="quotaBlock.title"
-              icon="activity"
-              data-api-quota
-            />
             <!-- Refresh Button (Neutral Secondary) -->
             <button class="btn btn-secondary btn-sm btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive" title="Fetch live commit and autograding status">
               <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingLive }" />
@@ -1119,14 +1111,6 @@
                   :timezone="assignment?.timezone || null"
                   data-scores-read
                 />
-                <InfoBlock
-                  v-if="quotaBlock && scoresOnThisTab"
-                  :label="quotaBlock.label"
-                  :value="quotaBlock.value"
-                  :title="quotaBlock.title"
-                  icon="activity"
-                  data-api-quota
-                />
                 <button v-if="localRunnerDeclared" class="btn btn-secondary btn-sm btn-with-icon" type="button" @click="copyGradeCmd" title="Command to run the checks on your own machine">
                   <Icon name="copy" :size="13" />
                   <span>Copy grading command</span>
@@ -1726,7 +1710,7 @@ const refreshingLive = ref(false)
 const totalStudentsToRefresh = ref(0)
 const refreshedStudentsCount = ref(0)
 const liveRefreshedAt = ref(null)
-const rateLimit = ref({ remaining: null, limit: null, reset: null })
+const rateLimit = ref({ remaining: null, limit: null })
 
 // Per-row action modal (Grant extension / Retry acceptance).
 //
@@ -2547,9 +2531,10 @@ const gradingBox = computed(() => {
 
 // --- The info blocks beside Refresh and Read all scores again ----------------
 //
-// When the data on the tab was read, and how (frontend/src/lib/data-freshness.js),
-// and the lecturer's GitHub quota. What hovering adds is only what the two lines
-// do not already say; nothing extra, no tooltip.
+// When the data on the tab was read, and how (frontend/src/lib/data-freshness.js).
+// What hovering adds is only what the two lines do not already say; nothing
+// extra, no tooltip. (The GitHub quota is on the Organization tab, not here:
+// tried as a block beside it on 2026-10-10 and it did not fit.)
 
 const commitsBlock = computed(() => {
   const r = commitsRead(report.value?.students || [])
@@ -2568,17 +2553,6 @@ const commitsBlock = computed(() => {
     label: r.at ? `Commits read${how ? ` ${how}` : ''}` : 'Commits not read yet',
     at: r.at,
     title: extra.join(' '),
-  }
-})
-
-const quotaBlock = computed(() => {
-  const q = rateLimit.value
-  if (q.remaining == null || q.limit == null) return null
-  const reset = q.reset ? new Date(q.reset * 1000).toISOString() : null
-  return {
-    label: 'Your GitHub API quota',
-    value: `${q.remaining.toLocaleString()} of ${q.limit.toLocaleString()} left`,
-    title: reset ? `Back to ${q.limit.toLocaleString()} at ${fmt(reset)}.` : '',
   }
 })
 
@@ -3634,8 +3608,6 @@ async function fetchRateLimit(token) {
       rateLimit.value = {
         remaining: rl.data.resources.core.remaining,
         limit: rl.data.resources.core.limit,
-        // Epoch seconds: when the hour's quota is back to its limit.
-        reset: rl.data.resources.core.reset ?? null,
       }
     }
   } catch (e) {

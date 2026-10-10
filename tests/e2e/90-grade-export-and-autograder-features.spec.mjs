@@ -414,7 +414,7 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(box).toHaveAttribute('data-state', 'read');
   });
 
-  test('on Progress, beside Refresh: when the commits were read and how, the quota in its own block, and no footer', async ({ page }) => {
+  test('on Progress, beside Refresh: when the commits were read and how, and no footer', async ({ page }) => {
     const readAt = (i) => `2026-10-01T1${i}:30:00.000Z`;
     const read2 = {
       ...report,
@@ -429,16 +429,9 @@ test.describe('90 - Grade exports and autograder features', () => {
     // Hover adds what the two lines do not say.
     await expect(read).toHaveAttribute('title', /^The oldest of 4 students' reads; the newest was .+\. The report was last rebuilt .+\.$/);
     await expect(page.locator('.table-footer')).toHaveCount(0);
-    // The quota is its own block, once GitHub has said what it is.
-    await page.route('**/rate_limit', (route) => route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({ resources: { core: { limit: 5000, remaining: 4812, reset: 1791900000 } } }),
-    }));
-    await page.reload();
-    const quota = page.locator('.actions-bar [data-api-quota]');
-    await expect(quota).toContainText('Your GitHub API quota', { timeout: 15000 });
-    await expect(quota).toContainText('4,812 of 5,000 left');
-    await expect(quota).toHaveAttribute('title', /^Back to 5,000 at .+\.$/);
+    // The GitHub quota is the Organization tab's, not a block here (it did
+    // not fit beside the buttons, 2026-10-10).
+    await expect(page.locator('[data-api-quota]')).toHaveCount(0);
   });
 
   test('the cards count the table, filter it, and the box gives the average', async ({ page }) => {
