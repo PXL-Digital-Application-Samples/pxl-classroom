@@ -946,20 +946,11 @@
                 <small>When enabled, students can create custom new teams or join open teams. When unchecked, students can only join existing teams created by the lecturer.</small>
               </div>
 
-              <div
-                v-if="form.group_config.allow_team_creation !== false && (form.group_config.formation_mode === 'self-service' || form.group_config.unassigned_fallback === 'self-service')"
-                class="field checkbox"
-              >
-                <label>
-                  <input type="checkbox" v-model="form.group_config.require_join_code" data-field="require-join-code" />
-                  Joining a team needs a code from someone in it
-                </label>
-                <small>
-                  The student who creates a team gets a code to give their teammates. You can see every
-                  team's code on the Teams tab. Teams you make or seed have no code and stay open.
-                </small>
-              </div>
-
+              <!-- THE CONDITION BEFORE WHAT DEPENDS ON IT (asked 2026-10-10). Under
+                   pre-assigned teams the code question exists only while this box
+                   is ticked - the teams those students form are the only ones a
+                   code is for - and it sat ABOVE it, so unticking the lower box
+                   made the upper one vanish. -->
               <div v-if="form.group_config.formation_mode === 'pre-assigned'" class="field checkbox">
                 <label>
                   <input
@@ -972,8 +963,27 @@
                 </label>
                 <small>
                   Without this, a student who is in no team sees “contact your instructor” and cannot
-                  accept at all — which is where late enrollers, Erasmus arrivals and anyone whose
+                  accept at all. That is where late enrollers, Erasmus arrivals and anyone whose
                   partners dropped out get stuck.
+                </small>
+              </div>
+
+              <div
+                v-if="form.group_config.allow_team_creation !== false && (form.group_config.formation_mode === 'self-service' || form.group_config.unassigned_fallback === 'self-service')"
+                class="field checkbox"
+              >
+                <label>
+                  <input type="checkbox" v-model="form.group_config.require_join_code" data-field="require-join-code" />
+                  Joining a team needs a code from someone in it
+                </label>
+                <small v-if="form.group_config.formation_mode === 'pre-assigned'">
+                  Only for the teams formed by students with no assigned team: whoever creates one gets a
+                  code to give their teammates. The teams you made or seeded have no code. You can see
+                  every code on the Teams tab.
+                </small>
+                <small v-else>
+                  The student who creates a team gets a code to give their teammates. You can see every
+                  team's code on the Teams tab. Teams you make or seed have no code and stay open.
                 </small>
               </div>
 
@@ -994,7 +1004,7 @@
                     <span>Copy teams from…</span>
                   </button>
                   <span v-if="hasUnsavedEdits()" class="text-muted text-xs">
-                    Save your changes first — seeding reads this assignment's team size and
+                    Save your changes first: seeding reads this assignment's team size and
                     repository pattern.
                   </span>
                 </div>

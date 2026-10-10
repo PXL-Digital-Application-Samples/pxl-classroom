@@ -76,8 +76,14 @@ test.describe('103 - team join codes, for the lecturer', () => {
   test('not offered where students cannot form teams: pre-assigned with no way out', async ({ page }) => {
     await openEditor(page, { formation_mode: 'pre-assigned', unassigned_fallback: 'block' });
     await expect(checkbox(page)).toHaveCount(0);
-    await page.getByLabel('Let students with no assigned team form their own').check();
+    const fallback = page.getByLabel('Let students with no assigned team form their own');
+    await fallback.check();
     await expect(checkbox(page)).toBeVisible();
+    // The box it depends on comes first, so unticking it never makes a box
+    // ABOVE it vanish (2026-10-10), and the code box says which teams it is for.
+    const below = await checkbox(page).evaluate((code, fb) => Boolean(fb.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING), await fallback.elementHandle());
+    expect(below).toBe(true);
+    await expect(page.locator('.field.checkbox', { has: checkbox(page) })).toContainText('Only for the teams formed by students with no assigned team');
   });
 
   test('not offered where students cannot create a team: it would do nothing (DESIGN.md §1.5)', async ({ page }) => {
