@@ -295,7 +295,25 @@
               </button>
             </div>
           </div>
-          <div class="flex gap-xs items-center">
+          <div class="flex gap-xs items-center flex-wrap actions-bar-end">
+            <!-- When these commits were read, and how - beside the button that
+                 reads them again, so whether to press it is decided here. It
+                 was the footer under the table, and the footer is gone. -->
+            <InfoBlock
+              :label="commitsBlock.label"
+              :at="commitsBlock.at"
+              :title="commitsBlock.title"
+              :timezone="assignment?.timezone || null"
+              data-commits-read
+            />
+            <InfoBlock
+              v-if="quotaBlock"
+              :label="quotaBlock.label"
+              :value="quotaBlock.value"
+              :title="quotaBlock.title"
+              icon="activity"
+              data-api-quota
+            />
             <!-- Refresh Button (Neutral Secondary) -->
             <button class="btn btn-secondary btn-sm btn-with-icon" @click="refreshLiveStatus" :disabled="refreshingLive" title="Fetch live commit and autograding status">
               <Icon name="refresh-cw" :size="13" :class="{ 'spin-icon': refreshingLive }" />
@@ -886,10 +904,6 @@
           </article>
         </div>
 
-        <p class="table-footer text-muted">
-          {{ filteredStudents.length }} of {{ progressStudents.length }} students shown ·
-          Generated {{ fmt(report.generated_at) }}<span v-if="liveRefreshedAt"> · Live-refreshed {{ fmt(liveRefreshedAt) }}</span><span v-if="rateLimit.remaining != null" :title="`Your GitHub REST quota (resets hourly)`"> · API quota {{ rateLimit.remaining.toLocaleString() }} / {{ rateLimit.limit.toLocaleString() }}</span>.
-        </p>
 
         <!-- WHO TRIED AND WAS TURNED AWAY.
              An INLINE banner, not a drawer: the help drawer is `position:
@@ -1094,7 +1108,25 @@
                   </button>
                 </div>
               </div>
-              <div class="flex gap-xs items-center">
+              <div class="flex gap-xs items-center flex-wrap actions-bar-end">
+                <!-- When these scores were read, and from where, beside the
+                     button that reads them again (as on Progress). -->
+                <InfoBlock
+                  v-if="scoresBlock"
+                  :label="scoresBlock.label"
+                  :at="scoresBlock.at"
+                  :title="scoresBlock.title"
+                  :timezone="assignment?.timezone || null"
+                  data-scores-read
+                />
+                <InfoBlock
+                  v-if="quotaBlock && scoresOnThisTab"
+                  :label="quotaBlock.label"
+                  :value="quotaBlock.value"
+                  :title="quotaBlock.title"
+                  icon="activity"
+                  data-api-quota
+                />
                 <button v-if="localRunnerDeclared" class="btn btn-secondary btn-sm btn-with-icon" type="button" @click="copyGradeCmd" title="Command to run the checks on your own machine">
                   <Icon name="copy" :size="13" />
                   <span>Copy grading command</span>
@@ -1542,8 +1574,10 @@ import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
 } from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
-import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel, gradingStatusLabel } from '../lib/status-labels.js'
+import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel, gradingStatusLabel, observationTypeLabel } from '../lib/status-labels.js'
 import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline } from '../lib/grading-rows.js'
+import { commitsRead, sameMoment, scoresRead } from '../lib/data-freshness.js'
+import InfoBlock from '../components/InfoBlock.vue'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
 import { describeSubmission } from '../lib/submission-detail.js'
 import { gradingLoginTitle, progressLoginTitle } from '../lib/login-tooltip.js'
@@ -1692,7 +1726,7 @@ const refreshingLive = ref(false)
 const totalStudentsToRefresh = ref(0)
 const refreshedStudentsCount = ref(0)
 const liveRefreshedAt = ref(null)
-const rateLimit = ref({ remaining: null, limit: null })
+const rateLimit = ref({ remaining: null, limit: null, reset: null })
 
 // Per-row action modal (Grant extension / Retry acceptance).
 //
@@ -2491,18 +2525,12 @@ const gradingBox = computed(() => {
   const atDeadline = readsAtDeadline.value && !deadlinePassed.value && deadlineAbs.value
   const s = autogradeSummary.value
   if (s) {
-    const when = fmt(s.generated_at)
-    // The map lives in status-labels.js, where a test reads the enum out of the
-    // schema: a runner added upstream fails there rather than reaching a
-    // lecturer as `github_actions` (DESIGN.md §1.7).
-    const how = gradingRunnerLabel(s.runner)
+    // When and how they were read is the info block beside Read all scores
+    // again (scoresBlock), not said twice. What is here is what they add up to.
     return {
       state: 'read', tone: 'neutral', dot: 'dot-success',
-      title: s.graded_by ? `Scores read ${when} by @${s.graded_by}, ${how}` : `Scores read automatically at the deadline, ${when}, ${how}`,
-      detail: [
-        scoreStatsSentence(scoreStats(gradingRowsAll.value)),
-        atDeadline ? `Read again automatically at the deadline, ${deadlineAbs.value}.` : '',
-      ].filter(Boolean).join(' '),
+      title: scoreStatsSentence(scoreStats(gradingRowsAll.value)) || 'Nobody has a score yet.',
+      detail: atDeadline ? `Read again automatically at the deadline, ${deadlineAbs.value}.` : '',
     }
   }
   const tests = assignment.value?.autograde?.tests?.length || 0
@@ -2515,6 +2543,59 @@ const gradingBox = computed(() => {
       ? `They are read automatically at the deadline, ${deadlineAbs.value}. Reading them now covers the runs so far.`
       : 'Reading them now covers the whole cohort.'
   return { state: 'none', tone: 'neutral', dot: 'dot-neutral', title: 'No scores read yet.', detail: [checks, next].filter(Boolean).join(' ') }
+})
+
+// --- The info blocks beside Refresh and Read all scores again ----------------
+//
+// When the data on the tab was read, and how (frontend/src/lib/data-freshness.js),
+// and the lecturer's GitHub quota. What hovering adds is only what the two lines
+// do not already say; nothing extra, no tooltip.
+
+const commitsBlock = computed(() => {
+  const r = commitsRead(report.value?.students || [])
+  const how = observationTypeLabel(r.type)
+  const extra = []
+  if (r.read > 1 && r.newest && !sameMoment(r.at, r.newest)) {
+    extra.push(`The oldest of ${r.read} students' reads; the newest was ${fmt(r.newest)}.`)
+  }
+  if (r.unread) {
+    extra.push(`${r.unread} student${r.unread === 1 ? "'s repository has" : "s' repositories have"} not been read yet.`)
+  }
+  if (report.value?.generated_at && !sameMoment(report.value.generated_at, r.at)) {
+    extra.push(`The report was last rebuilt ${fmt(report.value.generated_at)}.`)
+  }
+  return {
+    label: r.at ? `Commits read${how ? ` ${how}` : ''}` : 'Commits not read yet',
+    at: r.at,
+    title: extra.join(' '),
+  }
+})
+
+const quotaBlock = computed(() => {
+  const q = rateLimit.value
+  if (q.remaining == null || q.limit == null) return null
+  const reset = q.reset ? new Date(q.reset * 1000).toISOString() : null
+  return {
+    label: 'Your GitHub API quota',
+    value: `${q.remaining.toLocaleString()} of ${q.limit.toLocaleString()} left`,
+    title: reset ? `Back to ${q.limit.toLocaleString()} at ${fmt(reset)}.` : '',
+  }
+})
+
+const scoresBlock = computed(() => {
+  const s = autogradeSummary.value
+  const r = scoresRead(s)
+  if (!r) return null
+  // Who read them is said only where it is true of every row: one student read
+  // again rewrites the summary's `graded_by` over everybody else's scores.
+  const who = r.uniform ? (s.graded_by ? `by @${s.graded_by} ` : 'at the deadline ') : ''
+  return {
+    label: `Scores read ${who}${gradingRunnerLabel(s.runner)}`.replace(/\s+/g, ' ').trim(),
+    at: r.at,
+    title: r.again
+      ? `${r.again} student${r.again === 1 ? ' was' : 's were'} read again since, the latest ${fmt(r.latest)}${s.graded_by ? ` by @${s.graded_by}` : ''}.`
+      : '',
+  }
 })
 
 /** The deadline that applies to this row's student. */
@@ -3553,6 +3634,8 @@ async function fetchRateLimit(token) {
       rateLimit.value = {
         remaining: rl.data.resources.core.remaining,
         limit: rl.data.resources.core.limit,
+        // Epoch seconds: when the hour's quota is back to its limit.
+        reset: rl.data.resources.core.reset ?? null,
       }
     }
   } catch (e) {
@@ -4232,6 +4315,9 @@ async function refreshOne(token, s) {
       s.latest_commit_message = commitMessage
       s.latest_observed_sha = sha
       s.latest_observed_at = new Date().toISOString()
+      // The observation this writes is `collection_type: 'manual'`, and the
+      // info block beside Refresh says which kind of look is the latest.
+      s.latest_observation_type = 'manual'
 
       const authorName = commit.commit?.author?.name || null
       const authorEmail = commit.commit?.author?.email || null
@@ -5720,6 +5806,12 @@ main { padding-top: var(--space-xl); padding-bottom: var(--space-xl); }
   flex-wrap: wrap;
   gap: var(--space-sm);
 }
+/* The info blocks and the tab's buttons stay on the right edge when the bar
+   wraps, rather than starting a second row under the search box. */
+.actions-bar-end {
+  margin-left: auto;
+  justify-content: flex-end;
+}
 .search-input { min-width: 240px; }
 
 .table-wrapper {
@@ -5879,11 +5971,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   background: var(--bg-tertiary);
   border-color: var(--border-default);
   color: var(--text-primary);
-}
-
-.table-footer {
-  margin-top: var(--space-md);
-  font-size: 0.8rem;
 }
 
 /* Only the table is empty; the page around it is not. */

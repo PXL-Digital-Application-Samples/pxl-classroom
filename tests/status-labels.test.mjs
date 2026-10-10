@@ -22,6 +22,8 @@ import {
   SUBMISSION_LABELS,
   GRADING_RUNNER_LABELS,
   gradingRunnerLabel,
+  OBSERVATION_TYPE_LABELS,
+  observationTypeLabel,
   acceptanceLabel,
   assignmentStateLabel,
   submissionLabel,
@@ -128,6 +130,19 @@ test("every grading runner the schema declares has a label", () => {
   for (const v of values) {
     assert.ok(GRADING_RUNNER_LABELS[v], `no label for runner "${v}"`);
   }
+});
+
+test("every kind of read a report row can name has words, and they follow 'read'", () => {
+  // The info block beside Refresh says "Commits read by the nightly check" -
+  // a collection type added upstream fails here, not on screen as `scheduled`.
+  const values = enumFor(schema("report.schema.json"), "latest_observation_type").filter((v) => v !== null);
+  assert.ok(values.length > 0, "the schema must declare the enum");
+  for (const v of values) assert.ok(OBSERVATION_TYPE_LABELS[v], `no words for "${v}"`);
+  // ...and the observation's own enum is the same list, so the two cannot drift.
+  const observed = enumFor(schema("observation.schema.json"), "collection_type");
+  assert.deepEqual([...values].sort(), [...observed].sort());
+  assert.equal(observationTypeLabel("scheduled"), "by the nightly check");
+  assert.equal(observationTypeLabel(null), "");
 });
 
 test("an unknown runner falls back to itself rather than a blank", () => {

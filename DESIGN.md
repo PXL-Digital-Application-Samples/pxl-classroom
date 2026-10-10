@@ -233,6 +233,8 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 
 **An assignment's tabs share one layout** (asked 2026-10-08): summary cards that filter the table (`.summary-card`), one box under them saying where things stand (`.status-box` with `.diag-banner`, in style.css because Progress's starter-sync box and Grading's scores box are the same box), the search and filter pills on the left with the tab's own action and its menus on the right, then one table with a row per student. A student a tab has nothing to report on is still a row and says why, never a list at the bottom behind a click.
 
+**When the data on a tab was read sits beside the button that reads it again** (asked 2026-10-10), never in a footer under the table: `InfoBlock.vue`, left of *Refresh* and *Read all scores again*. Two lines in the summary cards' quiet type - what and how (*Commits read by the nightly check*), then when (the date in monospace, §2, and how long ago, kept current) - divided from the buttons by a single-side border so it does not read as one. One fact per block: the GitHub quota is its own. Hovering adds only what the two lines do not say, and a block with nothing to add has no tooltip at all; its pointer says which is which. The time is the OLDEST read of the class, so it is true of every row.
+
 **A count on a tab** is `.tab-count`, in the attention tint like `.dot-warning`: how many things wait behind that tab. One use, the Organization tab's notices, shown from every page of the organization so a notice is seen where the lecturer already is. Unknown shows nothing, never `0`, and its `aria-label` says what is counted.
 
 ---

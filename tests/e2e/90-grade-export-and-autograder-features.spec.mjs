@@ -390,23 +390,55 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(rows.nth(3)).toContainText('student-david');   // null
   });
 
-  test('Read all scores again: the box under the cards says where the read is, then when the scores were read', async ({ page }) => {
+  test('Read all scores again: beside it, when the scores were read and from where; the box says what they add up to', async ({ page }) => {
     const { contentWrites } = await setup(page, { tab: 'grading' });
+    // Beside the button, not at the bottom (asked 2026-10-08).
+    const read = page.locator('.grading-actions [data-scores-read]');
+    // charlie was read an hour after the others: the oldest read is the time,
+    // and who read them is not claimed for everybody - hover says the rest.
+    await expect(read).toContainText('Scores read from GitHub Actions');
+    await expect(read.locator('time')).toHaveAttribute('datetime', '2026-10-01T13:00:00.000Z');
+    await expect(read).toHaveAttribute('title', /^1 student was read again since, the latest .+ by @lecturer1\.$/);
     const box = page.locator('[data-grading-box]');
     await expect(box).toHaveAttribute('data-state', 'read');
-    await expect(box).toContainText('Scores read');
-    await expect(box).toContainText('by @lecturer1, from GitHub Actions');
+    await expect(box).toContainText('Average');
 
-    // Read all scores again, on the Grading tab (it reads the runs; it starts none)
     const regradeBtn = page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ });
     await expect(regradeBtn).toBeVisible();
     await regradeBtn.click();
 
-    // Done: the box says when, from the summary just saved - a status worked
-    // out from what is on record, not a panel that goes away (DESIGN.md §1.5).
+    // Done: the block says who read them now, from the summary just saved - a
+    // status worked out from what is on record (DESIGN.md §1.5).
     await expect.poll(() => contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), { timeout: 15000 }).toBe(true);
+    await expect(read).toContainText(`Scores read by @${LECTURER.login} from GitHub Actions`);
     await expect(box).toHaveAttribute('data-state', 'read');
-    await expect(box).toContainText(`by @${LECTURER.login}, from GitHub Actions`);
+  });
+
+  test('on Progress, beside Refresh: when the commits were read and how, the quota in its own block, and no footer', async ({ page }) => {
+    const readAt = (i) => `2026-10-01T1${i}:30:00.000Z`;
+    const read2 = {
+      ...report,
+      students: students.map((s, i) => ({ ...s, latest_observed_at: readAt(i), latest_observation_type: i === 0 ? 'scheduled' : 'manual' })),
+    };
+    await setup(page, { report: read2 });
+    const read = page.locator('.actions-bar [data-commits-read]');
+    await expect(read).toBeVisible({ timeout: 15000 });
+    // The OLDEST read, and how that one was made.
+    await expect(read).toContainText('Commits read by the nightly check');
+    await expect(read.locator('time')).toHaveAttribute('datetime', readAt(0));
+    // Hover adds what the two lines do not say.
+    await expect(read).toHaveAttribute('title', /^The oldest of 4 students' reads; the newest was .+\. The report was last rebuilt .+\.$/);
+    await expect(page.locator('.table-footer')).toHaveCount(0);
+    // The quota is its own block, once GitHub has said what it is.
+    await page.route('**/rate_limit', (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ resources: { core: { limit: 5000, remaining: 4812, reset: 1791900000 } } }),
+    }));
+    await page.reload();
+    const quota = page.locator('.actions-bar [data-api-quota]');
+    await expect(quota).toContainText('Your GitHub API quota', { timeout: 15000 });
+    await expect(quota).toContainText('4,812 of 5,000 left');
+    await expect(quota).toHaveAttribute('title', /^Back to 5,000 at .+\.$/);
   });
 
   test('the cards count the table, filter it, and the box gives the average', async ({ page }) => {

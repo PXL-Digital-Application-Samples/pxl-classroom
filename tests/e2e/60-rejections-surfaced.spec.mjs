@@ -63,7 +63,7 @@ async function detail(page, opts = {}) {
     ...opts,
   });
   await page.goto(`/dashboard/${ORG}/${ID}`);
-  await expect(page.locator('.table-footer')).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('[data-commits-read]')).toBeVisible({ timeout: 20000 });
 }
 
 test.describe('60 - refusals reach the lecturer in the app', () => {
@@ -151,15 +151,15 @@ test.describe('60 - refusals reach the lecturer in the app', () => {
 
     // And it sits inside the report, not floating over the table.
     const box = await panel(page).boundingBox();
-    const footer = await page.locator('.table-footer').boundingBox();
-    expect(box.y).toBeGreaterThan(footer.y);
+    const table = await page.locator('.table-wrapper.desktop-only').boundingBox();
+    expect(box.y).toBeGreaterThan(table.y);
   });
 
   test('a report that fails to load does not take the panel with it, or vice versa', async ({ page }) => {
     // Its failures stay inside it: whether anybody was refused is worth knowing
     // and worth nothing at the cost of the cohort table.
     await detail(page, { trackingIssue: 'UNREADABLE', trackingComments: 'UNREADABLE' });
-    await expect(page.locator('.table-footer')).toBeVisible();
+    await expect(page.locator('[data-commits-read]')).toBeVisible();
     await expect(panel(page)).toContainText("Couldn't check");
   });
 });

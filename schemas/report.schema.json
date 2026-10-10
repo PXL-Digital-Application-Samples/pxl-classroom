@@ -347,6 +347,14 @@
             "format": "date-time",
             "description": "Timestamp of the most recent observation."
           },
+          "latest_observation_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": ["scheduled", "manual", "deadline", "lockdown", "preservation", null],
+            "description": "How the most recent observation was made: its `collection_type` (the nightly check is `scheduled`, a lecturer's Refresh is `manual`). Shown beside the read time on the Progress tab. Null for a tagged submission or an observation that recorded none."
+          },
           "commit_date": {
             "type": [
               "string",

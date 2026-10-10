@@ -147,6 +147,25 @@ export function gradingRunnerLabel(value) {
 }
 
 /**
+ * How a student's repository was last read: a report row's
+ * `latest_observation_type`, the observation's `collection_type`, enumerated
+ * in schemas/report.schema.json. Written to follow "read", as the info block
+ * beside Refresh says it ("Commits read by the nightly check").
+ */
+export const OBSERVATION_TYPE_LABELS = Object.freeze({
+  scheduled: "by the nightly check",
+  manual: "by Refresh",
+  deadline: "by the deadline check",
+  lockdown: "when the deadline locked it",
+  preservation: "when it was archived",
+});
+
+/** @param {string|null|undefined} value */
+export function observationTypeLabel(value) {
+  return label(OBSERVATION_TYPE_LABELS, value);
+}
+
+/**
  * What the Grading tab says about a student with no score (frontend/src/lib/
  * grading-rows.js): a failed row's `kind`, enumerated in
  * schemas/grading-summary.schema.json, plus the two states only the page knows.

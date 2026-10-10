@@ -1000,6 +1000,7 @@ It never replaces a reading **you** made. A summary carrying your login, or one 
 - **The box under the cards** says when the scores were read and by whom, gives the average and how many have full marks, and says whether the deadline will read them again. While *Read all scores again* runs, the box shows its progress; if the read stops, the box shows why and offers *Try again*.
 - **Every student is a row** with a score or the reason there is none. The score is the same badge as on Progress and opens the same breakdown. The row's **⋯** is the same dialog.
 - **Export** holds *Export grades* and *Export breakdown*. **More** holds the feedback pull requests.
+- **Left of Read all scores again** it says when the scores were read and from where (*Scores read by @you from GitHub Actions*, the date and how long ago), and how much of your GitHub quota is left. Hovering says more where there is more: students read again later, when the quota is back. The Progress tab has the same left of **Refresh**: when the commits were read and how (*Commits read by the nightly check* or *by Refresh*), so you can see whether to press it. It is the oldest read of the class, so every student was read at or after that time.
 
 **Re-grading, when a run was re-run or a check was fixed:**
 

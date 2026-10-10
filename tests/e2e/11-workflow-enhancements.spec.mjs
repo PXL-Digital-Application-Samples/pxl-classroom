@@ -420,7 +420,8 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(page.locator('tr', { hasText: 'student-late' })).toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-ontime' })).not.toBeVisible();
     await expect(page.locator('tr', { hasText: 'student-nosub' })).not.toBeVisible();
-    await expect(page.locator('.table-footer')).toContainText('1 of 3 students shown');
+    // The pill says the count (the footer that repeated it is gone, 2026-10-10).
+    await expect(page.locator('.quick-filter-pills .tab-pill.active')).toContainText('Late (1)');
 
     // 2. Click 'On-time' summary card
     const ontimeCard = page.locator('.summary-card', { hasText: 'On time' });

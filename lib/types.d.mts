@@ -440,6 +440,7 @@ export type Report = {
     first_late_observed_at?: string;
     latest_observed_sha?: string;
     latest_observed_at?: string;
+    latest_observation_type?: "scheduled" | "manual" | "deadline" | "lockdown" | "preservation" | null;
     commit_date?: string;
     latest_commit_date?: string;
     commit_message?: string;

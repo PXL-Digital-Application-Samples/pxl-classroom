@@ -341,6 +341,10 @@ async function main() {
     let firstLateObservedAt = null;
     let latestObservedSha = null;
     let latestObservedAt = null;
+    // How that look was made (`collection_type`): the Progress tab says it
+    // beside the read time, so a lecturer knows whether the nightly or a
+    // Refresh is the last thing that looked.
+    let latestObservationType = null;
     let latestCommitCount = null;
     let latestCommitDate = null;
     // Counted by the collector against this student's effective deadline. null
@@ -409,6 +413,7 @@ async function main() {
       const obsTime = new Date(obs.observed_at);
       latestObservedSha = obs.sha;
       latestObservedAt = obs.observed_at;
+      latestObservationType = obs.collection_type ?? null;
 
       // A LOCKDOWN OBSERVATION IS A SYSTEM EVENT, NOT A SUBMISSION.
       //
@@ -480,6 +485,7 @@ async function main() {
       }
       latestObservedSha = latestTagObservation.tagged_sha;
       latestObservedAt = latestTagObservation.observed_at;
+      latestObservationType = latestTagObservation.collection_type ?? null;
     }
 
     // How stale our last pre-deadline evidence was: the gap between the final
@@ -708,6 +714,7 @@ async function main() {
       first_late_observed_at: firstLateObservedAt,
       latest_observed_sha: latestObservedSha,
       latest_observed_at: latestObservedAt,
+      latest_observation_type: latestObservationType,
       commit_date: latestCommitDate ?? null,
       latest_commit_date: latestCommitDate ?? null,
       commit_message: latestCommitMessage ?? null,
