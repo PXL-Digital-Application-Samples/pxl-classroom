@@ -86,9 +86,13 @@ export function gradingCounts(rows) {
  *
  * Points are averaged only when every score is out of the same total; across
  * different totals an average of points mixes scales, so it is a percentage.
+ * The median beside it (asked 2026-10-11): with most of a class at full marks
+ * the average is pulled down by the few who are not, and the median says where
+ * the middle student is.
  *
  * @returns {null | { count: number, fullMarks: number, average: number|null,
- *   total: number|null, averagePercent: number|null }}
+ *   median: number|null, total: number|null, averagePercent: number|null,
+ *   medianPercent: number|null }}
  */
 export function scoreStats(rows) {
   const scored = rows
@@ -97,20 +101,38 @@ export function scoreStats(rows) {
   if (scored.length === 0) return null
   const fullMarks = scored.filter((g) => Number(g.earned_points) >= Number(g.total_points)).length
   const totals = new Set(scored.map((g) => Number(g.total_points)))
+  const oneDecimal = (n) => Math.round(n * 10) / 10
   if (totals.size === 1) {
-    const sum = scored.reduce((acc, g) => acc + Number(g.earned_points), 0)
-    return { count: scored.length, fullMarks, average: Math.round((sum / scored.length) * 10) / 10, total: [...totals][0], averagePercent: null }
+    const points = scored.map((g) => Number(g.earned_points))
+    const sum = points.reduce((acc, p) => acc + p, 0)
+    return {
+      count: scored.length, fullMarks,
+      average: oneDecimal(sum / scored.length), median: oneDecimal(median(points)),
+      total: [...totals][0], averagePercent: null, medianPercent: null,
+    }
   }
-  const pct = scored.reduce((acc, g) => acc + Number(g.earned_points) / Number(g.total_points), 0) / scored.length
-  return { count: scored.length, fullMarks, average: null, total: null, averagePercent: Math.round(pct * 100) }
+  const shares = scored.map((g) => Number(g.earned_points) / Number(g.total_points))
+  const pct = shares.reduce((acc, s) => acc + s, 0) / scored.length
+  return {
+    count: scored.length, fullMarks, average: null, median: null, total: null,
+    averagePercent: Math.round(pct * 100), medianPercent: Math.round(median(shares) * 100),
+  }
+}
+
+/** The middle value; with an even count, halfway between the two middle ones. */
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
 /** The sentence `scoreStats` makes, as the box under the cards says it. */
 export function scoreStatsSentence(stats) {
   if (!stats) return ''
   const avg = stats.average != null ? `${stats.average} / ${stats.total}` : `${stats.averagePercent}%`
+  const med = stats.average != null ? `${stats.median} / ${stats.total}` : `${stats.medianPercent}%`
   const who = stats.count === 1 ? '1 student' : `${stats.count} students`
-  return `Average ${avg} over ${who}, ${stats.fullMarks} at full marks.`
+  return `Over ${who}: average ${avg}, median ${med}, ${stats.fullMarks} at full marks.`
 }
 
 /**

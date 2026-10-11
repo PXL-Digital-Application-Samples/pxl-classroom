@@ -155,15 +155,22 @@ test("the counts are the filters, over the same rows", () => {
 test("the average: points over one total, a percentage over several", () => {
   const rows = gradingRows({ students: report, summary });
   const same = scoreStats(rows);
-  assert.deepEqual(same, { count: 3, fullMarks: 1, average: 15.7, total: 20, averagePercent: null });
-  assert.equal(scoreStatsSentence(same), "Average 15.7 / 20 over 3 students, 1 at full marks.");
+  assert.deepEqual(same, { count: 3, fullMarks: 1, average: 15.7, median: 15, total: 20, averagePercent: null, medianPercent: null });
+  assert.equal(scoreStatsSentence(same), "Over 3 students: average 15.7 / 20, median 15 / 20, 1 at full marks.");
+  // An even count: halfway between the two middle scores.
+  const even = scoreStats(gradingRows({
+    students: [],
+    summary: { students: [10, 12, 20, 20].map((p, i) => ({ login: `s${i}`, earned_points: p, total_points: 20 })) },
+  }));
+  assert.equal(even.median, 16);
   const mixed = scoreStats(gradingRows({
     students: [],
     summary: { students: [{ login: "a", earned_points: 10, total_points: 10 }, { login: "b", earned_points: 5, total_points: 20 }] },
   }));
   assert.equal(mixed.average, null);
   assert.equal(mixed.averagePercent, 63);
-  assert.equal(scoreStatsSentence(mixed), "Average 63% over 2 students, 1 at full marks.");
+  assert.equal(mixed.medianPercent, 63);
+  assert.equal(scoreStatsSentence(mixed), "Over 2 students: average 63%, median 63%, 1 at full marks.");
   assert.equal(scoreStats(gradingRows({ students: report, summary: null })), null);
   assert.equal(scoreStatsSentence(null), "");
 });

@@ -401,7 +401,7 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(read).toHaveAttribute('title', /^1 student was read again since, the latest .+ by @lecturer1\.$/);
     const box = page.locator('[data-grading-box]');
     await expect(box).toHaveAttribute('data-state', 'read');
-    await expect(box).toContainText('Average');
+    await expect(box).toContainText('average');
 
     const regradeBtn = page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ });
     await expect(regradeBtn).toBeVisible();
@@ -447,7 +447,7 @@ test.describe('90 - Grade exports and autograder features', () => {
     // The deadline has passed, so nothing handed in is red - none here.
     await expect(card('Not handed in')).toHaveText('0');
     await expect(card('Not handed in')).toHaveClass(/stat-red/);
-    await expect(page.locator('[data-grading-box]')).toContainText('Average 16 / 20 over 3 students, 1 at full marks.');
+    await expect(page.locator('[data-grading-box]')).toContainText('Over 3 students: average 16 / 20, median 18 / 20, 1 at full marks.');
 
     // The card filters the table, as on Progress.
     await page.locator('[data-grading-cards] .summary-card', { hasText: 'Needs a look' }).click();
