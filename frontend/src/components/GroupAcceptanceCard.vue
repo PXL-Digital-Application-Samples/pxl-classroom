@@ -130,8 +130,18 @@
     <div v-else-if="acceptState === 'invited'" class="invited-state text-center">
       <Icon name="inbox" :size="48" class="status-icon" />
       <h2>Team repository invitation pending</h2>
+      <!-- WHICH TEAM, and with whom (asked 2026-10-11). A student the lecturer
+           moved into a team saw only "your team repository exists", went to
+           Switch team to get into that same team, found it full - with
+           themselves in it - and asked the lecturer to put them in it. -->
+      <div v-if="invitedTeam" class="team-badge-banner" data-invited-team>
+        <span>Team: <strong>{{ invitedTeam.team_name }}</strong> (<code>{{ invitedTeam.team_slug }}</code>)</span>
+      </div>
+      <p v-if="invitedTeammates.length" class="text-secondary text-sm" data-invited-teammates>
+        With {{ invitedTeammates.map((m) => `@${m}`).join(', ') }}.
+      </p>
       <p class="text-secondary">
-        Your team repository exists, but you need to accept the collaboration invitation.
+        You are in this team. To work in its repository, accept the collaboration invitation GitHub sent you.
       </p>
       <button v-if="pendingInvitation" class="btn btn-primary btn-lg" @click="handleAcceptInvitation">
         Accept invitation
@@ -780,6 +790,19 @@ const invitationUrl = computed(() => {
   if (!slug) return null
   return `https://github.com/${props.org}/${teamRepoName(slug)}/invitations`
 })
+
+// The team the invitation is for - the same one the link above points at - so
+// the waiting page says which team the student is in, and with whom.
+const invitedTeam = computed(() => {
+  const slug = activeTeamSlug.value
+  if (!slug) return null
+  const listed = teams.value.find((t) => t.team_slug === slug)
+  if (listed) return listed
+  return { team_slug: slug, team_name: targetTeamName.value || slug, members: [] }
+})
+const invitedTeammates = computed(() =>
+  (invitedTeam.value?.members || []).filter((m) => String(m).toLowerCase() !== String(props.user?.login || '').toLowerCase()),
+)
 
 const invitationProven = ref(false)
 const showInvitationGuess = computed(() =>

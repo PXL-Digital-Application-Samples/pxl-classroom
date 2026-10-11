@@ -323,4 +323,46 @@ test.describe('56 - An announced invitation', () => {
     await expect(page.locator('.pending-state')).toContainText(/Setting up your repository/i);
     await expect(page.locator('.invited-state')).toHaveCount(0);
   });
+
+  test('a student the lecturer MOVED is told which team they are in, and with whom', async ({ page }) => {
+    // 2026-10-11: moved from a misspelled team into a classmate's, the student
+    // saw only "your team repository exists", tried Switch team to get into
+    // that same team, found it full - with themselves in it - and asked the
+    // lecturer to put them in it. Their own request still named the old team;
+    // the published list (the lecturer's move) wins over it.
+    const MOVED = 'grp-moved';
+    const team = (slug, name, members) => ({
+      team_slug: slug, team_name: name, members, member_count: members.length, max_members: 3, is_full: members.length >= 3,
+      repo_name: `${ORG}/${MOVED}-${slug}`, repo_url: `https://github.com/${ORG}/${MOVED}-${slug}`,
+    });
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1,
+      assignments: { [MOVED]: {
+        id: MOVED, title: 'Groepsindeling', organization: ORG, assignment_type: 'group', roster_mode: 'open', state: 'published',
+        deadline_at: new Date(Date.now() + 3 * 86400_000).toISOString(),
+        group_config: { max_team_size: 3, min_team_size: 1, allow_team_creation: true, require_join_code: true },
+        template: { owner: ORG, repository: 'starter' }, repository_name_pattern: `${MOVED}-{team_slug}`, broker_repo: `broker-${MOVED}`,
+      } },
+      teams: { [MOVED]: [team('systeempiraten', '3TINA-SysteemPiraten', ['OkanKayaPXL', 'DaveRamaekersPXL', STUDENT_1.login])] },
+      brokerIssues: [{
+        number: 9, title: 'pxl-accept:redacted', user: { login: STUDENT_1.login }, created_at: new Date(Date.now() - 3 * 86400_000).toISOString(),
+        body: JSON.stringify({ team_slug: '3tin-belurk', team_name: '3TIN-Belurk', team_action: 'create', team_code: 't1.a.b.c' }),
+      }],
+      brokerIssueLabels: [INVITED_LABEL],
+    });
+    await page.route(`**/api.github.com/repos/${ORG}/${MOVED}-*`, (route) =>
+      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    await page.route('**/api.github.com/user/repository_invitations*', (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([]) }));
+
+    await page.goto(inviteUrl(ORG, MOVED));
+    const invited = page.locator('.invited-state');
+    await expect(invited).toBeVisible({ timeout: 30000 });
+    await expect(invited.locator('[data-invited-team]')).toContainText('3TINA-SysteemPiraten');
+    await expect(invited.locator('[data-invited-teammates]')).toContainText('@OkanKayaPXL, @DaveRamaekersPXL');
+    await expect(invited).toContainText('You are in this team');
+    await expect(invited.getByRole('link', { name: 'Accept your invitation on GitHub' }))
+      .toHaveAttribute('href', `https://github.com/${ORG}/${MOVED}-systeempiraten/invitations`);
+  });
 });
