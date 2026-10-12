@@ -17,10 +17,14 @@ import { normalizeLogin } from '../../../lib/github-login.mjs'
  * `failedKind` gives for no score, and `not-read`: in no summary at all, which
  * is every student before the first read and one who accepted after the last.
  */
-export const GRADING_STATUSES = Object.freeze(['scored', 'not-handed-in', 'late', 'no-result', 'not-read'])
+export const GRADING_STATUSES = Object.freeze(['scored', 'not-handed-in', 'late', 'no-result', 'running', 'not-read'])
 
-/** The filters the cards and the pills share. `needs-look` is `late` and `no-result`. */
-export const GRADING_FILTERS = Object.freeze(['', 'scored', 'needs-look', 'not-handed-in', 'not-read'])
+/**
+ * The filters the cards and the pills share. `needs-look` is `late` and
+ * `no-result`; a run still going (`running`) is not a problem, so it has a
+ * pill of its own and no place in that card.
+ */
+export const GRADING_FILTERS = Object.freeze(['', 'scored', 'needs-look', 'not-handed-in', 'running', 'not-read'])
 
 /**
  * One row per student who has something to grade: a report row with a
@@ -74,7 +78,7 @@ export function inGradingFilter(row, filter) {
 
 /** The cards' and the pills' numbers, from the same rows the table shows. */
 export function gradingCounts(rows) {
-  const counts = { students: rows.length, scored: 0, 'needs-look': 0, 'not-handed-in': 0, 'not-read': 0 }
+  const counts = { students: rows.length, scored: 0, 'needs-look': 0, 'not-handed-in': 0, running: 0, 'not-read': 0 }
   for (const r of rows) {
     for (const f of GRADING_FILTERS) if (f && inGradingFilter(r, f)) counts[f]++
   }

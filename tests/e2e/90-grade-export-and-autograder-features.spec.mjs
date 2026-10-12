@@ -575,6 +575,22 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(page.locator('[data-grading-cards] .summary-card', { hasText: 'Needs a look' }).locator('.summary-value')).toHaveText('0');
   });
 
+  test('a grading run still going is "Being graded": grey, its own pill, not a problem, and the row says to read it again', async ({ page }) => {
+    const running = {
+      ...initialSummary,
+      failed: [{ login: 'student-david', reason: 'the grading run at commit 04aaaaa is still running, so it has no score yet', kind: 'running' }],
+    };
+    await setup(page, { summary: running, tab: 'grading' });
+    const david = page.locator('[data-grading-table] tr', { hasText: 'student-david' });
+    await expect(david).toHaveAttribute('data-grading-status', 'running');
+    await expect(david).toContainText('Being graded');
+    await expect(david.locator('.status-dot')).toHaveClass(/dot-neutral/);
+    await expect(david.locator('[data-grading-running]')).toContainText('is still running, so it has no score yet. Read it again once it has finished');
+    await expect(page.locator('[data-grading-cards] .summary-card', { hasText: 'Needs a look' }).locator('.summary-value')).toHaveText('0');
+    await expect(page.locator('.grading-actions .tab-pill', { hasText: 'Being graded (1)' })).toBeVisible();
+    await expect(page.locator('[data-grading-box]')).toContainText('1 student is still being graded: read them again once their runs have finished.');
+  });
+
   test('before the deadline it is "not handed in yet", in grey', async ({ page }) => {
     const future = '2099-01-01T12:00:00.000Z';
     const notHandedIn = {

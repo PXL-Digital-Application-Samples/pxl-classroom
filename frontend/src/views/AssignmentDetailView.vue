@@ -1090,6 +1090,15 @@
                     Not handed in ({{ gradingCountsNow['not-handed-in'] }})
                   </button>
                   <button
+                    v-if="gradingCountsNow.running > 0"
+                    type="button"
+                    class="tab-pill"
+                    :class="{ active: gradingFilter === 'running' }"
+                    @click="gradingFilter = 'running'"
+                  >
+                    Being graded ({{ gradingCountsNow.running }})
+                  </button>
+                  <button
                     v-if="gradingCountsNow['not-read'] > 0"
                     type="button"
                     class="tab-pill"
@@ -1295,6 +1304,11 @@
                           <span>{{ gradingStatusText(row) }}</span>
                         </span>
                         <span v-if="row.reason && (row.status === 'late' || row.status === 'no-result')" class="text-muted text-xs">{{ row.reason }}</span>
+                        <!-- Nothing reads it again by itself (decided 2026-10-12):
+                             the row says so, and where. -->
+                        <span v-else-if="row.status === 'running'" class="text-muted text-xs" data-grading-running>
+                          {{ row.reason }}. Read it again once it has finished: ⋯ → Read score again.
+                        </span>
                       </div>
                     </td>
                     <td>
@@ -2511,10 +2525,16 @@ const gradingBox = computed(() => {
   if (s) {
     // When and how they were read is the info block beside Read all scores
     // again (scoresBlock), not said twice. What is here is what they add up to.
+    const running = gradingCountsNow.value.running
     return {
       state: 'read', tone: 'neutral', dot: 'dot-success',
       title: scoreStatsSentence(scoreStats(gradingRowsAll.value)) || 'Nobody has a score yet.',
-      detail: atDeadline ? `Read again automatically at the deadline, ${deadlineAbs.value}.` : '',
+      detail: [
+        // Nothing reads these again by itself (decided 2026-10-12), and a run
+        // still going at the deadline's read would stay without a score.
+        running ? `${running} ${running === 1 ? 'student is' : 'students are'} still being graded: read them again once their runs have finished.` : '',
+        atDeadline ? `Read again automatically at the deadline, ${deadlineAbs.value}.` : '',
+      ].filter(Boolean).join(' '),
     }
   }
   const tests = assignment.value?.autograde?.tests?.length || 0

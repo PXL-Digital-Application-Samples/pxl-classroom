@@ -178,6 +178,7 @@ export const GRADING_STATUS_LABELS = Object.freeze({
   "not-handed-in": "Not handed in",
   late: "Handed in after the deadline",
   "no-result": "No score to read",
+  running: "Being graded",
   "not-read": "Not read yet",
 });
 

@@ -997,6 +997,7 @@ It never replaces a reading **you** made. A summary carrying your login, or one 
 - **Four cards**, each of which filters the table: *Students*, *Scored*, *Needs a look* and *Not handed in*. A card shows a dash until scores have been read at least once.
 - *Needs a look* is a student who handed in and has no score to read (no grading run, a cancelled run, a commit you chose that has no result), or who handed in only after the deadline.
 - *Not handed in* is grey until the deadline (*Not handed in yet*) and red after it. The Progress tab's *No submission* card follows the same rule.
+- *Being graded* is a student whose grading run was still going when the scores were read; a cloud exam's run can take 30 to 50 minutes. It is not a problem and not under *Needs a look*. Nothing reads it again by itself: once the run has finished, press **⋯ → Read score again** on that student, or **Read all scores again**. One still going at the deadline's own read stays *Being graded* until you do.
 - **The box under the cards** says when the scores were read and by whom, gives the average and how many have full marks, and says whether the deadline will read them again. While *Read all scores again* runs, the box shows its progress; if the read stops, the box shows why and offers *Try again*.
 - **Every student is a row** with a score or the reason there is none. The score is the same badge as on Progress and opens the same breakdown. The row's **⋯** is the same dialog.
 - **Export** holds *Export grades* and *Export breakdown*. **More** holds the feedback pull requests.

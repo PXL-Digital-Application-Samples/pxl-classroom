@@ -23,7 +23,7 @@ import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { CONTROL_REPO, getAssignment, getReport, listOverrides } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
-import { parseCheckRunScore, pickAutogradeCheckRun } from "../../../lib/check-run-score.mjs";
+import { parseCheckRunScore, pickAutogradeCheckRun, unscoredRun } from "../../../lib/check-run-score.mjs";
 // The shape of grading/<id>/summary.json, shared with the Admin Panel.
 import {
   gradedRowFromCheckRun,
@@ -283,14 +283,9 @@ export function registerGradeCommand(program) {
         // a job gated on a hand-in commit leaves at every other commit, and the
         // 0 this used to record was a grade nobody measured.
         if (!parsed.graded) {
-          return {
-            verdict: "not-run",
-            // Only a SKIPPED run is explained by the hand-in gate; a cancelled
-            // hand-in is still a hand-in (lib/grade-cohort.mjs says the same).
-            reason: marker && parsed.conclusion === "skipped"
-              ? `the grading workflow was skipped at commit ${short} - it only runs on a commit whose message is "${marker.value}"`
-              : `the grading run at commit ${short} was ${parsed.conclusion || "never completed"}, so it carries no score`,
-          };
+          // Still running, or ended without a score - the same words as the
+          // page and the nightly (lib/check-run-score.mjs `unscoredRun`).
+          return unscoredRun({ short, status: run.status ?? null, conclusion: parsed.conclusion ?? null, marker });
         }
         return { verdict: "graded", run, parsed, sha };
       };
@@ -383,7 +378,7 @@ export function registerGradeCommand(program) {
 
             if (outcome.verdict !== "graded") {
               process.stderr.write(`  ! ${s.github_login}: ${outcome.reason}\n`);
-              summary.failed.push({ login: s.github_login, reason: outcome.reason, kind: "no-result" });
+              summary.failed.push({ login: s.github_login, reason: outcome.reason, kind: outcome.kind || "no-result" });
               return;
             }
 

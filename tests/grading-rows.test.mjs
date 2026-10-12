@@ -143,8 +143,8 @@ test("before any read, every student is 'not read yet' - never 'not handed in'",
 test("the counts are the filters, over the same rows", () => {
   const rows = gradingRows({ students: report, summary });
   const counts = gradingCounts(rows);
-  assert.deepEqual(counts, { students: 6, scored: 3, "needs-look": 1, "not-handed-in": 1, "not-read": 1 });
-  for (const f of ["scored", "needs-look", "not-handed-in", "not-read"]) {
+  assert.deepEqual(counts, { students: 6, scored: 3, "needs-look": 1, "not-handed-in": 1, running: 0, "not-read": 1 });
+  for (const f of ["scored", "needs-look", "not-handed-in", "running", "not-read"]) {
     assert.equal(rows.filter((r) => inGradingFilter(r, f)).length, counts[f], f);
   }
   assert.equal(rows.filter((r) => inGradingFilter(r, "")).length, rows.length);
@@ -181,6 +181,50 @@ test("missing work turns red only after its deadline, and an unknown deadline is
   assert.equal(pastDeadline("2026-10-01T20:00:00Z", now), true);
   assert.equal(pastDeadline(null, now), false);
   assert.equal(pastDeadline("not a date", now), false);
+});
+
+test("a grading run still going is 'running', said as such - not 'was never completed', and not a problem", async () => {
+  // 2026-10-12: a cloud exam's 50-minute grading run, read 20 minutes in,
+  // showed "the grading run ... was never completed" under Needs a look. Its
+  // status was in the same read all along.
+  const { readScoreAtCommit } = await import("../lib/grade-cohort.mjs");
+  const at = (status, conclusion = null) => async () => ({
+    ok: true, status: 200, data: { check_runs: [{ name: "grading", status, conclusion, output: { annotations_count: 0 } }] },
+  });
+  const running = await readScoreAtCommit(at("in_progress"), { repoFullName: "Org/r", sha: "f61d20cabc" });
+  assert.equal(running.kind, "running");
+  assert.equal(running.reason, "the grading run at commit f61d20c is still running, so it has no score yet");
+  const queued = await readScoreAtCommit(at("queued"), { repoFullName: "Org/r", sha: "f61d20cabc" });
+  assert.match(queued.reason, /is still waiting to start/);
+  const timedOut = await readScoreAtCommit(at("completed", "timed_out"), { repoFullName: "Org/r", sha: "f61d20cabc" });
+  assert.equal(timedOut.kind, "no-result");
+  assert.match(timedOut.reason, /timed out, so it carries no score/);
+
+  // Stored as running - a chosen commit's still-going run too - and counted
+  // apart from the problems.
+  assert.equal(rowFromOutcome("rik", running).failed.kind, "running");
+  const chosen = rowFromOutcome("rik", { ...running, sha: "f61d20c", decision: { kind: "commit", sha: "f61d20c", by: "l", at: "2026-10-12T00:00:00Z", reason: "r" } });
+  assert.equal(chosen.failed.kind, "running");
+  const rows = gradingRows({
+    students: [{ github_login: "rik", repo_name: "o/rik" }],
+    summary: { students: [], failed: [{ login: "rik", reason: running.reason, kind: "running" }] },
+  });
+  assert.equal(rows[0].status, "running");
+  assert.deepEqual(gradingCounts(rows), { students: 1, scored: 0, "needs-look": 0, "not-handed-in": 0, running: 1, "not-read": 0 });
+  assert.equal(gradingStatusLabel("running"), "Being graded");
+});
+
+test("the dispatched-run reader and the CLI say the same words", async () => {
+  const { readRunScore } = await import("../lib/grade-dispatch.mjs");
+  const stillGoing = await readRunScore(async (method, path) => (
+    path.includes("/actions/runs/")
+      ? { ok: true, status: 200, data: { id: 77, status: "in_progress", event: "workflow_dispatch", display_title: "Grade f61d20cabc" } }
+      : { ok: false, status: 404 }
+  ), { repoFullName: "Org/r", runId: 77, sha: "f61d20cabc" });
+  assert.equal(stillGoing.kind, "running");
+  const cli = readFileSync(join(root, "cli", "src", "commands", "grade.mjs"), "utf8");
+  assert.match(cli, /unscoredRun\(/, "the CLI words an unscored run through the shared helper");
+  assert.doesNotMatch(cli, /never completed/);
 });
 
 test("every grading status has a word, and 'not handed in' says 'yet' before the deadline", () => {
