@@ -514,6 +514,7 @@ import { gradingSummaryPath } from '../../../lib/control-layout.mjs'
 import { countGraded } from '../../../lib/grading-summary.mjs'
 import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
 import { formatDate, formatRelative, isPast } from '../lib/format.js'
+import { stuckRuns } from '../lib/stuck-runs.js'
 
 const props = defineProps({
   org: { type: String, required: false }
@@ -569,25 +570,13 @@ async function checkHubPipelines() {
       ghApi(token, 'GET', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs?status=waiting`),
       ghApi(token, 'GET', `/repos/${config.hubOwner}/${config.hubRepo}/actions/runs?status=in_progress`),
     ])
-    const now = Date.now()
-    const candidates = []
-    if (waitingRes.ok && Array.isArray(waitingRes.data?.workflow_runs)) {
-      for (const r of waitingRes.data.workflow_runs) {
-        const ageMs = now - new Date(r.created_at).getTime()
-        if (ageMs > 15 * 60 * 1000) {
-          candidates.push({ id: r.id, name: r.name || 'Workflow', status: r.status, durationMin: Math.max(1, Math.round(ageMs / 60000)) })
-        }
-      }
-    }
-    if (progressRes.ok && Array.isArray(progressRes.data?.workflow_runs)) {
-      for (const r of progressRes.data.workflow_runs) {
-        const ageMs = now - new Date(r.created_at).getTime()
-        if (ageMs > 45 * 60 * 1000) {
-          candidates.push({ id: r.id, name: r.name || 'Workflow', status: r.status, durationMin: Math.max(1, Math.round(ageMs / 60000)) })
-        }
-      }
-    }
-    hubStuckRun.value = candidates[0] || null
+    // A workflow built to run long (the Deadline Sentinel waits for hours) is
+    // stuck only past its own limit - frontend/src/lib/stuck-runs.js.
+    const runs = [
+      ...(waitingRes.ok && Array.isArray(waitingRes.data?.workflow_runs) ? waitingRes.data.workflow_runs : []),
+      ...(progressRes.ok && Array.isArray(progressRes.data?.workflow_runs) ? progressRes.data.workflow_runs : []),
+    ]
+    hubStuckRun.value = stuckRuns(runs)[0] || null
   } catch {
     // Non-blocking
   }
