@@ -3,7 +3,9 @@
 //
 // Monitors GitHub Actions runs on the central hub repository to detect:
 // 1. Stuck runs in status=waiting (>15m, deadlocked on concurrency or environment protection).
-// 2. Overlong runs in status=in_progress (>45m).
+// 2. Overlong runs in status=in_progress (>45m, or past the workflow's own limit
+//    where it is built to run long - lib/stuck-runs.mjs; the Deadline Sentinel
+//    waits for hours).
 // 3. Recently failed critical workflows.
 //
 // Automatically cancels zombie runs to unblock subsequent deploys and dispatches
@@ -16,6 +18,7 @@ import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 import { pagesOutcome } from "../lib/pages-kept.mjs";
+import { stuckAfterMinutes } from "../lib/stuck-runs.mjs";
 
 const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts";
 const DEDUP_MARKER = "<!-- pxl-watchdog-dedup:";
@@ -239,7 +242,9 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   const runningRuns = inProgressAll.filter(watchedRun);
   for (const r of runningRuns) {
     const ageMs = now - new Date(r.created_at).getTime();
-    if (ageMs > 45 * 60 * 1000) {
+    // A workflow built to run long - the Deadline Sentinel waits for hours to
+    // lock at the instant - is stuck only past its own limit (lib/stuck-runs.mjs).
+    if (ageMs > stuckAfterMinutes(r.path, "in_progress") * 60 * 1000) {
       stuckRuns.push({
         ...r,
         ageMs,

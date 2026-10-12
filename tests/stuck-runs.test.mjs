@@ -41,6 +41,14 @@ test("the sentinel waiting for its deadline is not stuck; past its own limit it 
   assert.equal(stuckRuns([{ ...sentinel, created_at: "2026-10-12T14:00:00Z" }], now).length, 1, "past 300 + 15 minutes it is stuck");
 });
 
+test("the Pipeline Watchdog asks the same table, never a 45-minute rule of its own", () => {
+  // Its alert emailed "Requires manual cancellation or attention" about the
+  // sentinel at 57 minutes, the same evening.
+  const watchdog = readFileSync(join(root, "scripts", "pipeline-watchdog.mjs"), "utf8");
+  assert.match(watchdog, /stuckAfterMinutes\(r\.path, "in_progress"\)/);
+  assert.doesNotMatch(watchdog, /ageMs > 45 \* 60/);
+});
+
 test("everything else keeps the old limits: 15 minutes waiting, 45 in progress", () => {
   const now = Date.parse("2026-10-12T19:48:00Z");
   const ago = (m) => new Date(now - m * 60_000).toISOString();
