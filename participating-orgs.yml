@@ -66,3 +66,5 @@ orgs:
     budget_owner_login: arnobarzan
   - login: pxl-grpro-wpl1-2627
     budget_owner_login: WimBervoetsPXL
+  - login: 3TIN-CloudExpert-PE
+    budget_owner_login: afx42
