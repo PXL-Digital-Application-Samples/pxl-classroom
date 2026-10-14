@@ -24,7 +24,8 @@
 # RUN_URL, COMMIT_LABEL ("Provision" / "Retry-provision"), GITHUB_RUN_ID, and
 # STARTER_SHA, STARTER_COMMIT_COUNT and FULL_HISTORY (optional: the commit
 # provisioning left the repository at, how many commits that is, and "true"
-# when it is a copy of the template's full history).
+# when it is a copy of the template's full history), and GRANTED ("true" once
+# provisioning gave the student access, whatever failed after it).
 
 set -euo pipefail
 
@@ -57,7 +58,12 @@ apply() {
   # nothing staged, not even the paths that did match - so each add has its
   # mkdir right before it. A control repository that never ran a group
   # assignment has no teams/ (git cannot store an empty directory).
-  if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ]; then
+  # A student who was GRANTED the repository holds it, whatever failed after:
+  # their record is written, or lockdown - which works from the students'
+  # records - never locks it, and the archive and the grade never see it
+  # (review 2026-10-14, LD5). The acceptance stays `failed` below, so Retry
+  # finishes what failed.
+  if [ "$OUTCOME" = "created" ] || [ "$OUTCOME" = "reused" ] || { [ "${GRANTED:-}" = "true" ] && [ -n "$REPO_ID" ]; }; then
     node scripts/write-repository-record.mjs \
       --assignment-id "$ASSIGNMENT_ID" \
       --login "$LOGIN" \
@@ -76,8 +82,9 @@ apply() {
     mkdir -p "$DIR/repositories" || return 2
     git -C "$DIR" add "repositories/" || return 2
   elif [ -n "$TEAM_SLUG" ] && [ -n "$REPO_ID" ]; then
-    # Failed after the team repository existed: record it on the team only,
-    # or accept.mjs refuses the next teammate over their own team's repository.
+    # Failed after the team repository existed but before this student was
+    # granted it: record it on the team only, or accept.mjs refuses the next
+    # teammate over their own team's repository.
     node scripts/write-repository-record.mjs --team-only \
       --assignment-id "$ASSIGNMENT_ID" --org "$ORG" \
       --target-repo "$TARGET_REPO" --team-slug "$TEAM_SLUG" \

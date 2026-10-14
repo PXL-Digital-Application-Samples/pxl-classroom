@@ -603,6 +603,7 @@ import { copyText } from '../lib/clipboard.js'
 // mode is in force - fail-closed fallback included.
 import { normalizeRosterMode, rosterMatchesLogin, claimRequired } from '../../../lib/roster-mode.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
+import { personPushed } from '../../../lib/untouched-repo.mjs'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -943,8 +944,15 @@ const effectiveDeadline = computed(() => {
 
 const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, now.value))
 
+// Whether a person has pushed here, from the push log (lib/untouched-repo.mjs
+// `personPushed`); null when it could not be read.
+const studentPushed = ref(null)
+
 const studentSubmissionStatus = computed(() => {
   if (!studentLatestCommit.value) return 'no-submission'
+  // Only what PXL Classroom put there: the newest commit is the starting
+  // point, not a hand-in, however early its date (review 2026-10-14, PG7).
+  if (studentPushed.value === false) return 'no-submission'
   if (!effectiveDeadline.value) return 'on-time'
   const commitTime = new Date(studentLatestCommit.value.date)
   return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
@@ -954,7 +962,10 @@ async function refreshStudentSubmissionMeta(org, repoName) {
   const token = getToken()
   if (!token) return
   try {
-    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`)
+    const [res, log] = await Promise.all([
+      ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`),
+      ghApi(token, 'GET', `/repos/${org}/${repoName}/activity?per_page=100`),
+    ])
     if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
       const c = res.data[0]
       studentLatestCommit.value = {
@@ -963,6 +974,7 @@ async function refreshStudentSubmissionMeta(org, repoName) {
         message: c.commit?.message,
       }
     }
+    studentPushed.value = personPushed(log, res.ok && Array.isArray(res.data) ? res.data[0] : null)
   } catch (e) {
     console.error('Failed to fetch latest commit:', e)
   }

@@ -233,6 +233,15 @@ async function main() {
       continue;
     }
 
+    // Reopened by a lecturer with nothing frozen to keep: Reopen waits for the
+    // preservation (lib/repo-unlock.mjs), so there is nothing left owed, and
+    // this row errored on every later pass (review 2026-10-14, A15).
+    if (!sourceSha && rec.reopened_at) {
+      log(`preserve ${login}`, { ok: true, note: "reopened by a lecturer - no snapshot to preserve" });
+      rows.push(`| ${login} | - | reopened |`);
+      continue;
+    }
+
     if (!sourceSha) {
       log(`preserve ${login}`, { ok: false, note: "no snapshot_sha" });
       errorCount++;

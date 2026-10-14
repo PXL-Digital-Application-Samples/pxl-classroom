@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
 
-import { LONG_RUNNING_WORKFLOWS, stuckAfterMinutes, stuckRuns } from "../frontend/src/lib/stuck-runs.js";
+import { LONG_RUNNING_WORKFLOWS, listRunsInStatus, stuckAfterMinutes, stuckRuns } from "../frontend/src/lib/stuck-runs.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const workflowsDir = join(root, ".github", "workflows");
@@ -78,4 +78,28 @@ test("everything else keeps the old limits: 15 minutes waiting, 45 in progress",
   assert.equal(stuckRuns([{ ...deploy, status: "waiting", created_at: ago(16) }], now).length, 1);
   // Waiting is not running: even the sentinel waiting for a runner is stuck after 15.
   assert.equal(stuckAfterMinutes(".github/workflows/deadline-sentinel.yml", "waiting"), 15);
+});
+
+test("G8b: every page is read, so the oldest run (the stuck one) on page 2 is found", async () => {
+  const now = Date.parse("2026-10-14T16:00:00Z");
+  const fresh = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, path: ".github/workflows/acceptance-handler.yml", status: "waiting", created_at: new Date(now - 60_000).toISOString() }));
+  const old = { id: 999, name: "Accept assignment", path: ".github/workflows/acceptance-handler.yml", status: "waiting", created_at: new Date(now - 40 * 60_000).toISOString() };
+  const asked = [];
+  const request = async (method, path) => {
+    asked.push(path);
+    const page = Number(new URL(path, "http://x").searchParams.get("page"));
+    return { ok: true, data: { workflow_runs: page === 1 ? fresh : [old] } };
+  };
+  const { runs, whole } = await listRunsInStatus(request, { owner: "O", repo: "hub", status: "waiting" });
+  assert.equal(whole, true);
+  assert.equal(runs.length, 101);
+  assert.deepEqual(stuckRuns(runs, now).map((r) => r.id), [999]);
+  assert.ok(asked.every((p) => p.includes("per_page=100")));
+  // A page that fails: what was read, and not whole.
+  const failing = async (method, path) => (path.includes("page=2") ? { ok: false, data: {} } : { ok: true, data: { workflow_runs: fresh } });
+  assert.equal((await listRunsInStatus(failing, { owner: "O", repo: "hub", status: "waiting" })).whole, false);
+  // The dashboard reads through it.
+  const dash = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "frontend", "src", "views", "DashboardView.vue"), "utf8");
+  assert.match(dash, /listRunsInStatus\(/);
+  assert.doesNotMatch(dash, /actions\/runs\?status=waiting`\)/, "no single-page read left");
 });

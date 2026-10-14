@@ -1,9 +1,10 @@
 name: Retry Acceptance
 
 # Lecturer-triggerable rescue for half-done acceptances.
-# Wipes the per-student acceptance file in the control repo, then re-runs the
-# full acceptance + provisioning sequence under the same concurrency group as
-# the normal acceptance-handler.
+# Sets the student's acceptance record aside in its checkout (never pushed on a
+# refusal), so every gate runs again, then re-runs acceptance and provisioning.
+# No concurrency group: a decision is saved by a push GitHub refuses when
+# another run saved first (acceptance/reserve.mjs), as for the student's own.
 
 on:
   workflow_dispatch:
@@ -245,6 +246,7 @@ jobs:
           STARTER_SHA: ${{ steps.prov.outputs.starter-sha }}
           STARTER_COMMIT_COUNT: ${{ steps.prov.outputs.starter-commit-count }}
           FULL_HISTORY: ${{ steps.prov.outputs.full-history }}
+          GRANTED: ${{ steps.prov.outputs.granted }}
           STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_LABEL: Retry-provision

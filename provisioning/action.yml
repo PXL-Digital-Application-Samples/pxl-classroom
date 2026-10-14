@@ -134,6 +134,12 @@ outputs:
       "true" when starter-sha is a copy of the template's full history (this
       run made it, or recovered one an earlier run made), else "false".
     value: ${{ steps.run.outputs.full_history }}
+  granted:
+    description: >-
+      "true" once the student was granted access to the repository - set before
+      any later step can fail, so a run that failed after the grant still says
+      the student holds a repository, and its record is written.
+    value: ${{ steps.run.outputs.granted }}
 
 runs:
   using: composite

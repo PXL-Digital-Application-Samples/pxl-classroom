@@ -204,6 +204,7 @@ import { invitationEvidence } from '../lib/invitation-evidence.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
+import { collidingRepoNames } from '../../../lib/assignment-collision.mjs'
 
 const router = useRouter()
 
@@ -369,6 +370,18 @@ async function loadStudentAssignments() {
     const matched = []
     for (const a of allOrgAssignments) {
       const expectedName = repositoryNameFor(a.repository_name_pattern, { login: userLogin }).toLowerCase()
+      // A TEAM'S REPOSITORY IS NAMED AFTER THE TEAM, which this page does not
+      // know. Asked for the one name a login makes (`grp-<login>`), a team
+      // assignment never showed, and a student with only team work was told
+      // they had accepted nothing (review 2026-10-14, PG5). So any name the
+      // pattern makes, unless a more specific assignment in the org explains
+      // it (lib/assignment-collision.mjs `collidingRepoNames`).
+      const isTeam = String(a.repository_name_pattern || '').includes('{team_slug}')
+      const rivals = isTeam ? allOrgAssignments.filter((o) => o.org === a.org && o.id !== a.id) : []
+      const ours = (name) => isTeam
+        ? collidingRepoNames(a.repository_name_pattern, [String(name || '')], rivals).length > 0
+        : String(name || '').toLowerCase() === expectedName
+      const inOrg = (owner) => String(owner || '').toLowerCase() === a.org.toLowerCase()
 
       // Calculate time remaining
       let timeRemainingStr = ''
@@ -394,9 +407,7 @@ async function loadStudentAssignments() {
       }
 
       // Check provisioned repo
-      const existingRepo = userRepos.find(
-        (r) => r.owner?.login?.toLowerCase() === a.org.toLowerCase() && r.name?.toLowerCase() === expectedName
-      )
+      const existingRepo = userRepos.find((r) => inOrg(r.owner?.login) && ours(r.name))
       if (existingRepo) {
         matched.push({
           ...a,
@@ -411,9 +422,12 @@ async function loadStudentAssignments() {
 
       // Check pending invitation. Fourth copy of this match in the SPA until
       // it went through the one judge the other three now use.
+      const invitedName = isTeam
+        ? (userInvites.find((inv) => inOrg(inv?.repository?.owner?.login) && ours(inv?.repository?.name))?.repository?.name || '')
+        : expectedName
       const { invitation: existingInvite } = invitationEvidence(
         { ok: true, data: userInvites },
-        { org: a.org, repo: expectedName },
+        { org: a.org, repo: invitedName },
       )
       if (existingInvite) {
         matched.push({

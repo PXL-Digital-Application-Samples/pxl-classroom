@@ -148,6 +148,31 @@ test("a failed write is a failed step, not a record pushed around it", () => {
   assert.equal(git(remote, "rev-parse", "main"), before);
 });
 
+test("LD5: a run that failed AFTER the grant still writes the student's record, so the lock and the archive see it", () => {
+  // Review 2026-10-14: a failure after step 5 wrote the team's record only
+  // (or, alone, nothing), and lockdown, which works from the students'
+  // records, never locked a repository the student held.
+  const remote = remoteWith({
+    [`acceptances/${ID}/Fars.json`]: acceptance("Fars", "424242"),
+    [`teams/${ID}/fullhouse.json`]: team(["Fars"]),
+  });
+  const res = record(checkout(remote), { OUTCOME: "fail:template-not-populated", GRANTED: "true" });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(remoteJson(remote, `repositories/${ID}/Fars.json`)?.repo_id, 1401466704);
+  assert.equal(remoteJson(remote, `acceptances/${ID}/Fars.json`).status, "failed", "still failed, so Retry finishes it");
+  assert.equal(remoteJson(remote, `teams/${ID}/fullhouse.json`).repo_name, "TestOrg/grp-fullhouse");
+
+  // Failed BEFORE the grant: the team's record only, as before.
+  const before = remoteWith({
+    [`acceptances/${ID}/Fars.json`]: acceptance("Fars", "424242"),
+    [`teams/${ID}/fullhouse.json`]: team(["Fars"]),
+  });
+  const early = record(checkout(before), { OUTCOME: "fail:grant", GRANTED: "" });
+  assert.equal(early.status, 0, early.stdout + early.stderr);
+  assert.equal(remoteJson(before, `repositories/${ID}/Fars.json`), null);
+  assert.equal(remoteJson(before, `teams/${ID}/fullhouse.json`).repo_name, "TestOrg/grp-fullhouse");
+});
+
 test("a remote that stops answering is a failed step, never 'Nothing to record.'", () => {
   // Review 2026-10-06: the push failed, the fetch after it failed too, and the
   // loop wrote the record again on top of its own unpushed commit - found

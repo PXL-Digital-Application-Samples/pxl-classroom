@@ -143,7 +143,7 @@ import { readScoreAtCommit } from '../lib/grade-cohort.js'
 import { listHandIns, selectHandIn, messageMatchesMarker, handInShownTime } from '../../../lib/submission-marker.mjs'
 import { decisionProblem } from '../../../lib/grade-override.mjs'
 import { rerunAvailability } from '../../../lib/grading-rerun.mjs'
-import { GRADE_ENTRY_MISSING, dispatchGrading, findGradingWorkflow, readRunScore } from '../../../lib/grade-dispatch.mjs'
+import { dispatchGrading, findGradingWorkflow, gradeEntryMissing, readRunScore } from '../../../lib/grade-dispatch.mjs'
 
 const props = defineProps({
   student: { type: Object, required: true },
@@ -159,6 +159,8 @@ const props = defineProps({
   /** Whose own grading runs count as hand-ins: the student, or their team. */
   teamLogins: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
+  /** Whether Sync Starter Code runs on this assignment (lib/starter-sync.mjs `syncRefusal`). */
+  canSync: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close', 'choose', 'manual'])
 
@@ -384,7 +386,10 @@ async function gradeNow(row) {
     res = { ok: false, reason: `could not start the run: ${e.message}` }
   }
   if (!res.ok) {
-    row.result = { state: 'none', reason: sentence(res.reason) }
+    // The dispatch names the missing entry the one way it can; the dialog
+    // knows whether this assignment can sync (GR7).
+    const reason = res.reason === gradeEntryMissing({ canSync: true }) ? gradeEntryMissing({ canSync: props.canSync }) : res.reason
+    row.result = { state: 'none', reason: sentence(reason) }
     return
   }
   whenDone(res.runId, async () => {
@@ -410,7 +415,7 @@ async function findGrader() {
         reason: !found.ok
           ? found.reason
           : found.workflowId
-            ? GRADE_ENTRY_MISSING
+            ? gradeEntryMissing({ canSync: props.canSync })
             : found.reason,
       }
 }

@@ -816,6 +816,11 @@ async function main() {
     );
     if (!add.ok) await fail("fail:grant", `grant HTTP ${add.status} ${add.message ?? ""}`);
     log("grant", { ok: true, note: add.via === "invitation" ? `invitation (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
+    // SAID NOW, before anything below can fail (review 2026-10-14, LD5): the
+    // student holds this repository from here on, and a failure after this
+    // wrote only the team's record (or, alone, nothing), so lockdown - which
+    // works from the students' records - never locked it.
+    await setOutput("granted", "true");
 
     // 201 means GitHub SENT AN INVITATION, and this is the only place in the
     // system that knows. The student's browser cannot find out: measured

@@ -90,6 +90,39 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
     await expect(cloudRepoLink).toHaveAttribute('href', /github\.com/);
   });
 
+  test('PG5: a TEAM assignment is listed from the team repository, whatever the team is called', async ({ page }) => {
+    // Review 2026-10-14: the name was built from the login (`grp-<login>`), so a
+    // student with only team work saw "No accepted assignments yet".
+    const team = {
+      id: 'grp-lab', title: 'Group Lab', organization: ORG, assignment_type: 'group', state: 'published',
+      deadline_at: new Date(Date.now() + 3600 * 1000 * 48).toISOString(), repository_name_pattern: 'grp-{team_slug}',
+    };
+    // A more specific assignment in the same org: its repositories are not the group lab's.
+    const exam = {
+      id: 'grp-exam', title: 'Group Exam', organization: ORG, assignment_type: 'group', state: 'published',
+      deadline_at: new Date(Date.now() + 3600 * 1000 * 72).toISOString(), repository_name_pattern: 'grp-{team_slug}-exam',
+    };
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [{ login: ORG, name: 'Cloud Essentials' }],
+      allOrgAssignments: { [ORG]: { 'grp-lab': team, 'grp-exam': exam } },
+      // The exam's repository comes FIRST, so a lab that took any `grp-*` name
+      // would pick it.
+      userRepos: [
+        { id: 202, name: 'grp-pod-exam', full_name: `${ORG}/grp-pod-exam`, owner: { login: ORG }, html_url: `https://github.com/${ORG}/grp-pod-exam` },
+        { id: 201, name: 'grp-krusty-krabs', full_name: `${ORG}/grp-krusty-krabs`, owner: { login: ORG }, html_url: `https://github.com/${ORG}/grp-krusty-krabs` },
+      ],
+      currentUser: STUDENT_1,
+    });
+    await page.goto('/');
+    const card = page.locator('.my-assignment-card', { hasText: 'Group Lab' });
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card.getByRole('link', { name: /Open on GitHub/i })).toHaveAttribute('href', /grp-krusty-krabs$/);
+    const examCard = page.locator('.my-assignment-card', { hasText: 'Group Exam' });
+    await expect(examCard.getByRole('link', { name: /Open on GitHub/i })).toHaveAttribute('href', /grp-pod-exam$/);
+    await expect(page.getByText('No accepted assignments yet')).toHaveCount(0);
+  });
+
   test('Scenario 2 (Lecturer Portal Landing & Organization Entry): Welcomes lecturer and routes to lecturer dashboard', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {

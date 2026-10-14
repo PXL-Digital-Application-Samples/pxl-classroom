@@ -136,6 +136,28 @@ test("a transient API failure refuses the whole write rather than grading a subs
   assert.equal(res.graded.length, 1, "bo was read fine - and still must not be written alone");
 });
 
+test("GR8: a deleted repository is a named student, never an API error that refuses everyone", async () => {
+  // Review 2026-10-14: a 404 on check-runs was api-failed, so one repository a
+  // team switch deleted kept the whole nightly summary from being written.
+  const t = transport({
+    // ada's repository is gone: everything under it 404s, the repository too.
+    [`/repos/Org/lab-1-bo/commits/`]: ok({ check_runs: [RUN] }),
+    [`/repos/Org/lab-1-bo/check-runs/77/annotations`]: ok(ANNOTATIONS),
+  });
+  const res = await gradeCohort(t.request, {
+    students: [row(), row({ github_login: "bo", repo_name: "Org/lab-1-bo" })],
+  });
+  assert.equal(res.ok, true, res.refusal);
+  assert.equal(res.graded.length, 1);
+  assert.match(res.failed.find((f) => f.login === "ada").reason, /no longer exists/);
+  // A 404 on a repository that IS there stays a failed read.
+  const there = transport({
+    [`/repos/${REPO}/commits/`]: { ok: false, status: 404, data: {} },
+    [`/repos/${REPO}`]: ok({ name: "lab-1-ada" }),
+  });
+  assert.equal((await gradeCohort(there.request, { students: [row()] })).refusal, "api-errors");
+});
+
 test("a student who has not pushed is named, never counted as an API error", async () => {
   // Without this the URL was built with `undefined` in it, GitHub answered 404,
   // and a student who simply has not started was reported as a broken read.
@@ -215,6 +237,20 @@ test("no hand-in and a LATE hand-in are different sentences", async () => {
     marker: MARKER,
   });
   assert.match(lateRes.failed[0].reason, /after the deadline \(lllllll, pushed 2026-09-11T20:00:00Z\)/);
+});
+
+test("GR9: a rate-limited hand-in read is 'try again', not a missing permission", async () => {
+  // Review 2026-10-14: any 403 was "the App needs Actions (read)".
+  const limited = transport({
+    [`/repos/${REPO}/commits?`]: { ok: false, status: 403, data: { message: "API rate limit exceeded for installation" }, headers: { "x-ratelimit-remaining": "0" } },
+  });
+  const res = await gradeCohort(limited.request, { students: [row()], marker: MARKER });
+  assert.equal(res.ok, false);
+  assert.notEqual(res.refusal, "permission");
+  assert.match(res.failed[0].reason, /rate limit/);
+  // A plain 403 is still the permission.
+  const denied = transport({ [`/repos/${REPO}/commits?`]: { ok: false, status: 403, data: { message: "Resource not accessible by integration" } } });
+  assert.equal((await gradeCohort(denied.request, { students: [row()], marker: MARKER })).refusal, "permission");
 });
 
 test("a commit lookup that FAILED is not 'there is no hand-in'", async () => {

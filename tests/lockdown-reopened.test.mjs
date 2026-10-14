@@ -223,6 +223,9 @@ test("a GROUP repository reopened for one member stays open for the team", async
       "the team repository must not be re-locked for the member who was not named",
     );
     assert.equal(res.record.reopened_count, 2, "both member records are accounted for");
+    // One row per member, not one per member per member (A15, review 2026-10-14).
+    const rows = res.record.results.filter((r) => r.reopened_at !== undefined || r.lock_method === null);
+    assert.deepEqual(rows.map((r) => r.github_login).sort(), ["alice", "bob"]);
   });
 });
 

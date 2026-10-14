@@ -1600,6 +1600,7 @@
       :archive-repo-name="archiveRepoName(form.id)"
       :broker-repo-name="brokerRepoName({ assignment: form })"
       :busy="deleting"
+      :unarchived="deleteUnarchived"
       @close="showDeleteModal = false"
       @confirm="deleteAssignment"
     />
@@ -2482,8 +2483,7 @@ function runStateAction(key) {
     case 'delete-draft':
       return deleteDraft()
     case 'delete':
-      showDeleteModal.value = true
-      return
+      return openDeleteModal()
     case 'edit-deadline':
       return scrollToSection('settings-schedule')
   }
@@ -3742,6 +3742,29 @@ async function cancelEdit() {
 // summary and the resulting configuration (ARCHITECTURE §11.6).
 const showAutogradeModal = ref(false)
 const showDeleteModal = ref(false)
+// Whether students hold repositories the deadline's lock and archive never
+// reached: true, false, or null when that could not be read (review
+// 2026-10-14, A16). The dialog said "the archive is kept... each submission as
+// preserved at the deadline" over an assignment nothing had archived, and a
+// deleted assignment is never finalized.
+const deleteUnarchived = ref(null)
+
+async function openDeleteModal() {
+  deleteUnarchived.value = null
+  showDeleteModal.value = true
+  const id = form.value.id
+  if (!id) return
+  const token = getToken()
+  const lock = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(id)}`)
+  if (lock.status === 200) {
+    deleteUnarchived.value = false
+    return
+  }
+  if (lock.status !== 404) return
+  const repos = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${repositoriesDir(id)}`)
+  if (repos.status === 404) deleteUnarchived.value = false
+  else if (repos.ok && Array.isArray(repos.data)) deleteUnarchived.value = repos.data.some((f) => String(f?.name || '').endsWith('.json'))
+}
 
 // The same condition the Edit/Set up button and the Remove button already used
 // inline, named once so the three cannot disagree about whether it is on.
@@ -5203,8 +5226,7 @@ async function deleteDraft() {
   // it. One that did (Back to draft) has a broker and maybe students, and the
   // full delete is what removes those (lib/state-actions.js).
   if (everPublished(form.value)) {
-    showDeleteModal.value = true
-    return
+    return openDeleteModal()
   }
   // Said by the assignment's title and in what it means to the lecturer, not
   // by its id and the file it lives in (DESIGN.md §1.6).

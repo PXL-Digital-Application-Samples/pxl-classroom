@@ -94,6 +94,19 @@ test("preserved_submissions counts only rows that were actually preserved", () =
   assert.equal(doc.archive_repo, `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026`);
 });
 
+test("A17: a team's members share one archive branch, so they are one submission", () => {
+  // Review 2026-10-14: a four-member team read as "4 gone".
+  const repo = `${ORG}/${ARCHIVE_REPO_PREFIX}linux-processes-2026`;
+  const doc = buildRetiredManifest({
+    ...ARGS,
+    students: [
+      ...["ann", "bo", "cy", "di"].map((l) => ({ github_login: l, preservation_status: "preserved", archive_repo: repo, archive_ref: "preserved/linux-processes-2026/team-a" })),
+      { github_login: "ed", preservation_status: "preserved", archive_repo: repo, archive_ref: "preserved/linux-processes-2026/ed" },
+    ],
+  });
+  assert.equal(doc.preserved_submissions, 2);
+});
+
 test("nothing preserved is zero, and the archive falls back to the name", () => {
   // The finalize-drill case, measured live on 2026-09-05: an archive repository
   // that existed and held one generated README and no `preserved/*` branch. The

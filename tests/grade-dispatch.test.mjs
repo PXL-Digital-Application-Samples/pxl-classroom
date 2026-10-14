@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parse, stringify } from "yaml";
 import {
-  GRADE_DISPATCH_INPUT, dispatchGrading, findGradingWorkflow, gradeRunTitle, hasGradeDispatch, readRunScore,
+  GRADE_DISPATCH_INPUT, dispatchGrading, findGradingWorkflow, gradeEntryMissing, gradeRunTitle, hasGradeDispatch, readRunScore,
 } from "../lib/grade-dispatch.mjs";
 import { buildStarterWorkflow } from "../lib/starter-workflow.mjs";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
@@ -91,6 +91,18 @@ test("a workflow without the entry says what to do; a short sha never reaches Gi
   const short = await dispatchGrading(gh.request, { repo: "Org/r", workflowId: 5, sha: "abc123" });
   assert.equal(short.ok, false);
   assert.equal(gh.calls.filter((c) => c.method === "POST").length, 1);
+});
+
+test("GR7: where starter sync does not run, the advice does not send a lecturer to it", () => {
+  // Review 2026-10-14: a full-history assignment refuses Sync Starter Code,
+  // and the dialog still said it would send the workflow.
+  assert.match(gradeEntryMissing({ canSync: true }), /Sync Starter Code sends the workflow/);
+  assert.doesNotMatch(gradeEntryMissing({ canSync: false }), /Sync Starter Code sends/);
+  assert.match(gradeEntryMissing({ canSync: false }), /starter sync does not run on this assignment/);
+  const modal = readFileSync(new URL("../frontend/src/components/RegradeCommitModal.vue", import.meta.url), "utf8");
+  assert.match(modal, /gradeEntryMissing\(\{ canSync: props\.canSync \}\)/);
+  const page = readFileSync(new URL("../frontend/src/views/AssignmentDetailView.vue", import.meta.url), "utf8");
+  assert.match(page, /:can-sync="!syncRefused"/);
 });
 
 test("the run's own result is read - from its check suite, not the commit", async () => {

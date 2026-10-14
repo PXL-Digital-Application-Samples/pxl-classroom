@@ -6,7 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { repoTouched } from "../lib/untouched-repo.mjs";
+import { readFileSync } from "node:fs";
+import { personPushed, repoTouched } from "../lib/untouched-repo.mjs";
 
 // The generated first commit, as measured on PXL-Systems-Expert's team
 // repositories on 2026-10-08: no parent, the App's bot, committed by GitHub,
@@ -70,6 +71,35 @@ test("no repository, or an empty one, has nothing in it", async () => {
   assert.equal(await repoTouched(fake({ branchesStatus: 404 }).get, "o/t"), "absent");
   assert.equal(await repoTouched(fake({ branches: [] }).get, "o/t"), "untouched");
   assert.equal(await repoTouched(fake({ commitsStatus: 409 }).get, "o/t"), "untouched");
+});
+
+// --- personPushed: what the student pages say (review 2026-10-14, PG7) -------
+
+const log = (...actors) => ({ ok: true, status: 200, data: actors.map((login) => ({ actor: { login }, activity_type: "push" })) });
+
+test("PG7: a person in the push log has pushed; only PXL Classroom's App has not", () => {
+  assert.equal(personPushed(log("pxl-classroom-provisioner[bot]", "TomVerheyenPXL"), botAdded), true);
+  // A full-history copy and its grading workflow: the App's pushes alone, the
+  // head the template's own commit by the lecturer.
+  assert.equal(personPushed(log("pxl-classroom-provisioner[bot]", "pxl-classroom-provisioner[bot]"), { ...student, author: { login: "lecturer" } }), false);
+});
+
+test("PG7: an empty log says nothing, unless the head is still the commit GitHub generated", () => {
+  // GitHub does not say how long the log is kept: empty is not "nobody".
+  assert.equal(personPushed(log(), student), null);
+  assert.equal(personPushed(log(), generated), false);
+  assert.equal(personPushed({ ok: false, status: 403, data: {} }, generated), false, "the head alone decides when the log is unread");
+  assert.equal(personPushed({ ok: false, status: 403, data: {} }, student), null);
+  // A full page of bots may hold more.
+  assert.equal(personPushed(log(...Array(100).fill("x[bot]")), student), null);
+});
+
+test("PG7: both student pages ask it, beside the newest commit", () => {
+  for (const f of ["../frontend/src/views/AssignmentView.vue", "../frontend/src/components/GroupAcceptanceCard.vue"]) {
+    const src = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.match(src, /personPushed\(log, res\.ok && Array\.isArray\(res\.data\) \? res\.data\[0\] : null\)/, f);
+    assert.match(src, /Pushed\.value === false\) return 'no-submission'/, f);
+  }
 });
 
 test("a read that failed is unknown - never untouched, so nothing is deleted on it", async () => {

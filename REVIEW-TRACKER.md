@@ -1,7 +1,7 @@
 # Review tracker, 2026-10-14
 
 Every finding from every review round today, and what happened to it.
-Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or the working tree), **OPEN** (being fixed - every one will be), **ASK** (will be built with the recommended option, named here), **REMOVED** (the feature was removed on request: submit tags, 2026-10-14; LESSONS.md has why).
+Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or the working tree), **OPEN** (being fixed - every one will be), **ASK** (will be built with the recommended option, named here), **REMOVED** (the feature was removed on request: submit tags, 2026-10-14; LESSONS.md has why), **DECIDED** (an ASK item: the recommended option is what stands, named with why), **ACCEPTED** (left as it is, with the reason: a fix would cost more than the defect, or make it worse).
 
 ## Round 1: first review of the week's work (fixes pushed in 462930c)
 
@@ -15,7 +15,7 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | R1-6 | Grading: Read score again kept a finished "Being graded" row; cards not per student deadline; long read called "read again"; `grade --login` wiped everyone | FIXED-462930c |
 | R1-7 | Tagged submissions never worked (colons in tag name) | REMOVED |
 | R1-8 | CLI grading's outcome kinds tested only by grepping the source | OPEN (low) |
-| R1-9 | A Deadline Sentinel hung after its deadline is flagged only at its 5-hour timeout | OPEN (low) |
+| R1-9 | A Deadline Sentinel hung after its deadline is flagged only at its 5-hour timeout | ACCEPTED (a sentinel waits again for a deadline moved during its watch, so "past its instant" is not a stuck signal: an earlier flag would repeat the 2026-10-12 false alarm on exam day, which is worse than a late one) |
 | R1-10 | A submit tag held back the "read at" time and kind on Progress | REMOVED |
 | R1-11 | Runs stuck in GitHub's `pending` state are watched by nothing | OPEN (low) |
 | R1-12 | Stuck-run test derivation weaker than its title | FIXED |
@@ -62,7 +62,7 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | G6 | Read score again decided from the page's copy, wrote onto a newer one | FIXED |
 | G7 | "Scores read by @X" could name the wrong person | FIXED (cohort reader kept) |
 | G8a | System Health judged "no stuck runs" from one page | FIXED |
-| G8b | The dashboard's stuck-run warning also reads one page | OPEN |
+| G8b | The dashboard's stuck-run warning also reads one page | FIXED (`listRunsInStatus` walks every page; unit) |
 | G9 | Stuck limit had no margin for a 45-minute sync | FIXED |
 | G11 | Tag command bash-only (PowerShell breaks or writes local time as UTC) | REMOVED |
 | G12 | Tests missing: Read score again "run ended" path, per-student deadline cards, watchdog age | OPEN |
@@ -96,13 +96,13 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | F3b | Recovery on a reuse only when nobody but the App pushed | ACCEPTED (the only certain case) |
 | F4a | A GitHub copy could be taken for a full-history copy | FIXED (+ unit) |
 | F4b | With the setting off, a failed full-history copy is never recovered | OPEN (low) |
-| F5 | A fast-forward onto a template commit after the deadline reads on time (template dates) | ASK (code fix by push time, or keep the manual's advice to choose "Pushing stops") |
+| F5 | A fast-forward onto a template commit after the deadline reads on time (template dates) | DECIDED (recommended option: the manual's advice to choose "Pushing stops", which the lock makes true; LD4 keeps HEAD after a confirmed stop. Classifying by push time would need every push's log entry for every student at every report) |
 | F6 | Commit count is "minus what was given", not "what they added" | FIXED (docs say what it is) |
 | F8 | The reuse recovery (push log actor) has never run against real GitHub | OPEN (live test) |
 | F9 | Unit test sends no auth header over file:// | OPEN (low) |
 | F10 | Private template's branch names in the public run log | FIXED |
 | F11 | No time limit on clone/push | FIXED |
-| F12 | Template push workflows run per branch in every student repository | ASK (turn Actions off during the copy, or keep the manual's warning) |
+| F12 | Template push workflows run per branch in every student repository | DECIDED (recommended option: warn, at publish now as well as in the manual (PG8). Turning Actions off during the copy would also stop a workflow the exercise relies on, and the App's own grading workflow) |
 
 ## Round 3: archiving (asked for after round 2)
 
@@ -114,7 +114,7 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | A4 | A read failure during lockdown loses that student's preservation silently | FIXED (`snapshot_unread` row, read again next pass, shows as failed; unit) |
 | A5 | The retry ceiling counts passes, not failures | FIXED (counts only passes that retried owed work; unit) |
 | A6 | Archive pushes run the template's workflows in the archive repository | OPEN (verify live) |
-| A7 | `block`: a student who pushed only after the deadline reads on time with the starter preserved | OPEN |
+| A7 | `block`: a student who pushed only after the deadline reads on time with the starter preserved | FIXED (a deadline snapshot still at the start is `no_submission`; unit) |
 | A8 | Submit tags read late after any post-deadline collect, and sent false late notices | REMOVED |
 | A9 | Preservation and grading ignore the tag the report calls the submission | REMOVED |
 | A10 | CLI `grade` and `download` put the token in a git remote URL (and the Docker sandbox can read it) | FIXED (+ sweep test over every source file) |
@@ -123,9 +123,9 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | A13 | An unstarted student's preserved starter is graded (full history: the App's commit has a grading run) | FIXED (no score for No submission + unit) |
 | X1 | (found while fixing A13) GitHub's copy that provisioning commits the grading workflow to starts at 2 commits, so every untouched student read "On time" | FIXED (that commit recorded as the start; `full_history` flag separates the two kinds; unit + provisioning test) |
 | A14 | Full history: only the default branch is archived | ACCEPTED (documented: the exercise must end on it) |
-| A15 | Reopened team rows duplicated per member | OPEN |
-| A16 | Deleting a closed, unfinalized assignment loses the deadline snapshot without warning | OPEN |
-| A17 | `preserved_submissions` counts students, not archive branches | OPEN (low) |
+| A15 | Reopened team rows duplicated per member | FIXED (one row per member record; a reopened row with no snapshot is not a preservation error; unit) |
+| A16 | Deleting a closed, unfinalized assignment loses the deadline snapshot without warning | FIXED (the dialog says nothing was archived when students hold repositories and no lock ran; e2e 59) |
+| A17 | `preserved_submissions` counts students, not archive branches | FIXED (distinct `archive_ref`; unit) |
 | A18 | Submit-tag discovery reads one page | REMOVED |
 
 ## Round 4: everything else today's work touches
@@ -161,7 +161,7 @@ Five reviewers, one per area not yet reviewed against today's changes.
 | AC8 | On a switch, "own earlier attempt" comes from the old team's record | OPEN (pre-existing, low) |
 | AC9 | Joining a team that no longer exists silently creates it | OPEN (pre-existing, low) |
 | AC10 | = S5 / T5b (old names reserved only against lecturer renames) | FIXED (= S5, T5b) |
-| AC11 | Comment and workflow header wording out of date | OPEN (low) |
+| AC11 | Comment and workflow header wording out of date | FIXED (`repo-name.mjs` comment; retry workflow header) |
 | AC12 | Other git error lines can still carry branch or file names into the public log | OPEN (low) |
 
 ### Nightly grader, collector, report (done)
@@ -172,12 +172,12 @@ Five reviewers, one per area not yet reviewed against today's changes.
 | GR3 | The row's commit date depends on directory order now that tag observations carry one | REMOVED (the report reads snapshots only; unit) |
 | GR4 | A re-pointed tag (`git tag -f`) resolves to its oldest commit | REMOVED |
 | GR5 | Grading reads the tagged commit even when the tag is late or off the branch | REMOVED |
-| GR6 | A template with more than ~1000 commits stops hand-in grading for every student | OPEN (was R1-14, accepted; now has a fix) |
-| GR7 | A dialog suggests Sync Starter Code on an assignment that refuses it | OPEN (low) |
-| GR8 | One deleted repository can block the whole nightly grading summary | OPEN |
-| GR9 | A rate-limit 403 on hand-in reads is called a permission problem | OPEN (low) |
-| GR10 | Fast-forward onto a prepared branch: late count 0, `block` picks the template commit, count includes merged commits | OPEN (docs) / ASK with F5 |
-| GR11 | Stale workflow comment about the scores token | OPEN (low) |
+| GR6 | A template with more than ~1000 commits stops hand-in grading for every student | ACCEPTED (= R1-14, documented in the manual. The fix changes the hand-in walk, which the graded exam path now also reads `given` through (X1), for a template size no course has; it fails closed - "could not finish counting" - and grades nobody wrongly) |
+| GR7 | A dialog suggests Sync Starter Code on an assignment that refuses it | FIXED (`gradeEntryMissing({ canSync })`; unit) |
+| GR8 | One deleted repository can block the whole nightly grading summary | FIXED (a gone repository is a named student; unit) |
+| GR9 | A rate-limit 403 on hand-in reads is called a permission problem | FIXED (`isRateLimited` on the hand-in reads; unit) |
+| GR10 | Fast-forward onto a prepared branch: late count 0, `block` picks the template commit, count includes merged commits | FIXED (docs: ARCHITECTURE and the manual say all three; decided with F5) |
+| GR11 | Stale workflow comment about the scores token | FIXED |
 
 ### Student pages, the dashboard, publishing (done)
 | # | Finding | Status |
@@ -186,12 +186,12 @@ Five reviewers, one per area not yet reviewed against today's changes.
 | PG2 | The stale-page rename fix fails in its main case: the student's own attempt drags them into a phantom old-name team | FIXED (`attemptTeamSlug` + unit) |
 | PG3 | Student banner: "the tagged commit is graded" is untrue after the deadline | REMOVED |
 | PG4 | A submit tag can be pushed after the lock, judged by a date the student sets | REMOVED |
-| PG5 | The student's own list never shows a team assignment, then says they accepted nothing | OPEN (pre-existing) |
-| PG6 | = G8b (dashboard stuck-run banner reads one page) | OPEN |
-| PG7 | Student pages say "Submitted on time" for an untouched repository | OPEN |
+| PG5 | The student's own list never shows a team assignment, then says they accepted nothing | FIXED (any name the team pattern makes, a more specific assignment winning; e2e 14) |
+| PG6 | = G8b (dashboard stuck-run banner reads one page) | FIXED (= G8b) |
+| PG7 | Student pages say "Submitted on time" for an untouched repository | FIXED (push log / generated head, `personPushed`; unit + e2e 11) |
 | PG8 | Publish preflight knows nothing about full history (branch name rule, workflows in the template) | FIXED (`fullHistoryFindings`: refuses an unusable default branch, warns on workflows; real-run test) |
 | PG9 | = T5b / AC10 / S5 | FIXED (= T5b) |
-| PG10 | A renamed team's old name can be published although it never was before | OPEN (low) |
+| PG10 | A renamed team's old name can be published although it never was before | ACCEPTED (the old slugs are what a page loaded before the rename needs; never-published is a rename within minutes of creating the team, before any rebuild; they are slug-shaped, behind the invitation digest, and a name with an address is now refused (PG1). Telling the two cases apart would need the generator to remember what it published) |
 | PG11 | A team pattern with `{github_login}` names the first member's repository; pages use the viewer's | ACCEPTED (pre-existing; the editor allows it, rare) |
 | PG12 | Whether students see a rename is said only in a toast | OPEN (low) |
 
@@ -201,10 +201,10 @@ Five reviewers, one per area not yet reviewed against today's changes.
 | LD1 | An acceptance started late after the sentinel's stop makes a repository no lock covers | FIXED (the sentinel's stop ends the late-start grace, like the lock record; unit) |
 | LD2 | The report calls the tag the submission; lockdown and the archive take the branch | REMOVED |
 | LD3 | Tags stay pushable after the deadline under "Pushing stops" | REMOVED (a tag decides nothing now) |
-| LD4 | Lockdown rebuilds "as of the deadline" from commit dates even where the sentinel's stop proves the head is the deadline state | OPEN |
-| LD5 | A record naming a deleted repository makes the sentinel's stop "fail" for every assignment at that instant; a repository named only by a team file is never locked | OPEN |
-| LD6 | Reopening a read-only team repository restores only the member clicked | OPEN (pre-existing) |
+| LD4 | Lockdown rebuilds "as of the deadline" from commit dates even where the sentinel's stop proves the head is the deadline state | FIXED (a confirmed stop covering the student reads HEAD; unit) |
+| LD5 | A record naming a deleted repository makes the sentinel's stop "fail" for every assignment at that instant; a repository named only by a team file is never locked | FIXED (a gone repository is not a missed stop; a run that failed after the grant writes the student's record, `granted`; unit) |
+| LD6 | Reopening a read-only team repository restores only the member clicked | FIXED (every member with a lock row on that repository is restored; unit) |
 | LD7 | Sentinel evidence reads "capped" after a team repository was deleted | OPEN (low) |
-| LD8 | Read-only lock re-invites a student whose access was removed | OPEN (pre-existing, low) |
+| LD8 | Read-only lock re-invites a student whose access was removed | FIXED (a student with no access is skipped, an unreadable answer still demotes; unit) |
 | LD9 | The watchdog may cancel a queued duplicate Deadline Sentinel | OPEN (low, unverified) |
 | LD10 | Full-history archive cost not measured against the 10-minute finalize | OPEN (measure live) |

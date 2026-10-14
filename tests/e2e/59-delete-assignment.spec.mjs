@@ -56,7 +56,7 @@ async function openClosedAssignment(
   page,
   {
     gitCommits, workflowDispatches, treeTruncated = false, brokerStatus = 200, reportStudents = [],
-    ancestry = 'ahead', sourcesStatus = 200, reportStatus = 200,
+    ancestry = 'ahead', sourcesStatus = 200, reportStatus = 200, extraRoutes = null,
   } = {},
 ) {
   await injectAuth(page, LECTURER);
@@ -103,6 +103,9 @@ async function openClosedAssignment(
       : route.fulfill({ status: 200, contentType: 'application/json', body: `{"name":"broker-${ID}"}` }),
   );
 
+  // After the fixture's routes, which a route registered earlier would lose to.
+  if (extraRoutes) await extraRoutes(page);
+
   await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
   await expect(page.locator('.editor-form')).toBeVisible({ timeout: 15000 });
 }
@@ -127,6 +130,34 @@ test.describe('59 - the dialog says what it costs before it can be used', () => 
 
     await page.getByLabel(/Type .* to confirm/).fill(ID);
     await expect(confirm).toBeEnabled();
+  });
+
+  test('A16: students whose work was never archived are named before the delete, not "the archive is kept"', async ({ page }) => {
+    // Review 2026-10-14: a closed assignment the nightly had not finalized
+    // read "the archive still holds each submission", and a deleted
+    // assignment is never finalized.
+    const routes = (lockStatus) => async (p) => {
+      await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+        route.fulfill({ status: lockStatus, contentType: 'application/json', body: lockStatus === 200 ? JSON.stringify({ content: '' }) : '{"message":"Not Found"}' }));
+      await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/repositories/${ID}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: 'alice.json', type: 'file' }]) }));
+    };
+    await openClosedAssignment(page, { extraRoutes: routes(404) });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-delete-unarchived]')).toContainText('Nothing has been archived yet');
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
+  test('A16: once the deadline was locked and archived, the archive is kept', async ({ page }) => {
+    await openClosedAssignment(page, {
+      extraRoutes: async (p) => {
+        await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: '' }) }));
+      },
+    });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page)).toContainText('The archive is kept');
+    await expect(dialog(page).locator('[data-delete-unarchived]')).toHaveCount(0);
   });
 
   test('it is not offered while the assignment is still accepting', async ({ page }) => {

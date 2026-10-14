@@ -46,6 +46,13 @@ async function withStubApi(fn, opts = {}) {
     untilCommits = [{ sha: ON_TIME_SHA }],
     denyRulesets = false,
     appIdStatus = 200,
+    // Repository ids GitHub no longer has: an org ruleset naming one is a 422,
+    // and GET /repositories/<id> is a 404 (lib/submission-lock.mjs).
+    goneIds = [],
+    // ...and the same repositories by name: every /repos/TestOrg/<name> route 404s.
+    goneNames = [],
+    // Logins that are neither a collaborator nor invited any more.
+    noAccess = [],
   } = opts;
   const calls = [];
   const rulesetsByRepo = new Map();
@@ -65,6 +72,9 @@ async function withStubApi(fn, opts = {}) {
       calls.push({ line: `${req.method} ${path}`, query: query ?? "", body });
 
       if (path === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
+      if (goneNames.some((n) => path === `/repos/TestOrg/${n}` || path.startsWith(`/repos/TestOrg/${n}/`))) {
+        return send(404, { message: "Not Found" });
+      }
       if (path.startsWith("/apps/")) {
         return appIdStatus === 200 ? send(200, { id: APP_ID }) : send(appIdStatus, { message: "nope" });
       }
@@ -84,6 +94,10 @@ async function withStubApi(fn, opts = {}) {
           return hit ? send(200, hit) : send(404, {});
         }
         if (req.method === "POST") {
+          const ids = body?.conditions?.repository_id?.repository_ids ?? [];
+          if (ids.some((id) => goneIds.includes(id))) {
+            return send(422, { message: "Invalid parameter repository_ids: repository selected does not exist or is not in this organization" });
+          }
           const created = { id: nextRulesetId++, source_type: "Organization", ...body };
           orgRulesets.push(created);
           return send(201, created);
@@ -114,9 +128,20 @@ async function withStubApi(fn, opts = {}) {
         }
       }
 
+      const byId = path.match(/^\/repositories\/(\d+)$/);
+      if (byId) {
+        return goneIds.includes(Number(byId[1])) ? send(404, { message: "Not Found" }) : send(200, { id: Number(byId[1]), owner: { login: "TestOrg" } });
+      }
       if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return send(200, untilCommits);
       if (/\/commits\/main$/.test(path)) return send(200, { sha: HEAD_SHA });
       if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt });
+      const presence = path.match(/^\/repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)$/);
+      if (presence && req.method === "GET") {
+        if (noAccess.includes(presence[1])) return send(404, { message: "Not Found" });
+        res.writeHead(204);
+        return res.end();
+      }
+      if (/^\/repos\/[^/]+\/[^/]+\/invitations$/.test(path)) return send(200, []);
       if (/\/collaborators\/[^/]+\/permission$/.test(path)) return send(200, { permission: "read" });
       if (/\/collaborators\/[^/]+$/.test(path) && req.method === "PUT") {
         res.writeHead(204);
@@ -134,7 +159,7 @@ async function withStubApi(fn, opts = {}) {
   }
 }
 
-function makeControlDir({ latePolicy = null, lockDownEnabled = null, orgScopedLock = null, logins = ["alice"] } = {}) {
+function makeControlDir({ latePolicy = null, lockDownEnabled = null, orgScopedLock = null, logins = ["alice"], record = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-lockdown-policy-"));
   const id = "exam";
   mkdirSync(join(dir, "assignments"), { recursive: true });
@@ -153,17 +178,18 @@ function makeControlDir({ latePolicy = null, lockDownEnabled = null, orgScopedLo
   for (const login of logins) {
     writeFileSync(
       join(dir, "repositories", id, `${login}.json`),
-      JSON.stringify({ github_login: login, repo_name: `TestOrg/${id}-${login}`, repo_id: 42 }),
+      JSON.stringify({ github_login: login, repo_name: `TestOrg/${id}-${login}`, repo_id: 42, ...record }),
     );
   }
   return dir;
 }
 
-function runLockdown(dir, apiBase) {
+function runLockdown(dir, apiBase, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [lockdownScript], {
       env: {
         ...process.env,
+        ...extraEnv,
         GITHUB_TOKEN: "stub-token",
         GITHUB_API_URL: apiBase,
         ORG: "TestOrg",
@@ -282,6 +308,104 @@ test("nothing committed before the deadline is a no-submission, not an error", a
       assert.match(res.outputs, /outcome=locked/);
     },
     { untilCommits: [] },
+  );
+});
+
+test("A7: the starting point by the deadline is a no-submission, not the starter archived as their work", async () => {
+  // Review 2026-10-14: what a repository was given always predates the
+  // deadline, so a student who pushed only after it reconstructed to the
+  // starter and read On time.
+  // The recorded start (a copy provisioning added to, or a full-history copy):
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false, record: { starter_sha: ON_TIME_SHA, starter_commit_count: 2 } });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      const alice = rowFor(res.record, "alice");
+      assert.equal(alice.snapshot_sha, null);
+      assert.equal(alice.no_submission, true);
+      assert.match(res.stdout, /held only what the repository was given - no submission/);
+    },
+  );
+  // GitHub's generated first commit, where no start was recorded:
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+      const res = await runLockdown(dir, api);
+      assert.equal(rowFor(res.record, "alice").no_submission, true);
+    },
+    {
+      untilCommits: [{
+        sha: ON_TIME_SHA, parents: [], author: { login: "pxl-classroom-provisioner[bot]" },
+        committer: { login: "web-flow" }, commit: { verification: { verified: true } },
+      }],
+    },
+  );
+});
+
+test("LD4: after the sentinel's confirmed stop at the deadline, HEAD is the deadline state - nothing is rebuilt", async () => {
+  // Review 2026-10-14: `pushed_at` moves for a push to any branch or tag, and
+  // rebuilding from committer dates dropped an on-time commit whose clock ran
+  // fast, although the lock proves it was in on time.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+    mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+    writeFileSync(
+      join(dir, "lockdowns", "exam", "sentinel-x.json"),
+      JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop: "done" }),
+    );
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    const alice = rowFor(res.record, "alice");
+    assert.equal(alice.snapshot_sha, HEAD_SHA, "the branch could not move after the stop");
+    assert.equal(alice.reconstructed, undefined);
+    assert.deepEqual(calls.filter((c) => c.line === "GET /repos/TestOrg/exam-alice/commits"), [], "no ?until=");
+  });
+  // A stop that FAILED proves nothing: rebuilt as before.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+    mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-x.json"), JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop: "failed" }));
+    const res = await runLockdown(dir, api);
+    assert.equal(rowFor(res.record, "alice").snapshot_sha, ON_TIME_SHA);
+  });
+});
+
+test("LD5: a record naming a deleted repository does not fail the sentinel's stop", async () => {
+  // Review 2026-10-14: the dead id was retried as a repository ruleset and a
+  // demotion, both 404, counted as a missed stop - and the stop-only run's
+  // failure marked the stop FAILED for every assignment at that instant.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, logins: ["alice"] });
+      writeFileSync(
+        join(dir, "repositories", "exam", "bob.json"),
+        JSON.stringify({ github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 77 }),
+      );
+      const res = await runLockdown(dir, api, { STOP_ONLY: "1" });
+      assert.equal(res.status, 0, res.stdout + res.stderr);
+      assert.match(res.outputs, /error_count=0/);
+      assert.match(res.outputs, /locked_count=1/, "alice is stopped");
+      assert.match(res.stdout, /no longer exists - nothing to lock/);
+    },
+    { goneIds: [77], goneNames: ["exam-bob"] },
+  );
+});
+
+test("LD8: the demotion never re-invites a student whose access was removed", async () => {
+  // Review 2026-10-14: a PUT on somebody with no access SENDS an invitation -
+  // an email, and access a lecturer took away (or a team switch removed) back.
+  await withStubApi(
+    async (api, calls) => {
+      const dir = makeControlDir({ latePolicy: "report", lockDownEnabled: true, logins: ["alice", "bob"] });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      const puts = demotions(calls).map((c) => c.line);
+      assert.ok(puts.some((l) => l.endsWith("/collaborators/alice")), "alice still has access and is demoted");
+      assert.ok(!puts.some((l) => l.endsWith("/collaborators/bob")), "bob is not re-invited");
+      assert.match(res.stdout, /no longer has access - nothing to take away, not re-invited/);
+    },
+    { noAccess: ["bob"] },
   );
 });
 

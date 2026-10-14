@@ -551,10 +551,12 @@ jobs:
           permission-contents: read
           permission-metadata: read
 
-      # Falls back to the finalize token when 6a could not be minted: every
-      # assignment WITHOUT a hand-in cap is read exactly as before, and one
-      # with a cap reports that the run history could not be read (HTTP 403)
-      # and writes nothing - never a count taken from the branch alone.
+      # Falls back to the finalize token when 6a could not be minted: an
+      # assignment with no hand-in commit message is read from its check runs
+      # as before, and one WITH a hand-in message - capped or not, since every
+      # hand-in is dated by its push - reads the run history, is refused it
+      # (HTTP 403), reports that as a permission and writes nothing: never a
+      # hand-in taken from the branch alone.
       - name: 6. Read autograding scores
         if: always()
         continue-on-error: true

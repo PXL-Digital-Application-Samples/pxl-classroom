@@ -154,7 +154,7 @@ Normally each student gets the template's default branch as one fresh commit, wi
 - Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other.
 - Students can read everything ever committed to the template. Do not commit a solution to it, not even one you remove later.
 - A student shows as **No submission** until their default branch moves on from the commit they were given. The commit count leaves out the commits they were given, so a prepared branch they merge in counts its commits too.
-- Choose **Pushing stops** at the deadline. A prepared branch merged in without a merge commit keeps the template's own dates, so without the lock it can read as on time when it was not.
+- Choose **Pushing stops** at the deadline. A prepared branch merged in without a merge commit keeps the template's own dates, so without the lock it can read as on time when it was not: its commits are not counted as late, and the copy kept as of the deadline can be that template commit.
 - Only the default branch is read for progress and grading, and archived, so the exercise has to end with the work on it. Where pushing stops at the deadline, only that branch is locked; the other branches stay open.
 - With a hand-in message, a template commit on the branch they were given never counts as a hand-in. One they bring over from a prepared branch can, so do not word a template commit like the hand-in message. A template with more than about 1000 commits cannot be read for hand-ins at all.
 - A workflow in the template that runs on push runs once per branch, and for up to three tags, in every student repository when it is copied. Leave workflows out of such a template unless the exercise needs one.

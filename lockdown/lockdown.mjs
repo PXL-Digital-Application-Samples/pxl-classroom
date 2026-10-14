@@ -42,7 +42,9 @@ import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
 import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
-import { applyStudentPermission } from "../lib/permission-change.mjs";
+import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
+import { starterFor } from "../lib/starter-commit.mjs";
+import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -351,6 +353,9 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
       login,
       members,
       teamMembers,
+      // What the repository was given, read across every record naming it
+      // (lib/starter-commit.mjs): the snapshot that is still it is no hand-in.
+      starterSha: starterFor(rec, records).sha,
       repoName: rec.repo_name?.split("/")?.[1] ?? rec.repo_name,
       displayKey: rec.team_slug ? `${rec.team_slug} (${members.join(",")})` : login,
     };
@@ -402,6 +407,18 @@ async function demote(t) {
     // left a student who had not accepted yet free to accept after the
     // deadline and push (third review, 2026-09-26). The invitation itself is
     // lowered to read, and the answer checked.
+    // ONLY WHO STILL HAS ACCESS (review 2026-10-14, LD8). A PUT on somebody
+    // who is neither a collaborator nor invited SENDS an invitation - an
+    // email, and read access a lecturer took away, or that a team switch
+    // removed, handed back. Somebody with no access is as stopped as it gets.
+    // Only a definite "gone" skips: an unreadable answer demotes as before,
+    // because at the deadline the lock outranks a stray invitation.
+    const presence = await studentPresence((method, path, body) => gh(method, path, body), { repo: `${cfg.org}/${t.repoName}`, login: m });
+    if (presence === "gone") {
+      log(`demote ${m}`, { ok: true, note: "no longer has access - nothing to take away, not re-invited" });
+      permAfter = permAfter ?? "none";
+      continue;
+    }
     const res = await applyStudentPermission((method, path, body) => gh(method, path, body), { repo: `${cfg.org}/${t.repoName}`, login: m, permission: "pull" });
     if (!res.ok) {
       log(`demote ${m}`, { ok: false, note: res.status ? `HTTP ${res.status}` : res.message });
@@ -465,6 +482,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
   // already supports.
   const orgTargets = method === "org-ruleset" ? targets.filter((t) => Number.isInteger(t.rec?.repo_id)) : [];
   const orgCovered = new Set();
+  const orgGone = new Set();
   if (method === "org-ruleset") {
     const missingId = targets.filter((t) => !Number.isInteger(t.rec?.repo_id));
     if (missingId.length) {
@@ -496,11 +514,14 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
           (dropped.size ? ` (${dropped.size} no longer exist)` : "") });
         for (const t of orgTargets) {
           if (!dropped.has(t.rec.repo_id)) continue;
+          orgGone.add(t);
           log(`org-lock ${t.displayKey}`, { ok: false, note: "repository no longer exists - nothing to lock" });
         }
       } else {
         // Degrade to the repository-scoped path rather than to no lock at all,
-        // exactly as a failed repository ruleset degrades to a demotion.
+        // exactly as a failed repository ruleset degrades to a demotion. What
+        // GitHub said no longer exists stays gone on that path too.
+        for (const t of orgTargets) if ((res.dropped ?? []).includes(t.rec.repo_id)) orgGone.add(t);
         log("org-lock", { ok: false, note: `${res.reason} - falling back to repository rulesets` });
       }
     }
@@ -528,6 +549,16 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
 
     if (method === "none") {
       byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, method: "none" });
+      continue;
+    }
+
+    // GONE: GitHub said, creating the organization ruleset, that this
+    // repository no longer exists. Nothing to lock, and not a lock that failed:
+    // retried as a repository ruleset and a demotion it answered 404 twice, and
+    // the stop-only run counted it as missed, which marked the sentinel's stop
+    // FAILED for every assignment at that instant (review 2026-10-14, LD5).
+    if (orgGone.has(t)) {
+      byRepo.set(t, { locked: false, gone: true, permissionAfter: null, lockdownAt: null, method: "none" });
       continue;
     }
 
@@ -605,12 +636,12 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
 async function submissionAsOf({ repoName, branch, deadline }) {
   const q = `sha=${encodeURIComponent(branch)}&until=${encodeURIComponent(deadline)}&per_page=1`;
   const res = await gh("GET", `/repos/${cfg.org}/${repoName}/commits?${q}`);
-  if (!res.ok) return { ok: false, sha: null, reason: `commits?until HTTP ${res.status}` };
-  const sha = Array.isArray(res.data) && res.data.length ? res.data[0].sha : null;
-  return { ok: true, sha, reason: null };
+  if (!res.ok) return { ok: false, sha: null, row: null, reason: `commits?until HTTP ${res.status}` };
+  const row = Array.isArray(res.data) && res.data.length ? res.data[0] : null;
+  return { ok: true, sha: row?.sha ?? null, row, reason: null };
 }
 
-async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor }) {
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, sentinelStoppedAt = null }) {
   const byRepo = new Map();
 
   // A group assignment has one repository record PER MEMBER, all naming the
@@ -662,19 +693,35 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         // after the deadline. `pushed_at` is GitHub's own timestamp and it is
         // already in hand, so the usual case costs no extra call.
         const deadline = deadlineFor?.(t) ?? null;
-        const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline);
+        // THE SENTINEL'S CONFIRMED STOP MADE HEAD THE DEADLINE STATE (review
+        // 2026-10-14, LD4). `pushed_at` moves for a push to any branch or tag -
+        // a full-history copy's prepared branches stay open - and rebuilding
+        // from committer dates then dropped an on-time commit whose clock ran
+        // fast, although the lock proves it was pushed in time. The same
+        // per-student test that credits the stop (applySubmissionLock).
+        const stoppedAtDeadline = Boolean(sentinelStoppedAt) && (!deadline || new Date(deadline) <= new Date(sentinelStoppedAt));
+        const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline) && !stoppedAtDeadline;
 
         if (pushedLate) {
           const asOf = await submissionAsOf({ repoName: t.repoName, branch, deadline });
           if (asOf.ok) {
-            snapshotSha = asOf.sha;
+            // NOTHING BUT THE STARTING POINT BY THE DEADLINE IS NO SUBMISSION
+            // (review 2026-10-14, A7). What a repository was given always
+            // predates the deadline, so a student who pushed only after it
+            // reconstructed to the starter, which was archived as their work
+            // and read On time. The recorded start, or GitHub's generated
+            // first commit where none was recorded.
+            const atStart = Boolean(asOf.sha) && ((t.starterSha && asOf.sha === t.starterSha) || generatedFromTemplate(asOf.row));
+            snapshotSha = atStart ? null : asOf.sha;
             reconstructed = true;
-            noSubmission = asOf.sha === null;
+            noSubmission = snapshotSha === null;
             log(`record ${t.login}`, {
               ok: true,
-              note: asOf.sha
-                ? `pushed at ${pushedAt}, after the deadline - submission reconstructed as of ${deadline} (${asOf.sha.slice(0, 12)})`
-                : `pushed at ${pushedAt}; nothing on ${branch} was committed before ${deadline} - no submission`,
+              note: snapshotSha
+                ? `pushed at ${pushedAt}, after the deadline - submission reconstructed as of ${deadline} (${snapshotSha.slice(0, 12)})`
+                : atStart
+                  ? `pushed at ${pushedAt}; by ${deadline} ${branch} held only what the repository was given - no submission`
+                  : `pushed at ${pushedAt}; nothing on ${branch} was committed before ${deadline} - no submission`,
             });
           } else {
             // Falling back to HEAD here would silently record post-deadline
@@ -935,9 +982,10 @@ async function main() {
     // organization OWNER cannot be demoted by anything, so failing on them
     // would turn every deadline red on an org where a lecturer accepted their
     // own assignment. An unreadable owner list excuses nobody.
+    // A repository that no longer exists is not a missed stop (LD5).
     const missed = targets.filter((t) => {
       const s = lock.byRepo.get(t);
-      return s && !s.locked && lock.method !== "none";
+      return s && !s.locked && !s.gone && lock.method !== "none";
     });
     let unstoppable = missed;
     if (missed.length) {
@@ -979,6 +1027,7 @@ async function main() {
     // the submission and the report flags it - filtering it out here would
     // discard exactly what the policy says to keep.
     deadlineFor: blockLate ? deadlineFor : null,
+    sentinelStoppedAt,
   });
 
   // --- Phase 4: DEMOTE -------------------------------------------------------
@@ -1023,9 +1072,10 @@ async function main() {
   //
   // Fetched only when something actually failed to lock, so a healthy cohort
   // costs no extra requests.
+  // A repository that no longer exists is not one that failed to lock (LD5).
   const unlocked = targets.filter((t) => {
     const s = lock.byRepo.get(t);
-    return s && !s.locked && lock.method !== "none";
+    return s && !s.locked && !s.gone && lock.method !== "none";
   });
   let owners = null;
   let ownersComplete = true;
@@ -1072,7 +1122,11 @@ async function main() {
   // `reopened_at` beside it is what lets it say so rather than "the record does
   // not say how this was locked".
   for (const r of reopenedTargets) {
-    for (const m of r.teamMembers ?? [r.login]) {
+    // The record's OWN members, as for a deferral: every member of a team has
+    // a record and each is a reopened target, so their teamMembers wrote the
+    // whole team once per member - N x N rows, preserved N x N times (review
+    // 2026-10-14, A15).
+    for (const m of r.members?.length ? r.members : [r.login]) {
       lockdownResults.push({
         github_login: m,
         team_slug: r.rec?.team_slug || undefined,

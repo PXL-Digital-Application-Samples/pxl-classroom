@@ -1406,6 +1406,7 @@
         :team-size="teamMembersOf(actionStudent).length"
         :team-logins="teamMembersOf(actionStudent).map((s) => s.github_login).filter(Boolean)"
         :saving="actionDeciding"
+        :can-sync="!syncRefused"
         @close="showRegradeCommit = false"
         @manual="showRegradeCommit = false"
         @choose="decideGrade(actionStudent, { type: 'submission_sha', value: $event.sha, reason: $event.reason, runId: $event.runId })"
@@ -5374,6 +5375,12 @@ async function unlockRepositoryFor(student, { reason }) {
       repositoryId: lockdownRow?.repo_id ?? null,
       assignmentId: props.assignmentId,
       login: student.github_login,
+      // A team's repository is one object: everyone the lock demoted on it is
+      // restored, not only the member clicked (lib/repo-unlock.mjs, LD6). Only
+      // members with a lock row on THIS repository - they held it at the lock.
+      logins: teamMembersOf(student)
+        .filter((s) => s.github_login && lockdownRowFor(actionLockdown.value, s.github_login)?.repo_name === lockdownRow?.repo_name)
+        .map((s) => s.github_login),
       method: verdict.method,
       permission: verdict.permission,
     })

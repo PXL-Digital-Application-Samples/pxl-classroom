@@ -571,6 +571,7 @@ import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { teamNameProblem } from '../../../lib/public-text.mjs'
+import { personPushed } from '../../../lib/untouched-repo.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -1216,8 +1217,15 @@ const switchUntil = computed(() =>
   switchDeadline.value ? formatDate(switchDeadline.value.toISOString(), props.assignment?.timezone) : null,
 )
 
+// Whether a person has pushed to the team's repository, from its push log
+// (lib/untouched-repo.mjs `personPushed`); null when it could not be read.
+const teamPushed = ref(null)
+
 const teamSubmissionStatus = computed(() => {
   if (!teamLatestCommit.value) return 'no-submission'
+  // Only what PXL Classroom put there: the starting point, not a hand-in
+  // (review 2026-10-14, PG7).
+  if (teamPushed.value === false) return 'no-submission'
   if (!effectiveDeadline.value) return 'on-time'
   const commitTime = new Date(teamLatestCommit.value.date)
   return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
@@ -1227,7 +1235,10 @@ async function refreshTeamSubmissionMeta(org, repoName) {
   const token = getToken()
   if (!token) return
   try {
-    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`)
+    const [res, log] = await Promise.all([
+      ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`),
+      ghApi(token, 'GET', `/repos/${org}/${repoName}/activity?per_page=100`),
+    ])
     if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
       const c = res.data[0]
       teamLatestCommit.value = {
@@ -1236,6 +1247,7 @@ async function refreshTeamSubmissionMeta(org, repoName) {
         message: c.commit?.message,
       }
     }
+    teamPushed.value = personPushed(log, res.ok && Array.isArray(res.data) ? res.data[0] : null)
   } catch (e) {
     console.error('Failed to fetch team latest commit:', e)
   }

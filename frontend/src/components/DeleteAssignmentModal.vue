@@ -28,7 +28,15 @@
             <div><strong>Student repositories are untouched.</strong> Nobody's work is deleted.</div>
           </div>
 
-          <div class="flex gap-sm items-start">
+          <div v-if="unarchived === true" class="flex gap-sm items-start" data-delete-unarchived>
+            <Icon name="alert-triangle" :size="16" class="stat-red consequence-icon" />
+            <div>
+              <strong>Nothing has been archived yet.</strong> Students' work is locked and copied to the archive by the nightly
+              after the deadline, and a deleted assignment never gets there: no copy of what they had at the deadline will exist.
+              To keep one, delete it after that nightly has run.
+            </div>
+          </div>
+          <div v-else class="flex gap-sm items-start">
             <Icon name="archive" :size="16" class="stat-green consequence-icon" />
             <div>
               <!-- The space before <code> is written, not implied: Vue's
@@ -117,6 +125,13 @@ const props = defineProps({
   /** From lib/broker-repo.mjs, via the parent. Never built here. */
   brokerRepoName: { type: String, default: '' },
   busy: { type: Boolean, default: false },
+  /**
+   * Students hold repositories the deadline's lock and archive never reached
+   * (true), nothing is owed (false), or it could not be read (null). A deleted
+   * assignment is never finalized, so "the archive holds each submission" was
+   * untrue there (review 2026-10-14, A16).
+   */
+  unarchived: { type: Boolean, default: null },
 })
 
 const emit = defineEmits(['close', 'confirm'])

@@ -223,6 +223,33 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(statusCard.locator('.deadline-countdown')).toContainText(/Closes in \d+d/i);
   });
 
+  test('PG7: a repository only PXL Classroom pushed to says "No commits pushed", whatever its newest commit\'s date', async ({ page }) => {
+    // Review 2026-10-14: the newest commit of an untouched repository is the
+    // starting point (GitHub's, the grading workflow's, or a full-history
+    // copy's template head, months old), and it read as "Submitted on time".
+    const deadline = new Date(Date.now() + 3600 * 1000 * 24).toISOString();
+    const setup = async (actors) => {
+      await injectAuth(page, STUDENT_EXTENDED);
+      await setupStandardMockRoutes(page, {
+        currentUser: STUDENT_EXTENDED,
+        userRepos: [{ name: 'lab-pushed-student-extended', full_name: `${ORG}/lab-pushed-student-extended`, html_url: `https://github.com/${ORG}/lab-pushed-student-extended` }],
+        assignments: { 'lab-pushed': { id: 'lab-pushed', title: 'Pushed Lab', organization: ORG, state: 'published', assignment_type: 'individual', deadline_at: deadline } },
+      });
+      await page.route(`**/repos/${ORG}/lab-pushed-student-extended/activity**`, (route) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify(actors.map((login) => ({ actor: { login }, activity_type: 'push' }))),
+      }));
+      await page.goto(inviteUrl(ORG, 'lab-pushed'));
+      await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
+      return page.locator('.student-status-card');
+    };
+    let card = await setup(['pxl-classroom-provisioner[bot]']);
+    await expect(card.locator('.badge-neutral')).toContainText('No commits pushed');
+    await expect(card.locator('.badge-success')).toHaveCount(0);
+    card = await setup(['pxl-classroom-provisioner[bot]', STUDENT_EXTENDED.login]);
+    await expect(card.locator('.badge-success')).toContainText('Submitted on time');
+  });
+
   test('Scenario 4 (Freeze & Lockdown with Consequences Confirmation Dialog): Displays full impact warning before workflow trigger', async ({ page }) => {
     const pastDeadline = new Date(Date.now() - 3600 * 1000 * 24).toISOString();
 

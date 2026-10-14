@@ -267,6 +267,30 @@ test("a demotion unlock restores the permission, and never touches a ruleset", a
   assert.equal(t.calls.length, 0, "the ruleset is not read or written");
 });
 
+test("LD6: a team's repository restores every member the lock demoted, and names who failed", async () => {
+  // Review 2026-10-14: only the member clicked was restored; the rest stayed
+  // at `pull` while the next pass wrote "reopened" on their rows too.
+  const seen = [];
+  const res = await applyUnlock({
+    setPermission: async (a) => { seen.push(a.login); return a.login === "cy" ? { ok: false, reason: "HTTP 422" } : { ok: true }; },
+    org: ORG, repo: REPO, login: "ann", logins: ["ann", "bo", "cy"], method: "demotion", permission: "push",
+  });
+  assert.deepEqual(seen, ["ann", "bo", "cy"]);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /@cy: HTTP 422/);
+  assert.doesNotMatch(res.reason, /@ann|@bo/, "only who failed is named");
+  // And on top of a ruleset, the same.
+  const t = transport({ rulesets: [activeLock] });
+  const both = [];
+  const ok = await applyUnlock({
+    request: t.request, releaseLock: releaseSubmissionLock,
+    setPermission: async (a) => { both.push(a.login); return { ok: true }; },
+    org: ORG, repo: REPO, login: "ann", logins: ["ann", "bo"], method: "ruleset", permission: "push",
+  });
+  assert.equal(ok.ok, true, ok.reason);
+  assert.deepEqual(both, ["ann", "bo"]);
+});
+
 test("a demotion unlock with no permission to restore refuses", async () => {
   const res = await applyUnlock({
     setPermission: async () => ({ ok: true }), org: ORG, repo: REPO, method: "demotion", permission: null,

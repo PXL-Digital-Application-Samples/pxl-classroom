@@ -123,6 +123,18 @@ test("a missing snapshot with no deferral is still an error", async () => {
   });
 });
 
+test("A15: a reopened row with nothing frozen is not an error on every later pass", async () => {
+  await withStubApi(async (api) => {
+    const dir = makeControlDir([
+      { github_login: "dan", repo_name: "TestOrg/exam-dan", snapshot_sha: null, reopened_at: "2026-10-14T10:00:00Z", lock_method: null },
+    ]);
+    const res = await runPreserve(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.outputs, /error_count=0/);
+    assert.match(res.stdout, /reopened by a lecturer - no snapshot to preserve/);
+  });
+});
+
 // --- no submission (ARCHITECTURE §11.2.2) ---------------------------------------------
 //
 // Under `late_policy: block` a student who only pushed after the deadline has

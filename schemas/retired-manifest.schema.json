@@ -64,7 +64,7 @@
     "preserved_submissions": {
       "type": "integer",
       "minimum": 0,
-      "description": "How many submissions were preserved in that archive when the assignment was deleted - report rows with `preservation_status: preserved`. Exists so a later 404 on the archive is interpretable: 0 means it never held a submission and removing it cost nothing, N means N are gone. Without it a reader finding no repository cannot tell a deliberate end-of-year cleanup from a name that was recorded wrong."
+      "description": "How many submissions were preserved in that archive when the assignment was deleted - report rows with `preservation_status: preserved`, counted by archive branch (`archive_ref`), so a team's members are one submission. Exists so a later 404 on the archive is interpretable: 0 means it never held a submission and removing it cost nothing, N means N are gone. Without it a reader finding no repository cannot tell a deliberate end-of-year cleanup from a name that was recorded wrong."
     },
     "org_ruleset_removed": {
       "type": "boolean",
