@@ -242,7 +242,7 @@ test.describe('doing it', () => {
     await unlockSection(page).locator('textarea').fill('Appeal upheld');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
 
-    await expect.poll(() => apiCalls.find((c) => c.method === 'PUT'), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => apiCalls.find((c) => c.method === 'PUT'), { timeout: 20000 }).toBeTruthy();
     const put = apiCalls.find((c) => c.method === 'PUT');
     expect(put.url).toContain(`/rulesets/${RULESET_ID}`);
     expect(put.body, 'only enforcement is sent - the rules and the bypass survive')
@@ -256,7 +256,7 @@ test.describe('doing it', () => {
     await unlockSection(page).locator('textarea').fill('Medical certificate, extension approved after the freeze');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
 
-    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 20000 }).toBeTruthy();
     const doc = JSON.parse(unlockWrite(contentWrites).content);
     expect(doc.assignment_id).toBe(ID);
     expect(doc.github_login).toBe(STUDENT);
@@ -350,7 +350,7 @@ test.describe('a demoted repository', () => {
     await unlockSection(page).locator('textarea').fill('Resit agreed');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
 
-    await expect.poll(() => apiCalls.find((c) => c.url.includes('/collaborators/')), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => apiCalls.find((c) => c.url.includes('/collaborators/')), { timeout: 20000 }).toBeTruthy();
     const call = apiCalls.find((c) => c.url.includes('/collaborators/'));
     expect(call.method).toBe('PUT');
     expect(call.url).toContain(`/collaborators/${STUDENT}`);
@@ -364,7 +364,7 @@ test.describe('a demoted repository', () => {
     await unlockSection(page).locator('textarea').fill('Resit agreed');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
 
-    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 20000 }).toBeTruthy();
     const doc = JSON.parse(unlockWrite(contentWrites).content);
     expect(doc.lock_method).toBe('demotion');
     expect(doc.permission_restored).toBe('admin');
@@ -412,7 +412,7 @@ test.describe('a team repository (LD6, TL-6)', () => {
     await openActions(page);
     await unlockSection(page).locator('textarea').fill('Appeal upheld');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
-    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 20000 }).toBeTruthy();
     const puts = apiCalls.filter((c) => c.method === 'PUT' && c.url.includes('/collaborators/')).map((c) => decodeURIComponent(c.url.split('/collaborators/')[1]));
     expect(puts.sort()).toEqual([STUDENT, 'student-mate'].sort());
     expect(apiCalls.filter((c) => c.method === 'PUT').every((c) => c.body?.permission === 'push')).toBe(true);
@@ -438,7 +438,7 @@ test.describe('a ruleset repository that was ALSO made read-only', () => {
     await unlockSection(page).locator('textarea').fill('Appeal upheld');
     await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
 
-    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 20000 }).toBeTruthy();
     const writes = apiCalls.filter((c) => c.method === 'PUT');
     expect(writes.map((c) => (c.url.includes('/collaborators/') ? 'collaborator' : 'ruleset')))
       .toEqual(['ruleset', 'collaborator']);

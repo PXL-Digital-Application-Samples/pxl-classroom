@@ -1496,7 +1496,8 @@ import {
   lockdownRecordPath, unlockRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
 import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.mjs'
-import { addedCommits, unstartedRepo } from '../../../lib/starter-commit.mjs'
+import { addedCommits, noSubmissionRow, unstartedRepo } from '../../../lib/starter-commit.mjs'
+import { refreshStatus } from '../../../lib/refresh-status.mjs'
 import { syncRefusal } from '../lib/starter-sync.js'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock, unlockLogins } from '../lib/repo-unlock.js'
 import { changedSinceRead, contentsAt } from '../../../lib/team-write-guard.mjs'
@@ -4051,11 +4052,9 @@ async function fetchBreakdownForStudent(token, s) {
   }
 
   // 1. Optimization: check if student has submitted anything yet
-  // `commit_count === 0` is an empty repository only for GitHub's copy; on a
-  // full-history copy it is "added nothing", which an amend or a reset inside
-  // the template's history - the work of a git exercise - also gives, and the
-  // status above already says whether that is a submission (review 2026-10-14).
-  if (!s.repo_name || s.submission_status === 'no-submission' || (s.commit_count === 0 && !s.starter_sha)) {
+  // (lib/starter-commit.mjs `noSubmissionRow`: an empty repository is one only
+  // for GitHub's copy).
+  if (noSubmissionRow(s)) {
     return 'No submission'
   }
   if (assignment.value?.submission_marker && s.earned_points == null && !s.last_on_time_sha && !s.graded_sha) {
@@ -4432,30 +4431,14 @@ async function refreshOne(token, s) {
         }
       }
 
-      const isUnstarted = unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount })
-      if (isUnstarted) {
-        s.submission_status = 'no-submission'
-      } else if (deadline) {
-        // THE COMMIT'S OWN TIME, as the report judges it (CLAUDE.md:
-        // `observed_at` is when somebody looked): judged by the moment of the
-        // Refresh, a commit made before the deadline read late on any Refresh
-        // pressed after it (review 2026-10-14).
-        const committedAt = Date.parse(commit.commit?.committer?.date || commit.commit?.author?.date || '')
-        if ((Number.isFinite(committedAt) ? committedAt : Date.now()) <= deadline.getTime()) {
-          s.submission_status = 'on-time'
-          s.last_on_time_sha = sha
-        } else {
-          // Post-deadline commit. Nightly semantics: an on-time submission on
-          // record keeps the student on-time - late *activity* is not a late
-          // *submission*. Only classify 'late' when nothing on-time exists.
-          s.first_late_sha = s.first_late_sha || sha
-          if (!s.last_on_time_sha) {
-            s.submission_status = 'late'
-          }
-        }
-      } else {
-        s.submission_status = 'unknown'
-      }
+      // On time, late or nothing, by the commit's own time (lib/refresh-status.mjs).
+      Object.assign(s, refreshStatus({
+        unstarted: unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount }),
+        sha,
+        committedAt: commitDate,
+        deadline: deadline ? deadline.toISOString() : null,
+        row: s,
+      }))
 
       // Fetch CI status if github actions. s.repo_name is already org/repo.
       //

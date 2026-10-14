@@ -416,6 +416,30 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(box).toHaveAttribute('data-state', 'read');
   });
 
+  test('TG-8 (G4b): a score that cannot be read keeps the one on record, and the toast names whose', async ({ page }) => {
+    const { contentWrites } = await setup(page, { tab: 'grading' });
+    // Bob's run is there; its annotations - the score - cannot be read.
+    await page.route(new RegExp(`/repos/${ORG}/${ID}-student-bob/check-runs/101/annotations`), (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ }).click();
+    await expect.poll(() => contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), { timeout: 15000 }).toBe(true);
+    const saved = JSON.parse(contentWrites.filter((w) => w.path === `grading/${ID}/summary.json`).at(-1).content);
+    expect(saved.students.find((s) => s.login === 'student-bob')).toMatchObject({ earned_points: 10, total_points: 20 });
+    await expect(page.locator('.toast', { hasText: 'could not be read, so their earlier result is kept: student-bob' })).toBeVisible({ timeout: 15000 });
+  });
+
+  test('TG-8 (P2-10): when no score at all could be read, it says to read again - never "nobody has a score"', async ({ page }) => {
+    const { contentWrites } = await setup(page, { tab: 'grading' });
+    await page.route(new RegExp(`/repos/${ORG}/[^/]+/check-runs/101/annotations`), (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.locator('.grading-actions').getByRole('button', { name: /Read all scores again/ }).click();
+    const said = page.locator('.toast', { hasText: /could not be read/ });
+    await expect(said).toContainText('read the scores again in a few minutes', { timeout: 15000 });
+    await expect(said).not.toContainText('Nobody has a score');
+    await page.waitForTimeout(500);
+    expect(contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), 'nothing saved').toBe(false);
+  });
+
   test('on Progress, beside Refresh: when the commits were read and how, and no footer', async ({ page }) => {
     const readAt = (i) => `2026-10-01T1${i}:30:00.000Z`;
     const read2 = {
@@ -610,6 +634,10 @@ test.describe('90 - Grade exports and autograder features', () => {
       }));
     const charlie = page.locator('[data-grading-table] tr', { hasText: 'student-charlie' });
     await expect(charlie).toHaveAttribute('data-grading-status', 'running');
+    // TG-8: the lecturer is looking at the Being graded pill when its last
+    // row leaves it - the table goes back to everyone, never "No student matches".
+    await page.locator('.grading-actions .tab-pill', { hasText: 'Being graded (1)' }).click();
+    await expect(page.locator('[data-grading-table] tr', { hasText: 'student-alice' })).toHaveCount(0);
 
     await charlie.getByRole('button', { name: /Actions for student-charlie/i }).click();
     await page.getByRole('button', { name: 'Read score again' }).click();
@@ -623,6 +651,38 @@ test.describe('90 - Grade exports and autograder features', () => {
     expect(saved.students.map((s) => s.login).sort()).toEqual(running.students.map((s) => s.login).sort());
     await expect(charlie).not.toHaveAttribute('data-grading-status', 'running');
     await expect(charlie).toContainText('was cancelled');
+    // TG-8 (G5): no score was on record, so none is said to be removed.
+    await expect(page.locator('.toast', { hasText: /No score for student-charlie by the rules/ })).toBeVisible();
+    await expect(page.locator('.toast', { hasText: 'Their earlier score was removed' })).toHaveCount(0);
+    await expect(page.locator('.grading-actions .tab-pill', { hasText: 'Being graded' })).toHaveCount(0);
+    await expect(page.locator('[data-grading-table] tr', { hasText: 'student-alice' })).toBeVisible();
+  });
+
+  test('TG-8 (G6): a score saved meanwhile is never undone by a read that found none - nothing written, and said', async ({ page }) => {
+    // The page still shows charlie "Being graded"; the nightly has since read
+    // 18/20. Read again, the run reports cancelled: that is no reason to take
+    // the score on record away.
+    const running = {
+      ...initialSummary,
+      students: initialSummary.students.filter((s) => s.login !== 'student-charlie'),
+      failed: [{ login: 'student-charlie', reason: 'the grading run at commit 03aaaaa is still running, so it has no score yet', kind: 'running' }],
+    };
+    const { contentWrites } = await setup(page, { summary: running, tab: 'grading' });
+    await page.route(new RegExp(`/repos/${ORG}/[^/]+/commits/[^/]+/check-runs`), (route) =>
+      route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ check_runs: [{ id: 102, name: 'run-autograding-tests', status: 'completed', conclusion: 'cancelled', html_url: 'https://github.com/runs/9', output: { summary: null, annotations_count: 0 } }] }),
+      }));
+    const charlie = page.locator('[data-grading-table] tr', { hasText: 'student-charlie' });
+    await expect(charlie).toHaveAttribute('data-grading-status', 'running');
+    // The summary on record moves on under the page.
+    running.students.push({ login: 'student-charlie', earned_points: 18, total_points: 20, ci_status: 'success', graded_at: '2026-10-02T01:00:00.000Z', graded_sha: sha(3) });
+    running.failed = [];
+
+    await charlie.getByRole('button', { name: /Actions for student-charlie/i }).click();
+    await page.getByRole('button', { name: 'Read score again' }).click();
+    await expect(page.locator('.toast', { hasText: 'Their result on record is unchanged' })).toBeVisible({ timeout: 15000 });
+    expect(contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), 'nothing written over the 18/20').toBe(false);
   });
 
   test('before the deadline it is "not handed in yet", in grey', async ({ page }) => {

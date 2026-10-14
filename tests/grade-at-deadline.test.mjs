@@ -101,6 +101,12 @@ function fakeApi() {
       if (req.url.includes("/check-runs/77/annotations")) return send(200, ANNOTATIONS);
       if (req.url.includes("/check-runs")) return send(200, { check_runs: [RUN] });
     }
+    // BOB'S run exists and its annotations - the score - cannot be read
+    // (TG-2). A 404, never a 5xx, for the reason below.
+    if (req.url.startsWith("/repos/TestOrg/lab-1-bob/")) {
+      if (req.url.includes("/check-runs/77/annotations")) return send(404, { message: "Not Found" });
+      if (req.url.includes("/check-runs")) return send(200, { check_runs: [RUN] });
+    }
     // 400, never a 5xx: lib/gh.mjs retries anything >= 500 six times with the
     // secondary-rate-limit backoff, so a catch-all 599 turns an unimplemented
     // path into a suite that hangs for minutes and never says why.
@@ -163,6 +169,39 @@ test("IT GRADES THE COHORT AND WRITES A VALID SUMMARY", async () => {
       assert.equal(doc.graded_by, null);
       const v = validateAgainst("grading-summary", doc);
       assert.equal(v.valid, true, JSON.stringify(v.errors));
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("TG-2 (G4b): a score that cannot be read this pass keeps the one on record, and says so", async () => {
+  const stored = {
+    schema_version: 1, assignment_id: ID, generated_at: "2026-09-02T01:00:00.000Z", graded_by: null, runner: "github_actions",
+    students: [
+      { login: "ada", earned_points: 10, total_points: 20, graded_at: "2026-09-02T01:00:00.000Z" },
+      { login: "bob", earned_points: 18, total_points: 20, graded_at: "2026-09-02T01:00:00.000Z" },
+    ],
+    failed: [],
+  };
+  const dir = controlDir({
+    assignmentExtra: "template_grades: true",
+    summary: stored,
+    report: {
+      schema_version: 1, assignment_id: ID, generated_at: "2026-09-02T00:30:00.000Z",
+      students: [
+        { github_login: "ada", repo_name: REPO, preserved_sha: "a".repeat(40) },
+        { github_login: "bob", repo_name: "TestOrg/lab-1-bob", preserved_sha: "b".repeat(40) },
+      ],
+    },
+  });
+  try {
+    await withApi(dir, {}, (res) => {
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      const doc = summaryAt(dir);
+      assert.equal(doc.students.find((s) => s.login === "ada").earned_points, 12, "ada read anew");
+      assert.equal(doc.students.find((s) => s.login === "bob").earned_points, 18, "bob's score on record stands");
+      assert.match(res.stdout, /bob: could not be read - their earlier result is kept/);
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });

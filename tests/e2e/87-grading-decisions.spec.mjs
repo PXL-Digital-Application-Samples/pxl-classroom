@@ -45,21 +45,29 @@ const summaryPath = `grading/${ID}/summary.json`;
 // `startSummary`: the summary on record when the page opens.
 // `pushedLate`: hand-in 6 was committed at 10:00 and pushed at 12:10, after
 // the noon deadline - late by the rule, whatever its own date says.
-async function setup(page, { overrides = null, cancelAll = false, startSummary = summary, pushedLate = false } = {}) {
+// `starterSha`: a full-history copy given commit #1 - the template's own, worded
+// like a hand-in - which is never the student's (TG-8, GR7).
+async function setup(page, { overrides = null, cancelAll = false, startSummary = summary, pushedLate = false, starterSha = null } = {}) {
   const contentWrites = [];
   const reruns = [];
   let rerunDone = false;
   await injectAuth(page, LECTURER);
+  const rep = starterSha ? { ...report, students: [{ ...report.students[0], starter_sha: starterSha, starter_commit_count: 1 }] } : report;
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER, contentWrites,
-    assignments: { [ID]: assignment }, reports: { [ID]: report },
+    assignments: { [ID]: assignment }, reports: { [ID]: rep },
     gradingSummaries: { [ID]: startSummary },
     controlOverrides: overrides ? { [ID]: { [LOGIN]: { schema_version: 1, assignment_id: ID, github_login: LOGIN, overrides } } } : {},
   });
   const esc = REPO.replace('/', '\\/');
   await page.route(new RegExp(`/repos/${esc}/commits\\?`), (route) => {
-    const first = Number(new URL(route.request().url()).searchParams.get('page') || 1) === 1;
+    const u = new URL(route.request().url());
+    const first = Number(u.searchParams.get('page') || 1) === 1;
     const rows = [1, 2, 3, 4, 5, 6].map((n) => ({ sha: sha(n), commit: { message: MSG, committer: { date: at(n * 10) } } })).reverse();
+    // The history of the commit the copy was given: that commit alone.
+    if (starterSha && u.searchParams.get('sha') === starterSha) {
+      return route.fulfill({ status: 200, body: JSON.stringify(first ? rows.filter((r) => r.sha === starterSha) : []) });
+    }
     return route.fulfill({ status: 200, body: JSON.stringify(first ? rows : []) });
   });
   await page.route(new RegExp(`/repos/${esc}/actions/runs(\\?.*)?$`), (route) => {
@@ -167,6 +175,15 @@ test.describe('87 - grading decisions', () => {
     expect(override).toMatchObject({ type: 'submission_sha', value: sha(6), reason: 'The wifi dropped during hand-in 5', overridden_by: LECTURER.login });
     const row = lastSummary(contentWrites).students[0];
     expect(row).toMatchObject({ earned_points: 6, graded_sha: sha(6), decided_by: { kind: 'commit', by: LECTURER.login, reason: 'The wifi dropped during hand-in 5' } });
+  });
+
+  test('TG-8 (GR7): on a full-history copy the template\'s own commit, worded like a hand-in, is not offered as one', async ({ page }) => {
+    await setup(page, { starterSha: sha(1) });
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Choose the commit that counts…' }).click();
+    const rows = picker(page).locator('.commit-row');
+    await expect(rows).toHaveCount(5, { timeout: 15000 });
+    await expect(rows.filter({ hasText: sha(1).slice(0, 7) })).toHaveCount(0);
   });
 
   test('a hand-in with NO result says why and offers to run it again - and the result, once there, can be chosen', async ({ page }) => {
@@ -365,6 +382,8 @@ test.describe('87 - grading decisions', () => {
     const doc = lastSummary(contentWrites);
     expect(doc.students.find((s) => s.login === LOGIN)).toBeUndefined();
     expect(doc.failed.find((f) => f.login === LOGIN)?.reason).toMatch(/cancelled/);
+    // TG-8 (G5): the record held a score, so the toast says it was removed.
+    await expect(page.locator('.toast', { hasText: 'Their earlier score was removed.' })).toBeVisible({ timeout: 15000 });
   });
 });
 

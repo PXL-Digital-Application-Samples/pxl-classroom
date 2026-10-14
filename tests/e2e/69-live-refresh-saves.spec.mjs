@@ -130,6 +130,38 @@ test.describe('69 - a live refresh writes what it shows', () => {
     expect(obs[0].path).toBe(`observations/${ID}/alice-dev/${doc.observed_at.replace(/[:.]/g, '-')}.json`);
   });
 
+  test('TG-6: pressed after the deadline, a commit made before it is on time, and one made after it is late', async ({ page }) => {
+    // Judged by the moment of the Refresh it read late on any Refresh pressed
+    // after the deadline (review 2026-10-14, G13c; lib/refresh-status.mjs).
+    const deadline = new Date(Date.now() - 86400_000);
+    for (const [committed, status] of [[new Date(deadline.getTime() - 3600_000), 'on-time'], [new Date(deadline.getTime() + 3600_000), 'late']]) {
+      const gitCommits = [];
+      const r = report();
+      r.students[0].submission_status = 'no-submission';
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, {
+        currentUser: LECTURER,
+        assignments: { [ID]: { ...assignment(), deadline_at: deadline.toISOString() } },
+        reports: { [ID]: r },
+        gitCommits,
+      });
+      // Three commits (the `last` page at one per page): one would be GitHub's
+      // copy untouched, which is no submission whatever its date.
+      await page.route(`**/${ID}-alice-dev/commits?*`, (route) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        // Exposed, as GitHub exposes it: a cross-origin page cannot read it otherwise.
+        headers: { link: `<https://api.github.com/repos/${ORG}/${ID}-alice-dev/commits?per_page=1&page=3>; rel="last"`, 'access-control-expose-headers': 'Link', 'access-control-allow-origin': '*' },
+        body: JSON.stringify([{ sha: '1'.repeat(40), commit: { message: 'work', author: { name: 'Alice', date: committed.toISOString() }, committer: { name: 'Alice', date: committed.toISOString() } } }]),
+      }));
+      await page.goto(`/dashboard/${ORG}/${ID}`);
+      await expect(page.locator('.cohort-table, table').first()).toBeVisible({ timeout: 15000 });
+      await refreshButton(page).click();
+      await expect.poll(() => reportWrites(gitCommits).length, { timeout: 20000 }).toBe(1);
+      const written = JSON.parse(reportWrites(gitCommits)[0].content);
+      expect(written.students[0].submission_status, `committed ${committed.toISOString()}`).toBe(status);
+    }
+  });
+
   test('a row with no repository id is refreshed and saved, with no observation it could not make valid', async ({ page }) => {
     const { contentWrites } = await openDetail(page);
     await refreshButton(page).click();

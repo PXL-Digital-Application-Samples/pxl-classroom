@@ -277,6 +277,62 @@ test("a commit lookup that FAILED is not 'there is no hand-in'", async () => {
   const res = await gradeCohort(t.request, { students: [row()], marker: MARKER });
   assert.equal(res.ok, false);
   assert.match(res.failed[0].reason, /could not read/);
+  // TG-7 (G4b): and it is a FAILED READ, so a score on record is kept.
+  assert.ok(res.failedReads.has("ada"));
+});
+
+test("TG-7 (G4a): a 403 on the run history or the push log is the App's permission - unless it is the rate limit", async () => {
+  const HANDIN = "h".repeat(40);
+  const commits = { [`/repos/${REPO}/commits?`]: ok([{ sha: HANDIN, commit: { message: "hand-in", committer: { date: "2026-09-09T10:00:00Z" } } }]) };
+  // A cap, so the run history is read (the students' own dispatches count).
+  const capped = { ...MARKER, multiple: true, max_hand_ins: 3 };
+  const denied = { ok: false, status: 403, data: { message: "Resource not accessible by integration" } };
+  const limited = { ok: false, status: 403, data: { message: "API rate limit exceeded" }, headers: { "x-ratelimit-remaining": "0" } };
+  // A rate limit is no refusal of the cohort: that student is a failed read,
+  // told to read again (P2-10), and their score on record stays.
+  for (const [what, answer, refusal, reason] of [
+    ["runs", denied, "permission", /Actions run history \(HTTP 403\)/],
+    ["activity", denied, "permission", /push history \(HTTP 403\)/],
+    ["activity", limited, "nothing-graded", /rate limit stopped the read of this repository's hand-ins/],
+  ]) {
+    const t = transport({
+      ...commits,
+      ...pushed([[HANDIN, "2026-09-09T10:00:05Z"]]),
+      [`/repos/${REPO}/${what === "runs" ? "actions/runs?" : "activity?"}`]: answer,
+    });
+    const res = await gradeCohort(t.request, { students: [row({ effective_deadline_at: "2026-09-10T22:00:00Z" })], marker: capped });
+    assert.equal(res.refusal, refusal, `${what}: ${JSON.stringify(res)}`);
+    assert.match([...res.failed, ...(res.unreadable || [])][0].reason, reason, what);
+    if (refusal === "nothing-graded") assert.ok(res.failedReads.has("ada"), "a failed read, kept on record");
+  }
+});
+
+test("TG-7 (A13): a full-history copy's given commits that cannot be walked to the end are not 'nothing was given'", async () => {
+  // What the copy was given is left out of the hand-ins; a walk of it that
+  // never finishes cannot say which hand-ins are the student's.
+  const GIVEN = "e".repeat(40);
+  const t = transport({
+    [`/repos/${REPO}/commits?`]: (path) => path.includes(`sha=${GIVEN}`)
+      ? ok(Array.from({ length: 100 }, (_, i) => ({ sha: String(i).padStart(40, "0") })))
+      : ok([{ sha: "h".repeat(40), commit: { message: "hand-in", committer: { date: "2026-09-09T10:00:00Z" } } }]),
+    ...pushed([["h".repeat(40), "2026-09-09T10:00:05Z"]]),
+  });
+  const res = await gradeCohort(t.request, { students: [row({ starter_sha: GIVEN, effective_deadline_at: "2026-09-10T22:00:00Z" })], marker: MARKER });
+  assert.equal(res.ok, false);
+  assert.match(res.failed[0].reason, /could not finish counting "hand-in" hand-ins/);
+  assert.ok(res.failedReads.has("ada"), "a failed read: the score on record stays");
+});
+
+test("TG-7 (GR8): a repository that cannot be read after a 404 on its check runs is a failed read, not a deleted repository", async () => {
+  const t = transport({
+    [`/repos/${REPO}/commits/`]: { ok: false, status: 404, data: {} },
+    [`/repos/${REPO}`]: { ok: false, status: 500, data: {} },
+  });
+  const res = await gradeCohort(t.request, { students: [row()] });
+  // Not a fact about the student: the whole write is refused, as for any
+  // read that failed for a reason nobody can name.
+  assert.equal(res.refusal, "api-errors");
+  assert.doesNotMatch(JSON.stringify(res), /does not exist/);
 });
 
 // ---------------------------------------------------------------------------

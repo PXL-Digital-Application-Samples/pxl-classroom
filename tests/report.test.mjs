@@ -209,6 +209,29 @@ test("student with only pre-deadline observations is on-time", () => {
   assert.equal(alice.last_on_time_sha, "b".repeat(40));
 });
 
+test("TA-11 (S11): a full-history assignment carries no commit author, by its setting alone, where no record says so", () => {
+  // The latest commit of such a copy can be the template's, its author the
+  // lecturer - whom the roster harvest would offer as this student.
+  const obs = { alice: [{ observed_at: "2026-09-05T10:00:00Z", sha: "a".repeat(40), author_name: "Lecturer One", author_email: "lecturer@pxl.be" }] };
+  const report = runReport({
+    assignmentYaml: `${BASE_YAML}template_full_history: true\n`,
+    acceptances: [{ github_login: "alice", status: "accepted" }],
+    repositories: [{ github_login: "alice", repo_name: "TestOrg/test-asgn-alice" }],
+    observations: obs,
+  });
+  const alice = report.students.find((s) => s.github_login === "alice");
+  assert.equal(alice.author_name, null);
+  assert.equal(alice.author_email, null);
+  // Without the setting, and no record saying so, the author is carried.
+  const plain = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "alice", status: "accepted" }],
+    repositories: [{ github_login: "alice", repo_name: "TestOrg/test-asgn-alice" }],
+    observations: obs,
+  });
+  assert.equal(plain.students.find((s) => s.github_login === "alice").author_name, "Lecturer One");
+});
+
 test("student with observation after deadline is late", () => {
   const report = runReport({
     assignmentYaml: BASE_YAML,

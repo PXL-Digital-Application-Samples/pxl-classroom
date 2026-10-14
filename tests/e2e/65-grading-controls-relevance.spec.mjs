@@ -258,6 +258,10 @@ test.describe('65 - the per-student re-grade actually writes', () => {
     // document loses whatever nobody listed.
     expect(byLogin['student-two']).toBe(19);
     expect(doc.failed.map((f) => f.login)).toEqual(['student-three']);
+    // TG-8 (G7): who read the cohort, and how, stand - one student read again
+    // is that row's own time, never "Scores read by" whoever pressed it.
+    expect(doc.graded_by).toBe('tomcoolpxl');
+    expect(doc.runner).toBe('github_actions');
   });
 
   test('a student with no readable run changes nothing', async ({ page }) => {

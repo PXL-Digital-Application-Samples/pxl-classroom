@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
+import { addedCommits, noSubmissionRow, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
 import { syncRefusal } from "../lib/starter-sync.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -51,6 +51,20 @@ test("unstartedRepo: at the commit given; GitHub's copy keeps the one-commit rul
   assert.equal(unstartedRepo({ starterSha: null, latestSha: B, commitCount: 1 }), true);
   assert.equal(unstartedRepo({ starterSha: null, latestSha: B, commitCount: 2 }), false);
   assert.equal(unstartedRepo({ starterSha: null, latestSha: B, commitCount: null }), false);
+});
+
+test("TA-10 (R1-5): 'No submission' before anything is read - an empty repository only for GitHub's copy", () => {
+  const row = (extra) => ({ repo_name: "Org/lab-ann", submission_status: "on-time", commit_count: 3, ...extra });
+  assert.equal(noSubmissionRow(row()), false);
+  assert.equal(noSubmissionRow(row({ repo_name: null })), true, "no repository");
+  assert.equal(noSubmissionRow(row({ submission_status: "no-submission" })), true, "the report says so");
+  assert.equal(noSubmissionRow(row({ commit_count: 0 })), true, "GitHub's copy with nothing in it");
+  // A full-history copy that added nothing on top of what it was given: an
+  // amend or a reset inside the template's history - the report's status
+  // decides, not the count.
+  assert.equal(noSubmissionRow(row({ commit_count: 0, starter_sha: A })), false);
+  assert.equal(noSubmissionRow(row({ commit_count: 0, starter_sha: A, submission_status: "no-submission" })), true);
+  assert.equal(noSubmissionRow(null), true);
 });
 
 function write(dir, login, extra = []) {
