@@ -138,6 +138,29 @@ test("RUNNING in the record but the run is OVER: it died, and the lecturer is to
   }
 });
 
+test("REFUSED (G13f): where the last sync left the cohort is still said, and no sync that cannot run is offered or advised", async () => {
+  const { syncRefusal } = await import("../lib/starter-sync.mjs");
+  const refused = syncRefusal({ template_full_history: true });
+  const cases = [
+    describeSyncStatus({ refused, record: record({ status: "stopped", total_students: 111, remaining: 43, results: Array.from({ length: 68 }, (_, i) => res(`s${i}`, "auto-merged")) }) }),
+    describeSyncStatus({ refused, record: record({ status: "running", total_students: 111, results: [res("a", "auto-merged")] }), run: { status: "completed", conclusion: "cancelled" } }),
+    describeSyncStatus({ refused, record: record({ status: "running", via: "cli" }) }),
+    describeSyncStatus({ refused, record: record(), templateHeadSha: "b".repeat(40) }),
+    describeSyncStatus({ refused, record: record({ results: [res("ada", "failed", { error: "push refused" }), res("bo", "auto-merged"), res("cy", "auto-merged")] }) }),
+  ];
+  for (const v of cases) {
+    assert.notEqual(v.action, "sync-again", v.state);
+    assert.notEqual(v.tone, "warning", `${v.state}: nothing to be done, so not a warning`);
+    assert.doesNotMatch(v.detail, /[Ss]ync again|[Rr]un (the sync|it) again/, v.detail);
+    assert.ok(v.detail.endsWith("Its students were given the template with its full history, so their branches are theirs to change and starter sync does not run on it."), v.detail);
+  }
+  assert.equal(cases[0].title, "The sync of aaaaaaa stopped with 43 students not reached", "the cut-off sync is still named");
+  assert.equal(cases[0].detail.split(". ")[0], "It stopped at its time limit");
+  assert.equal(cases[4].failed.length, 1, "and who it could not update");
+  // Not refused: unchanged.
+  assert.equal(describeSyncStatus({ record: record({ status: "stopped", total_students: 2, remaining: 1, results: [res("a", "auto-merged")] }) }).action, "sync-again");
+});
+
 test("the title names its commit so a surface can set it in monospace", () => {
   const v = describeSyncStatus({ record: record(), templateHeadSha: HEAD });
   assert.equal(v.commit, "aaaaaaa");

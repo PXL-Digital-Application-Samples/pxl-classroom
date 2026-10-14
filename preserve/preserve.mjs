@@ -185,6 +185,20 @@ async function main() {
     log("archive-repo", { ok: true, note: `exists id=${arcCheck.data.id}` });
   }
 
+  // NOTHING RUNS IN THE ARCHIVE (review 2026-10-14, A6). An App token's push
+  // starts workflows, and every student's branch carries the template's: one
+  // on `push` with no branch filter ran once per student per pass, billed to
+  // the org, and one that commits back moved the archived branch past what was
+  // preserved. Every pass, so an archive made before this is turned off too.
+  // A failure is said and never stops the preservation: the copy matters more.
+  const actions = await gh("PUT", `/repos/${cfg.org}/${cfg.archiveRepo}/actions/permissions`, { enabled: false });
+  log("archive-actions", {
+    ok: actions.ok || actions.status === 204,
+    note: actions.ok || actions.status === 204
+      ? "Actions are off in the archive, so nothing runs on a preserved branch"
+      : `could not turn Actions off in the archive (HTTP ${actions.status}) - a workflow on the preserved branches may run`,
+  });
+
   // 3. Read lockdown record
   let lockdownRecord;
   try {

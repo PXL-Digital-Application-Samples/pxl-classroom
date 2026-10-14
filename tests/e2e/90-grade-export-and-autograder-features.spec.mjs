@@ -594,6 +594,37 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(page.locator('[data-grading-box]')).toContainText('1 student is still being graded: read them again once their runs have finished.');
   });
 
+  test('Read score again on a "Being graded" row whose run has ended since: the row and the summary take the new answer (G12)', async ({ page }) => {
+    const running = {
+      ...initialSummary,
+      students: initialSummary.students.filter((s) => s.login !== 'student-charlie'),
+      failed: [{ login: 'student-charlie', reason: 'the grading run at commit 03aaaaa is still running, so it has no score yet', kind: 'running' }],
+    };
+    const { contentWrites } = await setup(page, { summary: running, tab: 'grading' });
+    // Registered after the fixture, so it wins: the run is over, cancelled.
+    await page.route(new RegExp(`/repos/${ORG}/[^/]+/commits/[^/]+/check-runs`), (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ check_runs: [{ id: 102, name: 'run-autograding-tests', status: 'completed', conclusion: 'cancelled', html_url: 'https://github.com/runs/9', output: { summary: null, annotations_count: 0 } }] }),
+      }));
+    const charlie = page.locator('[data-grading-table] tr', { hasText: 'student-charlie' });
+    await expect(charlie).toHaveAttribute('data-grading-status', 'running');
+
+    await charlie.getByRole('button', { name: /Actions for student-charlie/i }).click();
+    await page.getByRole('button', { name: 'Read score again' }).click();
+
+    await expect.poll(() => contentWrites.some((w) => w.path === `grading/${ID}/summary.json`), { timeout: 15000 }).toBe(true);
+    const saved = JSON.parse(contentWrites.filter((w) => w.path === `grading/${ID}/summary.json`).at(-1).content);
+    const row = saved.failed.find((f) => f.login === 'student-charlie');
+    expect(row.kind).toBe('no-result');
+    expect(row.reason).toMatch(/was cancelled, so it carries no score/);
+    // Everyone else's rows stand as they were.
+    expect(saved.students.map((s) => s.login).sort()).toEqual(running.students.map((s) => s.login).sort());
+    await expect(charlie).not.toHaveAttribute('data-grading-status', 'running');
+    await expect(charlie).toContainText('was cancelled');
+  });
+
   test('before the deadline it is "not handed in yet", in grey', async ({ page }) => {
     const future = '2099-01-01T12:00:00.000Z';
     const notHandedIn = {
@@ -611,6 +642,55 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(david.locator('.status-dot')).toHaveClass(/dot-neutral/);
     const card = page.locator('[data-grading-cards] .summary-card', { hasText: 'Not handed in yet' });
     await expect(card.locator('.summary-value')).toHaveClass(/stat-neutral/);
+  });
+
+  // Review 2026-10-14 (D17b, G12): each row reads that student's deadline, and
+  // the card counts them all - so when only some are overdue it says how many.
+  const extended = '2099-01-01T12:00:00.000Z';
+  const mixedReport = {
+    ...report,
+    students: students.map((s) =>
+      s.github_login === 'student-charlie'
+        ? { ...s, submission_status: 'no-submission', commit_count: 0, latest_commit_date: undefined, commit_date: undefined, effective_deadline_at: extended }
+        : s,
+    ),
+  };
+  const mixedSummary = {
+    ...initialSummary,
+    students: initialSummary.students.filter((s) => s.login !== 'student-charlie' && s.login !== 'student-david'),
+    failed: [
+      { login: 'student-david', reason: 'no commit says "final submission", so nothing was handed in', kind: 'not-handed-in' },
+      { login: 'student-charlie', reason: 'no commit says "final submission", so nothing was handed in', kind: 'not-handed-in' },
+    ],
+  };
+
+  test('when only some are past their own deadline, the grading card says how many', async ({ page }) => {
+    await setup(page, { summary: mixedSummary, report: mixedReport, tab: 'grading' });
+    const card = page.locator('[data-grading-cards] [data-card="not-handed-in"]');
+    await expect(card.locator('.summary-value')).toHaveText('2');
+    await expect(card.locator('.summary-value')).toHaveClass(/stat-red/);
+    await expect(card.locator('.summary-label')).toHaveText('Not handed in: 1 past their deadline');
+    await expect(card).toHaveAttribute('title', '1 of 2 past their own deadline; the others are not due yet');
+    await expect(page.locator('[data-grading-table] tr', { hasText: 'student-charlie' })).toContainText('Not handed in yet');
+    await expect(page.locator('[data-grading-table] tr', { hasText: 'student-david' })).not.toContainText('Not handed in yet');
+  });
+
+  test('a result from checks with no points is said to be pass or fail, never like a zero (D17a)', async ({ page }) => {
+    const noPoints = {
+      ...initialSummary,
+      students: initialSummary.students.map((s) => (s.login === 'student-alice' ? { ...s, earned_points: 0, total_points: 0 } : s)),
+    };
+    await setup(page, { summary: noPoints, tab: 'grading' });
+    await expect(page.locator('[data-grading-box]')).toContainText('1 student was graded by checks that carry no points: that result is pass or fail, not a score.');
+    await expect(page.locator('[data-grading-box]')).not.toContainText('no points to count');
+  });
+
+  test('and so does the progress card', async ({ page }) => {
+    await setup(page, { summary: mixedSummary, report: mixedReport });
+    const card = page.locator('[data-card="no-submission"]');
+    await expect(card.locator('.summary-value')).toHaveText('2');
+    await expect(card.locator('.summary-value')).toHaveClass(/stat-red/);
+    await expect(card.locator('.summary-label')).toHaveText('No submission: 1 past their deadline');
   });
 });
 

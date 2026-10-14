@@ -79,6 +79,21 @@
       </div>
     </div>
 
+    <!-- Whether students see a rename, from the page they are served (review
+         2026-10-14, PG12): read when the teams load and on Check again. -->
+    <p v-if="namesLine" class="seeded-note" data-note="renamed-served" :data-state="namesServed.state">
+      <Icon :name="namesServed.state === 'current' ? 'check' : 'alert-circle'" :size="13" />
+      <span>
+        {{ namesLine }}
+        <button type="button" class="btn-link" :disabled="checkingNames" @click="checkRenamedNames">
+          {{ checkingNames ? 'Checking…' : 'Check again' }}
+        </button>
+        <template v-if="namesServed.state === 'stale'">
+          ·
+          <button type="button" class="btn-link" :disabled="checkingNames" @click="rebuildForNames">Update the student pages</button>
+        </template>
+      </span>
+    </p>
     <!-- Provenance: one line for the whole table, not a badge on every row -->
     <p v-if="seededSummary" class="seeded-note">
       <Icon name="users" :size="13" />
@@ -550,7 +565,8 @@ import {
   listClaims,
 } from '../lib/api.js'
 import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
-import { confirmationUrl, linkSecretFrom } from '../lib/invite.js'
+import { confirmationUrl, linkSecretFrom, inviteTeamsUrl } from '../lib/invite.js'
+import { renamedTeamsServed, renamedTeamsLine } from '../lib/team-names-served.js'
 import { copyText } from '../lib/clipboard.js'
 import {
   moveConfirmation,
@@ -1089,6 +1105,42 @@ function republishTeams(token) {
     failure: 'Saved, but publishing the change to students failed',
   })
 }
+
+// Whether students see each renamed team's new name (lib/team-names-served.js).
+// Asked of the file the student site serves, never remembered from the rename.
+const namesServed = ref({ state: 'none', stale: [] })
+const checkingNames = ref(false)
+const namesLine = computed(() => renamedTeamsLine(namesServed.value))
+let namesRun = 0
+async function checkRenamedNames() {
+  const mine = ++namesRun
+  const secret = linkSecretFrom(props.assignment)
+  if (!secret || !(props.teams || []).some((t) => Array.isArray(t?.renamed_from) && t.renamed_from.length)) {
+    namesServed.value = { state: 'none', stale: [] }
+    return
+  }
+  checkingNames.value = true
+  let served
+  try {
+    const res = await fetch(`${await inviteTeamsUrl(props.org, secret)}?t=${Date.now()}`, { cache: 'no-store' })
+    if (res.status === 404) served = { status: 'missing' }
+    else if (!res.ok) served = { status: 'unreadable' }
+    else {
+      const data = await res.json().catch(() => null)
+      served = Array.isArray(data?.teams) ? { status: 'ok', teams: data.teams } : { status: 'unreadable' }
+    }
+  } catch {
+    served = { status: 'unreadable' }
+  }
+  if (mine !== namesRun) return
+  namesServed.value = renamedTeamsServed(props.teams, served)
+  checkingNames.value = false
+}
+async function rebuildForNames() {
+  await republishTeams(getToken())
+  await checkRenamedNames()
+}
+watch(() => props.teams, checkRenamedNames, { immediate: true })
 
 async function removeSeededTeams() {
   const removable = removableSeededTeams.value

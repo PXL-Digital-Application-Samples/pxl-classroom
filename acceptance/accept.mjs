@@ -1314,7 +1314,11 @@ async function main() {
           } else {
             oldTeam.vacant = true;
             const why = {
-              touched: "its repository is somebody's work",
+              // What repoTouched established, and no more (review 2026-10-14,
+              // S6): a second branch - provisioning's own feedback baseline is
+              // one - or commits it cannot vouch for as GitHub's or PXL
+              // Classroom's, which is not the same as somebody's work.
+              touched: "its repository holds more than GitHub's copy and PXL Classroom's own commits, so it may be somebody's work",
               absent: "GitHub shows no repository for it",
               unknown: "its repository could not be read",
               unrecorded: "its record names no repository of this assignment",
@@ -1431,6 +1435,13 @@ async function main() {
           `"${teamSlug}" is the old name of the team now called "${renamedTo}"; a new team cannot take it`,
         );
       }
+      // A JOIN OF A TEAM WITH NO FILE MAKES IT, as a create does (decided
+      // 2026-10-14, AC9). The page offers a team from its creator's request
+      // before the hub has saved it, so "no file" is as often "not saved yet"
+      // as "removed since", and nothing here tells them apart: refusing the
+      // join turned away the teammate of every team made in a rush
+      // (tests/acceptance-race.test.mjs). A renamed team's old slug is refused
+      // above; a removed one made again shows on the Teams tab.
       // The code the creator's page made and showed them. Fails closed: a team
       // created without one under require_join_code would be open to anyone,
       // which is what the setting exists to stop - so a stale page, or a
@@ -1475,6 +1486,32 @@ async function main() {
   const targetRepo = isGroup
     ? repositoryNameFor(assignment.repository_name_pattern, { teamSlug, login })
     : repositoryNameFor(assignment.repository_name_pattern, { login });
+
+  // A SWITCH WHOSE PROVISIONING FAILED BEFORE IT LEFT THE OLD REPOSITORY
+  // (review 2026-10-14, AC3). The decision moved the student into the new team
+  // and removed the old one if it was empty; provisioning then failed before
+  // it took their access to the old repository away and removed it, and the
+  // retry - theirs, or a lecturer's - found them already in the new team, so
+  // it was no switch and nothing ever finished it. Their repository record
+  // still names the old repository (only provisioning's success rewrites it):
+  // a repository of another team of this assignment is the one left, and it
+  // goes too where that team's file is gone. Provisioning asks again whether
+  // anything was pushed before it removes anything.
+  if (isGroup && teamSlug && !previousRepo) {
+    try {
+      const recPath = join(dataDir, "repositories", assignmentId, `${login}.json`);
+      const rec = existsSync(recPath) ? JSON.parse(await readFile(recPath, "utf-8")) : null;
+      const leftSlug = typeof rec?.team_slug === "string" ? rec.team_slug.toLowerCase() : "";
+      const leftRepo = manifestRepoName(rec?.repo_name, org);
+      if (leftRepo && leftSlug && leftSlug !== teamSlug.toLowerCase() && leftRepo.toLowerCase() !== targetRepo.toLowerCase()) {
+        previousRepo = leftRepo;
+        previousRepoRemove = !existsSync(join(dataDir, "teams", assignmentId, `${leftSlug}.json`));
+        log("team-switch-unfinished", { ok: true, note: `still to leave ${leftRepo} from the earlier switch${previousRepoRemove ? " (its team is gone)" : ""}` });
+      }
+    } catch {
+      // An unreadable record leaves nothing to finish that can be named.
+    }
+  }
 
   // For a TEAM, an acceptance is "already accepted" only into the team it
   // names. A lecturer can remove a student from their team (the Teams tab
@@ -1700,7 +1737,8 @@ async function main() {
   // whether provisioning may remove it when it is EMPTY, and so whether this
   // acceptance "reused an existing repository": one a failed attempt of ours
   // left behind is not a repository the assignment did not make.
-  const ownEarlierAttempt = leftoverOfOwnAttempt(priorAcceptance, { ownGroupRepo });
+  // Into THIS team (AC8): on a switch the record still names the team left.
+  const ownEarlierAttempt = leftoverOfOwnAttempt(priorAcceptance, { ownGroupRepo, teamSlug: isGroup ? teamSlug : null });
   if (ownEarlierAttempt) reusedExistingRepo = false;
   const record = {
     schema_version: 1,

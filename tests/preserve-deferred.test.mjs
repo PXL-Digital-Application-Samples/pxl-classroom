@@ -32,7 +32,7 @@ const preserveScript = join(here, "..", "preserve", "preserve.mjs");
 const ARCHIVE_PATH = `/repos/TestOrg/${archiveRepoName("exam")}`;
 
 /** Stub GitHub API: enough for the auth ping and the archive-repo probe. */
-async function withStubApi(fn) {
+async function withStubApi(fn, { actionsStatus = 204 } = {}) {
   const seen = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
@@ -40,9 +40,13 @@ async function withStubApi(fn) {
       res.end(JSON.stringify(body));
     };
     const url = req.url.split("?")[0];
-    seen.push(url);
+    seen.push(`${req.method} ${url}`);
     if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
     if (url === ARCHIVE_PATH) return send(200, { id: 7 });
+    if (url === `${ARCHIVE_PATH}/actions/permissions` && req.method === "PUT") {
+      res.writeHead(actionsStatus);
+      return res.end();
+    }
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -240,14 +244,34 @@ test("preservation targets the assignment's own archive, not the org's", async (
     const res = await runPreserve(makeControlDir([deferred]), api);
     assert.equal(res.status, 0, res.stderr);
     assert.ok(
-      seen.includes(`/repos/TestOrg/${archiveRepoName("exam")}`),
+      seen.includes(`GET /repos/TestOrg/${archiveRepoName("exam")}`),
       `expected a probe for the per-assignment archive, saw: ${seen.join(", ")}`,
     );
     assert.ok(
-      !seen.includes("/repos/TestOrg/pxl-classroom-archive"),
+      !seen.some((s) => s.endsWith(" /repos/TestOrg/pxl-classroom-archive")),
       "must not touch the old per-org archive",
     );
   });
+});
+
+test("A6: Actions are turned off in the archive on every pass, and a refusal does not stop the copy", async () => {
+  // Review 2026-10-14: an App token's push starts workflows, and every
+  // student's branch carries the template's.
+  await withStubApi(async (api, seen) => {
+    const res = await runPreserve(makeControlDir([deferred]), api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(seen.includes(`PUT ${ARCHIVE_PATH}/actions/permissions`), seen.join(", "));
+    assert.match(res.stdout, /Actions are off in the archive/);
+  });
+  await withStubApi(
+    async (api) => {
+      const res = await runPreserve(makeControlDir([deferred]), api);
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /error_count=0/);
+      assert.match(res.stdout, /could not turn Actions off in the archive \(HTTP 403\)/);
+    },
+    { actionsStatus: 403 },
+  );
 });
 
 test("an assignment id with no usable archive name fails validation, not the push", async () => {

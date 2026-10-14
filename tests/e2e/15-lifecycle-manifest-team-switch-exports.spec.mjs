@@ -140,6 +140,26 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     // Reopen dropdown and trigger Export CSV
     await exportBtn.click();
     await exportMenu.locator('.export-dropdown-item', { hasText: 'Export CSV' }).click();
+
+    // Before anything is preserved both rows say why, can be reached from the
+    // keyboard (aria-disabled, review 2026-10-14 D12), and a click does nothing.
+    await setupStandardMockRoutes(page, {
+      assignments: { [assignmentId]: assignment },
+      reports: { [assignmentId]: { ...mockReport, students: mockReport.students.map((s) => ({ ...s, preservation_status: undefined, preserved_sha: undefined })) } },
+      currentUser: LECTURER,
+    });
+    await page.reload();
+    await exportBtn.click();
+    for (const name of ['Download Manifest', 'Copy CLI Download']) {
+      const row = exportMenu.locator('.export-dropdown-item', { hasText: name });
+      await expect(row).toContainText('Available after deadline lockdown');
+      await expect(row).toHaveAttribute('aria-disabled', 'true');
+      await row.focus();
+      await expect(row).toBeFocused();
+    }
+    const toasts = await page.locator('.toast', { hasText: /CLI command copied/i }).count();
+    await exportMenu.locator('.export-dropdown-item', { hasText: 'Copy CLI Download' }).click({ force: true });
+    await expect(page.locator('.toast', { hasText: /CLI command copied/i })).toHaveCount(toasts);
   });
 
   test('Scenario 3 (Student Dynamic Team Switching): Provisioned student initiates team switch, updates team capacities, and resolves new target repo', async ({ page }) => {

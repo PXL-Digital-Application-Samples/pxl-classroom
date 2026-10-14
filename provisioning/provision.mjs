@@ -134,6 +134,25 @@ const FILL_WAIT_CHECKS = Number(process.env.PXL_FILL_WAIT_CHECKS) > 0 ? Number(p
 // push): four minutes each, so both together end inside the ten minutes
 // `mayStillBeFilling` keeps a new repository from being removed by a retry.
 const GIT_STEP_MS = 4 * 60 * 1000;
+
+/**
+ * How many 2-second checks a kept empty repository gets to fill. Another run's
+ * GitHub copy fills in seconds, so two minutes; a full-history copy is a clone
+ * and a push of up to `GIT_STEP_MS` each, so a teammate joining while the
+ * first member's copy is running waits until that copy's own limit has passed
+ * (counted from when the repository was created), not two minutes and a failure
+ * telling them to come back (review 2026-10-14, AC7).
+ *
+ * @param {{ fullHistory: boolean, createdAt?: unknown, now?: Date, base?: number, stepMs?: number }} p
+ */
+export function fillWaitChecks({ fullHistory, createdAt, now = new Date(), base = FILL_WAIT_CHECKS, stepMs = GIT_STEP_MS }) {
+  if (!fullHistory) return base;
+  const created = typeof createdAt === "string" ? Date.parse(createdAt) : NaN;
+  const limit = 2 * stepMs + 60 * 1000;
+  const left = Number.isFinite(created) ? created + limit - now.getTime() : limit;
+  return Math.max(base, Math.ceil(left / 2000));
+}
+
 async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
   if (repoPopulated) return true;
   for (let i = 0; i < attempts; i++) {
@@ -224,6 +243,36 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = 
  * loop billing the org sixty times what the lecturer asked for. Rounded UP so a
  * sub-minute limit stays a limit rather than becoming zero.
  */
+/**
+ * Why the full-history copy failed, in this system's words and never git's:
+ * git's lines name branches and files of a template that may be private, and
+ * the hub's run log is public (review 2026-10-14, AC12). Known causes are
+ * named; anything else is the stage and git's exit code.
+ *
+ * @param {string} stage  which step failed, in words
+ * @param {{ stderr?: unknown, message?: unknown, status?: number|null, signal?: string|null, code?: string }} err  execFileSync's error
+ * @param {number} limitMs  the per-step time limit
+ */
+export function gitCopyFailure(stage, err, limitMs) {
+  const text = `${err?.stderr ?? ""}\n${err?.message ?? ""}`;
+  if (err?.code === "ETIMEDOUT" || err?.signal === "SIGTERM") {
+    return `${stage} did not finish within ${Math.round(limitMs / 60000)} minutes`;
+  }
+  if (/Authentication failed|could not read Username|terminal prompts disabled|HTTP 40[13]|returned error: 40[13]/i.test(text)) {
+    return `${stage} was refused by GitHub: PXL Classroom's access to that repository was not accepted`;
+  }
+  if (/GH001|exceeds GitHub's file size limit|large files detected/i.test(text)) {
+    return `${stage} was refused by GitHub: a file in the template is larger than GitHub accepts`;
+  }
+  if (/refusing to allow .* to create or update workflow|workflows? .*permission/i.test(text)) {
+    return `${stage} was refused by GitHub: it may not write a workflow file there`;
+  }
+  if (/GH013|protected branch|rule violations|pre-receive hook declined/i.test(text)) {
+    return `${stage} was refused by GitHub: a rule on the repository rejected it`;
+  }
+  return `${stage} failed (git exited with code ${Number.isInteger(err?.status) ? err.status : "unknown"})`;
+}
+
 export function graderTimeoutMinutes(test) {
   const seconds = Number(test?.timeout_s);
   if (!Number.isFinite(seconds) || seconds <= 0) return 1;
@@ -497,6 +546,7 @@ async function createWithFullHistory(tpl) {
   const git = (args, cwd) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: GIT_STEP_MS }).trim();
   let copyFailed = "";
   let pushed = null;
+  let stage = "the clone of the template";
   try {
     // `--bare`, not `--mirror`: a mirror clone of a GitHub repository also
     // fetches refs/pull/*, which GitHub refuses on push. GitHub's own
@@ -505,7 +555,9 @@ async function createWithFullHistory(tpl) {
     // `--atomic`: every branch or none. A copy cut off halfway would be a
     // repository with SOME of the exercise in it, which a retry reuses as it
     // is; an empty one it removes and copies again (step 3).
+    stage = "the push into the student's repository";
     git(["push", "--mirror", "--atomic", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.org, cfg.targetRepo)], bare);
+    stage = "reading back what was pushed";
     // WHAT WAS PUSHED is what the repository was given, known here for certain
     // rather than read back afterwards: a read that failed three times left a
     // copy with no starting commit, which the report then read as GitHub's
@@ -517,9 +569,10 @@ async function createWithFullHistory(tpl) {
     const branches = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], bare).split("\n").filter(Boolean);
     log("copy-history", { ok: true, note: `${branches.length} branch(es) with their history` });
   } catch (e) {
-    // The last lines of git's answer, with any ref names in them taken out.
-    copyFailed = String(e.stderr || e.message || e).trim().split("\n").slice(-3).join(" ")
-      .replace(/\S+\s*->\s*\S+/g, "<branch> -> <branch>");
+    // What went wrong in OUR words, never git's (review 2026-10-14, AC12):
+    // its lines name branches and files of a private template, and this log
+    // is public. `gitCopyFailure` classifies; an unknown failure is its exit code.
+    copyFailed = gitCopyFailure(stage, e, GIT_STEP_MS);
   } finally {
     // Before any failure is reported: fail() ends the process, finally or not.
     await rm(work, { recursive: true, force: true });
@@ -721,7 +774,11 @@ async function main() {
       // the repository, retried inside the ten minutes, was reported `reused`
       // with no starter code (review 2026-10-06). Another run's repository
       // fills in seconds; a leftover never does, and says so.
-      if (!cfg.dryRun && !(await ensureRepoPopulated({ attempts: FILL_WAIT_CHECKS, delayMs: 2000 }))) {
+      // A pinned count (the unit tests) is taken as it is.
+      const attempts = process.env.PXL_FILL_WAIT_CHECKS
+        ? FILL_WAIT_CHECKS
+        : fillWaitChecks({ fullHistory: cfg.fullHistory, createdAt: existing.data?.created_at });
+      if (!cfg.dryRun && !(await ensureRepoPopulated({ attempts, delayMs: 2000 }))) {
         await fail(
           "fail:create",
           `${cfg.org}/${cfg.targetRepo} exists and is still empty: an earlier attempt left it, or GitHub has not ` +
@@ -781,9 +838,13 @@ async function main() {
   // feedback baseline went there and `main` got neither (review 2026-10-14).
   // And only a copy this system PUSHED: GitHub's own copy names its template
   // (`template_repository`), a pushed one does not, so a GitHub copy of an
-  // assignment whose setting was ticked later is never taken for one.
+  // assignment whose setting was ticked later is never taken for one. NOT
+  // only while the setting is on (review 2026-10-14, F4b): a copy made while
+  // it was, whose run failed, and retried after it was turned off, recorded
+  // nothing - and is still a full-history copy. Nobody but the App having
+  // pushed is what makes it certain, whatever the setting says now.
   let recoverHistoryCopy = false;
-  if (cfg.fullHistory && alreadyExists && !cfg.dryRun && repo && !repo.template_repository) {
+  if (alreadyExists && !cfg.dryRun && repo && !repo.template_repository) {
     recoverHistoryCopy = await onlyAppPushed();
     const branch = tpl.data?.default_branch;
     if (recoverHistoryCopy && branch && BRANCH.test(branch) && repo.default_branch !== branch) {

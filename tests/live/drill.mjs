@@ -13,7 +13,9 @@
 //       --full-history gives the students the template with every branch and
 //       its history (template_full_history), from `history-template`, which
 //       the drill makes once: two commits, two prepared branches, a tag. Start
-//       checks the copy and what it recorded; verify checks the report counts
+//       checks the copy and what it recorded, and strips the second student's
+//       start from their record and retries them before they push, which must
+//       recover it from the push log; verify checks the report counts
 //       only the student's commit and that starter sync refuses it.
 //       --deadline pins the instant instead of deriving it from --minutes, so a
 //       second drill started minutes later SHARES it. That is what an exam with
@@ -276,6 +278,44 @@ async function checkHistoryCopy(student, record, tpl) {
   else bad(`${student.login}: feature-x and ${tpl.default_branch} share no history (${cmp?.message ?? cmp?.status ?? "unreadable"})`);
 }
 
+/**
+ * A copy whose record lost what it was given (a first run that failed after
+ * the copy), retried while nobody but PXL Classroom has pushed to it, recovers
+ * its start from the repository's own push log (provisioning's
+ * `onlyAppPushed`). The unit tests stub `/activity`; this asks GitHub's, whose
+ * actor for the App's git push is the thing nothing else had measured (review
+ * 2026-10-14, F8). Run before the student's first push, which is what ends it.
+ */
+async function checkHistoryRecovery(id, student, recordPath, record) {
+  console.log(`\n   ${student.login}'s record loses its start, and a Retry before any push recovers it\n`);
+  const stored = await readControl(recordPath);
+  if (!stored.ok) { bad(`${recordPath} could not be read: HTTP ${stored.status}`); return; }
+  const { starter_sha: _sha, starter_commit_count: _count, full_history: _full, ...stripped } = JSON.parse(stored.text);
+  const put = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/${recordPath}`, {
+    token: LECTURER.token,
+    method: "PUT",
+    body: {
+      message: `drill: ${student.login}'s record without what the copy was given`,
+      content: Buffer.from(JSON.stringify(stripped, null, 2) + "\n").toString("base64"),
+      sha: stored.sha,
+    },
+  });
+  if (!put.ok) { bad(`could not strip the start from ${recordPath}: HTTP ${put.status}`); return; }
+  ok(`${recordPath} no longer says what the copy was given`);
+
+  const at = Date.now() - 5_000;
+  if (!(await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: student.login }))) return;
+  const run = await findDispatchedRun("retry-acceptance.yml", at);
+  const done = run ? await waitForRun(run) : null;
+  if (done?.conclusion !== "success") { bad(`retry run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`); return; }
+  const after = await readControlJson(recordPath);
+  if (after?.starter_sha === record.starter_sha && after?.starter_commit_count === record.starter_commit_count && after?.full_history === true) {
+    ok(`the retry read the push log, found only PXL Classroom, and recovered ${after.starter_sha.slice(0, 7)} (${after.starter_commit_count} commits): ${run.html_url}`);
+  } else {
+    bad(`the retry did not recover the start: starter_sha ${after?.starter_sha ?? "none"}, count ${after?.starter_commit_count ?? "none"}, full_history ${after?.full_history} (expected ${record.starter_sha?.slice(0, 7)}, ${record.starter_commit_count}, true): ${run.html_url}`);
+  }
+}
+
 // --- start ----------------------------------------------------------------------
 
 async function start() {
@@ -428,6 +468,11 @@ async function start() {
       if (await waitForLabel(broker, issue, INVITED_LABEL, 60_000)) ok(`#${issue} carries ${INVITED_LABEL}`);
       else bad(`#${issue} has no ${INVITED_LABEL} label although the record says invited`);
     }
+
+    // The last student, before their first push: the first one's retry below
+    // runs after a push, which is the other side - nothing recovered, the
+    // record's start carried over.
+    if (fullHistory && i === STUDENTS.length - 1) await checkHistoryRecovery(id, student, recordPath, record);
 
     await handIn(student, record);
   }

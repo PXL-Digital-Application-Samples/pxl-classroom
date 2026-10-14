@@ -195,12 +195,16 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   const since = new Date(now - LOOKBACK_MS).toISOString();
   const listRuns = (query) =>
     ghAllItems(`/repos/${owner}/${repo}/actions/runs?${query}&per_page=100`, "workflow_runs", ghOpts);
-  const [waitingAll, inProgressAll, completedAll, queuedAll] = await Promise.all([
+  const [waitingAll, inProgressAll, completedAll, queuedAll, pendingAll] = await Promise.all([
     listRuns("status=waiting"),
     listRuns("status=in_progress"),
     listRuns(`status=completed&created=${encodeURIComponent(`>=${since}`)}`),
     // Only to know whether a deploy is already on its way (pagesRedeployDue).
     listRuns("status=queued"),
+    // Held behind its concurrency group (review 2026-10-14, R1-11): watched
+    // by nothing before. Alerted only, never cancelled - a pending run is
+    // somebody's work waiting its turn.
+    listRuns("status=pending"),
   ]);
   // A list that reached GitHub's cap is not the whole list (RUN_LIST_CAP).
   const capped = [["waiting", waitingAll], ["running", inProgressAll], ["finished", completedAll]]
@@ -238,6 +242,13 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
         durationMin: Math.max(1, Math.round(ageMs / 60000)),
         reason: "waiting_timeout",
       });
+    }
+  }
+
+  for (const r of pendingAll.filter(watchedRun)) {
+    const ageMs = runAgeMs(r, now);
+    if (ageMs > stuckAfterMinutes(r.path, r.status) * 60 * 1000) {
+      stuckRuns.push({ ...r, ageMs, durationMin: Math.max(1, Math.round(ageMs / 60000)), reason: "pending_timeout" });
     }
   }
 
@@ -283,6 +294,11 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   let deployRedispatched = false;
   if (autoCancel) {
     for (const r of stuckRuns) {
+      // NEVER A DEADLINE SENTINEL (review 2026-10-14, LD9). A second sentinel
+      // waits behind the first on its concurrency group, and its whole job is
+      // to cover the instant if the first one's stop failed: cancelling it
+      // takes that away on exam day. It is alerted, and a person decides.
+      if (isWorkflow(r, "deadline-sentinel.yml")) continue;
       if (r.reason === "waiting_timeout" && r.ageMs > 20 * 60 * 1000) {
         try {
           console.log(`Auto-cancelling stuck run #${r.id} (${r.name})...`);
@@ -379,7 +395,10 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   const mentions = notifyLogins.map((l) => `@${l}`).join(" ");
 
   for (const r of stuckRuns) {
-    const dedupKey = `stuck-${r.id}`;
+    // PER ATTEMPT (review 2026-10-14, G13d): a re-run keeps the run's id, so a
+    // re-run that got stuck too was never alerted - the first attempt's alert
+    // already carried the key.
+    const dedupKey = (r.run_attempt ?? 1) > 1 ? `stuck-${r.id}-a${r.run_attempt}` : `stuck-${r.id}`;
     const alreadyPosted = comments.some((c) => c.body?.includes(`${DEDUP_MARKER}${dedupKey}-->`));
     if (alreadyPosted) {
       console.log(`Alert already posted for stuck run #${r.id}, skipping.`);
@@ -393,7 +412,9 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
       `${mentions ? `${mentions} - ` : ""}Workflow run **#${r.id}** is stuck in **${r.status}** for **${r.durationMin}** minutes.\n\n` +
       `- **Workflow:** [${r.name}](${r.html_url})\n` +
       `- **Event:** \`${r.event}\`\n` +
-      `- **Triggered at:** ${r.created_at}\n` +
+      // The time the age above is counted from: this attempt's start, which a
+      // re-run moves; `created_at` beside it disagreed with the minutes.
+      `- **Started at:** ${r.run_started_at || r.created_at}${(r.run_attempt ?? 1) > 1 ? ` (attempt ${r.run_attempt})` : ""}\n` +
       `- **Action taken:** ${wasCancelled ? "Automatically cancelled to unblock queue." : "Requires manual cancellation or attention."}\n`;
 
     await gh("POST", `/repos/${owner}/${repo}/issues/${issue.number}/comments`, { body: commentBody }, ghOpts);

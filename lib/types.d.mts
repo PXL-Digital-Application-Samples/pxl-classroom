@@ -601,6 +601,9 @@ export type Team = {
   repo_name?: string;
   repo_id?: number;
   repo_url?: string;
+  starter_sha?: string;
+  starter_commit_count?: number;
+  full_history?: boolean;
   join_code?: string;
   vacant?: boolean;
   renamed_from?: string[];

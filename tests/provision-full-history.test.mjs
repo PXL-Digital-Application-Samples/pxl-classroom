@@ -173,7 +173,68 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
   }
 }
 
-function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null, feedbackPr = "false" } = {}) {
+/**
+ * The bare repositories in `srv` served over git's smart HTTP, through git's own
+ * `git http-backend`, answering 401 to any request without the App token's
+ * header - as GitHub does. Over `file://` git never sends `http.*` config, so
+ * the header the copy authenticates with was otherwise never exercised (F9).
+ */
+async function withGitHttp(srv, token, fn) {
+  const expected = `basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+  const requests = [];
+  const server = createServer((req, res) => {
+    const authorized = String(req.headers.authorization ?? "").toLowerCase() === expected.toLowerCase();
+    requests.push({ url: req.url, authorized });
+    if (!authorized) {
+      res.writeHead(401, { "WWW-Authenticate": 'Basic realm="GitHub"' });
+      return res.end();
+    }
+    const u = new URL(req.url, "http://x");
+    const cgi = spawn("git", ["http-backend"], {
+      env: {
+        ...process.env,
+        GIT_PROJECT_ROOT: srv,
+        GIT_HTTP_EXPORT_ALL: "1",
+        PATH_INFO: decodeURIComponent(u.pathname),
+        QUERY_STRING: u.search.slice(1),
+        REQUEST_METHOD: req.method,
+        CONTENT_TYPE: req.headers["content-type"] ?? "",
+        ...(req.headers["content-length"] ? { CONTENT_LENGTH: req.headers["content-length"] } : {}),
+        HTTP_CONTENT_ENCODING: req.headers["content-encoding"] ?? "",
+        GIT_PROTOCOL: req.headers["git-protocol"] ?? "",
+        // A push is refused by http-backend unless someone is signed in.
+        REMOTE_USER: "x-access-token",
+        REMOTE_ADDR: "127.0.0.1",
+      },
+    });
+    req.pipe(cgi.stdin);
+    const out = [];
+    cgi.stdout.on("data", (c) => out.push(c));
+    cgi.on("close", () => {
+      const buf = Buffer.concat(out);
+      const end = buf.indexOf("\r\n\r\n");
+      const headers = {};
+      let status = 200;
+      for (const line of buf.subarray(0, end).toString("latin1").split("\r\n")) {
+        const at = line.indexOf(":");
+        const name = line.slice(0, at).trim();
+        const value = line.slice(at + 1).trim();
+        if (name.toLowerCase() === "status") status = Number(value.split(" ")[0]);
+        else if (name) headers[name] = value;
+      }
+      res.writeHead(status, headers);
+      res.end(buf.subarray(end + 4));
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    return await fn(`http://127.0.0.1:${server.address().port}`, requests);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+}
+
+function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null, feedbackPr = "false", serverUrl = pathToFileURL(srv).href, token = "stub-token" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-"));
   // Provisioning reads the assignment from the control checkout for step 5.5.
   if (assignment) {
@@ -185,9 +246,9 @@ function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false"
       cwd: dir,
       env: {
         ...process.env,
-        GITHUB_TOKEN: "stub-token",
+        GITHUB_TOKEN: token,
         GITHUB_API_URL: apiBase,
-        GITHUB_SERVER_URL: pathToFileURL(srv).href,
+        GITHUB_SERVER_URL: serverUrl,
         ORG: "Org",
         TEMPLATE_OWNER: "Org",
         TEMPLATE_REPO: "tpl",
@@ -231,6 +292,35 @@ test("every branch, tag and commit arrives with the same SHAs; GitHub's pull ref
     assert.deepEqual(refs(repo), tplRefs(srv), "the template's branches and tag, exactly");
     assert.ok(!calls.some((c) => c.includes("/generate")), "GitHub's template copy is not used");
     assert.ok(calls.some((c) => c.startsWith("POST /orgs/Org/repos") && c.includes('"auto_init":false')), "created empty");
+  });
+});
+
+test("F9: over HTTP the clone and the push authenticate with the App token's header, and without it fail at once, saying so", async () => {
+  const token = "ghs_stubInstallationToken123";
+  const srv = makeServer();
+  await withGitHttp(srv, token, async (gitBase, requests) => {
+    await withApi(srv, async (api, calls, repo) => {
+      const r = await provision(api, srv, { serverUrl: gitBase, token });
+      assert.equal(r.status, 0, r.log);
+      assert.deepEqual(refs(repo), tplRefs(srv), "copied whole, over HTTP");
+      assert.ok(requests.some((q) => q.url.includes("/Org/tpl.git/") && q.authorized), "the clone carried the header");
+      assert.ok(requests.some((q) => q.url.includes("/Org/lab-ann.git/git-receive-pack") && q.authorized), "and so did the push");
+      assert.ok(requests.every((q) => !q.url.includes(token) && !q.url.includes("x-access-token")), "never in a URL");
+      assert.doesNotMatch(r.log, new RegExp(token), "nor in the log");
+    });
+  });
+
+  // Not accepted: a 401 with prompts off is a failure in our words, not a wait.
+  const srv2 = makeServer();
+  await withGitHttp(srv2, token, async (gitBase, requests) => {
+    await withApi(srv2, async (api) => {
+      const began = Date.now();
+      const r = await provision(api, srv2, { serverUrl: gitBase, token: "ghs_somebodyElse" });
+      assert.equal(r.status, 1, r.log);
+      assert.match(r.log, /the clone of the template was refused by GitHub: PXL Classroom's access to that repository was not accepted/);
+      assert.ok(requests.length > 0 && requests.every((q) => !q.authorized));
+      assert.ok(Date.now() - began < 60_000, "no prompt waited for a password");
+    });
   });
 });
 
@@ -352,6 +442,20 @@ test("a reused copy only PXL Classroom pushed to: what it was given is recovered
   }, { target: "copy", activity: [bot, bot, bot], repoDefault: "main" });
 });
 
+test("F4b: the copy is recovered even after the setting was turned off, since it is still a full-history copy", async () => {
+  // Review 2026-10-14: a copy made while the setting was on, whose run
+  // failed, retried after it was turned off, recorded nothing.
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  await withApi(srv, async (api) => {
+    const r = await provision(api, srv, { fullHistory: "false" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "reused");
+    assert.equal(output(r.outputs, "full_history"), "true");
+    assert.equal(output(r.outputs, "starter_sha"), git(["rev-parse", "refs/heads/master"], join(srv, "Org", "tpl.git")));
+  }, { target: "copy", activity: [bot, bot], repoDefault: "master" });
+});
+
 test("...but one a person pushed to, or whose push log cannot be read, recovers nothing", async () => {
   for (const activity of [[{ actor: { login: `${APP_SLUG}[bot]` } }, { actor: { login: "ann" } }], null]) {
     const srv = makeServer();
@@ -431,6 +535,53 @@ test("a copy that fails leaves its repository said, and fails the run; a templat
     assert.match(r.log, /no usable default branch/);
     assert.ok(!calls.some((c) => c.startsWith("POST /orgs/Org/repos")), "refused before creating anything");
   }, { defaultBranch: "" });
+});
+
+test("AC12: a failed copy says why in its own words; git's lines, which name branches and files, never reach the public log", async () => {
+  const { gitCopyFailure } = await import("../provisioning/provision.mjs");
+  const said = gitCopyFailure("the push into the student's repository", {
+    status: 1,
+    stderr: "remote: error: GH013: Repository rule violations found for refs/heads/solution-secret.\n ! [remote rejected] solution-secret -> solution-secret (push declined)",
+  }, 240000);
+  assert.match(said, /a rule on the repository rejected it/);
+  assert.doesNotMatch(said, /solution-secret/);
+  assert.match(gitCopyFailure("the clone of the template", { signal: "SIGTERM" }, 240000), /did not finish within 4 minutes/);
+  assert.match(gitCopyFailure("the clone of the template", { status: 128, stderr: "fatal: Authentication failed for 'https://github.com/Org/tpl.git/'" }, 240000), /access .* was not accepted/);
+  assert.equal(gitCopyFailure("the clone of the template", { status: 128, stderr: "fatal: something about prepared-branch-x" }, 240000), "the clone of the template failed (git exited with code 128)");
+
+  // For real: the template is gone from the server, so the clone fails.
+  const srv = makeServer();
+  rmSync(join(srv, "Org", "tpl.git"), { recursive: true, force: true });
+  await withApi(srv, async (api) => {
+    const r = await provision(api, srv);
+    assert.equal(r.status, 1, r.log);
+    assert.match(r.log, /the clone of the template failed \(git exited with code \d+\)/);
+    assert.doesNotMatch(r.log, /fatal:/, "nothing git said");
+  });
+});
+
+test("AC7: a teammate waits for a full-history copy as long as that copy may take, counted from the repository's creation", async () => {
+  const { fillWaitChecks } = await import("../provisioning/provision.mjs");
+  const now = new Date("2026-10-14T12:00:00Z");
+  const ago = (s) => new Date(now.getTime() - s * 1000).toISOString();
+  const step = 4 * 60 * 1000;
+  // GitHub's copy fills in seconds: the two minutes stand.
+  assert.equal(fillWaitChecks({ fullHistory: false, createdAt: ago(5), now, base: 60, stepMs: step }), 60);
+  // Created just now: clone and push may take 4 + 4 minutes, and a minute more.
+  assert.equal(fillWaitChecks({ fullHistory: true, createdAt: ago(0), now, base: 60, stepMs: step }), 270);
+  assert.equal(fillWaitChecks({ fullHistory: true, createdAt: ago(300), now, base: 60, stepMs: step }), 120, "what is left of it");
+  assert.equal(fillWaitChecks({ fullHistory: true, createdAt: ago(600), now, base: 60, stepMs: step }), 60, "never less than the two minutes");
+  assert.equal(fillWaitChecks({ fullHistory: true, createdAt: undefined, now, base: 60, stepMs: step }), 270, "an unreadable age waits the whole limit");
+  // Inside the job's fifteen minutes, and inside the ten a new repository is
+  // kept from a retry's removal.
+  const { STILL_FILLING_MS } = await import("../lib/existing-repo.mjs");
+  const longest = fillWaitChecks({ fullHistory: true, createdAt: ago(0), now }) * 2000;
+  assert.ok(longest < STILL_FILLING_MS, "the wait ends before the repository stops counting as new");
+  for (const wf of ["acceptance-handler.yml", "retry-acceptance.yml"]) {
+    const text = readFileSync(new URL(`../.github/workflows/${wf}`, import.meta.url), "utf8");
+    const minutes = Number(text.match(/timeout-minutes: (\d+)/)?.[1]);
+    assert.ok(longest + 5 * 60 * 1000 <= minutes * 60 * 1000, `${wf}: five minutes left for the rest of the run`);
+  }
 });
 
 test("without the setting, GitHub's template copy is used and nothing is recorded as given", async () => {

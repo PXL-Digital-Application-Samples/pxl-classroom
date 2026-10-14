@@ -75,6 +75,18 @@ test("what a full-history copy was given belongs to that repository, and does no
   if (stayed) assert.equal(stayed.starter_sha, "c".repeat(40), "the same repository keeps it");
 });
 
+test("AC5: a move carries the start of the team moved INTO, from that team's file", () => {
+  const given = { ...record("red", 11), starter_sha: "c".repeat(40), starter_commit_count: 14 };
+  const blue = { ...team("blue", 22), starter_sha: "d".repeat(40), starter_commit_count: 9, full_history: true };
+  const changes = plan({ toTeam: blue, repoRecord: given, acceptance: acceptance("red") });
+  assertValid(changes);
+  const moved = JSON.parse(changes.find((c) => c.path === "repositories/lab1/ann.json").content);
+  assert.deepEqual([moved.starter_sha, moved.starter_commit_count, moved.full_history], ["d".repeat(40), 9, true]);
+  // Added with no record of their own: the same.
+  const added = JSON.parse(plan({ toTeam: blue, repoRecord: null, acceptance: null })[0].content);
+  assert.equal(added.starter_sha, "d".repeat(40));
+});
+
 test("a lecturer's move takes the record from a run that is still provisioning", () => {
   // The student's own run writes their repository record only while the
   // acceptance names it as the decider (scripts/record-acceptance.sh). Left at

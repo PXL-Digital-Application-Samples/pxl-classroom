@@ -175,6 +175,9 @@ test("leftoverOfOwnAttempt: a prior acceptance that was not a reuse, or the team
   assert.equal(leftoverOfOwnAttempt(undefined), false);
   assert.equal(leftoverOfOwnAttempt("garbage"), false, "an unreadable record is not evidence");
   assert.equal(leftoverOfOwnAttempt(null, { ownGroupRepo: true }), true, "the team's manifest already names it");
+  // AC8 (review 2026-10-14): a team's attempt counts only into the same team.
+  assert.equal(leftoverOfOwnAttempt({ status: "provisioned", team_slug: "team-a" }, { teamSlug: "team-b" }), false, "a switch: that attempt asked about team-a's name");
+  assert.equal(leftoverOfOwnAttempt({ status: "failed", team_slug: "Team-B" }, { teamSlug: "team-b" }), true);
 });
 
 test("both workflows pass acceptance's answer to provisioning, and the action declares it", () => {

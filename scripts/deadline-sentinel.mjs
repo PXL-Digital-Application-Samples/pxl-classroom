@@ -226,27 +226,46 @@ async function readAssignments() {
 }
 
 /**
- * Add the repositories students were given since the last poll.
+ * The repositories the records name now: name -> assignment id. Also adds each
+ * one to `watched`, which keeps every repository this watch has ever sampled so
+ * its samples can be filed under their assignment.
  *
- * Only ever adds. A sentinel read the records once, at job start, so one armed
- * at publish watched nothing for the whole exam: drill-20260917-1609 polled six
- * times and recorded no sample, because both students accepted after it began.
- * An unreadable directory is simply nothing new - `repositories/<id>/` does not
- * exist until the first acceptance.
+ * A sentinel read the records once, at job start, so one armed at publish
+ * watched nothing for the whole exam: drill-20260917-1609 polled six times and
+ * recorded no sample, because both students accepted after it began.
+ *
+ * What it samples is what the records name NOW, not everything it has seen: a
+ * team left empty by a switch has its repository removed, no listing of the
+ * org can find it again, and while it was still asked for every sample read as
+ * a capped walk (review 2026-10-14). An assignment whose records could not all
+ * be read keeps what it sampled last time (`previous`) - `repositories/<id>/`
+ * does not exist until the first acceptance, and a failed read is not a
+ * deletion.
  */
-async function refreshWatched(watched, members) {
+async function refreshWatched(watched, members, previous) {
+  const current = new Map();
   for (const id of members) {
     const listing = await listControlDir(repositoriesDir(id));
+    const names = [];
+    let whole = listing.ok;
     for (const file of listing.files) {
       if (!file.name.endsWith(".json")) continue;
       const text = await readBlob(file.sha);
-      if (text === null) continue;
+      if (text === null) { whole = false; continue; }
       try {
         const name = repoNameOf(JSON.parse(text));
-        if (name && !watched.has(name)) watched.set(name, id);
+        if (name) names.push(name);
       } catch { /* a malformed record is not worth failing a watch over */ }
     }
+    if (!whole) {
+      for (const [name, of] of previous) if (of === id) current.set(name, id);
+    }
+    for (const name of names) {
+      if (!watched.has(name)) watched.set(name, id);
+      current.set(name, watched.get(name));
+    }
   }
+  return current;
 }
 
 /**
@@ -502,6 +521,9 @@ async function main() {
   const resumed = resumeFrom(await readState(), cfg.assignmentIds);
   const { members, joinedAt } = resumed;
   const watched = await watchedRepos();
+  // What the records name as of the last poll; `watched` keeps everything ever
+  // sampled, for filing samples under their assignment.
+  let sampling = new Map(watched);
   log(`watching ${watched.size} repository/repositories across ${members.join(", ")} until ${target.toISOString()}`);
   if (resumed.polls) log(`resuming a handover: ${resumed.polls} poll(s) and ${resumed.samples.length} sample(s) already taken`);
 
@@ -532,10 +554,10 @@ async function main() {
       latestByAssignment = live.byId;
       moved = live.earliest;
     }
-    await refreshWatched(watched, members);
+    sampling = await refreshWatched(watched, members, sampling);
 
-    if (watched.size) {
-      const sample = await samplePushedAt(watched);
+    if (sampling.size) {
+      const sample = await samplePushedAt(sampling);
       polls++;
       samples.push({ observed_at: new Date().toISOString(), pushed_at: sample.pushed, error: sample.reason ?? undefined });
       if (!sample.ok) log(`poll ${polls}: ${sample.reason}`);

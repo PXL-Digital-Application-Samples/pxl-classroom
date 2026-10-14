@@ -39,7 +39,7 @@ import {
   claimPromoteCommitMessage,
   claimPromotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
-import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim, resetClaimAttempts } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim, resetClaimAttempts, unchangedSince } from "../lib/control-repo.mjs";
 // The one join between a claim and a roster entry. Four surfaces read it; see
 // lib/claim-bindings.mjs for why it is not written out per surface.
 import {
@@ -86,6 +86,26 @@ async function fetchExistingRoster(octokit, { org }) {
   } catch (err) {
     if (err.status === 404) return { roster: null, sha: null };
     throw err;
+  }
+}
+
+/**
+ * Commit the whole roster, but ONLY onto the version it was planned from
+ * (review 2026-10-14, S12): the plan waits at a prompt for as long as the
+ * lecturer takes, and the nightly folding a claim in, or an edit on the Roster
+ * tab, was silently undone by a whole-file write built on the old copy.
+ */
+async function writeRoster(octokit, { org, message, content, readSha }) {
+  try {
+    return await commitWithRebase(octokit, {
+      owner: org, repo: CONTROL_REPO, branch: "main",
+      message,
+      changes: [{ path: ROSTER_PATH, content }],
+      precondition: unchangedSince(org, ROSTER_PATH, readSha ?? null, "the roster was changed by someone else while this ran"),
+    });
+  } catch (e) {
+    process.stderr.write(`\nNothing was committed: ${e.message}. Run it again to plan against the roster as it is now.\n`);
+    process.exit(1);
   }
 }
 
@@ -140,7 +160,7 @@ export function registerRosterCommand(program) {
       process.stdout.write(`Parsed ${rosterDoc.students.length} student(s) from ${csvFile}.\n`);
 
       const octokit = makeOctokit();
-      const { roster: existing } = await fetchExistingRoster(octokit, { org });
+      const { roster: existing, sha: readSha } = await fetchExistingRoster(octokit, { org });
       const diff = diffRosters(existing, rosterDoc);
       printDiff(diff, { org });
 
@@ -181,11 +201,7 @@ export function registerRosterCommand(program) {
       const yamlText = yamlStringify(diff.merged);
       const message = `Update ${ROSTER_PATH} via CLI (+${diff.added.length} ~${diff.updated.length} -${diff.removed.length})`;
 
-      const result = await commitWithRebase(octokit, {
-        owner: org, repo: CONTROL_REPO, branch: "main",
-        message,
-        changes: [{ path: ROSTER_PATH, content: yamlText }],
-      });
+      const result = await writeRoster(octokit, { org, message, content: yamlText, readSha });
       process.stdout.write(`\nCommitted ${result.commitSha} (${result.attempts} attempt${result.attempts === 1 ? "" : "s"}).\n`);
     });
 
@@ -410,7 +426,7 @@ export function registerRosterCommand(program) {
           );
           process.exit(1);
         }
-        const { roster: existing } = await fetchExistingRoster(octokit, { org });
+        const { roster: existing, sha: claimReadSha } = await fetchExistingRoster(octokit, { org });
         const plan = planClaimPromotion({
           claims: records,
           roster: existing,
@@ -463,18 +479,14 @@ export function registerRosterCommand(program) {
         }
         // Only ever fills an EMPTY github_login, so like promotion there is
         // nothing destructive to confirm.
-        const result = await commitWithRebase(octokit, {
-          owner: org, repo: CONTROL_REPO, branch: "main",
-          message: claimPromoteCommitMessage(plan),
-          changes: [{ path: ROSTER_PATH, content: yamlStringify(plan.nextRoster) }],
-        });
+        const result = await writeRoster(octokit, { org, message: claimPromoteCommitMessage(plan), content: yamlStringify(plan.nextRoster), readSha: claimReadSha });
         process.stdout.write(`\nCommitted ${result.commitSha} (${result.attempts} attempt${result.attempts === 1 ? "" : "s"}).\n`);
         return;
       }
 
       const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
       const acceptances = await listAcceptances(octokit, { org, assignmentId: opts.assignment });
-      const { roster: existing } = await fetchExistingRoster(octokit, { org });
+      const { roster: existing, sha: promoteReadSha } = await fetchExistingRoster(octokit, { org });
 
       // Claims carry the address a student confirmed, so a promoted row can be
       // more than a bare username. Unreadable is not evidence of none: promote
@@ -531,11 +543,7 @@ export function registerRosterCommand(program) {
 
       // Promotion only ever appends, so there is nothing destructive to confirm
       // - unlike `roster import`, which replaces the file wholesale.
-      const result = await commitWithRebase(octokit, {
-        owner: org, repo: CONTROL_REPO, branch: "main",
-        message: promoteCommitMessage(plan, { assignmentId: opts.assignment }),
-        changes: [{ path: ROSTER_PATH, content: yamlStringify(plan.nextRoster) }],
-      });
+      const result = await writeRoster(octokit, { org, message: promoteCommitMessage(plan, { assignmentId: opts.assignment }), content: yamlStringify(plan.nextRoster), readSha: promoteReadSha });
       process.stdout.write(`\nCommitted ${result.commitSha} (${result.attempts} attempt${result.attempts === 1 ? "" : "s"}).\n`);
     });
 

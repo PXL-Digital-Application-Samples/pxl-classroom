@@ -36,13 +36,13 @@ const record = (over = {}) => ({
   ...over,
 });
 
-async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus = 200 }) {
+async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus = 200, assignmentExtra = {} }) {
   const calls = { runs: 0 };
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
     assignments: {
-      [ID]: { id: ID, title: 'Status', organization: ORG, state: 'published', assignment_type: 'individual', template: { owner: ORG, repository: TPL } },
+      [ID]: { id: ID, title: 'Status', organization: ORG, state: 'published', assignment_type: 'individual', template: { owner: ORG, repository: TPL }, ...assignmentExtra },
     },
     reports: {
       [ID]: {
@@ -113,6 +113,21 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     await expect(line(page)).toContainText('31 of 111 students reached');
     await expect(line(page).getByRole('link', { name: 'View run' })).toHaveAttribute('href', 'https://github.com/Hub/pxl-classroom/actions/runs/777');
     await expect(line(page).locator('.status-dot.dot-warning')).toBeVisible();
+  });
+
+  test('where sync no longer runs, a cut-off sync is still said, with why and no Sync again (G13f)', async ({ page }) => {
+    await setup(page, {
+      rec: record({ status: 'running', remaining: undefined, total_students: 111, results: Array.from({ length: 31 }, (_, i) => ({ github_login: `s${i}`, repo_name: `${ORG}/r${i}`, outcome: 'auto-merged' })) }),
+      run: { status: 'completed', conclusion: 'cancelled', html_url: 'https://github.com/Hub/pxl-classroom/actions/runs/777' },
+      assignmentExtra: { template_full_history: true },
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(line(page)).toHaveAttribute('data-state', 'died');
+    await expect(line(page)).toContainText('31 of 111 students reached.');
+    await expect(line(page)).toContainText('Its students were given the template with its full history');
+    await expect(line(page)).not.toContainText('Run the sync again');
+    await expect(line(page).getByRole('button', { name: 'Sync again' })).toHaveCount(0);
+    await expect(line(page).locator('.status-dot.dot-neutral')).toBeVisible();
   });
 
   test('running: progress and Follow - and the page itself reads nothing on its own', async ({ page }) => {

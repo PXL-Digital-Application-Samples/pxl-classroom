@@ -314,6 +314,14 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(control).toBeDisabled();
     // The reason, on the control, rather than a button that silently does nothing.
     await expect(control).toHaveAttribute('title', /No feedback PRs have been opened yet/i);
+    // And reachable from the keyboard: aria-disabled keeps it in the Tab order (D12).
+    await control.focus();
+    await expect(control).toBeFocused();
+    let reads = 0;
+    page.on('request', (r) => { if (/\/pulls(\?|\/)/.test(r.url())) reads++; });
+    await control.click({ force: true });
+    await expect(control).toBeVisible();
+    expect(reads, 'a refused click reads nothing').toBe(0);
   });
 
   test('A student with no PR is left alone, not marked closed', async ({ page }) => {

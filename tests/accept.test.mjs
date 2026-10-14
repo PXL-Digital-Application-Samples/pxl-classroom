@@ -974,6 +974,58 @@ test("...but only for a member, and only while no team holds the old slug", () =
   assert.equal(taken.outputs.team_slug, "alpha");
 });
 
+test("AC3: a switch whose provisioning failed early is finished by the next attempt", () => {
+  // Review 2026-10-14: the decision moved alice into team-b and removed her
+  // empty team-a; provisioning failed before it left team-a's repository, and
+  // the retry found her already in team-b - no switch, nothing finished. Her
+  // repository record still names team-a's.
+  const record = (dir) => {
+    mkdirSync(join(dir, "repositories", "test-asgn"), { recursive: true });
+    writeFileSync(join(dir, "repositories", "test-asgn", "alice.json"), JSON.stringify({
+      schema_version: 1, assignment_id: "test-asgn", github_login: "alice", team_slug: "team-a", repo_name: "TestOrg/asgn-team-a", repo_id: 41,
+    }));
+  };
+  const teams = { "test-asgn": { "team-b": { ...SEEDED_ALPHA, team_slug: "team-b", team_name: "Team B", members: ["alice"] } } };
+  const res = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "team-b", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: selfServiceYaml(), teams,
+      acceptances: { "test-asgn": { alice: { github_login: "alice", github_id: 101, accepted_at: "2026-10-14T10:00:00Z", status: "failed", team_slug: "team-b", team_name: "Team B" } } },
+      beforeAccept: record,
+    },
+  );
+  assert.equal(res.outputs.outcome, "already-accepted", res.stdout + res.stderr);
+  assert.equal(res.outputs.previous_repo, "asgn-team-a");
+  assert.equal(res.outputs.previous_repo_remove, "true", "team-a's file is gone, so its repository goes too - if nothing was pushed");
+
+  // team-a still exists (someone else is in it): access is taken away, the repository stays.
+  const kept = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "team-b", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: selfServiceYaml(),
+      teams: { "test-asgn": { ...teams["test-asgn"], "team-a": { ...SEEDED_ALPHA, team_slug: "team-a", members: ["bob"] } } },
+      acceptances: { "test-asgn": { alice: { github_login: "alice", github_id: 101, accepted_at: "2026-10-14T10:00:00Z", status: "failed", team_slug: "team-b", team_name: "Team B" } } },
+      beforeAccept: record,
+    },
+  );
+  assert.equal(kept.outputs.previous_repo, "asgn-team-a");
+  assert.equal(kept.outputs.previous_repo_remove, "false");
+});
+
+test("AC9 (decided): a JOIN of a team with no file makes it, as a create does - its creator's request may not be saved yet", () => {
+  // Review 2026-10-14 asked for a join of a removed team to be refused. The
+  // page offers a team from its creator's request before the hub has saved
+  // it, so "no file" is also "not saved yet", and refusing turned away every
+  // such teammate (tests/acceptance-race.test.mjs pins "both are in").
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "102", TEAM_SLUG: "ghost", TEAM_NAME: "Ghost", TEAM_ACTION: "join" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": {} } },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.ok(existsSync(join(res.dir, "teams", "test-asgn", "ghost.json")), "the team is made");
+  assert.doesNotMatch(readFileSync(new URL("../lib/rejection-notice.mjs", import.meta.url), "utf8"), /team-gone/, "and no refusal for it is left behind");
+});
+
 test("seeded team - pre-assigned member accepts with no team in the payload", () => {
   const res = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },

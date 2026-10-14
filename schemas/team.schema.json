@@ -71,6 +71,20 @@
       "type": "string",
       "description": "HTTPS URL of the provisioned team repository."
     },
+    "starter_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The commit the team's repository was given (repository-record.schema.json starter_sha), kept on the team as well: on the members' records alone it left with the member who carried it, and a later joiner's record had nothing to copy (review 2026-10-14). Written by write-repository-record.mjs beside repo_id."
+    },
+    "starter_commit_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many commits starter_sha has behind it. Present only beside starter_sha."
+    },
+    "full_history": {
+      "type": "boolean",
+      "description": "True when starter_sha is a copy of the template's full history. Absent otherwise; no default (a schema default is a writer)."
+    },
     "join_code": {
       "type": "string",
       "pattern": "^[2-9A-HJKMNP-Z]{6}$",

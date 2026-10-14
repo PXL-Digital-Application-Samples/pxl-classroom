@@ -45,7 +45,7 @@ test("runWatchdog - detects stuck runs, auto-cancels, and posts alerts with ment
       );
     }
 
-    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued")) {
+    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued") || urlStr.includes("/actions/runs?status=pending")) {
       return new Response(JSON.stringify({ workflow_runs: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -122,6 +122,47 @@ test("runWatchdog - detects stuck runs, auto-cancels, and posts alerts with ment
   }
 });
 
+test("G13d and LD9: a stuck RE-RUN is alerted on its own; a waiting Deadline Sentinel is alerted, never cancelled", async () => {
+  // Review 2026-10-14: the dedup key had no attempt, so a re-run that got
+  // stuck too was never alerted; and an auto-cancel could take away the
+  // second sentinel whose only job is to cover the instant.
+  const calls = [];
+  const thirty = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    const method = opts?.method || "GET";
+    calls.push({ method, url: u, body: opts?.body ? JSON.parse(opts.body) : null });
+    const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+    if (u.includes("/actions/runs?status=waiting")) {
+      return json({ workflow_runs: [
+        { id: 501, name: "Deadline Sentinel", path: ".github/workflows/deadline-sentinel.yml", status: "waiting", event: "workflow_dispatch", created_at: thirty, html_url: "x" },
+        { id: 502, name: "Regenerate Dashboard Data", path: ".github/workflows/regenerate-dashboard.yml", status: "waiting", event: "workflow_dispatch", created_at: thirty, run_started_at: thirty, run_attempt: 2, html_url: "y" },
+      ] });
+    }
+    if (/status=(in_progress|completed|queued|pending)/.test(u)) return json({ workflow_runs: [] });
+    if (u.includes("/cancel")) return json({}, 202);
+    if (u.includes("/issues?labels=pxl-tracking")) return json([{ number: 42, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
+    if (u.includes("/issues/42/comments")) {
+      // The FIRST attempt's alert is already there.
+      return method === "GET" ? json([{ body: "<!-- pxl-watchdog-dedup:stuck-502-->" }]) : json({ id: 1 }, 201);
+    }
+    return json({});
+  };
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.ok(!calls.some((c) => c.method === "POST" && c.url.includes("/runs/501/cancel")), "the sentinel is never cancelled");
+    assert.ok(calls.some((c) => c.method === "POST" && c.url.includes("/runs/502/cancel")), "anything else waiting still is");
+    assert.deepEqual(res.cancelledRuns, [502]);
+    const posted = calls.filter((c) => c.method === "POST" && c.url.includes("/issues/42/comments")).map((c) => c.body.body);
+    assert.ok(posted.some((b) => b.includes("pxl-watchdog-dedup:stuck-502-a2")), "the second attempt is its own alert");
+    assert.ok(posted.some((b) => b.includes("pxl-watchdog-dedup:stuck-501")), "the sentinel is alerted");
+    assert.ok(posted.some((b) => /Started at:\*\* .*\(attempt 2\)/.test(b)), "the time the age is counted from");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runWatchdog - deduplicates alerts when marker is already present", async () => {
   const calls = [];
   const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -148,7 +189,7 @@ test("runWatchdog - deduplicates alerts when marker is already present", async (
         { status: 200, headers: { "content-type": "application/json" } }
       );
     }
-    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued")) {
+    if (urlStr.includes("/actions/runs?status=in_progress") || urlStr.includes("/actions/runs?status=completed") || urlStr.includes("/actions/runs?status=queued") || urlStr.includes("/actions/runs?status=pending")) {
       return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (urlStr.includes("/actions/runs/554433/cancel")) {
@@ -225,7 +266,7 @@ test("runWatchdog - ignores the registry branch, and a failure says how long the
     calls.push({ method, url: urlStr, body: opts?.body ? JSON.parse(opts.body) : null });
     if (urlStr.includes("/actions/runs?status=waiting")) return json({ workflow_runs: [stuckOnRegistry] });
     if (urlStr.includes("/actions/runs?status=in_progress")) return json({ workflow_runs: [] });
-    if (urlStr.includes("/actions/runs?status=queued")) return json({ workflow_runs: [] });
+    if (urlStr.includes("/actions/runs?status=queued") || urlStr.includes("/actions/runs?status=pending")) return json({ workflow_runs: [] });
     if (urlStr.includes("/actions/runs?status=completed")) return json({ workflow_runs: [codeqlOnRegistry, deployOnMain] });
     if (urlStr.includes("/issues?labels=pxl-tracking")) return json([{ number: 20, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
     if (urlStr.includes("/issues/20/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);

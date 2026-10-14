@@ -133,6 +133,10 @@ test.describe('109 - every branch and its full history', () => {
       } else {
         await expect(item).toBeDisabled();
         await expect(item).toContainText(reason);
+        // Still in the Tab order, so the reason is reachable from the keyboard (D12).
+        await expect(item).not.toHaveAttribute('disabled');
+        await item.focus();
+        await expect(item).toBeFocused();
         await item.click({ force: true });
         await expect(page.locator('#starter-sync-title')).toHaveCount(0);
       }

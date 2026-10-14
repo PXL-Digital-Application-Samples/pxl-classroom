@@ -1379,7 +1379,7 @@ select:focus {
 /* --bg-surface-hover, DESIGN.md §2's token for exactly this. It was
    --bg-tertiary, an alias of --bg-surface-elevated, which is #ffffff in light
    like the menu behind it: hovering a row changed nothing at all in light. */
-.export-dropdown-item:hover:not(:disabled) {
+.export-dropdown-item:hover:not(:disabled):not([aria-disabled="true"]) {
   background: var(--bg-surface-hover);
 }
 /* A row can be a link (Open invite link). `a:hover` above outranks a single
@@ -1388,7 +1388,10 @@ a.export-dropdown-item:hover {
   color: var(--text-primary);
   text-decoration: none;
 }
-.export-dropdown-item.disabled-item,
+/* `aria-disabled` is a row unavailable for a standing reason: it stays in the
+   Tab order so a keyboard user reaches the reason, and its click is guarded.
+   `:disabled` is a row busy for a moment. */
+.export-dropdown-item[aria-disabled="true"],
 .export-dropdown-item:disabled {
   opacity: 0.55;
   cursor: not-allowed;

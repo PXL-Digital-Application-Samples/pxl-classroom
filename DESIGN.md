@@ -196,6 +196,8 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 | `.btn-icon` | Square icon-only box, so a header rail keeps its rhythm. |
 | `.btn-with-icon` | Lays out an icon beside a label. Not a variant - it composes with any of them. |
 
+**A menu row unavailable for a standing reason is `aria-disabled="true"`, never `disabled`**, and its click is guarded in the handler. A `disabled` button leaves the Tab order, so the reason the row gives (*Available after deadline lockdown*) is never reached from the keyboard. `disabled` stays for a row busy for a moment (a read in progress), where there is nothing to read.
+
 ---
 
 ## 4. Status Indicator Reference

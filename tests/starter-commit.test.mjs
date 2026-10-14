@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,6 +94,27 @@ test("the writer marks a start full_history exactly when provisioning says so, a
   // GitHub's copy plus the grading workflow: a start, no flag.
   const other = mkdtempSync(join(tmpdir(), "pxl-starter-gh-"));
   assert.equal("full_history" in write(other, "cleo", ["--starter-sha", B, "--starter-commit-count", "2", "--full-history", "false"]), false);
+});
+
+test("AC5: the team's file keeps its repository's start, so a joiner after the only carrier left still gets it", async () => {
+  // Review 2026-10-14: the start lived on the members' records alone. Ann
+  // made the team's copy and switched out, her record now names another
+  // repository, and Bob, joining next, had nothing to copy it from.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-starter-team-"));
+  const teamFile = join(dir, "teams", "lab", "alpha.json");
+  mkdirSync(dirname(teamFile), { recursive: true });
+  writeFileSync(teamFile, JSON.stringify({
+    schema_version: 1, assignment_id: "lab", team_slug: "alpha", team_name: "Alpha", members: ["ann"], max_members: 3,
+    created_at: "2026-10-14T10:00:00Z", created_by: "ann",
+  }));
+  write(dir, "ann", ["--team-slug", "alpha", "--starter-sha", A, "--starter-commit-count", "14", "--full-history", "true"]);
+  const team = JSON.parse(readFileSync(teamFile, "utf8"));
+  assert.deepEqual([team.starter_sha, team.starter_commit_count, team.full_history], [A, 14, true]);
+  assert.ok((await validateAgainst("team", team)).valid, "the team schema takes it");
+  // Ann moves on: her record names another repository now.
+  rmSync(join(dir, "repositories", "lab", "ann.json"));
+  const bob = write(dir, "bob", ["--team-slug", "alpha"]);
+  assert.deepEqual([bob.starter_sha, bob.starter_commit_count, bob.full_history], [A, 14, true], "carried from the team's file");
 });
 
 test("starterFor: where a team's records differ, every member is read against the one with the most commits", () => {

@@ -7,7 +7,7 @@
 // not. lib/team-rename.mjs decides; tests/team-rename.test.mjs covers the rules.
 
 import { test, expect } from '@playwright/test';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'teams-rename';
 
@@ -249,5 +249,36 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await page.locator('#create-team-name').fill('Krusty Krab');
     await expect(page.locator('[data-new-slug-problem]')).toContainText('"Krusty Krabs" was called krusty-krab until it was renamed');
     await expect(page.locator('.modal-foot').getByRole('button', { name: 'Create Team' })).toBeDisabled();
+  });
+
+  test('whether students see the new name is read from the page they are served, and read again on Check again (PG12)', async ({ page }) => {
+    const renamed = { ...team('krusty-krabs', 'Krusty Krabs', ['stud1']), renamed_from: ['krusty-krab'] };
+    let served = [{ team_slug: 'krusty-krab', team_name: 'Krusty Krab', members: ['stud1'] }];
+    let reads = 0;
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: { ...assignment(), invite_key: inviteToken(ORG, ID) } },
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: students() } },
+      controlTeams: { [ID]: [renamed] },
+      roster,
+    });
+    await page.route(/\/data\/[^/]+\/i\/[^/]+\.teams\.json/, (route) => {
+      reads++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: served }) });
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    const line = page.locator('[data-note="renamed-served"]');
+    await expect(line).toHaveAttribute('data-state', 'stale');
+    await expect(line).toContainText('Students do not see "Krusty Krabs" yet, they see "Krusty Krab": the student pages have not been rebuilt since the rename.');
+    await expect(line.getByRole('button', { name: 'Update the student pages' })).toBeVisible();
+
+    served = [{ team_slug: 'krusty-krabs', team_name: 'Krusty Krabs', members: ['stud1'], renamed_from: ['krusty-krab'] }];
+    const before = reads;
+    await line.getByRole('button', { name: 'Check again' }).click();
+    await expect(line).toHaveAttribute('data-state', 'current');
+    await expect(line).toContainText('Students see every renamed team under its new name.');
+    expect(reads).toBe(before + 1);
+    await expect(line.getByRole('button', { name: 'Update the student pages' })).toHaveCount(0);
   });
 });

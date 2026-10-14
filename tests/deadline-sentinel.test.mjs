@@ -775,6 +775,43 @@ test("a repository provisioned while the sentinel waits is watched from then on"
   );
 });
 
+test("a repository no record names any more is no longer asked for, and an unreadable listing keeps what it had", async () => {
+  // Review 2026-10-14 (LD7): a team emptied by a switch has its repository
+  // removed, so no listing of the org finds it again; still watched, it made
+  // every later sample a capped walk.
+  const deadline = new Date(Date.now() + 2_000).toISOString();
+  const dir = mkdtempSync(join(tmpdir(), "pxl-sentinel-"));
+  const page = (n) => {
+    const filler = Array.from({ length: 100 }, (_, i) => ({ name: `other-${n}-${i}`, pushed_at: "2020-01-01T00:00:00Z" }));
+    if (n === 1) filler[0] = { name: "exam-alice", pushed_at: "2026-09-10T21:12:00Z" };
+    return filler;
+  };
+
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, pollMs: 150, maxPages: 2 });
+      assert.equal(res.status, 0, res.stderr);
+      const samples = res.timeline.samples;
+      assert.match(samples[0].error ?? "", /capped/, `while the record still named it, the walk could not finish: ${res.stdout}`);
+      assert.match(res.stdout, /capped/, "and the poll said so");
+      const later = samples.slice(1);
+      assert.ok(later.length >= 2, JSON.stringify(samples));
+      assert.ok(later.every((s) => !s.error), `once no record names it, a sample is whole: ${JSON.stringify(later)}`);
+      assert.ok(
+        later.every((s) => s.pushed_at["exam-alice"] === "2026-09-10T21:12:00Z"),
+        "and alice is still sampled through the poll whose listing failed",
+      );
+    },
+    {
+      deadlineFor: () => deadline,
+      // carol's team repository is removed after the first poll; on the third
+      // the directory cannot be read at all.
+      reposFor: (_id, poll) => (poll === 1 ? ["alice", "carol"] : poll === 3 ? [] : ["alice"]),
+      repos: page,
+    },
+  );
+});
+
 test("a second sentinel for the same instant does not overwrite the first's timeline", () => {
   // The duplicate reaches the instant after it has passed and writes a
   // single-poll record. On 2026-09-17 that replaced the six-poll timeline of the

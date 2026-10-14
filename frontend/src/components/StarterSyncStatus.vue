@@ -68,6 +68,12 @@ const props = defineProps({
   assignment: { type: Object, required: true },
   /** Bumped by the parent after a sync is dispatched, to read again. */
   refreshKey: { type: Number, default: 0 },
+  /**
+   * Why starter sync no longer runs here (lib/starter-sync.mjs `syncRefusal`),
+   * or ''. The box stays - an earlier sync cut off part-way is still worth
+   * knowing about - and says why instead of offering Sync again.
+   */
+  refused: { type: String, default: '' },
 })
 // `sync`: open the sync dialog. `follow`: open it following the run that is
 // going ({ runId, htmlUrl }).
@@ -131,7 +137,7 @@ async function load() {
     }
     if (run !== generation) return
     unreadable.value = false
-    view.value = describeSyncStatus({ record, run: runInfo, templateHeadSha })
+    view.value = describeSyncStatus({ record, run: runInfo, templateHeadSha, refused: props.refused || null })
   } catch {
     if (run === generation) { view.value = null; unreadable.value = true }
   } finally {
@@ -140,7 +146,7 @@ async function load() {
 }
 
 onMounted(load)
-watch(() => [props.refreshKey, props.assignment?.id], load)
+watch(() => [props.refreshKey, props.assignment?.id, props.refused], load)
 
 defineExpose({ load })
 </script>

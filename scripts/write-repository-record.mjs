@@ -89,6 +89,23 @@ function starter() {
   }
   // Otherwise one already on record for this repository: a reuse after the
   // student pushed recovers nothing, and must not drop what the copy recorded.
+  // The TEAM'S file first (review 2026-10-14, AC5): on the members' records
+  // alone the start left with a member who switched out, and the next joiner
+  // had no record of that repository to copy it from.
+  if (teamSlug) {
+    try {
+      const team = JSON.parse(readFileSync(join(values["data-dir"], "teams", assignmentId, `${teamSlug}.json`), "utf8"));
+      if (team?.repo_id === repoId && /^[0-9a-f]{40}$/.test(String(team.starter_sha || ""))) {
+        return {
+          sha: team.starter_sha,
+          count: Number.isInteger(team.starter_commit_count) ? team.starter_commit_count : null,
+          fullHistory: team.full_history === true,
+        };
+      }
+    } catch {
+      // No team file, or unreadable: the members' records are still asked.
+    }
+  }
   const dir = join(values["data-dir"], "repositories", assignmentId);
   if (existsSync(dir)) {
     for (const name of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
@@ -110,8 +127,10 @@ function starter() {
   return { sha: null, count: null, fullHistory: false };
 }
 
+// Read before either file is written: the team's copy is one of its sources.
+const start = starter();
+
 if (!teamOnly) {
-  const start = starter();
   // One builder, shared with the Teams tab (lib/team-member-records.mjs).
   const record = buildRepositoryRecord({
     assignmentId,
@@ -152,9 +171,25 @@ if (teamSlug) {
   if (existsSync(teamPath)) {
     try {
       const team = JSON.parse(readFileSync(teamPath, "utf-8"));
+      // A different repository at this team's name (removed and made again):
+      // whatever start the file held was the old one's.
+      const sameRepo = team.repo_id === repoId;
       team.repo_name = repoName;
       team.repo_id = repoId;
       team.repo_url = values["repo-url"];
+      // What the repository was given, on the team too (AC5): it is the
+      // team's repository, and a member's record leaves with the member.
+      if (start.sha) {
+        team.starter_sha = start.sha;
+        if (Number.isInteger(start.count)) team.starter_commit_count = start.count;
+        else delete team.starter_commit_count;
+        if (start.fullHistory) team.full_history = true;
+        else delete team.full_history;
+      } else if (!sameRepo) {
+        delete team.starter_sha;
+        delete team.starter_commit_count;
+        delete team.full_history;
+      }
       writeFileSync(teamPath, JSON.stringify(team, null, 2) + "\n");
       console.log(`updated team record ${teamPath}`);
     } catch (e) {

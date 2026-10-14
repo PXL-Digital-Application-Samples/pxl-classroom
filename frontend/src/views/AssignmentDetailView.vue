@@ -220,9 +220,9 @@
           </div>
           <!-- Grey until the deadline, red after (asked 2026-10-08): before
                it, nothing pushed yet is where every student starts. -->
-          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'no-submission'" title="Filter unstarted / no submissions">
+          <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'no-submission'" :title="missingWorkTitle('No submission', noSubCount, noSubPast)" data-card="no-submission">
             <span class="summary-value" :class="noSubOverdue ? 'stat-red' : 'stat-neutral'">{{ noSubCount }}</span>
-            <span class="summary-label">{{ noSubOverdue || !noSubCount ? 'No submission' : 'No submission yet' }}</span>
+            <span class="summary-label">{{ missingWorkLabel('No submission', noSubCount, noSubPast) }}</span>
           </div>
         </div>
 
@@ -231,11 +231,15 @@
              of 111 pushes it off the screen. Nothing said so on 2026-09-25,
              when two syncs were cut off and 43 students were left without a
              lab. -->
+        <!-- Kept where sync no longer runs (review 2026-10-14, G13f): a sync
+             cut off before the assignment took full-history copies still left
+             students without starter code, and the box says so. -->
         <StarterSyncStatus
-          v-if="assignment && assignment.template && !syncRefused"
+          v-if="assignment && assignment.template"
           :org="org"
           :assignment="assignment"
           :refresh-key="syncStatusKey"
+          :refused="syncRefusalReason || ''"
           @sync="followSyncRun = null; showStarterSyncModal = true"
           @follow="followSyncRun = $event; showStarterSyncModal = true"
         />
@@ -352,9 +356,8 @@
                   class="export-dropdown-item"
                   type="button"
                   role="menuitem"
-                  @click="handleDownloadManifest"
-                  :disabled="preservedCount === 0"
-                  :class="{ 'disabled-item': preservedCount === 0 }"
+                  @click="preservedCount > 0 && handleDownloadManifest()"
+                  :aria-disabled="preservedCount === 0 ? 'true' : undefined"
                 >
                   <Icon name="tag" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
@@ -375,14 +378,17 @@
                      deadline has frozen anything it copies a command that
                      clones nothing - the same condition Download Manifest
                      above already knows and says out loud. It knew and this
-                     did not, one control apart. -->
+                     did not, one control apart.
+                     `aria-disabled`, not `disabled`, on a row unavailable for a
+                     standing reason: a disabled button leaves the Tab order, so
+                     a keyboard user never reaches the reason it gives (review
+                     2026-10-14). The click is refused by the guard instead. -->
                 <button
                   class="export-dropdown-item"
                   type="button"
                   role="menuitem"
-                  @click="handleCopyDownloadCmd"
-                  :disabled="preservedCount === 0"
-                  :class="{ 'disabled-item': preservedCount === 0 }"
+                  @click="preservedCount > 0 && handleCopyDownloadCmd()"
+                  :aria-disabled="preservedCount === 0 ? 'true' : undefined"
                 >
                   <Icon name="copy" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
@@ -422,9 +428,9 @@
                   class="export-dropdown-item"
                   type="button"
                   role="menuitem"
-                  :disabled="syncRefused"
+                  :aria-disabled="syncRefused ? 'true' : undefined"
                   data-sync-starter
-                  @click="handleSyncStarterCode"
+                  @click="!syncRefused && handleSyncStarterCode()"
                 >
                   <Icon name="git-pull-request" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
@@ -1003,9 +1009,9 @@
                 <span class="summary-value stat-yellow">{{ gradingCard('needs-look') }}</span>
                 <span class="summary-label">Needs a look</span>
               </div>
-              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'not-handed-in'" :title="notHandedInOverdue ? 'Nothing handed in by their deadline' : 'Nothing handed in yet, which is normal before the deadline'">
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'not-handed-in'" :title="missingWorkTitle('Nothing handed in', gradingCountsNow['not-handed-in'], notHandedInPast)" data-card="not-handed-in">
                 <span class="summary-value" :class="notHandedInOverdue ? 'stat-red' : 'stat-neutral'">{{ gradingCard('not-handed-in') }}</span>
-                <span class="summary-label">{{ notHandedInOverdue || !gradingCountsNow['not-handed-in'] ? 'Not handed in' : 'Not handed in yet' }}</span>
+                <span class="summary-label">{{ missingWorkLabel('Not handed in', gradingCountsNow['not-handed-in'], notHandedInPast) }}</span>
               </div>
             </div>
 
@@ -1171,10 +1177,10 @@
                       class="export-dropdown-item"
                       type="button"
                       role="menuitem"
-                      :disabled="refreshingFeedbackPrs || feedbackPrAlreadyOpenedCount === 0"
-                      :class="{ 'disabled-item': feedbackPrAlreadyOpenedCount === 0 }"
+                      :disabled="refreshingFeedbackPrs"
+                      :aria-disabled="feedbackPrAlreadyOpenedCount === 0 ? 'true' : undefined"
                       :title="feedbackPrAlreadyOpenedCount === 0 ? 'No feedback PRs have been opened yet' : `State and review-comment count for ${feedbackPrAlreadyOpenedCount} PR(s)`"
-                      @click="fromGradingMenu(refreshFeedbackPrStatus)"
+                      @click="feedbackPrAlreadyOpenedCount > 0 && fromGradingMenu(refreshFeedbackPrStatus)"
                     >
                       <Icon name="refresh-cw" :size="14" class="dropdown-icon" />
                       <div class="dropdown-item-text">
@@ -2541,7 +2547,10 @@ const gradingBox = computed(() => {
     // to nothing, so it is said apart rather than as "nobody has a score".
     const stats = scoreStats(gradingRowsAll.value)
     const noPoints = resultsWithoutPoints(gradingRowsAll.value)
-    const noPointsLine = noPoints ? `${noPoints} ${noPoints === 1 ? 'student has' : 'students have'} a result with no points to count.` : ''
+    // Not "no points to count", which read as a zero (review 2026-10-14).
+    const noPointsLine = noPoints
+      ? `${noPoints} ${noPoints === 1 ? 'student was' : 'students were'} graded by checks that carry no points: ${noPoints === 1 ? 'that result is' : 'those results are'} pass or fail, not a score.`
+      : ''
     return {
       state: 'read', tone: 'neutral', dot: 'dot-success',
       title: scoreStatsSentence(stats) || noPointsLine || 'Nobody has a score yet.',
@@ -3085,12 +3094,28 @@ const deadlinePassed = computed(() => {
   return new Date(currentDeadline.value).getTime() < nowMs.value
 })
 
-const noSubOverdue = computed(() =>
-  progressStudents.value.some((s) => s.submission_status === 'no-submission' && pastDeadline(s.effective_deadline_at || currentDeadline.value, nowMs.value)),
+// How many the card counts are past their own deadline. Red says one is; when
+// only some are, the label says how many (review 2026-10-14): a red "5 Not
+// handed in" over one overdue student and four with an extension overstated it.
+const noSubPast = computed(() =>
+  progressStudents.value.filter((s) => s.submission_status === 'no-submission' && pastDeadline(s.effective_deadline_at || currentDeadline.value, nowMs.value)).length,
 )
-const notHandedInOverdue = computed(() =>
-  gradingRowsAll.value.some((r) => r.status === 'not-handed-in' && pastDeadline(gradingDeadline(r), nowMs.value)),
+const noSubOverdue = computed(() => noSubPast.value > 0)
+const notHandedInPast = computed(() =>
+  gradingRowsAll.value.filter((r) => r.status === 'not-handed-in' && pastDeadline(gradingDeadline(r), nowMs.value)).length,
 )
+const notHandedInOverdue = computed(() => notHandedInPast.value > 0)
+/** The card's label: the count is all of them, so a split is said, not implied. */
+function missingWorkLabel(word, total, past) {
+  if (!total || past === total) return word
+  if (!past) return `${word} yet`
+  return `${word}: ${past} past their deadline`
+}
+function missingWorkTitle(word, total, past) {
+  if (!past) return `${word} yet, which is normal before the deadline`
+  if (past === total) return `${word} by their deadline`
+  return `${past} of ${total} past their own deadline; the others are not due yet`
+}
 
 // The preservation banner used to appear on nothing more than "the deadline has
 // passed", which put a "Preservation Pending" panel on assignments still marked
@@ -3299,7 +3324,8 @@ function handleSyncStarterCode() {
 
 // Starter sync does not run where students were given the template's full
 // history (lib/starter-sync.mjs `syncRefusal`): its menu row says so, disabled.
-const syncRefused = computed(() => Boolean(syncRefusal(assignment.value, report.value?.students || [])))
+const syncRefusalReason = computed(() => syncRefusal(assignment.value, report.value?.students || []))
+const syncRefused = computed(() => Boolean(syncRefusalReason.value))
 
 
 

@@ -270,7 +270,11 @@ autograde:
   const aliceSha = "a".repeat(40);
   const reportJson = {
     students: [
-      { github_login: "alice", preservation_status: "preserved", preserved_sha: aliceSha, repo_name: "TestOrg/cloud-pe-1-alice" }
+      { github_login: "alice", preservation_status: "preserved", preserved_sha: aliceSha, repo_name: "TestOrg/cloud-pe-1-alice" },
+      // R1-13 (review 2026-10-14): nothing preserved, so not in this grader's
+      // queue - and left out of the summary that replaces the whole file.
+      { github_login: "bo", preservation_status: "pending", repo_name: "TestOrg/cloud-pe-1-bo", submission_status: "on-time" },
+      { github_login: "cy", preservation_status: "not-required", repo_name: "TestOrg/cloud-pe-1-cy", submission_status: "no-submission" },
     ]
   };
 
@@ -358,6 +362,15 @@ autograde:
     assert.ok(stdout.includes("alice: 15/20"));
     assert.ok(stdout.includes("1 graded, 0 failed"));
     assert.equal(committedBlobs.length, 2); // 1 per-student JSON + 1 summary JSON
+    // R1-8 and R1-13: the summary written names every report student, each
+    // failed row with the kind the page reads (lib/grade-cohort.mjs FAILED_KINDS).
+    const decode = (b) => (b.encoding === "base64" ? Buffer.from(b.content, "base64").toString("utf8") : b.content);
+    const summary = committedBlobs.map((b) => JSON.parse(decode(b))).find((d) => Array.isArray(d.students) && Array.isArray(d.failed));
+    assert.ok(summary, "the summary was committed");
+    assert.deepEqual(summary.students.map((s) => s.login), ["alice"]);
+    const kinds = Object.fromEntries(summary.failed.map((f) => [f.login, f.kind]));
+    assert.deepEqual(kinds, { bo: "no-result", cy: "not-handed-in" });
+    assert.match(summary.failed.find((f) => f.login === "bo").reason, /nothing was preserved/);
   } finally {
     globalThis.fetch = originalFetch;
     Object.defineProperty(process, 'platform', originalPlatform);

@@ -127,7 +127,7 @@ Afterwards the Teams tab shows a "carried over from …" line, a standing "N stu
 
 - **Move to…** puts one student in another team in one step. The question before it says what happens to their access in this case: they lose the old team's repository at once, and get an invitation to the new one that they accept on GitHub. **Moving someone into a team that has no repository yet leaves them with none** until they open the invitation link and accept again - tell them. A student who never accepted has nothing to lose.
 - **Remove** takes a member off the list; nothing changes until **Save Changes**. An empty team is deleted from the same dialog (**Delete team**).
-- **Rename team** (top of the dialog) changes a team's name, and with it the name of the repository it will get, while nobody in it has accepted. The box shows that repository name as you type. Once a member has accepted it says why not: the repository already carries the old name.
+- **Rename team** (top of the dialog) changes a team's name, and with it the name of the repository it will get, while nobody in it has accepted. The box shows that repository name as you type. Once a member has accepted it says why not: the repository already carries the old name. Above the table, a line says whether students see the new name yet, read from the student page itself; **Check again** reads it again, and **Update the student pages** rebuilds them if they are still behind.
 - A student whose roster row has **no GitHub username yet** (only an email address) cannot be placed, because a team stores usernames. They are listed greyed, and the tab offers **Copy confirm-email link**: once they confirm their address, they can be placed (press Refresh). On a draft there is no link yet; it exists once the assignment is published.
 - A member whose username is **not a GitHub account** (a typo) had no access to remove, and removing them says so rather than reporting a failure. The Roster tab asks GitHub before storing a username: **Add student** refuses one that is not an account, and a CSV import marks it before you commit.
 
@@ -1257,7 +1257,7 @@ Central deployment and regeneration workflows (`deploy-frontend.yml`, `regenerat
 2. **Automated Pipeline Watchdog (pipeline-watchdog.yml):**
    - A scheduled sentinel runs every 30 minutes (`*/30 * * * *`) on the hub repository.
    - Inspects hub Actions runs for zombie runs: waiting over 15 minutes, running over 45 minutes, or a Pages deploy queued over 15 minutes without a runner.
-   - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A queued acceptance is never cancelled.
+   - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A queued acceptance is never cancelled, and neither is a Deadline Sentinel: it is alerted, and you decide.
    - Posts deduplicated alert comments with `@<login>` mentions on open tracking issues (`[NOTICE] PXL Classroom - Pipeline Watchdog Alerts`), triggering immediate email notifications through GitHub.
 
 3. **Alert Level Preferences & Picklists:**

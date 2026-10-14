@@ -35,7 +35,7 @@ import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mj
 import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { normalizeLogin, sameLogin } from "../../../lib/github-login.mjs";
@@ -553,9 +553,37 @@ export function registerGradeCommand(program) {
         const kept = opts.login ? null : keepStoredOnFailedReads({ stored: stored?.doc ?? null, graded: summary.graded, failed: summary.failed, failedReads });
         const merged = opts.login
           ? mergeOneStudentRead({ stored: stored?.doc ?? null, read: summary, logins: queue.map((s) => s.github_login), failedReads })
-          : { students: kept.graded, failed: kept.failed, unchanged: kept.kept };
+          // Copies: the rows added below are not this run's failures, and the
+          // exit code reads `summary.failed`.
+          : { students: [...kept.graded], failed: [...kept.failed], unchanged: kept.kept };
         for (const login of merged.unchanged) {
           process.stdout.write(`  = ${login}: nothing new was read, so the result on record is unchanged\n`);
+        }
+        // EVERY STUDENT ON THE REPORT HAS A ROW (review 2026-10-14, R1-13).
+        // This grader reads the archive, so a student with nothing preserved is
+        // not in its queue, and the summary it writes replaces the whole file:
+        // they were left out, and the page showed "Not read yet" beside a
+        // student nothing would ever read. The row on record stays; without
+        // one, a row saying why.
+        if (!opts.login) {
+          const named = (rows, l) => (rows || []).some((r) => sameLogin(r?.login, l));
+          for (const s of report.students || []) {
+            const l = s?.github_login;
+            if (!l || named(merged.students, l) || named(merged.failed, l)) continue;
+            const storedGraded = (stored?.doc?.students || []).filter((r) => sameLogin(r?.login, l));
+            const storedFailed = (stored?.doc?.failed || []).filter((r) => sameLogin(r?.login, l));
+            if (storedGraded.length || storedFailed.length) {
+              merged.students.push(...storedGraded);
+              merged.failed.push(...storedFailed);
+              continue;
+            }
+            const nothing = s.submission_status === "no-submission";
+            merged.failed.push({
+              login: l,
+              reason: nothing ? NO_SUBMISSION_REASON : "nothing was preserved for them at the deadline, and this grader reads the archive",
+              kind: nothing ? "not-handed-in" : "no-result",
+            });
+          }
         }
         const summaryDoc = buildGradingSummary({
           assignmentId: opts.assignment,

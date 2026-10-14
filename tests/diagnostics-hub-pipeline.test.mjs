@@ -143,7 +143,7 @@ test("checkHubPipelineHealth - reports healthy when no stuck runs", async () => 
         },
       };
     }
-    if (path.includes("status=in_progress")) {
+    if (path.includes("status=in_progress") || path.includes("status=pending")) {
       return { ok: true, status: 200, data: { workflow_runs: [] } };
     }
     return { ok: false, status: 404 };
@@ -191,6 +191,7 @@ test("checkHubPipelineHealth - 'no stuck runs' only from lists read whole: a par
     await checkHubPipelineHealth({
       req: async (method, path) => {
         paths.push(path);
+        if (path.includes("status=pending")) return answers.pending ?? { ok: true, status: 200, data: { workflow_runs: [], total_count: 0 } };
         return path.includes("status=waiting") ? answers.waiting : answers.progress;
       },
       addCheck: (tierIdx, c) => checks.push(c),

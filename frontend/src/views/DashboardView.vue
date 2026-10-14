@@ -577,13 +577,15 @@ async function checkHubPipelines() {
     // EVERY PAGE, newest first: the stuck runs are the OLDEST, so one page of
     // 30 dropped exactly them during an acceptance burst (review 2026-10-14,
     // G8b), as the watchdog and System Health learned before this did.
-    const [waiting, running] = await Promise.all([
+    // `pending` too (R1-11): a run held behind its concurrency group.
+    const [waiting, running, pending] = await Promise.all([
       everyRun(token, 'waiting'),
       everyRun(token, 'in_progress'),
+      everyRun(token, 'pending'),
     ])
     // A workflow built to run long (the Deadline Sentinel waits for hours) is
     // stuck only past its own limit - frontend/src/lib/stuck-runs.js.
-    hubStuckRun.value = stuckRuns([...waiting, ...running])[0] || null
+    hubStuckRun.value = stuckRuns([...waiting, ...running, ...pending])[0] || null
   } catch {
     // Non-blocking
   }

@@ -54,7 +54,7 @@ function runGit(args, opts = {}) {
 
 // Single-student fetch: clone-or-update the archive into a per-student dir
 // and checkout the preserved ref. Returns { login, sha, branch, status }.
-async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archiveRef, expectedSha, token, dir }) {
+async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archiveRef, expectedSha, token, dir, fullHistory = false }) {
   const target = join(dir, login);
   const branch = archiveBranchName({ assignmentId, login, teamSlug, recordedRef: archiveRef });
   const repo = resolveArchiveRepo({ org, recorded: archiveRepo });
@@ -78,7 +78,10 @@ async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archi
   // token-bearing URL an older version of this command left in the config.
   try { await runGit(["remote", "remove", "origin"], { cwd: target }); } catch { /* ok */ }
   await runGit(["remote", "add", "origin", url], { cwd: target });
-  await runGit(["fetch", "--depth=1", "origin", branch], authed);
+  // One commit is the submission's files; a git exercise is graded on its
+  // HISTORY - a merge, a rebase, a repaired log - so a full-history copy, or
+  // `--history`, fetches all of it (review 2026-10-14, S8).
+  await runGit(fullHistory ? ["fetch", "origin", branch] : ["fetch", "--depth=1", "origin", branch], authed);
   await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
   const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
   return { login, sha, branch, repo, status: "downloaded" };
@@ -101,14 +104,20 @@ export function registerDownloadCommand(program) {
     .option("--dir <path>", "Destination directory", "submissions")
     .option("--concurrency <n>", "Parallel git workers", parseConcurrency, 4)
     .option("--login <username>", "Download a single student's submission only")
+    .option("--history", "Fetch each submission's whole history, not only its last commit (always, for a full-history assignment)", false)
     .action(async (opts) => {
-      const org = await resolveOrg(opts.org);
-      const token = requireToken();
-      const octokit = makeOctokit(token);
+      const org = resolveOrg(opts.org);
+      // The ACCESS TOKEN, as `grade` takes it: the stored object went to git
+      // as the credential, so every fetch was refused (2026-10-14).
+      const token = requireToken().access_token;
+      const octokit = makeOctokit({ token });
 
       saveConfig({ defaultOrg: org });
 
-      const report = await getReport(octokit, org, opts.assignment);
+      // `{ org, assignmentId }`: called as (octokit, org, id) it destructured a
+      // string, read reports/undefined.json and could never download anything
+      // (found 2026-10-14 writing the first test that runs this command).
+      const report = await getReport(octokit, { org, assignmentId: opts.assignment });
       if (!report) {
         throw new Error(`Report not found for ${opts.assignment}. Has the deadline finalized?`);
       }
@@ -139,6 +148,7 @@ export function registerDownloadCommand(program) {
           login: s.github_login, teamSlug: s.team_slug,
           archiveRepo: s.archive_repo, archiveRef: s.archive_ref,
           expectedSha: s.preserved_sha, token, dir,
+          fullHistory: opts.history === true || s.full_history === true,
         });
       });
 

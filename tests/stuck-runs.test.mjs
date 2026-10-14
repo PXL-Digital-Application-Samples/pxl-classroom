@@ -80,6 +80,22 @@ test("everything else keeps the old limits: 15 minutes waiting, 45 in progress",
   assert.equal(stuckAfterMinutes(".github/workflows/deadline-sentinel.yml", "waiting"), 15);
 });
 
+test("R1-11: a pending run waits as long as the run ahead of it may run; a pending sentinel is not stuck", () => {
+  const now = Date.parse("2026-10-14T16:00:00Z");
+  const ago = (m) => new Date(now - m * 60_000).toISOString();
+  const sentinel = { id: 7, path: ".github/workflows/deadline-sentinel.yml", status: "pending", created_at: ago(200) };
+  assert.equal(stuckRuns([sentinel], now).length, 0, "behind the first sentinel, by design");
+  assert.equal(stuckRuns([{ ...sentinel, created_at: ago(400) }], now).length, 1);
+  const deploy = { id: 8, path: ".github/workflows/deploy-frontend.yml", status: "pending", created_at: ago(30) };
+  assert.equal(stuckRuns([deploy], now).length, 0);
+  assert.equal(stuckRuns([{ ...deploy, created_at: ago(50) }], now).length, 1);
+  // Every surface reads pending runs.
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const f of ["../scripts/pipeline-watchdog.mjs", "../lib/diagnostics.mjs", "../frontend/src/views/DashboardView.vue"]) {
+    assert.match(readFileSync(join(here, f), "utf8"), /status=pending|'pending'/, f);
+  }
+});
+
 test("G8b: every page is read, so the oldest run (the stuck one) on page 2 is found", async () => {
   const now = Date.parse("2026-10-14T16:00:00Z");
   const fresh = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, path: ".github/workflows/acceptance-handler.yml", status: "waiting", created_at: new Date(now - 60_000).toISOString() }));
