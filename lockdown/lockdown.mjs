@@ -31,6 +31,7 @@
 // Continues on per-student errors. No npm dependencies (Node 18+ fetch).
 
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
@@ -236,6 +237,17 @@ async function readReopened() {
 //
 // Stop-first makes that hazard structural rather than incidental - after phase 1
 // nothing can move - but the freeze stays as belt and braces.
+/** Whether this student's snapshot is archived and verified, by the record in the checkout. */
+function preservedOnRecord(login) {
+  if (!login) return false;
+  try {
+    const doc = JSON.parse(readFileSync(join(cfg.dataDir, "observations", cfg.assignmentId, login, "preservation.json"), "utf8"));
+    return doc?.verified === true;
+  } catch {
+    return false;
+  }
+}
+
 async function readPriorLockdown() {
   try {
     const raw = await readFile(
@@ -617,7 +629,10 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       const repoRes = await fetchRepo(t.repoName);
       if (!repoRes.ok) {
         log(`record ${t.login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
-        byRepo.set(t, { ok: false, reason: `repo HTTP ${repoRes.status}` });
+        // A 404 is a repository that is gone; anything else is a read that
+        // failed this pass and is recorded as such, so the next pass reads it
+        // again (review 2026-10-14) rather than the student dropping out.
+        byRepo.set(t, { ok: false, gone: repoRes.status === 404, reason: `repo HTTP ${repoRes.status}` });
         continue;
       }
       const branch = submissionRef.startsWith("refs/heads/")
@@ -665,12 +680,22 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
             // Falling back to HEAD here would silently record post-deadline
             // work as the submission. Better to record nothing and say why.
             log(`record ${t.login}`, { ok: false, note: asOf.reason });
-            byRepo.set(t, { ok: false, reason: asOf.reason });
+            byRepo.set(t, { ok: false, gone: false, reason: asOf.reason, repoId: repoRes.data.id, pushedAt });
             continue;
           }
         } else {
           const commitRes = await gh("GET", `/repos/${cfg.org}/${t.repoName}/commits/${branch}`);
-          snapshotSha = commitRes.ok ? commitRes.data.sha : null;
+          // A FAILED READ IS NOT "NO SNAPSHOT" (review 2026-10-14). It was
+          // recorded as `snapshot_sha: null` with ok - a 502 at the deadline,
+          // when the whole cohort is read at once, and that student was never
+          // preserved and never retried. Recorded as unread, and read again.
+          if (!commitRes.ok || typeof commitRes.data?.sha !== "string") {
+            const reason = `commit HTTP ${commitRes.status}`;
+            log(`record ${t.login}`, { ok: false, note: `${reason} - read again on the next pass` });
+            byRepo.set(t, { ok: false, gone: false, reason, repoId: repoRes.data.id, pushedAt });
+            continue;
+          }
+          snapshotSha = commitRes.data.sha;
         }
       }
 
@@ -758,11 +783,20 @@ async function main() {
   // stops freezing and a late commit replaces the on-time submission.
   const prior = await readPriorLockdown();
   const priorByLogin = indexByLogin(prior?.results || []);
-  const attempt = (prior?.finalize_attempts ?? 0) + 1;
+  // THE CEILING COUNTS RETRIES OF FAILED WORK, not passes (review 2026-10-14).
+  // Every pass incremented it - one for each expired extension, a lecturer's
+  // "Lock everyone out now", a "Try again" - so two extensions expiring on two
+  // nights spent the three attempts, and a preservation that failed on the
+  // third was never retried. A pass is a retry when the record it follows
+  // still owed something: a snapshot not yet archived, or one not yet read.
+  const retrying = Boolean(prior) && (prior.results || []).some(
+    (r) => r?.snapshot_unread || (r?.snapshot_sha && !r?.reopened_at && !preservedOnRecord(r.github_login)),
+  );
+  const attempt = prior ? (prior.finalize_attempts ?? 1) + (retrying ? 1 : 0) : 1;
   if (prior) {
     log("prior-lockdown", {
       ok: true,
-      note: `retry #${attempt} - reusing ${priorByLogin.size} frozen snapshot(s)`,
+      note: `${retrying ? `retry #${attempt}` : `pass after attempt #${attempt} (nothing owed was retried)`} - reusing ${priorByLogin.size} frozen snapshot(s)`,
     });
   }
 
@@ -1083,12 +1117,34 @@ async function main() {
     const state = recorded.get(t);
     const stop = lock.byRepo.get(t);
 
-    // A repository that could not be read produces no result row, exactly as
-    // before: preserve iterates the results, and a row it can never preserve
-    // would turn every subsequent night amber for a repo that is simply gone.
+    // A repository that is GONE produces no result row: preserve iterates the
+    // results, and a row it can never preserve would turn every subsequent
+    // night amber for a repository that no longer exists. One that could not
+    // be READ this pass gets a row saying so (`snapshot_unread`): it is
+    // locked, Reopen can act on it, and find-finalizable queues the next pass
+    // to read it again (review 2026-10-14 - it used to vanish from the record).
     if (!state?.ok) {
       errorCount++;
-      rows.push(`| ${t.displayKey} | - | - | error |`);
+      rows.push(`| ${t.displayKey} | - | - | error${state?.reason ? `: ${state.reason}` : ""} |`);
+      if (state && !state.gone) {
+        for (const m of t.members) {
+          lockdownResults.push({
+            github_login: m,
+            team_slug: t.rec.team_slug || undefined,
+            repo_name: `${cfg.org}/${t.repoName}`,
+            repo_id: state.repoId ?? t.rec.repo_id ?? null,
+            snapshot_sha: null,
+            snapshot_ref: submissionRef,
+            snapshot_unread: state.reason,
+            pushed_at: state.pushedAt ?? null,
+            lockdown_at: stop?.lockdownAt ?? null,
+            lock_method: stop?.method ?? null,
+            permission_after: null,
+            verified: false,
+            uncertainty_seconds: null,
+          });
+        }
+      }
       continue;
     }
 

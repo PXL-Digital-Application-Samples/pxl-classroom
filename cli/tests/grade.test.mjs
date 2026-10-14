@@ -40,9 +40,12 @@ test("grade command: SHA-mismatch guard, validation, and dry-run", async () => {
   runGitSync(["branch", "preserved/a1/student2"], mockArchive);
   const _sha2 = runGitSync(["rev-parse", "preserved/a1/student2"], mockArchive);
 
+  // The PLAIN URL is what the CLI asks git for now: the token travels in the
+  // fetch's environment only (lib/git-auth.mjs), never in the remote, so it is
+  // in no workdir's .git/config for the sandboxed student code to read.
   writeFileSync(join(homeDir, ".gitconfig"), `
 [url "file://${mockArchive.replace(/\\/g, '/')}"]
-    insteadOf = https://x-access-token:fake@github.com/TestOrg/pxl-classroom-archive.git
+    insteadOf = https://github.com/TestOrg/pxl-classroom-archive.git
 `);
 
   mkdirSync(join(homeDir, "pxl-classroom"), { recursive: true });

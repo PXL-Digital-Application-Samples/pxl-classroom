@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, manifestRepoName, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, manifestRepoName, normalizeExistingRepoPolicy, ownDecisionMadeTeamRepo, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance, claimRequired } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -26,6 +26,7 @@ import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinC
 import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
 import { lockdownRecordPath } from "../lib/control-layout.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
+import { repositoryNameFor } from "../lib/repo-name.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
@@ -1252,8 +1253,23 @@ async function main() {
         // The repository the team's record names, where it names one: that is
         // the repository the student loses and, emptied, the one removed. The
         // pattern's name only where the record has none (review 2026-10-14).
-        const recordedRepo = manifestRepoName(oldTeam.repo_name, org);
-        previousRepo = recordedRepo || deriveRepoName(assignment.repository_name_pattern, oldTeam.team_slug, login);
+        const patternRepo = repositoryNameFor(assignment.repository_name_pattern, { teamSlug: oldTeam.team_slug, login });
+        // Or, where the record names none yet, the one this student's own
+        // decision into that team asked GitHub about: a switch made straight
+        // after the first acceptance can beat that run's record push (review
+        // 2026-10-14, lib/existing-repo.mjs `ownDecisionMadeTeamRepo`).
+        let ownRecord = null;
+        try {
+          ownRecord = existsSync(acceptFile) ? JSON.parse(await readFile(acceptFile, "utf-8")) : null;
+        } catch {
+          ownRecord = null;
+        }
+        const recordedRepo = manifestRepoName(oldTeam.repo_name, org) ||
+          (ownDecisionMadeTeamRepo(ownRecord, {
+            teamSlug: oldTeam.team_slug,
+            policy: normalizeExistingRepoPolicy(assignment.existing_repo_policy, { assignmentType: assignment.assignment_type }),
+          }) ? patternRepo : null);
+        previousRepo = recordedRepo || patternRepo;
         // Same coercion, and this one mattered more: `.some()` above stops at
         // the first match, so a non-string sitting AFTER the student was never
         // evaluated there and reached this filter, which evaluates every entry.
@@ -1438,8 +1454,8 @@ async function main() {
 
   // 6. Check idempotency - already accepted?
   const targetRepo = isGroup
-    ? deriveRepoName(assignment.repository_name_pattern, teamSlug, login)
-    : deriveRepoName(assignment.repository_name_pattern, login, login);
+    ? repositoryNameFor(assignment.repository_name_pattern, { teamSlug, login })
+    : repositoryNameFor(assignment.repository_name_pattern, { login });
 
   // For a TEAM, an acceptance is "already accepted" only into the team it
   // names. A lecturer can remove a student from their team (the Teams tab
@@ -1752,13 +1768,6 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-function deriveRepoName(pattern, teamSlugOrLogin, login) {
-  if (!pattern) return teamSlugOrLogin;
-  return pattern
-    .replace("{team_slug}", teamSlugOrLogin)
-    .replace("{github_login}", login || teamSlugOrLogin);
 }
 
 main().catch(async (e) => {

@@ -35,14 +35,16 @@ import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mj
 import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { archiveGradeQueue, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, archiveGradeQueue, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
-import { sameLogin } from "../../../lib/github-login.mjs";
+import { normalizeLogin, sameLogin } from "../../../lib/github-login.mjs";
+import { gradingSummaryPath } from "../../../lib/control-layout.mjs";
+import { gitAuthEnv, gitRepoUrl } from "../../../lib/git-auth.mjs";
 
-function runGit(args, cwd) {
+function runGit(args, cwd, env = process.env) {
   return new Promise((resolveFn, reject) => {
-    const child = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("git", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "", stderr = "";
     child.stdout.on("data", (b) => (stdout += b.toString()));
     child.stderr.on("data", (b) => (stderr += b.toString()));
@@ -62,16 +64,25 @@ async function checkoutArchive({ org, assignmentId, login, teamSlug, archiveRepo
   const workdir = await mkdtemp(join(tmpdir(), `pxl-grade-${login}-`));
   const branch = archiveBranchName({ assignmentId, login, teamSlug, recordedRef: archiveRef });
   const repo = resolveArchiveRepo({ org, recorded: archiveRepo });
-  const url = `https://x-access-token:${token}@github.com/${repo}.git`;
-  await runGit(["init", "--quiet"], workdir);
-  await runGit(["remote", "add", "origin", url], workdir);
-  await runGit(["fetch", "--depth=1", "origin", branch], workdir);
-  await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], workdir);
-  const head = (await runGit(["rev-parse", "HEAD"], workdir)).trim();
-  if (sha && head !== sha) {
-    throw new Error(`archive sha mismatch: expected ${sha}, got ${head}`);
+  // THE TOKEN IN THE FETCH'S ENVIRONMENT ONLY (lib/git-auth.mjs; review
+  // 2026-10-14). In the remote URL it sat in this workdir's `.git/config`,
+  // which is mounted into the Docker sandbox the student's code runs in.
+  const authed = { ...process.env, ...gitAuthEnv(token), GIT_TERMINAL_PROMPT: "0" };
+  try {
+    await runGit(["init", "--quiet"], workdir);
+    await runGit(["remote", "add", "origin", gitRepoUrl("https://github.com", ...repo.split("/"))], workdir);
+    await runGit(["fetch", "--depth=1", "origin", branch], workdir, authed);
+    await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], workdir);
+    const head = (await runGit(["rev-parse", "HEAD"], workdir)).trim();
+    if (sha && head !== sha) {
+      throw new Error(`archive sha mismatch: expected ${sha}, got ${head}`);
+    }
+    return { workdir, sha: head, branch };
+  } catch (e) {
+    // The caller removes a workdir it was handed; one it never got is ours.
+    await rm(workdir, { recursive: true, force: true }).catch(() => {});
+    throw e;
   }
-  return { workdir, sha: head, branch };
 }
 
 async function gradeOne({ assignment, runner, login, sha, archive, gradedBy }) {
@@ -222,6 +233,10 @@ export function registerGradeCommand(program) {
       // Sequential dispatch with a worker pool over students (per-test
       // parallelism would race on the same workdir).
       const summary = { graded: [], failed: [] };
+      // Students whose read FAILED in this run - nothing was learned about
+      // them. Under --login their result on record stands (oneReadReplaces).
+      const failedReads = new Set();
+      const failedRead = (login) => failedReads.add(normalizeLogin(login));
       const teamResultsCache = new Map(); // team_slug -> result
 
       // The assignment's hand-in marker, read once for the cohort. Null for
@@ -366,6 +381,7 @@ export function registerGradeCommand(program) {
                 process.stderr.write(`  - ${s.github_login}: ${describeIgnoredHandIn(item, { allowed: handIns.allowed })}\n`);
               }
               if (found.verdict !== "found") {
+                if (FAILED_READ_VERDICTS.includes(found.verdict)) failedRead(s.github_login);
                 process.stderr.write(`  ! ${s.github_login}: ${found.reason}\n`);
                 summary.failed.push({ login: s.github_login, reason: found.reason, kind: found.kind || "no-result", ...(handIns ? { hand_ins: handIns } : {}) });
                 return;
@@ -377,6 +393,7 @@ export function registerGradeCommand(program) {
             }
 
             if (outcome.verdict !== "graded") {
+              if (FAILED_READ_VERDICTS.includes(outcome.verdict)) failedRead(s.github_login);
               process.stderr.write(`  ! ${s.github_login}: ${outcome.reason}\n`);
               summary.failed.push({ login: s.github_login, reason: outcome.reason, kind: outcome.kind || "no-result" });
               return;
@@ -438,6 +455,7 @@ export function registerGradeCommand(program) {
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
+            failedRead(s.github_login);
             summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}`, kind: "no-result" });
             return;
           }
@@ -451,6 +469,7 @@ export function registerGradeCommand(program) {
             });
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: archive fetch failed - ${err.message}\n`);
+            failedRead(s.github_login);
             summary.failed.push({ login: s.github_login, reason: `archive: ${err.message}`, kind: "no-result" });
             return;
           }
@@ -464,6 +483,7 @@ export function registerGradeCommand(program) {
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
+            failedRead(s.github_login);
             summary.failed.push({ login: s.github_login, reason: `grading: ${err.message}`, kind: "no-result" });
             try { await rm(archive.workdir, { recursive: true, force: true }); } catch { /* best effort */ }
             return;
@@ -515,6 +535,7 @@ export function registerGradeCommand(program) {
           );
         } catch (err) {
           process.stderr.write(`  ! ${s.github_login}: ${err.message}\n`);
+          failedRead(s.github_login);
           summary.failed.push({ login: s.github_login, reason: err.message, kind: "no-result" });
         }
       });
@@ -526,13 +547,20 @@ export function registerGradeCommand(program) {
         // student is a row, they all turned "Not read yet". Merged against the
         // version read, and refused if another writer changed it meanwhile.
         const stored = opts.login ? await getGradingSummary(octokit, { org, assignmentId: opts.assignment }) : null;
-        const notThisRun = (rows) => (rows || []).filter((r) => !queue.some((s) => sameLogin(s.github_login, r.login)));
+        const merged = opts.login
+          ? mergeOneStudentRead({ stored: stored?.doc ?? null, read: summary, logins: queue.map((s) => s.github_login), failedReads })
+          : { students: summary.graded, failed: summary.failed, unchanged: [] };
+        for (const login of merged.unchanged) {
+          process.stdout.write(`  = ${login}: nothing new was read, so the result on record is unchanged\n`);
+        }
         const summaryDoc = buildGradingSummary({
           assignmentId: opts.assignment,
-          gradedBy,
-          runner: runnerName,
-          students: [...notThisRun(stored?.doc?.students), ...summary.graded],
-          failed: [...notThisRun(stored?.doc?.failed), ...summary.failed],
+          // One student merged in keeps who read the cohort, and how - as the
+          // page's Read score again does (review 2026-10-14).
+          gradedBy: opts.login && stored?.doc ? (stored.doc.graded_by ?? null) : gradedBy,
+          runner: opts.login && stored?.doc?.runner ? stored.doc.runner : runnerName,
+          students: merged.students,
+          failed: merged.failed,
         });
         // Validated before it is committed, on BOTH sides. The Admin Panel has
         // checked this document since the schema existed and this side never
@@ -552,8 +580,11 @@ export function registerGradeCommand(program) {
           );
           process.exit(1);
         }
-        const summaryFile = `grading/${opts.assignment}/summary.json`;
-        await commitWithRebase(octokit, {
+        const summaryFile = gradingSummaryPath(opts.assignment);
+        // Every student read again kept what was on record: there is nothing to write.
+        if (opts.login && merged.unchanged.length === queue.length) {
+          process.stdout.write(`\nNothing was written.\n`);
+        } else await commitWithRebase(octokit, {
           owner: org, repo: CONTROL_REPO, branch: "main",
           message: `Grade ${opts.assignment}: summary (${summary.graded.length} graded, ${summary.failed.length} failed)`,
           changes: [{

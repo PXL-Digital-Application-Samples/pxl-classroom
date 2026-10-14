@@ -351,6 +351,7 @@ export type Observation = {
   tag?: string;
   declared_at?: string;
   tagged_sha?: string;
+  commit_date?: string;
   observer_run?: string;
 };
 
@@ -444,6 +445,7 @@ export type Report = {
     latest_observation_type?: "scheduled" | "manual" | "deadline" | "lockdown" | "preservation" | null;
     starter_sha?: string;
     starter_commit_count?: number;
+    full_history?: boolean;
     commit_date?: string;
     latest_commit_date?: string;
     commit_message?: string;
@@ -496,6 +498,7 @@ export type RepositoryRecord = {
   feedback_pr_baseline_sha?: string;
   starter_sha?: string;
   starter_commit_count?: number;
+  full_history?: boolean;
 };
 
 /** What was deleted, when, by whom, and where the code still is (schemas/retired-manifest.schema.json) */

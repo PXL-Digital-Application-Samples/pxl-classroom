@@ -27,11 +27,21 @@ function longestTimeouts() {
   return out;
 }
 
-test("every workflow built to run past 45 minutes is in the table, at its own limit - derived from the files", () => {
+test("every workflow allowed 45 minutes or more is in the table, at its own limit - derived from the files", () => {
+  // AT 45 too: the default limit with no margin called a starter sync stuck at
+  // the minute its own timeout allowed it to end (review 2026-10-14).
   const timeouts = longestTimeouts();
-  const long = Object.fromEntries(Object.entries(timeouts).filter(([, m]) => m > 45));
+  const long = Object.fromEntries(Object.entries(timeouts).filter(([, m]) => m >= 45));
   assert.deepEqual(LONG_RUNNING_WORKFLOWS, long);
   assert.ok(long[".github/workflows/deadline-sentinel.yml"] >= 240, "the sentinel waits hours, and this guard would pass vacuously without it");
+  // Every limit in the table is more than its workflow's own timeout.
+  for (const [path, minutes] of Object.entries(long)) {
+    assert.ok(stuckAfterMinutes(path, "in_progress") > minutes, path);
+  }
+  // And a workflow under it gets the default, which is above its own timeout.
+  for (const [path, minutes] of Object.entries(timeouts).filter(([, m]) => m > 0 && m < 45)) {
+    assert.ok(stuckAfterMinutes(path, "in_progress") > minutes, path);
+  }
 });
 
 test("the sentinel waiting for its deadline is not stuck; past its own limit it is", () => {

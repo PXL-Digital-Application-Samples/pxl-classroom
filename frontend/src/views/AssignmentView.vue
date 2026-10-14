@@ -588,6 +588,8 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
+import { latestSubmitTag as latestSubmitTagOf } from '../../../lib/submit-tag.mjs'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
@@ -947,10 +949,8 @@ async function loadAssignment(isRetry = false) {
   }
 }
 
-const SUBMIT_TAG_PATTERN = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/
-
-// Look up the latest refs/tags/submit/* tag on the student's repo. Lexicographic
-// sort on the ISO-Z timestamp = chronological. Silent on failure - the banner
+// Look up the latest refs/tags/submit/* tag on the student's repo, through the
+// collector's own rule (lib/submit-tag.mjs). Silent on failure - the banner
 // just renders the "no tag yet" hint.
 async function refreshSubmitTag(org, repoName) {
   const token = getToken()
@@ -961,14 +961,8 @@ async function refreshSubmitTag(org, repoName) {
       latestSubmitTag.value = null
       return
     }
-    const candidates = res.data
-      .map((entry) => {
-        const m = SUBMIT_TAG_PATTERN.exec(entry.ref || '')
-        return m ? { tag: m[1], declared_at: m[2] } : null
-      })
-      .filter(Boolean)
-    candidates.sort((a, b) => (a.tag < b.tag ? 1 : a.tag > b.tag ? -1 : 0))
-    latestSubmitTag.value = candidates[0] || null
+    const latest = latestSubmitTagOf(res.data)
+    latestSubmitTag.value = latest ? { tag: latest.tag, declared_at: latest.declared_at } : null
   } catch (e) {
     console.error('Failed to fetch submit tag:', e)
   }
@@ -1036,8 +1030,7 @@ async function checkExistingState() {
   if (!token || !assignment.value) return
 
   const org = props.org
-  const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
-  const expectedName = pattern.replace('{github_login}', user.value.login)
+  const expectedName = repositoryNameFor(assignment.value.repository_name_pattern, { login: user.value.login })
 
   // Check if repo exists
   const repo = await getRepo(token, org, expectedName)
@@ -1312,8 +1305,7 @@ async function sendAgain() {
 // case for the first half-minute.
 const invitationUrl = computed(() => {
   if (!assignment.value || !user.value?.login) return null
-  const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
-  const repo = pattern.replace('{github_login}', user.value.login)
+  const repo = repositoryNameFor(assignment.value.repository_name_pattern, { login: user.value.login })
   return `https://github.com/${props.org}/${repo}/invitations`
 })
 
@@ -1365,8 +1357,7 @@ function startPolling() {
     if (!token) return
 
     const org = props.org
-    const pattern = assignment.value.repository_name_pattern || `${resolvedId.value}-{github_login}`
-    const expectedName = pattern.replace('{github_login}', user.value.login)
+    const expectedName = repositoryNameFor(assignment.value.repository_name_pattern, { login: user.value.login })
 
     // Check repo
     const repo = await getRepo(token, org, expectedName)

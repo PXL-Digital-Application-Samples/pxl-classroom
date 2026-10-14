@@ -806,6 +806,53 @@ test("a late count belongs to the commit it was counted at: a Refresh that saw a
   assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
 });
 
+test("a submit tag is judged by its commit's own time, not by when the collector saw it again after the deadline", async () => {
+  // Review 2026-10-14: every collect writes the tag again with observed_at =
+  // now, and the finalize's collect runs after the deadline - so a tag made
+  // before it read late, and every tagged student got a late notice.
+  const { snapshotObservation, taggedSubmissionObservation } = await import("../lib/observation.mjs");
+  const T = "a".repeat(40);
+  const H = "b".repeat(40);
+  const snap = (sha, observedAt, commitDate) => snapshotObservation({
+    assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
+    commit: { sha, commit: { message: "work", committer: { date: commitDate }, author: { name: "Tom" } } },
+    commitCount: 3, lateCommitCount: 0, observedAt, collectionType: "scheduled",
+  });
+  const tag = (observedAt, commitDate) => taggedSubmissionObservation({
+    assignmentId: "test-asgn", login: "tom", repoId: 7, observedAt,
+    submit: { tag: "submit/2026-09-10T15-30-00Z-aaaaaaa", declared_at: "2026-09-10T15:30:00Z", tagged_sha: T, commit_date: commitDate },
+  });
+  const run = (observations) => runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }],
+    repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
+    observations: { tom: observations },
+  }).students.find((s) => s.github_login === "tom");
+
+  // Tagged at 15:30, a later commit at 15:50, deadline 23:59:59; the nightly
+  // and the finalize both see the tag again after the deadline.
+  const row = run([
+    snap(H, "2026-09-11T00:30:00.000Z", "2026-09-10T15:50:00Z"),
+    tag("2026-09-11T00:30:01.000Z", "2026-09-10T15:29:00Z"),
+    tag("2026-09-12T00:30:01.000Z", "2026-09-10T15:29:00Z"),
+  ]);
+  assert.equal(row.submission_status, "on-time");
+  assert.equal(row.tagged_submission_sha, T);
+  assert.equal(row.warnings.includes("late-activity-detected"), false, "and so no late notice either");
+
+  // A tag on a commit made after the deadline is late.
+  const late = run([snap(H, "2026-09-11T00:30:00.000Z", "2026-09-10T15:50:00Z"), tag("2026-09-11T00:30:01.000Z", "2026-09-11T00:10:00Z")]);
+  assert.equal(late.submission_status, "late");
+
+  // An observation from before the field: judged by the FIRST time the tag was seen.
+  const old = run([
+    snap(H, "2026-09-10T20:00:00.000Z", "2026-09-10T15:50:00Z"),
+    { ...tag("2026-09-10T20:00:01.000Z", null), commit_date: undefined },
+    { ...tag("2026-09-12T00:30:01.000Z", null), commit_date: undefined },
+  ]);
+  assert.equal(old.submission_status, "on-time");
+});
+
 // Under `open` the roster invites nobody, so its students are not this
 // assignment's population (PXL-Automation-II / 2627-pe-1-test-1, 2026-09-26:
 // last year's promoted exam cohort listed as "No submission" on a new open
@@ -913,7 +960,11 @@ test("a repository copied with the template's history is not started while it is
     acceptances: [{ github_login: "gina", status: "accepted" }, { github_login: "hugo", status: "accepted" }, { github_login: "ivo", status: "accepted" }],
     // Hugo joined later: his record has no starter_sha, Gina's (the run that
     // copied it) does - it is the repository's, so it is asked of both.
-    repositories: [rec("gina", { starter_sha: given, starter_commit_count: 14 }), rec("hugo"), rec("ivo", { repo_id: 78, starter_sha: given, starter_commit_count: 14 })],
+    repositories: [
+      rec("gina", { starter_sha: given, starter_commit_count: 14, full_history: true }),
+      rec("hugo"),
+      rec("ivo", { repo_id: 78, starter_sha: given, starter_commit_count: 14, full_history: true }),
+    ],
     observations: {
       // At the commit it was given, whose author is the lecturer who wrote the template.
       gina: [{ observed_at: "2026-09-05T10:00:00Z", sha: given, commit_count: 14, author_name: "Lecturer", author_email: "lecturer@pxl.be" }],
@@ -926,7 +977,9 @@ test("a repository copied with the template's history is not started while it is
   assert.equal(row("gina").submission_status, "no-submission");
   assert.equal(row("hugo").submission_status, "no-submission");
   assert.equal(row("ivo").submission_status, "on-time");
-  // The student's commits, not the template's.
+  // The commits it was not given: none at the start, and Ivo's 3 are the
+  // prepared branch's own commits his fast-forward brought in - counted, as
+  // the manual says, because the count cannot tell them from his.
   assert.deepEqual([row("gina").commit_count, row("hugo").commit_count, row("ivo").commit_count], [0, 0, 3]);
   // Not the lecturer, offered by the roster harvest as Gina - nor after Ivo's
   // fast-forward, whose head is also a template commit: a full-history copy's
@@ -934,7 +987,35 @@ test("a repository copied with the template's history is not started while it is
   assert.deepEqual([row("gina").author_name, row("gina").author_email], [null, null]);
   assert.deepEqual([row("ivo").author_name, row("ivo").author_email], [null, null]);
   // Carried for the page's Refresh, which applies the same rule.
-  assert.deepEqual([row("hugo").starter_sha, row("hugo").starter_commit_count], [given, 14]);
+  assert.deepEqual([row("hugo").starter_sha, row("hugo").starter_commit_count, row("hugo").full_history], [given, 14, true]);
+});
+
+test("GitHub's copy that provisioning committed a grading workflow to: two commits, and untouched is still No submission", () => {
+  // Review 2026-10-14: the generated commit plus provisioning's grading
+  // workflow is two from the first second, and "one commit is the start" read
+  // every untouched student as on time. Provisioning records that commit now;
+  // it is not a full-history copy, so authors are carried as ever.
+  const given = "e".repeat(40);
+  const rec = (login, extra = {}) => ({
+    schema_version: 1, assignment_id: "test-asgn", github_login: login, repo_id: 90 + login.length,
+    repo_name: `TestOrg/test-asgn-${login}`, repo_url: `https://github.com/TestOrg/test-asgn-${login}`, ...extra,
+  });
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "jan", status: "accepted" }, { github_login: "kim", status: "accepted" }],
+    repositories: [rec("jan", { starter_sha: given, starter_commit_count: 2 }), rec("kim", { starter_sha: given, starter_commit_count: 2 })],
+    observations: {
+      jan: [{ observed_at: "2026-09-05T10:00:00Z", sha: given, commit_count: 2 }],
+      kim: [{ observed_at: "2026-09-05T10:00:00Z", sha: "f".repeat(40), commit_count: 3, commit_date: "2026-09-05T09:00:00Z", author_name: "Kim", author_email: "kim@student.pxl.be" }],
+    },
+  });
+  const row = (l) => report.students.find((s) => s.github_login === l);
+  assert.equal(row("jan").submission_status, "no-submission");
+  assert.equal(row("jan").commit_count, 0);
+  assert.equal(row("kim").submission_status, "on-time");
+  assert.equal(row("kim").commit_count, 1);
+  assert.equal(row("kim").author_email, "kim@student.pxl.be", "not a history copy: the author is carried");
+  assert.equal("full_history" in row("kim"), false);
 });
 
 test("group assignment report aggregates teams, calculates under_capacity, and attaches team metadata to students", () => {

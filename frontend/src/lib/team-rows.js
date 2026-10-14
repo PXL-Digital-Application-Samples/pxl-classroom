@@ -57,6 +57,9 @@ export function teamRows(reportTeams, manifests, { minTeamSize = 0 } = {}) {
       repo_url: doc.repo_url || reported?.repo_url || null,
       ...(doc.repo_id || reported?.repo_id ? { repo_id: doc.repo_id || reported?.repo_id } : {}),
       ...(doc.seeded_from ? { seeded_from: doc.seeded_from } : {}),
+      // The slugs it had before a rename: the Teams tab keeps them free, since
+      // a page loaded before the rename still sends one (lib/team-rename.mjs).
+      ...(Array.isArray(doc.renamed_from) && doc.renamed_from.length ? { renamed_from: doc.renamed_from.map(String) } : {}),
       // Only from the file: the report never carries it, and the Teams tab is
       // where a lecturer reads it out to a student who lost it.
       // Whatever is there, readable or not: the hub treats an unreadable one as

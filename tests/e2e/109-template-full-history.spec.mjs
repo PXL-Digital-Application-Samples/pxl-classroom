@@ -88,6 +88,8 @@ test.describe('109 - every branch and its full history', () => {
     await historyLine(page).getByRole('button', { name: 'Change' }).click();
     await expect(box(page)).toBeVisible();
     await expect(box(page)).toBeChecked();
+    // On it: focus moves to the checkbox the line is about (DESIGN.md §1.8).
+    await expect(box(page)).toBeFocused();
   });
 
   test('a stored answer loads ticked, and unticking removes it rather than writing false', async ({ page }) => {
@@ -102,32 +104,67 @@ test.describe('109 - every branch and its full history', () => {
     expect('template_full_history' in doc).toBe(false);
   });
 
-  for (const [label, extra, offered] of [
-    ['an ordinary assignment offers Sync Starter Code (the control)', {}, true],
-    ['a full-history assignment shows Sync Starter Code disabled, and says why', { template_full_history: true }, false],
+  // A student holding a full-history copy, on an assignment whose box was
+  // unticked after they accepted: the copy is per student, the setting per assignment.
+  const COPY_ROW = {
+    github_login: 'ann', acceptance_state: 'accepted', submission_status: 'no-submission',
+    repo_name: `${ORG}/${ID}-ann`, repo_id: 7001, commit_count: 0, starter_sha: 'c'.repeat(40), starter_commit_count: 14,
+    full_history: true,
+  };
+  for (const [label, extra, students, reason] of [
+    ['an ordinary assignment offers Sync Starter Code (the control)', {}, [], null],
+    ['a full-history assignment shows Sync Starter Code disabled, and says why', { template_full_history: true }, [], "students were given the template's full history"],
+    ['unticked after a student got such a copy: still disabled, and says some students have one', {}, [COPY_ROW], "some students were given the template's full history"],
   ]) {
     test(label, async ({ page }) => {
       await injectAuth(page, LECTURER);
       await setupStandardMockRoutes(page, {
         currentUser: LECTURER,
         assignments: { [ID]: assignment(extra) },
-        reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), students: [] } },
+        reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), students } },
       });
       await page.goto(`/dashboard/${ORG}/${ID}`);
       await openMoreActionsMenu(page);
       const item = page.locator('[data-sync-starter]');
       // Never simply gone (DESIGN.md §1.5): disabled, with the reason.
       await expect(item).toHaveCount(1);
-      if (offered) {
+      if (!reason) {
         await expect(item).toBeEnabled();
       } else {
         await expect(item).toBeDisabled();
-        await expect(item).toContainText('students were given the template with its full history');
+        await expect(item).toContainText(reason);
         await item.click({ force: true });
         await expect(page.locator('#starter-sync-title')).toHaveCount(0);
       }
     });
   }
+
+  test('the editor asks the same rule: unticked after a student got such a copy, a template change does not point at Sync Starter Code', async ({ page }) => {
+    // Review 2026-10-14: the editor looked at the checkbox alone, and told the
+    // lecturer the sync would bring them up to the new template - which the
+    // page, the workflow and the CLI all refuse.
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      userRepos: [brokerRepo],
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), students: [COPY_ROW] } },
+      // One student already holds a repository of the current template.
+      controlRepositories: { [ID]: [{
+        schema_version: 1, assignment_id: ID, github_login: 'ann', repo_id: 7001,
+        repo_name: `${ORG}/${ID}-ann`, repo_url: `https://github.com/${ORG}/${ID}-ann`, starter_sha: 'c'.repeat(40), starter_commit_count: 14,
+        full_history: true,
+      }] },
+    });
+    await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+    await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
+    await expandSettings(page);
+    await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/another-template`);
+    const hint = page.locator('.form-hint[role="note"]', { hasText: 'already has' });
+    await expect(hint).toBeVisible({ timeout: 10000 });
+    await expect(hint).toContainText('Sync Starter Code does not run on an assignment that gives students the full history');
+    await expect(hint).not.toContainText('Sync Starter Code sends it');
+  });
 
   // REFRESH APPLIES THE REPORT'S OWN RULE (lib/starter-commit.mjs). The
   // repository has the template's 14 commits from the first second; counted,

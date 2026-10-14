@@ -39,7 +39,8 @@ async function withStubApi(headSha, fn) {
     if (/^\/repos\/[^/]+\/[^/]+$/.test(url)) {
       return send(200, { id: 42, default_branch: "main" });
     }
-    if (/\/commits\/main$/.test(url)) return send(200, { sha: headSha });
+    // `headSha` null: the commit read fails, as a 502 at the deadline does.
+    if (/\/commits\/main$/.test(url)) return headSha ? send(200, { sha: headSha }) : send(502, { message: "Bad Gateway" });
     if (/\/collaborators\/[^/]+\/permission$/.test(url)) return send(200, { permission: "read" });
     if (/\/collaborators\/[^/]+$/.test(url) && req.method === "PUT") {
       res.writeHead(204);
@@ -183,5 +184,43 @@ test("a student added after the first lockdown still gets a fresh snapshot", asy
     const alice = res.record.results.find((r) => r.github_login === "alice");
     assert.ok(alice, "alice must be locked down on the retry");
     assert.equal(alice.snapshot_sha, LATE_SHA, "a first-time snapshot uses current HEAD");
+  });
+});
+
+test("a snapshot that could not be read is recorded as unread - locked, a row, read again next pass", async () => {
+  // Review 2026-10-14: a 502 on the commit read became `snapshot_sha: null`
+  // with ok, and that student was never preserved and never retried.
+  const dir = makeControlDir();
+  await withStubApi(null, async (api) => {
+    const res = await runLockdown(dir, api);
+    const alice = res.record.results.find((r) => r.github_login === "alice");
+    assert.ok(alice, "the student keeps a row");
+    assert.equal(alice.snapshot_sha, null);
+    assert.match(alice.snapshot_unread, /commit HTTP 5\d\d/);
+  });
+  // The next pass reads it again.
+  await withStubApi(ON_TIME_SHA, async (api) => {
+    const res = await runLockdown(dir, api);
+    const alice = res.record.results.find((r) => r.github_login === "alice");
+    assert.equal(alice.snapshot_sha, ON_TIME_SHA);
+    assert.equal(alice.snapshot_unread, undefined);
+    assert.equal(res.record.finalize_attempts, 2, "a retry of owed work counts");
+  });
+});
+
+test("the attempt counter counts retries of owed work, not passes", async () => {
+  // Review 2026-10-14: every pass counted - expired extensions, a lecturer's
+  // lock, a Try again - so the ceiling of three was spent before a failure
+  // needed it.
+  const dir = makeControlDir();
+  await withStubApi(ON_TIME_SHA, async (api) => {
+    assert.equal((await runLockdown(dir, api)).record.finalize_attempts, 1);
+  });
+  // Preserved since: nothing is owed.
+  mkdirSync(join(dir, "observations", "exam", "alice"), { recursive: true });
+  writeFileSync(join(dir, "observations", "exam", "alice", "preservation.json"), JSON.stringify({ verified: true, source_sha: ON_TIME_SHA }));
+  await withStubApi(ON_TIME_SHA, async (api) => {
+    const again = await runLockdown(dir, api);
+    assert.equal(again.record.finalize_attempts, 1, "a pass with nothing owed is not a retry");
   });
 });

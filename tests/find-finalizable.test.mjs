@@ -96,7 +96,7 @@ test("lockdown-record.json exists -> skip (idempotency)", () => {
  * optional preservation.json per student.
  *   students: [{ login, snapshot_sha, preserved }]
  */
-function runWithLockdown(students, { attempts = 1, id = "exam" } = {}) {
+function runWithLockdown(students, { attempts = 1, id = "exam", unread = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-ff-retry-"));
   const past = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
@@ -114,6 +114,7 @@ function runWithLockdown(students, { attempts = 1, id = "exam" } = {}) {
         github_login: s.login,
         repo_name: `TestOrg/${id}-${s.login}`,
         snapshot_sha: s.snapshot_sha === undefined ? "a".repeat(40) : s.snapshot_sha,
+        ...(unread ? { snapshot_unread: "commit HTTP 502" } : {}),
       })),
     }),
   );
@@ -315,7 +316,10 @@ test("an expired extension stops keeping the assignment active", () => {
     [{ login: "bob", deferred_until: AN_HOUR_AGO() }],
     { extensions: [{ login: "bob", value: AN_HOUR_AGO() }] },
   );
-  assert.equal(res.activeCount, 0);
+  // Not as a running extension any more - only as tonight's owed pass for
+  // bob, queued below; the night after, nothing is owed and it counts 0.
+  assert.equal(res.finalizable.length, 1);
+  assert.equal(res.activeCount, 1, "the owed pass, and nothing else");
 });
 
 test("an expired deferral re-queues even at the retry ceiling", () => {
@@ -356,7 +360,7 @@ test("a mixed record queues on the expired deferral even while another still run
     { extensions: [{ login: "carol", value: IN_A_WEEK() }] },
   );
   assert.equal(res.finalizable.length, 1, "bob is due; carol is not, and waiting for her would strand him");
-  assert.equal(res.activeCount, 1, "and carol keeps the nightly awake");
+  assert.equal(res.activeCount, 2, "carol's running extension keeps the nightly awake, and so does bob's owed pass");
 });
 
 test("an expired deferral is reported before an incomplete preservation", () => {
@@ -400,7 +404,50 @@ test("draft and past-deadline not counted in activeCount, published and closed w
     "a8": `state: published\ndeadline_at: "${future}"`,
     "a9": `state: closed\ndeadline_at: "${past}"`
   });
-  assert.equal(res.activeCount, 2); // a7 (closed with future deadline) + a8 (published with future deadline)
+  // a7 and a8 (a future deadline), and a9: past its deadline and not finalized
+  // yet, so it is queued tonight - and owed work keeps the nightly on.
+  assert.equal(res.activeCount, 3);
+  assert.deepEqual(res.finalizable.map((f) => f.assignment_id), ["a9"]);
+});
+
+test("owed work keeps the nightly on: a partly failed preservation is retried, not switched off after", () => {
+  // Review 2026-10-14: `partial` exits 0, the last active deadline was past,
+  // the count was 0, and the nightly disabled itself with a retry owed.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-ff-owed-"));
+  const past = new Date(Date.now() - 3600_000).toISOString();
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "exam.yml"), `state: closed\ndeadline_at: "${past}"`);
+  mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+  writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
+    schema_version: 1, assignment_id: "exam", finalize_attempts: 1,
+    results: [{ github_login: "alice", snapshot_sha: "a".repeat(40) }],
+  }));
+  spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
+  assert.equal(JSON.parse(readFileSync(join(dir, "active-TestOrg.json"), "utf8")).active, 1);
+});
+
+test("a snapshot that could not be read is read again on the next pass, under the ceiling", () => {
+  // Review 2026-10-14: a 502 at the deadline left `snapshot_sha: null`, and
+  // the student was never preserved and never retried.
+  const res = runWithLockdown([{ login: "alice", snapshot_sha: null }], { unread: true });
+  assert.equal(res.finalizable.length, 1);
+  assert.equal(runWithLockdown([{ login: "alice", snapshot_sha: null }], { unread: true, attempts: 3 }).finalizable.length, 0, "the ceiling still holds");
+});
+
+test("archived or back to draft AFTER students accepted is still finalized at the deadline; with nobody accepted it is not", () => {
+  // Review 2026-10-14: archived before the nightly, an exam was never locked,
+  // archived, or its broker closed.
+  const past = new Date(Date.now() - 3600_000).toISOString();
+  for (const state of ["archived", "draft"]) {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-archived-"));
+    mkdirSync(join(dir, "assignments"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "exam.yml"), `state: ${state}\ndeadline_at: "${past}"`);
+    const run = () => JSON.parse(spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir }).stdout.trim());
+    assert.deepEqual(run(), [], `${state} with nobody accepted: nothing to finalize`);
+    mkdirSync(join(dir, "repositories", "exam"), { recursive: true });
+    writeFileSync(join(dir, "repositories", "exam", "alice.json"), "{}");
+    assert.deepEqual(run().map((f) => f.assignment_id), ["exam"], `${state} with a repository: finalized`);
+  }
 });
 
 // --- activeCount is what switches the nightly off -----------------------------
@@ -432,6 +479,7 @@ test("a readable, finished assignment still counts as inactive", () => {
   // ever, or the nightly never switches off and the minimal-minutes design goes
   // with it.
   const past = new Date(Date.now() - 48 * 3600_000).toISOString();
-  const res = runFindFinalizable({ done: `state: published\ndeadline_at: "${past}"\n` });
-  assert.equal(res.activeCount, 0, "a published assignment past its deadline is not active");
+  // Finalized (a lockdown record that owes nothing): nothing keeps it on.
+  const res = runFindFinalizable({ done: `state: published\ndeadline_at: "${past}"\n` }, ["done"]);
+  assert.equal(res.activeCount, 0, "a finalized assignment past its deadline is not active");
 });

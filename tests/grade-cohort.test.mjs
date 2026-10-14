@@ -12,7 +12,7 @@
 // for as long as it was.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gradeCohort, gradeStudent, gradingCommitFor } from "../lib/grade-cohort.mjs";
+import { failedKind, gradeCohort, gradeStudent, gradingCommitFor, rowFromOutcome } from "../lib/grade-cohort.mjs";
 
 const REPO = "Org/lab-1-ada";
 
@@ -241,4 +241,26 @@ test("one student can be graded on their own, and the rest are not touched", asy
   const res = await gradeStudent(t.request, { row: row() });
   assert.equal(res.verdict, "graded");
   assert.equal(res.parsed.earned, 12);
+});
+
+test("a student who handed in nothing gets no score - even where the starter's commit has a grading run", async () => {
+  // Review 2026-10-14: provisioning's own grading-workflow commit triggers a
+  // run, so the nightly scored repositories nobody touched - sometimes with
+  // points for the starter's passing tests.
+  const t = transport(graded());
+  const res = await gradeStudent(t.request, { row: row({ submission_status: "no-submission" }) });
+  assert.equal(res.verdict, "no-commit");
+  assert.equal(res.kind, "not-handed-in");
+  assert.deepEqual(t.calls, [], "nothing read");
+  assert.equal(rowFromOutcome("ada", res).failed.kind, "not-handed-in");
+  assert.equal(failedKind({ reason: res.reason }), "not-handed-in", "an older row without `kind` reads the same");
+  // A lecturer's score by hand still wins.
+  const manual = await gradeStudent(t.request, {
+    row: row({ submission_status: "no-submission" }),
+    overrides: [{
+      schema_version: 1, assignment_id: "lab", github_login: "ada",
+      overrides: [{ type: "manual_score", value: { earned: 5, total: 10 }, reason: "oral", overridden_by: "lect", overridden_at: "2026-10-14T09:00:00.000Z" }],
+    }],
+  });
+  assert.equal(manual.verdict, "manual");
 });

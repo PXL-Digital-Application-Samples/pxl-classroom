@@ -130,6 +130,10 @@ let repoPopulated = false;
 // two minutes, inside the job's fifteen. `PXL_FILL_WAIT_CHECKS` exists for the
 // unit test, which would otherwise wait the two minutes for a stub.
 const FILL_WAIT_CHECKS = Number(process.env.PXL_FILL_WAIT_CHECKS) > 0 ? Number(process.env.PXL_FILL_WAIT_CHECKS) : 60;
+// The longest one git command of a full-history copy may take (clone, then
+// push): four minutes each, so both together end inside the ten minutes
+// `mayStillBeFilling` keeps a new repository from being removed by a retry.
+const GIT_STEP_MS = 4 * 60 * 1000;
 async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
   if (repoPopulated) return true;
   for (let i = 0; i < attempts; i++) {
@@ -470,9 +474,15 @@ async function createWithFullHistory(tpl) {
   const bare = join(work, "template.git");
   const env = { ...process.env, ...gitAuthEnv(cfg.token, cfg.serverUrl), GIT_TERMINAL_PROMPT: "0" };
   // An argument array, never a shell string, and stdin closed so a missing
-  // credential fails instead of waiting for a password nobody will type.
-  const git = (args, cwd) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  // credential fails instead of waiting for a password nobody will type. And a
+  // time limit (review 2026-10-14): a stalled clone or push otherwise ran to
+  // the job's own timeout instead of failing as `fail:create`, and the clone
+  // and the push together stay inside the ten minutes a retry leaves a new
+  // repository alone for (`mayStillBeFilling`), so no retry removes one this
+  // run is still pushing into.
+  const git = (args, cwd) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: GIT_STEP_MS }).trim();
   let copyFailed = "";
+  let pushed = null;
   try {
     // `--bare`, not `--mirror`: a mirror clone of a GitHub repository also
     // fetches refs/pull/*, which GitHub refuses on push. GitHub's own
@@ -489,10 +499,20 @@ async function createWithFullHistory(tpl) {
     // repository with SOME of the exercise in it, which a retry reuses as it
     // is; an empty one it removes and copies again (step 3).
     git(["push", "--mirror", "--atomic", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.org, cfg.targetRepo)], bare);
+    // WHAT WAS PUSHED is what the repository was given, known here for certain
+    // rather than read back afterwards: a read that failed three times left a
+    // copy with no starting commit, which the report then read as GitHub's
+    // copy - the template's commits as the student's (review 2026-10-14).
+    const head = git(["rev-parse", `refs/heads/${branch}`], bare);
+    pushed = { head, count: Number(git(["rev-list", "--count", head], bare)) };
+    // A count, never the names: the hub's run log is public, and a private
+    // template's branch names can say what the exercise is.
     const branches = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], bare).split("\n").filter(Boolean);
-    log("copy-history", { ok: true, note: `${branches.length} branch(es) with their history: ${branches.join(", ")}` });
+    log("copy-history", { ok: true, note: `${branches.length} branch(es) with their history` });
   } catch (e) {
-    copyFailed = String(e.stderr || e.message || e).trim().split("\n").slice(-3).join(" ");
+    // The last lines of git's answer, with any ref names in them taken out.
+    copyFailed = String(e.stderr || e.message || e).trim().split("\n").slice(-3).join(" ")
+      .replace(/\S+\s*->\s*\S+/g, "<branch> -> <branch>");
   } finally {
     // Before any failure is reported: fail() ends the process, finally or not.
     await rm(work, { recursive: true, force: true });
@@ -516,7 +536,7 @@ async function createWithFullHistory(tpl) {
   // The repository as it is now: `created.data` was read while it was empty,
   // with the org's default branch name, and the feedback baseline reads it
   // (review 2026-10-14).
-  return { ...repo, default_branch: branch };
+  return { repo: { ...repo, default_branch: branch }, pushed };
 }
 
 /** The commit `branch` points at now, or "" when it cannot be read (asked three times). */
@@ -580,7 +600,7 @@ async function injectAutogradingWorkflow(assignment) {
   const checkClassroom = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/classroom.yml`);
   if (checkAutograde.status === 200 || checkClassroom.status === 200) {
     log("inject-autograding", { ok: true, note: "workflow already present from template - skipping injection" });
-    return;
+    return null;
   }
 
   const content = buildAutogradingWorkflow(assignment, cfg.org);
@@ -591,9 +611,12 @@ async function injectAutogradingWorkflow(assignment) {
   });
   if (!res.ok) {
     log("inject-autograding", { ok: false, note: `failed to inject workflow HTTP ${res.status}` });
-  } else {
-    log("inject-autograding", { ok: true, note: "injected .github/workflows/autograding.yml" });
+    return null;
   }
+  log("inject-autograding", { ok: true, note: "injected .github/workflows/autograding.yml" });
+  // The commit it made, on the default branch (the PUT names no other).
+  const sha = res.data?.commit?.sha;
+  return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
 }
 
 async function main() {
@@ -728,12 +751,12 @@ async function main() {
   // failure path, so the caller can only ever be told about an invitation that
   // GitHub actually reported creating.
   let grantInvited = false;
-  // Whether THIS run copied the template with its history - the one case whose
-  // starting commit is recorded (step 7). A reuse made nothing.
-  let copiedHistory = false;
+  // What THIS run pushed when it copied the template with its history - the
+  // one case whose starting commit is known for certain (step 7). A reuse
+  // made nothing.
+  let copiedHistory = null;
   if (!alreadyExists && !cfg.dryRun && cfg.fullHistory) {
-    repo = await createWithFullHistory(tpl);
-    copiedHistory = true;
+    ({ repo, pushed: copiedHistory } = await createWithFullHistory(tpl));
   } else if (!alreadyExists && !cfg.dryRun) {
     const gen = await gh("POST", `/repos/${cfg.templateOwner}/${cfg.templateRepo}/generate`, {
       owner: cfg.org, name: cfg.targetRepo, private: cfg.isPrivate, include_all_branches: false,
@@ -741,6 +764,26 @@ async function main() {
     if (!gen.ok) await fail("fail:create", `generate HTTP ${gen.status} ${gen.data?.message ?? ""}`);
     repo = gen.data;
     log("create", { ok: true, note: `id=${repo.id} ${repo.html_url}` });
+  }
+
+  // A FULL-HISTORY COPY AN EARLIER RUN MADE, reused: its starting commit is
+  // recovered at step 7 when nobody but the App has pushed to it. Decided HERE,
+  // with its default branch repaired here, because steps 5.5 and 6 write to
+  // the default branch: a copy whose first run died before its PATCH had an
+  // arbitrary prepared branch as default, so the grading workflow and the
+  // feedback baseline went there and `main` got neither (review 2026-10-14).
+  // And only a copy this system PUSHED: GitHub's own copy names its template
+  // (`template_repository`), a pushed one does not, so a GitHub copy of an
+  // assignment whose setting was ticked later is never taken for one.
+  let recoverHistoryCopy = false;
+  if (cfg.fullHistory && alreadyExists && !cfg.dryRun && repo && !repo.template_repository) {
+    recoverHistoryCopy = await onlyAppPushed();
+    const branch = tpl.data?.default_branch;
+    if (recoverHistoryCopy && branch && BRANCH.test(branch) && repo.default_branch !== branch) {
+      const patch = await gh("PATCH", `/repos/${cfg.org}/${cfg.targetRepo}`, { default_branch: branch });
+      log("default-branch", { ok: patch.ok, note: patch.ok ? `set to ${branch}, as the template's` : `could not be set to ${branch} (HTTP ${patch.status})` });
+      if (patch.ok) repo = { ...repo, default_branch: branch };
+    }
   }
 
   // Said AS SOON AS the repository exists, not only at the end. Every failure
@@ -835,12 +878,15 @@ async function main() {
   }
 
   // 5.5 Inject Autograding workflow if github_actions
+  // The commit it made on the default branch, if it made one - part of what a
+  // full-history copy is given (step 7).
+  let injectedSha = null;
   if (!cfg.dryRun && repo && cfg.assignmentId) {
     try {
       const yamlStr = await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8");
       const assignment = parse(yamlStr);
       if (assignment?.autograde?.enabled && assignment.autograde.execution_environment === "github_actions") {
-        await injectAutogradingWorkflow(assignment);
+        injectedSha = await injectAutogradingWorkflow(assignment);
       }
     } catch (e) {
       log("inject-autograding", { ok: false, note: `failed to read assignment config: ${e.message}` });
@@ -859,25 +905,33 @@ async function main() {
   // is a commit too), and how many commits that is. The report reads "not
   // started" as "still at this commit" and counts the student's commits from
   // this number (lib/starter-commit.mjs), since such a repository never has
-  // just one. Unread is left empty - the report then counts every commit - rather
-  // than guessed.
+  // just one. For the copy this run made, from what it pushed and the one
+  // commit it added since - known, never read back. Unread is left empty -
+  // the report then counts every commit - rather than guessed.
   let starterSha = "";
   let starterCount = "";
   if (copiedHistory) {
-    starterSha = await branchHead(tpl.data.default_branch);
-    if (starterSha) starterCount = await commitCountAt(starterSha);
-    log("starter", starterSha
-      ? { ok: true, note: `starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ", commit count unread"}` }
-      : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
-  } else if (cfg.fullHistory && alreadyExists && !cfg.dryRun && repo && (await onlyAppPushed())) {
-    // A copy an earlier run made and nobody has pushed to since: what it was
-    // given is its head, and a default branch that run left unset is set now.
-    // The record writer keeps a starting commit already on record over this.
+    starterSha = injectedSha || copiedHistory.head;
+    starterCount = String(copiedHistory.count + (injectedSha ? 1 : 0));
+    log("starter", { ok: true, note: `starts at ${starterSha.slice(0, 12)} (${starterCount} commits)` });
+  } else if (!alreadyExists && injectedSha) {
+    // GITHUB'S COPY THAT THIS RUN COMMITTED TO (review 2026-10-14): the
+    // generated commit plus the grading workflow is two commits from the
+    // first second, and "one commit is the start" read every student who did
+    // nothing as handed in, on time - and graded the workflow's own run.
+    // What it was given is the commit this run made, and its count is read
+    // (GitHub's copy is one commit, but that is GitHub's to say).
+    starterSha = injectedSha;
+    starterCount = await commitCountAt(injectedSha);
+    log("starter", starterCount
+      ? { ok: true, note: `starts at ${starterSha.slice(0, 12)} (${starterCount} commits, the grading workflow included)` }
+      : { ok: false, note: `starts at ${starterSha.slice(0, 12)}; its commit count could not be read` });
+  } else if (recoverHistoryCopy) {
+    // A copy an earlier run made and nobody but the App has pushed to since:
+    // what it was given is its head, after every write above - the App's own
+    // grading workflow included, which a first run that failed to add it did
+    // not have. The record writer takes this over the one on record.
     const branch = tpl.data?.default_branch;
-    if (branch && BRANCH.test(branch) && repo.default_branch !== branch) {
-      const patch = await gh("PATCH", `/repos/${cfg.org}/${cfg.targetRepo}`, { default_branch: branch });
-      log("default-branch", { ok: patch.ok, note: patch.ok ? `set to ${branch}, as the template's` : `could not be set to ${branch} (HTTP ${patch.status})` });
-    }
     starterSha = branch ? await branchHead(branch) : "";
     if (starterSha) starterCount = await commitCountAt(starterSha);
     log("starter", starterSha
@@ -888,6 +942,10 @@ async function main() {
   const outcome = cfg.dryRun ? "dry-run:ok" : alreadyExists ? "reused" : "created";
   await setOutput("starter_sha", starterSha);
   await setOutput("starter_commit_count", starterCount);
+  // Which kind of start, said by the run that made it (review 2026-10-14):
+  // read from the assignment at record time, a setting toggled in between
+  // stamped the wrong kind.
+  await setOutput("full_history", starterSha && (copiedHistory || recoverHistoryCopy) ? "true" : "false");
   await setOutput("repo_id", repo?.id ?? "");
   await setOutput("repo_url", repo?.html_url ?? "");
   await setOutput("repo_name", repo?.full_name ?? "");

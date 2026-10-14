@@ -53,10 +53,13 @@ test("both writers commit only after the schema accepts the document", () => {
 
   // And the check has to sit BEFORE the write, or it is decoration.
   const at = (src, needle) => src.indexOf(needle);
-  assert.ok(
-    at(cli, "validateAgainst(\"grading-summary\"") < at(cli, "grading/${opts.assignment}/summary.json"),
-    "pxl-classroom grade validates before it commits, not after",
-  );
+  // Both anchors must be found, or the comparison says nothing (CLAUDE.md, "a
+  // guard whose anchor was renamed checks nothing"): the summary's path is
+  // `gradingSummaryPath`, never spelled here.
+  const validated = at(cli, "validateAgainst(\"grading-summary\"");
+  const written = at(cli, "gradingSummaryPath(opts.assignment)");
+  assert.ok(validated > 0 && written > 0, "both anchors are in the CLI");
+  assert.ok(validated < written, "pxl-classroom grade validates before it commits, not after");
 });
 
 test("both writers build the row with the same function, not two literals", () => {

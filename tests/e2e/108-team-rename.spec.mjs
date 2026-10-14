@@ -193,7 +193,7 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await modal.getByRole('button', { name: 'Rename team' }).click();
     await modal.locator('#team-rename-input').fill('Krusty Krabs');
     await modal.locator('#team-rename-input').press('Enter');
-    await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('a team file called krusty-krabs already exists');
+    await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('this assignment already has a team called krusty-krabs, which may be one everybody left. Nothing was changed.');
     expect(commits).toEqual([]);
   });
 
@@ -216,6 +216,38 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await modal.locator('#team-rename-input').press('Escape');
     await expect(modal.locator('#team-rename-input')).toHaveCount(0);
     await expect(modal.getByRole('button', { name: 'Rename team' })).toBeVisible();
+    // Focus goes back to what opened the box, not to nowhere.
+    await expect(modal.getByRole('button', { name: 'Rename team' })).toBeFocused();
     expect(commits).toEqual([]);
+  });
+
+  test('a member removed in Manage and not saved: rename is not offered until that is saved or undone', async ({ page }) => {
+    // Review 2026-10-14: the rename writes from the stored file and closes
+    // Manage, so the unsaved removal was dropped behind a "Renamed" toast.
+    const commits = await open(page);
+    const modal = await manage(page, 'Krusty Krab');
+    await modal.locator('.member-manage-row', { hasText: 'stud2' }).getByRole('button', { name: 'Remove' }).click();
+    await expect(modal.getByRole('button', { name: 'Rename team' })).toHaveCount(0);
+    await expect(modal.locator('[data-team-rename]')).toContainText('Save or undo the member changes first, then rename.');
+    expect(commits).toEqual([]);
+  });
+
+  test('a new team may not take the name another team had before its rename', async ({ page }) => {
+    // A page loaded before the rename still sends the old slug, and acceptance
+    // takes it as the renamed team for its members: the old name stays theirs.
+    const renamed = { ...team('krusty-krabs', 'Krusty Krabs', ['stud1']), renamed_from: ['krusty-krab'] };
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: students() } },
+      controlTeams: { [ID]: [renamed] },
+      roster,
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    await page.getByRole('button', { name: /Create Team/i }).first().click();
+    await page.locator('#create-team-name').fill('Krusty Krab');
+    await expect(page.locator('[data-new-slug-problem]')).toContainText('"Krusty Krabs" was called krusty-krab until it was renamed');
+    await expect(page.locator('.modal-foot').getByRole('button', { name: 'Create Team' })).toBeDisabled();
   });
 });

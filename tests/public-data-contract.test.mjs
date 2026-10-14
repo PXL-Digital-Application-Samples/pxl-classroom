@@ -344,6 +344,27 @@ test("a team's capacity is the assignment's size NOW, not the size when the team
   assert.equal(beta.is_full, true, "4 of 4 is full");
 });
 
+test("a renamed team publishes the slugs it had, so a page loaded before the rename can follow it", () => {
+  // Review 2026-10-14: the hub put a stale page's student in the renamed team,
+  // and the page waited for the old repository name until it said "tell your lecturer".
+  const dir = mkdtempSync(join(tmpdir(), "pxl-gen-renamed-"));
+  mkdirSync(join(dir, "assignments"));
+  const token = mintToken("PXLAutomation", "test-valid");
+  const base = readFileSync(fix("valid-assignment.yml"), "utf8")
+    .replace("repository_name_pattern: test-valid-{github_login}", "repository_name_pattern: test-valid-{team_slug}");
+  writeFileSync(join(dir, "assignments", "test-valid.yml"), `${base}assignment_type: group\ninvite_token: ${token}\ninvite_nonce: 0badc0de\n`);
+  mkdirSync(join(dir, "teams", "test-valid"), { recursive: true });
+  const manifest = (slug, extra) => JSON.stringify({ schema_version: 1, assignment_id: "test-valid", team_slug: slug, team_name: slug, members: ["a1"], max_members: 3, ...extra });
+  writeFileSync(join(dir, "teams", "test-valid", "krusty-krabs.json"), manifest("krusty-krabs", { renamed_from: ["krusty-krab"] }));
+  writeFileSync(join(dir, "teams", "test-valid", "plain.json"), manifest("plain", {}));
+  const outDir = join(dir, "public");
+  const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+  const teams = JSON.parse(readFileSync(join(outDir, "i", `${inviteFileFor(token)}.teams.json`), "utf8")).teams;
+  assert.deepEqual(teams.find((t) => t.team_slug === "krusty-krabs").renamed_from, ["krusty-krab"]);
+  assert.equal("renamed_from" in teams.find((t) => t.team_slug === "plain"), false, "absent where there was no rename");
+});
+
 test("a team's join code is never published - only whether joining needs one", () => {
   // The teams file is public to anyone holding the invitation; the code is
   // what keeps a stranger out of a team (lib/team-join-code.mjs).

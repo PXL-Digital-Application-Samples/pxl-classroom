@@ -17,7 +17,7 @@
         Wrong team, or a typo in the name?
         <button type="button" class="btn-link" :disabled="accepting" @click="startSwitchTeam">Switch team</button>
         <br />
-        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself while the assignment is accepting.' }}</span>
+        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself as long as this assignment is open.' }}</span>
       </p>
 
       <div class="repo-link-card">
@@ -147,7 +147,7 @@
         Wrong team, or a typo in the name?
         <button type="button" class="btn-link" :disabled="accepting" @click="startSwitchTeam">Switch team</button>
         <br />
-        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself while the assignment is accepting.' }}</span>
+        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself as long as this assignment is open.' }}</span>
       </p>
       <p class="text-secondary">
         You are in this team. To work in its repository, accept the collaboration invitation GitHub sent you.
@@ -562,6 +562,7 @@ import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -783,8 +784,7 @@ const activeTeamSlug = computed(() => targetTeamSlug.value || myCurrentTeam.valu
 
 /** The repository name a team slug produces for this assignment. */
 function teamRepoName(slug) {
-  const pattern = props.assignment.repository_name_pattern || `${props.assignment.id}-{team_slug}`
-  return pattern.replace('{team_slug}', slug).replace('{github_login}', props.user.login)
+  return repositoryNameFor(props.assignment.repository_name_pattern, { teamSlug: slug, login: props.user.login })
 }
 
 // A GUESS at the invitation page, and it 404s until the repository exists.
@@ -1024,10 +1024,13 @@ async function loadTeams() {
     if (res.ok) {
       fileRead = true
       const data = await res.json()
+      const renamed = new Map()
       for (const t of (data.teams || [])) {
         upsertTeam(t.team_slug, t.team_name, t.members || [], t.seeded_from, t.needs_code === true)
         for (const m of t.members || []) publishedPlaced.add(String(m).toLowerCase())
+        for (const old of t.renamed_from || []) renamed.set(String(old).toLowerCase(), String(t.team_slug).toLowerCase())
       }
+      renamedTo.value = renamed
       publishedAt = Date.parse(data.generated_at || '')
       takenTeams.value = (data.taken || [])
         .map((t) => ({ team_slug: String(t?.team_slug || '').toLowerCase(), team_name: t?.team_name || t?.team_slug }))
@@ -1165,17 +1168,22 @@ const isPastDeadline = computed(() => {
   return nowTick.value > effectiveDeadline.value.getTime()
 })
 
-const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value))
+// On the same clock as isPastDeadline, so the words and their colour turn together.
+const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, new Date(nowTick.value)))
 
 // Whether a switch would be allowed: the hub's own rule (acceptance/accept.mjs
-// step 5) - self-service, which is what `canChooseAnother` says, and before the
-// deadline on an assignment that is accepting.
+// step 4) - self-service, which is what `canChooseAnother` says, and before the
+// ASSIGNMENT'S deadline on an assignment that is accepting. Not the student's
+// extension: the hub reads none for an acceptance, so a student with one was
+// offered a switch until a date the hub refused it at (review 2026-10-14).
+const switchDeadline = computed(() => (props.assignment?.deadline_at ? new Date(props.assignment.deadline_at) : null))
 const canSwitchTeam = computed(() =>
-  canChooseAnother.value && !isPastDeadline.value && props.assignment?.state === 'published',
+  canChooseAnother.value && props.assignment?.state === 'published' &&
+  !(switchDeadline.value && nowTick.value > switchDeadline.value.getTime()),
 )
 // Null with no deadline: "until the deadline" named one that does not exist.
 const switchUntil = computed(() =>
-  effectiveDeadline.value ? formatDate(effectiveDeadline.value.toISOString(), props.assignment?.timezone) : null,
+  switchDeadline.value ? formatDate(switchDeadline.value.toISOString(), props.assignment?.timezone) : null,
 )
 
 const teamSubmissionStatus = computed(() => {
@@ -1402,6 +1410,28 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = 
   }
 }
 
+// Old slug -> the team it is now, from the published file (`renamed_from`).
+const renamedTo = ref(new Map())
+
+/**
+ * A page loaded before the lecturer renamed the team sent its OLD slug, and
+ * the hub put the student in the renamed team (acceptance/accept.mjs), whose
+ * repository has the new name - so this page waited for one that never comes
+ * and ended on "tell your lecturer" (review 2026-10-14). Asked when the wait
+ * would otherwise end: read the teams again and follow the rename, once, where
+ * the student is a member of the team it names.
+ */
+async function followRename(slug) {
+  await loadTeams()
+  const to = renamedTo.value.get(String(slug || '').toLowerCase())
+  if (!to || to === String(slug).toLowerCase()) return false
+  const team = teams.value.find((t) => t.team_slug === to)
+  if (!team || !(team.members || []).some((m) => sameLogin(m, props.user.login))) return false
+  targetTeamSlug.value = to
+  startPolling(to)
+  return true
+}
+
 function startPolling(teamSlug) {
   pollCount.value = 0
   waitedMs.value = 0
@@ -1452,6 +1482,9 @@ function startPolling(teamSlug) {
         return
       }
       if (announcesInvitation(said)) {
+        // Invited - but to the repository it waits for, or to a renamed team's?
+        if (await followRename(teamSlug)) return
+        if (stale()) return
         acceptState.value = 'invited'
         return
       }
@@ -1460,6 +1493,8 @@ function startPolling(teamSlug) {
       const at = await readAttemptProgress()
       if (stale()) return
       if (at.final) {
+        if (await followRename(teamSlug)) return
+        if (stale()) return
         acceptState.value = 'not-processed'
         return
       }

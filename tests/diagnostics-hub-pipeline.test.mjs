@@ -181,3 +181,34 @@ test("checkHubPipelineHealth - handles 404/API error gracefully without adding f
 
   assert.equal(checks.length, 0);
 });
+
+test("checkHubPipelineHealth - 'no stuck runs' only from lists read whole: a partial page or one list unread is not ok", async () => {
+  // Review 2026-10-14: one default page of 30, newest first, so in a burst the
+  // stuck runs - the oldest - fell off, and the check said ok.
+  const run = async (answers) => {
+    const checks = [];
+    const paths = [];
+    await checkHubPipelineHealth({
+      req: async (method, path) => {
+        paths.push(path);
+        return path.includes("status=waiting") ? answers.waiting : answers.progress;
+      },
+      addCheck: (tierIdx, c) => checks.push(c),
+      tierIdx: 5, tierId: "tier-5-pages", hubOwner: "o", hubRepo: "r",
+    });
+    return { checks, paths };
+  };
+  const fresh = { id: 1, name: "Accept", status: "in_progress", created_at: new Date().toISOString(), run_started_at: new Date().toISOString() };
+  const empty = { ok: true, status: 200, data: { total_count: 0, workflow_runs: [] } };
+
+  const whole = await run({ waiting: empty, progress: { ok: true, status: 200, data: { total_count: 1, workflow_runs: [fresh] } } });
+  assert.deepEqual(whole.checks.map((c) => c.severity), ["ok"]);
+  assert.ok(whole.paths.every((p) => p.includes("per_page=100")), "the fullest page");
+
+  const partial = await run({ waiting: empty, progress: { ok: true, status: 200, data: { total_count: 140, workflow_runs: Array(100).fill(fresh) } } });
+  assert.deepEqual(partial.checks.map((c) => c.severity), ["warn"]);
+  assert.match(partial.checks[0].message, /not known/);
+
+  const oneUnread = await run({ waiting: { ok: false, status: 502 }, progress: empty });
+  assert.deepEqual(oneUnread.checks.map((c) => c.severity), ["warn"]);
+});

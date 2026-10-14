@@ -118,15 +118,22 @@ outputs:
     value: ${{ steps.run.outputs.baseline_sha }}
   starter-sha:
     description: >-
-      The commit a repository copied with its full history was given, read
-      after provisioning's own writes. Empty for GitHub's template copy, for a
-      reuse, and when it could not be read.
+      The commit the repository stood at when provisioning finished with it,
+      where provisioning established one: a copy of the template's full
+      history (after its own writes), or GitHub's copy that it committed the
+      grading workflow to. Empty for GitHub's copy it added nothing to, for a
+      reuse it could not recover one on, and when it could not be read.
     value: ${{ steps.run.outputs.starter_sha }}
   starter-commit-count:
     description: >-
       How many commits starter-sha has behind it, counted as the collector
       counts a branch. Empty whenever starter-sha is, or when unread.
     value: ${{ steps.run.outputs.starter_commit_count }}
+  full-history:
+    description: >-
+      "true" when starter-sha is a copy of the template's full history (this
+      run made it, or recovered one an earlier run made), else "false".
+    value: ${{ steps.run.outputs.full_history }}
 
 runs:
   using: composite

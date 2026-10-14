@@ -38,6 +38,8 @@ import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, CONTROL_REPO } from "../lib/deploy
 import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaimDomains } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
 import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
+import { latestSubmitTag } from "../lib/submit-tag.mjs";
+import { preservationStatus } from "../lib/preservation-status.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -362,6 +364,7 @@ async function main() {
     // surface them and so a tag - when present and on-time - wins over the
     // default-branch tip. See ARCHITECTURE.md §11.1a.
     let latestTagObservation = null;
+    const tagObservations = [];
 
     for (const obs of observations) {
       // The preservation record is excluded at load, by filename. The guard
@@ -396,9 +399,7 @@ async function main() {
       }
 
       if (obs.type === "tagged-submission") {
-        if (!latestTagObservation || new Date(obs.observed_at) > new Date(latestTagObservation.observed_at)) {
-          latestTagObservation = obs;
-        }
+        tagObservations.push(obs);
         continue;
       }
 
@@ -466,27 +467,40 @@ async function main() {
       }
     }
 
-    // If a submit/ tag was seen, prefer it as the authoritative submission.
-    // observed_at is server-side (set by collect/), declared_at is the
-    // student-supplied ISO timestamp baked into the tag name - we trust the
-    // former for classification.
-    if (latestTagObservation) {
-      const tagObservedAt = new Date(latestTagObservation.observed_at);
-      const onTime = effectiveDeadline ? tagObservedAt <= effectiveDeadline : true;
+    // If a submit/ tag was seen, prefer it as the authoritative submission:
+    // the student's LATEST tag (lib/submit-tag.mjs `latestSubmitTag`, by its
+    // declared time), however many times the collector saw it.
+    //
+    // JUDGED BY THE TAGGED COMMIT'S OWN TIME, the rule every snapshot above
+    // follows - never by when the collector looked (review 2026-10-14). Every
+    // collect writes the tag again with `observed_at = now`, and the finalize's
+    // collect runs after the deadline, so a tag made at 15:30 for a 16:00
+    // deadline read late the moment the deadline passed, and every tagged
+    // student got a late notice. A tag observation from before the commit's
+    // date was recorded falls back to the FIRST time the tag was seen.
+    const latestTag = latestSubmitTag(tagObservations.map((o) => ({ ...o, ref: `refs/tags/${o.tag}` })));
+    if (latestTag) {
+      const same = tagObservations.filter((o) => o.tag === latestTag.tag && o.tagged_sha === latestTag.tagged_sha);
+      const firstSeen = same.map((o) => o.observed_at).filter(Boolean).sort()[0] ?? latestTag.observed_at;
+      const commitDate = same.map((o) => o.commit_date).find((d) => typeof d === "string" && !Number.isNaN(Date.parse(d)));
+      latestTagObservation = { ...latestTag, observed_at: same.map((o) => o.observed_at).filter(Boolean).sort().at(-1) ?? latestTag.observed_at };
+      const decidingTime = new Date(commitDate || firstSeen);
+      const onTime = effectiveDeadline ? decidingTime <= effectiveDeadline : true;
       if (onTime) {
-        lastOnTimeSha = latestTagObservation.tagged_sha;
-        lastOnTimeObservedAt = latestTagObservation.observed_at;
+        lastOnTimeSha = latestTag.tagged_sha;
+        lastOnTimeObservedAt = firstSeen;
         // A late snapshot observed after the tag does not invalidate an
         // on-time tagged submission.
         firstLateSha = null;
         firstLateObservedAt = null;
       } else if (!firstLateSha) {
-        firstLateSha = latestTagObservation.tagged_sha;
-        firstLateObservedAt = latestTagObservation.observed_at;
+        firstLateSha = latestTag.tagged_sha;
+        firstLateObservedAt = firstSeen;
       }
-      latestObservedSha = latestTagObservation.tagged_sha;
-      latestObservedAt = latestTagObservation.observed_at;
-      latestObservationType = latestTagObservation.collection_type ?? null;
+      // The submission is the tagged commit. When the repository was last READ
+      // stays the snapshot's time and kind: the collector reads both at once,
+      // and a tag observation carries no kind.
+      latestObservedSha = latestTag.tagged_sha;
     }
 
     // How stale our last pre-deadline evidence was: the gap between the final
@@ -523,8 +537,12 @@ async function main() {
     // and after a fast-forward or a rebase of a prepared branch - and so its
     // author the lecturer, whom the roster harvest (lib/roster-harvest.mjs)
     // would offer as this student. Its authors are not evidence of who the
-    // student is, so none is carried.
-    const historyCopy = Boolean(given.sha);
+    // student is, so none is carried. By the records' `full_history`, never by
+    // a start being recorded (GitHub's copy plus provisioning's grading
+    // workflow records one too), and by the assignment's setting as well, so a
+    // copy whose start was never recorded still carries no lecturer as its
+    // student (review 2026-10-14).
+    const historyCopy = given.fullHistory || assignment.template_full_history === true;
 
     // LATE ACTIVITY IS A DIFFERENT SHA, NOT A LATER OBSERVATION.
     //
@@ -739,6 +757,7 @@ async function main() {
       // What it was given, for the page's Refresh to apply the same rule.
       ...(given.sha ? { starter_sha: given.sha } : {}),
       ...(given.sha && given.count != null ? { starter_commit_count: given.count } : {}),
+      ...(given.sha && given.fullHistory ? { full_history: true } : {}),
       late_commit_count: latestLateCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
       tagged_submission_tag: latestTagObservation?.tag ?? null,
@@ -764,11 +783,9 @@ async function main() {
       // how stale the evidence was going in. The preservation banner promised
       // this one and was showing that one.
       lockdown_delay_seconds: lockdownRow?.uncertainty_seconds ?? null,
-      preservation_status: preservation?.verified
-        ? "preserved"
-        : preservation
-          ? "failed"
-          : "not-required",
+      // Required or not is the lockdown row's to say, never the preservation
+      // file's absence (lib/preservation-status.mjs).
+      preservation_status: preservationStatus({ preservation, lockdownRow }),
       // `source_sha`, which is what preserve.mjs actually writes. It read
       // `preservation.preserved_sha` - a field that has never existed in that
       // document - so `preserved_sha` was null on EVERY report ever generated,
@@ -808,7 +825,10 @@ async function main() {
     // Fire notifications for anomalies
     if (process.env.ORG && process.env.GITHUB_TOKEN) {
       const { notifyEvent } = await import("../notify/notify.mjs");
-      if (firstLateSha) {
+      // The row's own boolean, never the weaker `firstLateSha` (review
+      // 2026-10-14): the warning and the notice are one condition, and the
+      // weaker one notified "late activity" over a row that had none.
+      if (hasLateActivity) {
         await notifyEvent({
           org: process.env.ORG,
           controlRepo: CONTROL_REPO,

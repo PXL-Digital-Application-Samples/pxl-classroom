@@ -65,7 +65,7 @@ const hasRefs = (bare) => existsSync(bare) && refs(bare).length > 0;
  * (our own failed copy, an hour old) or "has-commits" (a repository to reuse).
  * `defaultBranch`: what GitHub reports for the template.
  */
-async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master" } = {}) {
+async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master", generatedFrom = null } = {}) {
   const calls = [];
   const repo = join(srv, "Org", "lab-ann.git");
   if (target !== "absent") {
@@ -77,8 +77,12 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
       git(["push", "-q", repo, "master"], w);
     }
     if (target === "copy") {
-      // An earlier run's copy, left with the org's default branch name.
+      // An earlier run's copy, left with whatever default its push gave it.
       git(["push", "-q", "--mirror", repo], join(srv, "Org", "tpl.git"));
+      // On a prepared branch where the copy has one; `main` is the org's name, which it has not.
+      if (git(["for-each-ref", "--format=%(refname)", `refs/heads/${repoDefault}`], repo)) {
+        git(["symbolic-ref", "HEAD", `refs/heads/${repoDefault}`], repo);
+      }
     }
   }
   const server = createServer((req, res) => {
@@ -95,7 +99,12 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
       if (url === "/repos/Org/tpl" && req.method === "GET") return send(200, { id: 7, is_template: true, private: true, default_branch: defaultBranch });
       if (url === "/repos/Org/lab-ann" && req.method === "GET") {
         return existsSync(repo)
-          ? send(200, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", default_branch: repoDefault, created_at: new Date(Date.now() - 3600_000).toISOString() })
+          ? send(200, {
+              id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", default_branch: repoDefault,
+              created_at: new Date(Date.now() - 3600_000).toISOString(),
+              // GitHub names the template of a repository IT generated; a pushed copy has none.
+              template_repository: generatedFrom ? { full_name: generatedFrom } : null,
+            })
           : send(404, { message: "Not Found" });
       }
       if (url === "/repos/Org/lab-ann/activity") return activity ? send(200, activity) : send(404, { message: "Not Found" });
@@ -135,7 +144,8 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         git(["clone", "-q", repo, w], srv);
         commit(w, ".github/workflows/autograding.yml", Buffer.from(JSON.parse(body).content, "base64").toString("utf8"), "Add autograding workflow");
         git(["push", "-q", "origin", "HEAD"], w);
-        return send(201, { content: { path: ".github/workflows/autograding.yml" } });
+        // As GitHub answers it: the file, and the commit that added it.
+        return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: git(["rev-parse", "HEAD"], w) } });
       }
       if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return send(204);
       if (url === "/repos/Org/tpl/generate") return send(500, { message: "generate must not be called" });
@@ -220,6 +230,7 @@ test("the default branch is the template's, and what it was given is the output"
     const master = git(["rev-parse", "refs/heads/master"], join(srv, "Org", "tpl.git"));
     assert.equal(output(r.outputs, "starter_sha"), master);
     assert.equal(output(r.outputs, "starter_commit_count"), "2", "Start and Add a bug");
+    assert.equal(output(r.outputs, "full_history"), "true");
     // Shared history: the prepared branches merge into the default branch.
     assert.equal(git(["merge-base", "refs/heads/master", "refs/heads/feature-x"], repo), master);
   });
@@ -290,6 +301,7 @@ test("a reused copy only PXL Classroom pushed to: what it was given is recovered
     assert.equal(output(r.outputs, "outcome"), "reused");
     assert.equal(output(r.outputs, "starter_sha"), git(["rev-parse", "refs/heads/master"], join(srv, "Org", "tpl.git")));
     assert.equal(output(r.outputs, "starter_commit_count"), "2");
+    assert.equal(output(r.outputs, "full_history"), "true", "a recovered copy is said to be one");
     assert.ok(calls.some((c) => c.startsWith("PATCH /repos/Org/lab-ann") && c.includes('"default_branch":"master"')), "the default branch an earlier run left unset");
     assert.ok(!calls.some((c) => c.startsWith("POST /orgs/Org/repos")), "nothing copied again");
   }, { target: "copy", activity: [bot, bot, bot], repoDefault: "main" });
@@ -305,6 +317,41 @@ test("...but one a person pushed to, or whose push log cannot be read, recovers 
       assert.ok(!calls.some((c) => c.startsWith("PATCH")), "and nothing is changed on it");
     }, { target: "copy", activity, repoDefault: "main" });
   }
+});
+
+test("a reused copy left on a prepared branch: the default is set BEFORE the grading workflow is added, so it lands on the template's default", async () => {
+  // Review 2026-10-14: the PATCH ran at the end, after step 5.5 had put the
+  // grading workflow on whatever branch was default - `bugfix` here - so the
+  // branch that is graded never got one.
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  const assignment = { id: "lab", autograde: { enabled: true, execution_environment: "github_actions", tests: [{ name: "t", run: "true", points: 1 }] } };
+  await withApi(srv, async (api, calls, repo) => {
+    const r = await provision(api, srv, { recreateEmpty: "true", assignment });
+    assert.equal(r.status, 0, r.log);
+    const patchAt = calls.findIndex((c) => c.startsWith("PATCH /repos/Org/lab-ann") && c.includes('"default_branch":"master"'));
+    const putAt = calls.findIndex((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml"));
+    assert.ok(patchAt >= 0 && putAt > patchAt, calls.join("\n"));
+    assert.match(git(["log", "-1", "--format=%s", "refs/heads/master"], repo), /Add autograding workflow/);
+    assert.doesNotMatch(git(["log", "-1", "--format=%s", "refs/heads/bugfix"], repo), /Add autograding workflow/);
+    assert.equal(output(r.outputs, "starter_sha"), git(["rev-parse", "refs/heads/master"], repo), "what it was given includes the App's own workflow");
+    assert.equal(output(r.outputs, "starter_commit_count"), "3");
+  }, { target: "copy", activity: [bot, bot], repoDefault: "bugfix" });
+});
+
+test("a repository GitHub generated from the template is never taken for a full-history copy, whoever pushed to it", async () => {
+  // Review 2026-10-14: the setting ticked after some accepted with GitHub's
+  // copy, a teammate's run reusing one of those would record its head as a
+  // starting commit - and starter sync then refuses the assignment for good.
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  await withApi(srv, async (api, calls) => {
+    const r = await provision(api, srv, { recreateEmpty: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "starter_sha"), "");
+    assert.ok(!calls.some((c) => c.startsWith("GET /repos/Org/lab-ann/activity")), "not even asked");
+    assert.ok(!calls.some((c) => c.startsWith("PATCH")));
+  }, { target: "copy", activity: [bot], repoDefault: "main", generatedFrom: "Org/tpl" });
 });
 
 test("a dry run creates and copies nothing", async () => {

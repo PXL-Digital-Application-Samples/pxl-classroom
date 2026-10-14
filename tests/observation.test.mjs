@@ -3,7 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { commitAuthor, isBotAuthorName, snapshotObservation } from "../lib/observation.mjs";
+import { commitAuthor, isBotAuthorName, snapshotObservation, taggedSubmissionObservation } from "../lib/observation.mjs";
+import { parseSubmitTagRef } from "../lib/submit-tag.mjs";
 import { observationPath } from "../lib/control-layout.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -63,4 +64,26 @@ test("ONE builder: neither writer spells an observation by hand any more", () =>
     assert.match(src, /snapshotObservation\(/, `${name} must build through lib/observation.mjs`);
     assert.doesNotMatch(src, /type:\s*["']snapshot["']/, `${name} spells a snapshot observation by hand`);
   }
+});
+
+test("a tag a student can make (dashes in the time) is a valid tagged-submission observation, and the collector validates it before writing", () => {
+  const parsed = parseSubmitTagRef("refs/tags/submit/2026-10-14T14-05-00Z-abc1234");
+  const doc = taggedSubmissionObservation({
+    assignmentId: "labs", login: "ann", repoId: 42, observedAt: "2026-10-14T15:00:00.000Z",
+    submit: { ...parsed, tagged_sha: "a".repeat(40) }, observerRun: "https://github.com/o/r/actions/runs/1",
+  });
+  const v = validateAgainst("observation", doc);
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.equal(doc.declared_at, "2026-10-14T14:05:00Z");
+  const noRun = taggedSubmissionObservation({
+    assignmentId: "labs", login: "ann", repoId: 42, observedAt: doc.observed_at, submit: { ...parsed, tagged_sha: "a".repeat(40) },
+  });
+  assert.equal("observer_run" in noRun, false, "absent, not null: the schema wants a uri");
+
+  const collector = readFileSync(new URL("../collect/collect.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(collector, /type:\s*["']tagged-submission["']/, "built through lib/observation.mjs");
+  const built = collector.indexOf("taggedSubmissionObservation(");
+  const checked = collector.indexOf('validateAgainst("observation", tagObservation)', built);
+  const written = collector.indexOf("writeFile(tagPath", built);
+  assert.ok(built > 0 && checked > built && written > checked, "built, then validated, then written");
 });

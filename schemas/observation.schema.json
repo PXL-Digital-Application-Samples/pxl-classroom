@@ -69,8 +69,8 @@
         },
         "tag": {
           "type": "string",
-          "pattern": "^submit/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z-[0-9a-f]{7,40}$",
-          "description": "Full tag name in the submit/<ISO-8601-Z>-<short-sha> format."
+          "pattern": "^submit/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}[-:][0-9]{2}[-:][0-9]{2}Z-[0-9a-f]{7,40}$",
+          "description": "Full tag name, submit/<YYYY-MM-DDTHH-MM-SSZ>-<short-sha>: the time with dashes, because git refuses a colon in a ref name (a colon is still accepted). lib/submit-tag.mjs reads it."
         },
         "declared_at": {
           "type": "string",
@@ -81,6 +81,11 @@
           "type": "string",
           "pattern": "^[0-9a-f]{40}$",
           "description": "Full SHA of the commit the tag points at."
+        },
+        "commit_date": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "The tagged commit's own time (committer, else author). What the report judges the tag on time or late by, as it judges a snapshot by its commit - never when the collector looked. Null when it could not be read; absent on an observation written before the field."
         },
         "observer_run": { "type": "string", "format": "uri" }
       }

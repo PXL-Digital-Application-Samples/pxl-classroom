@@ -22,8 +22,9 @@
 # Env: DATA_DIR (default control), ASSIGNMENT_ID, LOGIN, TEAM_SLUG, OUTCOME,
 # ORG, TARGET_REPO, REPO_ID, REPO_URL, BASELINE_SHA, STUDENT_PERMISSION,
 # RUN_URL, COMMIT_LABEL ("Provision" / "Retry-provision"), GITHUB_RUN_ID, and
-# STARTER_SHA and STARTER_COMMIT_COUNT (optional: the commit a full-history
-# copy was given, and how many commits that is).
+# STARTER_SHA, STARTER_COMMIT_COUNT and FULL_HISTORY (optional: the commit
+# provisioning left the repository at, how many commits that is, and "true"
+# when it is a copy of the template's full history).
 
 set -euo pipefail
 
@@ -68,6 +69,7 @@ apply() {
       --baseline-sha "$BASELINE_SHA" \
       --starter-sha "${STARTER_SHA:-}" \
       --starter-commit-count "${STARTER_COMMIT_COUNT:-}" \
+      --full-history "${FULL_HISTORY:-false}" \
       --student-permission "$STUDENT_PERMISSION" \
       --run-url "$RUN_URL" \
       --data-dir "$DIR" || return 2

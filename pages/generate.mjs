@@ -305,6 +305,13 @@ async function main() {
                 // Whether joining needs the team's code - never the code: this
                 // file is public to anyone holding the invitation.
                 ...(teamNeedsJoinCode(def.group_config, tdata) ? { needs_code: true } : {}),
+                // The slugs it had before a rename (lib/team-rename.mjs): a page
+                // loaded before it sent the old one, the hub put the student in
+                // this team, and the page finds them here (review 2026-10-14).
+                // Names only, which were public before the rename.
+                ...(Array.isArray(tdata.renamed_from) && tdata.renamed_from.length
+                  ? { renamed_from: tdata.renamed_from.map(String) }
+                  : {}),
                 // Provenance only - the source assignment's id and title are
                 // already public. Never the lecturer login or the seed time.
                 ...(tdata.seeded_from

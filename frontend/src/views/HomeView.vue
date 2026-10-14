@@ -209,6 +209,7 @@ import { getInstallations, getInvitations, getUserRepos } from '../lib/api.js'
 import { invitationEvidence } from '../lib/invitation-evidence.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 
 const router = useRouter()
 
@@ -373,8 +374,7 @@ async function loadStudentAssignments() {
     // 4. Match student repos with assignments
     const matched = []
     for (const a of allOrgAssignments) {
-      const pattern = a.repository_name_pattern || `${a.id}-{github_login}`
-      const expectedName = pattern.replace('{github_login}', userLogin).toLowerCase()
+      const expectedName = repositoryNameFor(a.repository_name_pattern, { login: userLogin }).toLowerCase()
 
       // Calculate time remaining
       let timeRemainingStr = ''

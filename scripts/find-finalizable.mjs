@@ -36,6 +36,15 @@ function readOverrides(controlDir, assignmentId) {
   return docs;
 }
 
+/** Whether any student of this assignment has a repository record. */
+function hasRepositories(controlDir, assignmentId) {
+  try {
+    return fs.readdirSync(path.join(controlDir, 'repositories', assignmentId)).some((f) => f.endsWith('.json'));
+  } catch {
+    return false;
+  }
+}
+
 /** True when this student's submission is archived and hash-verified. */
 function isPreserved(controlDir, assignmentId, login) {
   const p = path.join(controlDir, 'observations', assignmentId, login, 'preservation.json');
@@ -80,10 +89,14 @@ function finalizeReason(controlDir, lockdownsDir, id) {
     return `extension-expired (${dueDeferred.length} student(s) deferred past their extension)`;
   }
 
-  // Only students with a captured SHA can be preserved; a result without one
-  // was already an error at lockdown time and retrying cannot fix it here.
+  // A captured SHA not yet archived is owed a preservation; a snapshot that
+  // could not be READ (`snapshot_unread`, lockdown.mjs) is owed a second read,
+  // which only another lockdown pass makes (review 2026-10-14 - it used to be
+  // treated as an error retrying could not fix, and the student was never
+  // preserved). A reopened student is owed nothing.
   const pending = (record.results || []).filter(
-    (r) => r.snapshot_sha && r.github_login && !isPreserved(controlDir, id, r.github_login)
+    (r) => r.github_login && !r.reopened_at &&
+      ((r.snapshot_sha && !isPreserved(controlDir, id, r.github_login)) || (!r.snapshot_sha && r.snapshot_unread))
   );
   if (pending.length === 0) return null;
 
@@ -116,12 +129,18 @@ async function main() {
           if (!assignment || !assignment.deadline_at) continue;
 
           // Only an assignment students could actually have accepted into.
-          // A draft with a past deadline - a template someone started and left,
-          // or one reverted after the fact - has no repositories, no lockdown
-          // record, and therefore looked "not-finalized" forever. It queued a
-          // four-step finalize matrix leg on a system whose whole point is
-          // billing zero minutes when idle.
-          if (assignment.state !== 'published' && assignment.state !== 'closed') continue;
+          // A draft with a past deadline - a template someone started and left
+          // - has no repositories, no lockdown record, and therefore looked
+          // "not-finalized" forever. It queued a four-step finalize matrix leg
+          // on a system whose whole point is billing zero minutes when idle.
+          //
+          // BUT A STATE IS NOT EVIDENCE OF THAT (review 2026-10-14). Archived
+          // (or sent back to draft) after students accepted and before the
+          // nightly, an exam was never locked, never archived, and its broker
+          // kept the App's private key on a public repository for good. The
+          // evidence is the repository records: a published or closed one
+          // queues as before, any other only when students have repositories.
+          if (assignment.state !== 'published' && assignment.state !== 'closed' && !hasRepositories(controlDir, id)) continue;
 
           const deadline = new Date(assignment.deadline_at).getTime();
           const now = Date.now();
@@ -175,6 +194,13 @@ async function main() {
     }
   }
   
+  // OWED WORK KEEPS THE NIGHTLY ON (review 2026-10-14). An assignment queued
+  // for a finalize pass tonight - a preservation that partly failed, a
+  // snapshot not read, an extension expiring - counts as active, so the
+  // nightly cannot switch itself off on a run whose finalize then succeeds
+  // only partly: `partial` exits 0, and the retry it owed would never run.
+  // The night after, when nothing is owed, it counts nothing and switches off.
+  activeCount += finalizable.length;
   fs.writeFileSync(`active-${org}.json`, JSON.stringify({ active: activeCount }));
   console.log(JSON.stringify(finalizable));
 }

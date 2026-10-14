@@ -151,12 +151,15 @@ A **team** is not a **class group**. A team shares one repository for one assign
 
 Normally each student gets the template's default branch as one fresh commit, with no history. Tick **Give students every branch and its full history**, under **Advanced**, for an exercise built on the history itself, such as prepared branches to merge, rebase or repair. While it is on, a line under the template says so.
 
-- Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other.
+- Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other. A `submit/` tag is the one thing not copied: it would read as every student's submission.
 - Students can read everything ever committed to the template. Do not commit a solution to it, not even one you remove later.
-- A student counts as not handed in until their default branch moves on from the commit they were given. The commit count shows only the commits they added.
-- **Sync Starter Code** does not run on such an assignment: the branches are the students' to change.
-- Only the default branch is locked and archived at the deadline.
-- It reaches students who accept after you save it.
+- A student shows as **No submission** until their default branch moves on from the commit they were given. The commit count leaves out the commits they were given, so a prepared branch they merge in counts its commits too.
+- Choose **Pushing stops** at the deadline. A prepared branch merged in without a merge commit keeps the template's own dates, so without the lock it can read as on time when it was not.
+- Only the default branch is read for progress and grading, and archived, so the exercise has to end with the work on it. Where pushing stops at the deadline, only that branch is locked; the other branches stay open.
+- With a hand-in message, a template commit on the branch they were given never counts as a hand-in. One they bring over from a prepared branch can, so do not word a template commit like the hand-in message. A template with more than about 1000 commits cannot be read for hand-ins at all.
+- A workflow in the template that runs on push runs once per branch, and for up to three tags, in every student repository when it is copied. Leave workflows out of such a template unless the exercise needs one.
+- **Sync Starter Code** does not run on such an assignment, or on one where any student was given such a copy: the branches are the students' to change.
+- It reaches students who accept after you save it. The template still has to be ticked as a **Template repository**.
 
 ## Autograding
 

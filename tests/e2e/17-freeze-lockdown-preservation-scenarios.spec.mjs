@@ -37,7 +37,10 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
           repo_url: `https://github.com/${ORG}/${assignmentId}-student-dev1`,
           submission_status: 'on-time',
           commit_count: 3,
-          preservation_status: 'unpreserved',
+          // What the report writes for a locked snapshot not yet in the
+          // archive (lib/preservation-status.mjs) - 'unpreserved' was never a
+          // value the report wrote, and the page now counts only students owed a copy.
+          preservation_status: 'pending',
         },
         {
           github_login: 'student-dev2',
@@ -46,7 +49,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
           repo_url: `https://github.com/${ORG}/${assignmentId}-student-dev2`,
           submission_status: 'on-time',
           commit_count: 5,
-          preservation_status: 'unpreserved',
+          preservation_status: 'pending',
         },
       ],
     };
@@ -142,7 +145,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
           repo_url: `https://github.com/${ORG}/${assignmentId}-student-dev1`,
           submission_status: 'on-time',
           commit_count: 2,
-          preservation_status: 'unpreserved',
+          preservation_status: 'pending',
         },
         {
           github_login: 'student-dev2',

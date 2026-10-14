@@ -47,12 +47,12 @@ export function sameMoment(a, b) {
  * Read all scores again.
  *
  * NOT the summary's `generated_at` alone: reading ONE student's score again
- * rebuilds the whole summary with a new time and that lecturer's login, so the
- * summary's time can be one student's read over a cohort read days before.
- * Each scored row keeps its own `graded_at`; the oldest is "every score here
- * was read at or after this", as for the commits. `again` counts the rows read
- * later than that, and `uniform` says whether the summary's `graded_by` is
- * true of every row - only then may a surface say who read them.
+ * rebuilds the whole summary with a new time, so the summary's time can be one
+ * student's read over a cohort read days before. (It keeps the summary's
+ * `graded_by` and `runner`, which are the cohort read's.) Each scored row keeps
+ * its own `graded_at`; the oldest is "every score here was read at or after
+ * this", as for the commits. `again` counts the rows read later than that, and
+ * `uniform` says no row was - only then may a surface say who read them all.
  *
  * @param {{ generated_at?: string, graded_by?: string|null, students?: Array<{graded_at?: string}> }|null} summary
  * @returns {null | { at: string, again: number, latest: string|null, uniform: boolean }}

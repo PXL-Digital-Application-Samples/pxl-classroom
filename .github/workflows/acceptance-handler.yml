@@ -263,6 +263,7 @@ jobs:
           BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
           STARTER_SHA: ${{ steps.prov.outputs.starter-sha }}
           STARTER_COMMIT_COUNT: ${{ steps.prov.outputs.starter-commit-count }}
+          FULL_HISTORY: ${{ steps.prov.outputs.full-history }}
           STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_LABEL: Provision

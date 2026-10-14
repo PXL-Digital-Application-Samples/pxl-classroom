@@ -311,6 +311,7 @@
               <span class="form-hint text-xs text-muted">
                 Team slug: <code>{{ computedNewSlug || 'team-slug' }}</code>
               </span>
+              <span v-if="newSlugProblem" class="field-error-msg" role="alert" data-new-slug-problem>{{ newSlugProblem }}</span>
             </div>
 
             <div class="form-group">
@@ -349,7 +350,7 @@
 
           <footer class="modal-foot flex justify-end gap-sm">
             <button class="btn btn-secondary" type="button" @click="showCreateModal = false">Cancel</button>
-            <button class="btn btn-primary" type="submit" :disabled="!computedNewSlug || saving">
+            <button class="btn btn-primary" type="submit" :disabled="!computedNewSlug || !!newSlugProblem || saving">
               {{ saving ? 'Creating…' : 'Create Team' }}
             </button>
           </footer>
@@ -383,7 +384,7 @@
                   @keydown.enter.prevent="saveRename"
                   @keydown.esc.prevent="cancelRename"
                 />
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="saving || !renameName.trim()" @click="saveRename">Rename</button>
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="saving || !renameName.trim()" @click="saveRename">{{ saving ? 'Renaming…' : 'Rename' }}</button>
                 <button class="btn-link" type="button" :disabled="saving" @click="cancelRename">Cancel</button>
               </div>
               <small class="text-muted">
@@ -391,8 +392,9 @@
               </small>
               <div v-if="renameError" class="field-error-msg" role="alert">{{ renameError }}</div>
             </template>
-            <button v-else-if="!renameBlocked" class="btn-link" type="button" @click="startRename">Rename team</button>
-            <small v-else class="text-muted">Cannot be renamed: {{ renameBlocked }}.</small>
+            <small v-else-if="renameBlocked" class="text-muted">Cannot be renamed: {{ renameBlocked }}.</small>
+            <small v-else-if="memberEditsPending" class="text-muted">Save or undo the member changes first, then rename.</small>
+            <button v-else ref="renameButton" class="btn-link" type="button" @click="startRename">Rename team</button>
           </div>
 
           <!-- Current Members list -->
@@ -522,12 +524,14 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
-import { planTeamRename, renameBlocker, teamSlug } from '../../../lib/team-rename.mjs'
+import { membersWithRecords, planTeamRename, renameBlocker, renameRefusalAt, teamSlug } from '../../../lib/team-rename.mjs'
+import { changedSinceRead, unseedRefusalAt } from '../../../lib/team-write-guard.mjs'
 import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatJoinCode, teamNeedsJoinCode } from '../../../lib/team-join-code.mjs'
 import { planMemberRecordChanges, teamRepository } from '../../../lib/team-member-records.mjs'
 import SeedTeamsModal from './SeedTeamsModal.vue'
@@ -713,13 +717,20 @@ const lateTeamsCount = computed(() =>
   props.teams.filter((t) => t.submission_status === 'late').length
 )
 
-const computedNewSlug = computed(() => {
-  if (!newTeamForm.value.name) return ''
-  return newTeamForm.value.name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+// Acceptance's own rule for a typed name (lib/team-rename.mjs `teamSlug`).
+const computedNewSlug = computed(() => teamSlug(newTeamForm.value.name))
+
+// Why the new team cannot have that slug, from what the page shows: a team
+// has it, or had it until a rename - a page loaded before that rename still
+// sends it, and acceptance takes it as the renamed team (review 2026-10-14).
+const newSlugProblem = computed(() => {
+  const slug = computedNewSlug.value
+  if (!slug) return ''
+  const teams = props.teams || []
+  if (teams.some((t) => t.team_slug === slug)) return `A team called ${slug} already exists.`
+  const was = teams.find((t) => (t.renamed_from || []).includes(slug))
+  if (was) return `"${was.team_name || was.team_slug}" was called ${slug} until it was renamed, so the name stays with it.`
+  return ''
 })
 
 // Who confirmed which address, read only when somebody in this assignment's
@@ -901,22 +912,50 @@ function openManageTeamModal(team) {
   renameError.value = ''
 }
 
+/**
+ * A reader of the control repo AT ONE COMMIT, for a write's precondition
+ * (lib/gittree.mjs): the contents API's answer, null for a 404, a throw for
+ * anything it could not read - which refuses the write rather than passing it.
+ */
+function contentsAt(request, parentSha) {
+  return async (path) => {
+    try {
+      const r = await request(`GET /repos/{owner}/{repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, { owner: props.org, repo: config.controlRepo, ref: parentSha })
+      return r.data
+    } catch (e) {
+      if (e?.status === 404) return null
+      throw e
+    }
+  }
+}
+
 // --- Rename (lib/team-rename.mjs decides) ---------------------------------
 const renaming = ref(false)
 const renameName = ref('')
 const renameError = ref('')
 const renameInput = ref(null)
+const renameButton = ref(null)
 
 /** Why the open team cannot be renamed, from what the page shows; asked again at the click. */
 const renameBlocked = computed(() =>
-  managingTeam.value ? renameBlocker(managingTeam.value, (m) => hasAccepted(m)) : null,
+  managingTeam.value ? renameBlocker(managingTeam.value, (m) => hasAccepted(m), memberLabel) : null,
 )
 
-const renameRepoPreview = computed(() => {
-  const slug = teamSlug(renameName.value) || '…'
-  const pattern = props.assignment?.repository_name_pattern || `${props.assignment?.id}-{team_slug}`
-  return pattern.replace('{team_slug}', slug)
+// Adds or removes made in Manage and not saved yet. A move and a rename both
+// close Manage and write from what is stored, so either would drop them
+// unasked (review 2026-10-14): one thing at a time.
+const memberEditsPending = computed(() => {
+  if (!managingTeam.value) return false
+  const shown = manageMembers.value || []
+  const opened = managingTeam.value.members || []
+  return shown.length !== opened.length || shown.some((m) => !opened.some((o) => sameLogin(o, m)))
 })
+
+// The name acceptance will give it (lib/repo-name.mjs); a pattern naming
+// `{github_login}` too takes the first member's, not known yet.
+const renameRepoPreview = computed(() =>
+  repositoryNameFor(props.assignment?.repository_name_pattern, { teamSlug: teamSlug(renameName.value) || '…', login: '…' }),
+)
 
 async function startRename() {
   renameName.value = managingTeam.value?.team_name || ''
@@ -927,9 +966,12 @@ async function startRename() {
   renameInput.value?.select()
 }
 
-function cancelRename() {
+async function cancelRename() {
   renaming.value = false
   renameError.value = ''
+  // The input that had focus is gone; give it back to what opened it.
+  await nextTick()
+  renameButton.value?.focus()
 }
 
 /**
@@ -940,6 +982,10 @@ function cancelRename() {
 async function saveRename() {
   const team = managingTeam.value
   if (!team || saving.value) return
+  if (memberEditsPending.value) {
+    renameError.value = 'Save or undo the member changes first, then rename. Nothing was changed.'
+    return
+  }
   renameError.value = ''
   saving.value = true
   try {
@@ -960,70 +1006,61 @@ async function saveRename() {
     }
     // Who accepted since the page loaded: a record is the evidence, matched by
     // login as GitHub spells it (acceptance files a record under that spelling).
-    const recorded = new Set()
+    // The same question the commit is asked again below (membersWithRecords).
+    const listed = []
     for (const dir of [repositoriesDir(id), acceptancesDir(id)]) {
-      let files = []
       try {
-        files = await listRepoDir(token, props.org, config.controlRepo, dir)
+        listed.push(...(await listRepoDir(token, props.org, config.controlRepo, dir)))
       } catch (e) {
         if (e?.status !== 404) throw e
       }
-      for (const f of files) if (f.type === 'file' && f.name.endsWith('.json')) recorded.add(f.name.slice(0, -'.json'.length))
     }
+    const recorded = membersWithRecords(listed, stored.members || [])
+    const others = (props.teams || []).filter((t) => t.team_slug !== team.team_slug)
     const plan = planTeamRename({
       team: stored,
       newName: renameName.value,
       assignmentId: id,
-      otherSlugs: (props.teams || []).filter((t) => t.team_slug !== team.team_slug).map((t) => t.team_slug),
-      accepted: (m) => hasAccepted(m) || [...recorded].some((r) => sameLogin(r, m)),
+      otherSlugs: others.map((t) => t.team_slug),
+      reservedSlugs: others.flatMap((t) => t.renamed_from || []),
+      accepted: (m) => hasAccepted(m) || recorded.includes(m),
+      label: memberLabel,
     })
     if (!plan.ok) {
-      renameError.value = `Not renamed: ${plan.reason}.`
+      renameError.value = `Not renamed: ${plan.reason}. Nothing was changed.`
       return
     }
     // A team everybody left is not on this page, and its file still holds the name.
     if (plan.slug !== stored.team_slug && (await read(teamPath(id, plan.slug)))) {
-      renameError.value = `Not renamed: a team file called ${plan.slug} already exists in this assignment (it may be an empty team).`
+      renameError.value = `Not renamed: this assignment already has a team called ${plan.slug}, which may be one everybody left. Nothing was changed.`
       return
     }
     const { valid, errors } = await validateAgainst('team', plan.doc)
     if (!valid) {
-      renameError.value = `Not renamed: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}`
+      renameError.value = `Not renamed: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}. Nothing was changed.`
       return
     }
-    // WHAT IT WAS DECIDED FROM, ASKED AGAIN OF THE COMMIT IT LANDS ON (review
-    // 2026-10-14). The reads above are seconds old by the write, and a retry
-    // re-applies the same files to whatever the branch became: a seeded member
-    // accepting in between left their acceptance naming a manifest this
-    // deleted, and the team split across two repositories. Unchanged team
-    // file, no team at the new name, no member with a record - or nothing.
-    const precondition = async ({ request, parentSha }) => {
-      const at = async (path) => {
-        try {
-          const r = await request(`GET /repos/{owner}/{repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, { owner: props.org, repo: config.controlRepo, ref: parentSha })
-          return r.data
-        } catch (e) {
-          if (e?.status === 404) return null
-          throw e
-        }
-      }
-      const now = await at(teamPath(id, stored.team_slug))
-      if (!now?.content || decodeBase64Text(now.content) !== storedText) return 'the team was changed while you renamed it. Nothing was changed; open it again'
-      if (plan.slug !== stored.team_slug && (await at(teamPath(id, plan.slug)))) return `a team called ${plan.slug} was made meanwhile. Nothing was changed`
-      for (const dir of [repositoriesDir(id), acceptancesDir(id)]) {
-        const list = await at(dir)
-        const joined = Array.isArray(list) && list.some((f) => f.name?.endsWith('.json') && (stored.members || []).some((m) => sameLogin(f.name.slice(0, -'.json'.length), m)))
-        if (joined) return 'a member accepted meanwhile, so its repository is named after the current name. Nothing was changed'
-      }
-      return null
-    }
+    // WHAT IT WAS DECIDED FROM, ASKED AGAIN OF THE COMMIT IT LANDS ON
+    // (lib/team-rename.mjs `renameRefusalAt`): a retry re-applies the same files
+    // to whatever the branch became.
+    const precondition = ({ request, parentSha }) => renameRefusalAt({
+      get: contentsAt(request, parentSha),
+      decode: decodeBase64Text,
+      assignmentId: id,
+      storedSlug: stored.team_slug,
+      storedText,
+      newSlug: plan.slug,
+      members: stored.members || [],
+    })
     const res = await commitFiles(token, props.org, config.controlRepo, plan.changes, `Rename team ${stored.team_slug} to ${plan.slug} (${id})`, { precondition })
     if (!res.ok) {
       renameError.value = `Could not rename the team: ${res.error || 'the save failed'}. Nothing was changed.`
+      // What the page shows may be what stopped it: read it again.
+      emit('refresh')
       return
     }
-    await republishTeams(token)
-    toast.success(`Renamed to "${plan.doc.team_name}".`)
+    // The publish says its own failure, with a way to run it by hand.
+    if (await republishTeams(token)) toast.success(`Renamed to "${plan.doc.team_name}".`)
     renaming.value = false
     managingTeam.value = null
     emit('refresh')
@@ -1088,10 +1125,18 @@ async function removeSeededTeams() {
       props.org,
       config.controlRepo,
       unseedPlan.value.changes,
-      `Remove ${removable.length} seeded team(s) from ${props.assignment.id}`
+      `Remove ${removable.length} seeded team(s) from ${props.assignment.id}`,
+      // Decided from what the page loaded: asked again of the commit it lands
+      // on, or a member who accepted since loses the team their acceptance names.
+      {
+        precondition: ({ request, parentSha }) => unseedRefusalAt({
+          get: contentsAt(request, parentSha), decode: decodeBase64Text, assignmentId: props.assignment.id, teams: removable,
+        }),
+      },
     )
     if (!res.ok) {
-      toast.error(`Could not remove the teams: ${res.error}`)
+      toast.error(`Could not remove the teams: ${res.error}. Nothing was removed.`)
+      emit('refresh')
       return
     }
     await republishTeams(token)
@@ -1183,10 +1228,7 @@ async function moveMemberTo(login, targetSlug) {
 
   // A move closes Manage, and adds or removes made in it and not saved yet
   // went with it, unasked. One thing at a time, as with a state change.
-  const shown = manageMembers.value || []
-  const opened = managingTeam.value.members || []
-  const pending = shown.length !== opened.length || shown.some((m) => !opened.some((o) => sameLogin(o, m)))
-  if (pending) {
+  if (memberEditsPending.value) {
     toast.error('Save or undo the changes to this team first, then move.')
     return
   }
@@ -1215,14 +1257,16 @@ async function moveMemberTo(login, targetSlug) {
 
     // Read BOTH before touching anything: a move that can only half-apply is
     // worse than one that does not start.
-    const [sourceDoc, targetDoc] = await Promise.all([
+    const [sourceRead, targetRead] = await Promise.all([
       readTeamManifest(token, sourcePath),
       readTeamManifest(token, targetPath),
     ])
-    if (!sourceDoc || !targetDoc) {
+    if (!sourceRead || !targetRead) {
       toast.error(`Could not read both team manifests. Nothing was changed.`)
       return
     }
+    const sourceDoc = sourceRead.doc
+    const targetDoc = targetRead.doc
 
     const lower = (s) => String(s).toLowerCase()
     if ((targetDoc.members || []).some((m) => lower(m) === lower(login))) {
@@ -1281,10 +1325,19 @@ async function moveMemberTo(login, targetSlug) {
         { path: targetPath, content: JSON.stringify(nextTarget, null, 2) + '\n' },
         ...recordChanges,
       ],
-      `Move ${login} from ${sourceSlug} to ${targetSlug} (${props.assignment.id})`
+      `Move ${login} from ${sourceSlug} to ${targetSlug} (${props.assignment.id})`,
+      // Both files as read, or nothing: a join or a switch landing in between
+      // would otherwise be written over (lib/team-write-guard.mjs).
+      {
+        precondition: async ({ request, parentSha }) => (await changedSinceRead({
+          get: contentsAt(request, parentSha), decode: decodeBase64Text,
+          files: [{ path: sourcePath, text: sourceRead.text }, { path: targetPath, text: targetRead.text }],
+        })) ? 'one of the two teams was changed while you moved them (a student may have joined or left); open it again' : null,
+      },
     )
     if (!res.ok) {
-      toast.error(`Could not move @${login}: ${res.error || 'commit failed'}`)
+      toast.error(`Could not move @${login}: ${res.error || 'commit failed'}. Nothing was changed.`)
+      emit('refresh')
       return
     }
 
@@ -1409,12 +1462,13 @@ async function recordSpelling(token, login) {
 }
 
 /** The stored manifest at `path`, or null when it cannot be read or parsed. */
+/** A team manifest and the exact text it was read as (for the write's precondition), or null. */
 async function readTeamManifest(token, path) {
   try {
     const text = await getRepoContent(token, props.org, config.controlRepo, path)
     if (!text) return null
     const doc = JSON.parse(text)
-    return doc && typeof doc === 'object' ? doc : null
+    return doc && typeof doc === 'object' ? { doc, text } : null
   } catch {
     return null
   }
@@ -1447,9 +1501,10 @@ async function saveTeamMembers() {
     // first also means an unreadable manifest refuses before any collaborator
     // is touched, rather than leaving GitHub and the control repo disagreeing.
     let existing = null
+    let existingText = null
     try {
-      const text = await getRepoContent(token, props.org, config.controlRepo, path)
-      if (text) existing = JSON.parse(text)
+      existingText = await getRepoContent(token, props.org, config.controlRepo, path)
+      if (existingText) existing = JSON.parse(existingText)
     } catch {
       existing = null
     }
@@ -1560,7 +1615,14 @@ async function saveTeamMembers() {
       props.org,
       config.controlRepo,
       [{ path, content: JSON.stringify(teamDoc, null, 2) + '\n' }, ...recordChanges],
-      `Update members for team ${slug} (${props.assignment.id})`
+      `Update members for team ${slug} (${props.assignment.id})`,
+      // Merged onto the file as read; a join or a switch landing since is
+      // merged again by saving again, never written over (lib/team-write-guard.mjs).
+      {
+        precondition: async ({ request, parentSha }) => (await changedSinceRead({
+          get: contentsAt(request, parentSha), decode: decodeBase64Text, files: [{ path, text: existingText }],
+        })) ? 'the team was changed while you saved it (a student may have joined or left)' : null,
+      },
     )
     if (res.ok) {
       await republishTeams(token)

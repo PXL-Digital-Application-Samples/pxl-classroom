@@ -430,7 +430,9 @@
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Sync Starter Code</span>
                     <span class="dropdown-item-sub">{{ syncRefused
-                      ? 'Not here: students were given the template with its full history, and the branches are theirs'
+                      ? (assignment.template_full_history === true
+                        ? 'Does not run here: students were given the template\'s full history, and its branches are theirs to change'
+                        : 'Does not run here: some students were given the template\'s full history, and its branches are theirs to change')
                       : 'Propagate template updates to students' }}</span>
                   </div>
                 </button>
@@ -1560,7 +1562,9 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { failedKind, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { FAILED_READ_VERDICTS, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { sameLogin } from '../../../lib/github-login.mjs'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -1904,13 +1908,16 @@ const autogradeEnabled = computed(() => autogradeDeclared.value || hasGrades.val
 const preservedCount = computed(() =>
   (report.value?.students || []).filter((s) => s.preservation_status === 'preserved' || s.preserved_sha).length
 )
-const eligiblePreservationCount = computed(() =>
-  (report.value?.students || []).filter((s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending').length
-)
+// WHO IS OWED A COPY is the report's to say (lib/preservation-status.mjs): a
+// student with no submission under `block`, one still in an extension, and
+// anybody not locked yet are `not-required`. Counting them kept "All student
+// work is archived" from ever showing over one non-submitter, and offered
+// "Try again for 1 student" for good (review 2026-10-14).
+const owedPreservation = (s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending' &&
+  (s.preservation_status === 'preserved' || s.preservation_status === 'pending' || s.preservation_status === 'failed' || s.preserved_sha)
+const eligiblePreservationCount = computed(() => (report.value?.students || []).filter(owedPreservation).length)
 const unpreservedCount = computed(() =>
-  (report.value?.students || []).filter(
-    (s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending' && s.preservation_status !== 'preserved' && !s.preserved_sha
-  ).length
+  (report.value?.students || []).filter((s) => owedPreservation(s) && s.preservation_status !== 'preserved' && !s.preserved_sha).length
 )
 const allPreserved = computed(() =>
   eligiblePreservationCount.value > 0 && preservedCount.value >= eligiblePreservationCount.value
@@ -2601,14 +2608,15 @@ const scoresBlock = computed(() => {
   const s = autogradeSummary.value
   const r = scoresRead(s)
   if (!r) return null
-  // Who read them is said only where it is true of every row: one student read
-  // again rewrites the summary's `graded_by` over everybody else's scores.
+  // Who read them is said only where it is true of every row. A one-student
+  // read keeps the summary's `graded_by` (the cohort read's), so it is said
+  // of the cohort read, and never of the later reads, whose reader no row records.
   const who = r.uniform ? (s.graded_by ? `by @${s.graded_by} ` : 'at the deadline ') : ''
   return {
     label: `Scores read ${who}${gradingRunnerLabel(s.runner)}`.replace(/\s+/g, ' ').trim(),
     at: r.at,
     title: r.again
-      ? `${r.again} student${r.again === 1 ? ' was' : 's were'} read again since, the latest ${fmt(r.latest)}${s.graded_by ? ` by @${s.graded_by}` : ''}.`
+      ? `${r.again} student${r.again === 1 ? ' was' : 's were'} read again since, the latest ${fmt(r.latest)}.`
       : '',
   }
 })
@@ -3124,6 +3132,10 @@ const preservationSummary = computed(() => {
   if (allPreserved.value) return 'All student work is archived'
   if (preservedCount.value > 0) {
     return `${preservedCount.value} of ${eligiblePreservationCount.value} students' work is archived`
+  }
+  // Locked, and nobody owed a copy: nothing was handed in before the deadline.
+  if (eligiblePreservationCount.value === 0 && (report.value?.students || []).some((s) => s.lock_down_outcome)) {
+    return 'Nothing was handed in before the deadline, so there is nothing to archive'
   }
   return 'No student work has been archived yet'
 })
@@ -3785,7 +3797,7 @@ function shortRepo(name) {
   return name.includes('/') ? name.split('/')[1] : name
 }
 
-// `submit/2026-10-05T20:34:11Z-a1b2c3d` -> `a1b2c3d` (short SHA suffix) so the
+// `submit/2026-10-05T20-34-11Z-a1b2c3d` -> `a1b2c3d` (short SHA suffix) so the
 // column stays narrow. Full tag name is on hover via title.
 function shortTag(tag) {
   if (!tag) return ''
@@ -4365,9 +4377,10 @@ async function refreshOne(token, s) {
 
       const authorName = commit.commit?.author?.name || null
       const authorEmail = commit.commit?.author?.email || null
-      if (givenSha) {
+      if (s.full_history === true || assignment.value?.template_full_history === true) {
         // A full-history copy: its latest commit may be the template's, by the
-        // lecturer - not evidence of who the student is (report/report.mjs).
+        // lecturer - not evidence of who the student is (report/report.mjs,
+        // the same two signals).
         s.author_name = null
         s.author_email = null
       } else {
@@ -4383,7 +4396,12 @@ async function refreshOne(token, s) {
       if (isUnstarted) {
         s.submission_status = 'no-submission'
       } else if (deadline) {
-        if (new Date() <= deadline) {
+        // THE COMMIT'S OWN TIME, as the report judges it (CLAUDE.md:
+        // `observed_at` is when somebody looked): judged by the moment of the
+        // Refresh, a commit made before the deadline read late on any Refresh
+        // pressed after it (review 2026-10-14).
+        const committedAt = Date.parse(commit.commit?.committer?.date || commit.commit?.author?.date || '')
+        if ((Number.isFinite(committedAt) ? committedAt : Date.now()) <= deadline.getTime()) {
           s.submission_status = 'on-time'
           s.last_on_time_sha = sha
         } else {
@@ -5011,6 +5029,15 @@ async function saveSummaryMerging(token, build, fallback, message) {
       return { ok: false, message: `The grade summary on record could not be read (HTTP ${cur.status}), so nothing was overwritten.` }
     }
     const summaryDoc = build(base)
+    // The builder found nothing to change in the version on record: say so,
+    // and show that version.
+    if (summaryDoc === null) {
+      if (base) {
+        autogradeSummary.value = base
+        mergeGradesIntoReport()
+      }
+      return { ok: true, unchanged: true }
+    }
     const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
     if (!valid) {
       console.error('grading summary failed schema', errors)
@@ -5133,23 +5160,23 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
     })
 
     const prev = autogradeSummary.value
-    const login = String(student.github_login).toLowerCase()
     const hasScore = outcome.verdict === 'graded' || outcome.verdict === 'manual'
     // A DECISION just changed what counts. When the new answer is "no score"
     // (back to rules that cannot grade them), the old row - carrying the
     // decision just undone - must not stay on record as if it were still in
     // force: it is replaced by the reason. A read that FAILED is never that
-    // answer; it changes nothing.
-    const failedRead = ['api-failed', 'unreadable', 'lookup-failed'].includes(outcome.verdict)
-    // A "Being graded" row read again once its run ENDED without a score is
-    // a new answer too: the row says to read it again, and keeping it would
-    // say "still running" for ever over a run that timed out (review
-    // 2026-10-14). Still running is the same answer, and writes nothing.
-    const stored = (prev?.failed || []).find((f) => String(f.login).toLowerCase() === login)
-    const nowKind = !hasScore && !failedRead ? rowFromOutcome(student.github_login, outcome).failed?.kind : null
-    const runEnded = Boolean(stored) && failedKind(stored) === 'running' && nowKind && nowKind !== 'running'
-    const replaceWithReason = !hasScore && !failedRead && (afterDecision || runEnded)
-    if (!hasScore && !replaceWithReason) {
+    // answer; it changes nothing. A "Being graded" row read again once its run
+    // ENDED without a score is a new answer too. One rule, shared with
+    // `pxl-classroom grade --login` (lib/grade-cohort.mjs `oneReadReplaces`).
+    const failedRead = FAILED_READ_VERDICTS.includes(outcome.verdict)
+    const newKind = !hasScore && !failedRead ? rowFromOutcome(student.github_login, outcome).failed?.kind : null
+    // Asked of the page's copy here, for the toast; asked again of the version
+    // the save lands on, inside `merged`.
+    const replacesIn = (summary) => oneReadReplaces({
+      hasScore, failedRead, newKind, afterDecision,
+      stored: (summary?.failed || []).find((f) => sameLogin(f.login, student.github_login)) || null,
+    })
+    if (!replacesIn(prev)) {
       // Not a zero and not a failure of this button: it looked and there was no
       // score there. Say which, and change nothing. Under a cap the count it
       // found is still news - it is what a lecturer who just granted extra
@@ -5170,22 +5197,35 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
     // team's second member - saved right after the first - hit the Contents
     // API's stale read and failed, or wrote over a save made meanwhile by
     // another tab or the nightly (review 2026-09-26).
-    const merged = (base) => buildGradingSummary({
-      assignmentId: props.assignmentId,
-      gradedBy: user.value?.login,
-      runner: 'github_actions',
-      students: [...(base?.students || []).filter((s) => String(s.login).toLowerCase() !== login), ...(row ? [row] : [])],
-      // This student's reason is replaced either way: by nothing when they now
-      // have a score, by the new reason when they do not. Everybody else's stands.
-      failed: [...(base?.failed || []).filter((f) => String(f.login).toLowerCase() !== login), ...(why ? [why] : [])],
-    })
+    // Decided again of the version it lands on: the page's copy can be older
+    // than a score another tab or the nightly saved meanwhile, which a reason
+    // decided from the page's copy would have deleted (review 2026-10-14).
+    let removedScore = false
+    const merged = (base) => {
+      if (!replacesIn(base)) return null
+      removedScore = !row && (base?.students || []).some((s) => sameLogin(s.login, student.github_login))
+      return buildGradingSummary({
+        assignmentId: props.assignmentId,
+        // WHO READ THE COHORT, AND HOW, stand: one student read again is that
+        // row's own `graded_at`, and rewriting the summary's `graded_by` with
+        // this lecturer made "Scores read by @them" true of one row of forty
+        // (review 2026-10-14). Only a summary that does not exist yet is theirs.
+        gradedBy: base ? (base.graded_by ?? null) : user.value?.login,
+        runner: base?.runner || 'github_actions',
+        students: [...(base?.students || []).filter((s) => !sameLogin(s.login, student.github_login)), ...(row ? [row] : [])],
+        // This student's reason is replaced either way: by nothing when they now
+        // have a score, by the new reason when they do not. Everybody else's stands.
+        failed: [...(base?.failed || []).filter((f) => !sameLogin(f.login, student.github_login)), ...(why ? [why] : [])],
+      })
+    }
     const saved = await saveSummaryMerging(token, merged, prev, `Read ${student.github_login}'s score again for ${props.assignmentId}`)
     if (!saved.ok) {
       toast.error(saved.message)
       return
     }
-    if (row) toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)
-    else toast.error(`No score for ${student.github_login} by the rules: ${why.reason}. Their earlier score was removed.`)
+    if (saved.unchanged) toast.error(`No score read for ${student.github_login}: ${why?.reason || 'nothing new'}. Their result on record is unchanged.`)
+    else if (row) toast.success(`${student.github_login}: ${row.earned_points}/${row.total_points}.`)
+    else toast.error(`No score for ${student.github_login} by the rules: ${why.reason}.${removedScore ? ' Their earlier score was removed.' : ''}`)
     closeActions()
   } catch (e) {
     console.error('Failed to re-grade', e)
@@ -5749,8 +5789,8 @@ async function retryAcceptanceFor(student) {
         link: { text: 'View workflow run', href: workflowUrl }
       })
       
-      const pattern = assignment.value?.repository_name_pattern || `${props.assignmentId}-{github_login}`
-      const repoName = pattern.replace('{github_login}', login)
+      // A team member's repository is the team's (lib/repo-name.mjs).
+      const repoName = repositoryNameFor(assignment.value?.repository_name_pattern, { teamSlug: student.team_slug || null, login })
       startRetryWatch(login, repoName, initialRunId)
       
       actionStudent.value = null

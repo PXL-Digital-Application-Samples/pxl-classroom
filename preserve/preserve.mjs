@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
-import { gitAuthEnv } from "../lib/git-auth.mjs";
+import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
 import { archiveRepoName, archiveReadme } from "../lib/archive-repo.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -107,13 +107,21 @@ function git(args, opts = {}) {
   return execFileSync("git", args, {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
+    // A stalled fetch or push fails THAT student, inside the finalize's
+    // 10-minute job, instead of taking the rest of the cohort with it (review
+    // 2026-10-14; provisioning's copy has the same limit for the same stall).
+    timeout: GIT_STEP_MS,
     ...opts,
-    env: { ...gitEnv(), ...(opts.env || {}) },
+    env: { ...gitEnv(), GIT_TERMINAL_PROMPT: "0", ...(opts.env || {}) },
   }).trim();
 }
+const GIT_STEP_MS = 3 * 60 * 1000;
 
+// The same URL as before for github.com; built by lib/git-auth.mjs so a test
+// can point it at a directory of bare repositories (`file:///...`), as
+// provisioning's own test does.
 function repoUrl(repo) {
-  return `${new URL(cfg.serverUrl).origin}/${cfg.org}/${repo}.git`;
+  return gitRepoUrl(cfg.serverUrl, cfg.org, repo);
 }
 
 // --- Main --------------------------------------------------------------------
@@ -284,6 +292,33 @@ async function main() {
       const srcUrl = repoUrl(sourceRepo);
       const arcUrl = repoUrl(cfg.archiveRepo);
       const cloneDir = join(workDir, "src");
+      const presDir = join(cfg.dataDir, "observations", cfg.assignmentId, login);
+      const presFile = join(presDir, "preservation.json");
+
+      // ALREADY IN THE ARCHIVE AT THIS COMMIT: nothing to fetch or push (review
+      // 2026-10-14). Every finalize pass re-fetched and re-pushed every student,
+      // inside a 10-minute job, rewriting `preserved_at` so the day it was first
+      // preserved was lost; and a reopened student's force-push since made the
+      // frozen commit unfetchable, failing a row whose archive was fine. The
+      // archive's own ref is the evidence; the record is kept as it was.
+      const atArchive = git(["ls-remote", arcUrl, presRef], { cwd: workDir }).split(/\s/)[0] || "";
+      if (atArchive === sourceSha) {
+        let kept = null;
+        try { kept = JSON.parse(await readFile(presFile, "utf8")); } catch { kept = null; }
+        if (!(kept?.verified === true && kept.source_sha === sourceSha && kept.preserved_ref === presRef)) {
+          await mkdir(presDir, { recursive: true });
+          await writeFile(presFile, JSON.stringify({
+            schema_version: 1, assignment_id: cfg.assignmentId, github_login: login, team_slug: rec.team_slug || undefined,
+            source_repo: `${cfg.org}/${sourceRepo}`, source_repo_id: rec.repo_id, source_sha: sourceSha,
+            archive_repo: `${cfg.org}/${cfg.archiveRepo}`, preserved_ref: presRef, verified: true,
+            preserved_at: new Date().toISOString(), observer_run: cfg.runUrl,
+          }, null, 2) + "\n");
+        }
+        preservedCount++;
+        log(`preserve ${login}`, { ok: true, note: `already in the archive at ${sourceSha.slice(0, 12)} (${presRef})` });
+        rows.push(`| ${login} | \`${sourceSha.slice(0, 12)}\` | [OK] already preserved |`);
+        continue;
+      }
 
       await mkdir(cloneDir);
       git(["init", "--bare"], { cwd: cloneDir });
@@ -335,9 +370,8 @@ async function main() {
         preserved_at: new Date().toISOString(),
         observer_run: cfg.runUrl,
       };
-      const presDir = join(cfg.dataDir, "observations", cfg.assignmentId, login);
       await mkdir(presDir, { recursive: true });
-      await writeFile(join(presDir, "preservation.json"), JSON.stringify(preservation, null, 2) + "\n");
+      await writeFile(presFile, JSON.stringify(preservation, null, 2) + "\n");
 
       preservedCount++;
       log(`preserve ${login}`, { ok: true, note: `preserved ${sourceSha.slice(0, 12)} -> ${presRef}` });

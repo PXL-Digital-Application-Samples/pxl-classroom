@@ -28,6 +28,7 @@ import { parse } from "yaml";
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { startRepoProbe } from "./fixtures/repo-probe.mjs";
+import { repoFiles } from "./repo-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -119,6 +120,24 @@ test("preserve.mjs and provision.mjs never build a credential into a URL", () =>
     assert.ok(!/authedUrl/.test(src), `${file}: the helper that built one is gone`);
   }
   for (const file of [join("preserve", "preserve.mjs"), join("provisioning", "provision.mjs")]) {
+    assert.match(readFileSync(join(root, file), "utf8"), /gitAuthEnv\(/, `${file} authenticates through lib/git-auth.mjs`);
+  }
+});
+
+test("NO source file builds a credential into a git URL - every one, not a list of two", () => {
+  // Review 2026-10-14: the test above named preserve.mjs and provision.mjs,
+  // and the CLI's `grade` and `download` both put the token in a remote URL -
+  // in `.git/config`, and for `grade` in a workdir mounted into the Docker
+  // sandbox the student's code runs in. Derived from the tracked files.
+  const offenders = [];
+  // The tests are left out on purpose: they quote the shape they forbid.
+  const testsDir = join(root, "tests");
+  for (const file of repoFiles({ exts: [".mjs", ".js", ".vue", ".sh"] }).filter((f) => !f.startsWith(testsDir))) {
+    const src = readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    if (/x-access-token:\$\{[^}]+\}@|x-access-token:\S*\$[A-Z_]+@/.test(src)) offenders.push(file.slice(root.length + 1));
+  }
+  assert.deepEqual(offenders, []);
+  for (const file of [join("cli", "src", "commands", "grade.mjs"), join("cli", "src", "commands", "download.mjs")]) {
     assert.match(readFileSync(join(root, file), "utf8"), /gitAuthEnv\(/, `${file} authenticates through lib/git-auth.mjs`);
   }
 });

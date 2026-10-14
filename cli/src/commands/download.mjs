@@ -28,12 +28,14 @@ import { sameLogin } from "../../../lib/github-login.mjs";
 import { getReport } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { archiveBranchName, archiveBranchUrl, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
+import { gitAuthEnv, gitRepoUrl } from "../../../lib/git-auth.mjs";
 
 
 
-// Run a git subprocess with stdio captured. Throws on non-zero exit. Token
-// is never put on the command line - only in the URL, which itself is only
-// read by git, not logged here.
+// Run a git subprocess with stdio captured. Throws on non-zero exit. The
+// token reaches git through its environment only (lib/git-auth.mjs), never an
+// argument or a remote URL: a URL with the token in it was written into each
+// student's `.git/config` and left there by a Ctrl-C (review 2026-10-14).
 function runGit(args, opts = {}) {
   return new Promise((resolveFn, reject) => {
     const child = spawn("git", args, { ...opts, stdio: ["ignore", "pipe", "pipe"] });
@@ -50,17 +52,15 @@ function runGit(args, opts = {}) {
 
 
 
-function authedArchiveUrl(archiveRepo, token) {
-  return `https://x-access-token:${token}@github.com/${archiveRepo}.git`;
-}
-
 // Single-student fetch: clone-or-update the archive into a per-student dir
 // and checkout the preserved ref. Returns { login, sha, branch, status }.
 async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archiveRef, expectedSha, token, dir }) {
   const target = join(dir, login);
   const branch = archiveBranchName({ assignmentId, login, teamSlug, recordedRef: archiveRef });
   const repo = resolveArchiveRepo({ org, recorded: archiveRepo });
-  const url = authedArchiveUrl(repo, token);
+  // A plain URL; the credential is in the fetch's environment alone.
+  const url = gitRepoUrl("https://github.com", ...repo.split("/"));
+  const authed = { cwd: target, env: { ...process.env, ...gitAuthEnv(token), GIT_TERMINAL_PROMPT: "0" } };
 
   if (existsSync(join(target, ".git"))) {
     try {
@@ -74,20 +74,14 @@ async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archi
   if (!existsSync(join(target, ".git"))) {
     await runGit(["init", "--quiet"], { cwd: target });
   }
-  // Best-effort: ensure remote is set to authed URL; we rewrite each call so
-  // a rotated token always wins (and never gets stored long-term in config).
+  // The remote is the plain URL, rewritten each time - which also replaces the
+  // token-bearing URL an older version of this command left in the config.
   try { await runGit(["remote", "remove", "origin"], { cwd: target }); } catch { /* ok */ }
   await runGit(["remote", "add", "origin", url], { cwd: target });
-  try {
-    await runGit(["fetch", "--depth=1", "origin", branch], { cwd: target });
-    await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
-    const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
-    return { login, sha, branch, repo, status: "downloaded" };
-  } finally {
-    try {
-      await runGit(["remote", "set-url", "origin", `https://github.com/${repo}.git`], { cwd: target });
-    } catch { /* ignore clean url errors */ }
-  }
+  await runGit(["fetch", "--depth=1", "origin", branch], authed);
+  await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
+  const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
+  return { login, sha, branch, repo, status: "downloaded" };
 }
 
 function parseConcurrency(val) {

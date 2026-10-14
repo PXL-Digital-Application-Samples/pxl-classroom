@@ -398,7 +398,9 @@ test.describe('90 - Grade exports and autograder features', () => {
     // and who read them is not claimed for everybody - hover says the rest.
     await expect(read).toContainText('Scores read from GitHub Actions');
     await expect(read.locator('time')).toHaveAttribute('datetime', '2026-10-01T13:00:00.000Z');
-    await expect(read).toHaveAttribute('title', /^1 student was read again since, the latest .+ by @lecturer1\.$/);
+    // No reader named for the later read: no row records one, and the
+    // summary's `graded_by` is the cohort read's (review 2026-10-14).
+    await expect(read).toHaveAttribute('title', /^1 student was read again since, the latest [^@]+\.$/);
     const box = page.locator('[data-grading-box]');
     await expect(box).toHaveAttribute('data-state', 'read');
     await expect(box).toContainText('average');

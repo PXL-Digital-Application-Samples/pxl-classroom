@@ -91,12 +91,16 @@
     "starter_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$",
-      "description": "The commit a repository copied with the template's full history was given (template_full_history). The report reads the repository as not started while its branch is still at it. Absent for GitHub's one-commit template copy."
+      "description": "The commit the repository stood at when provisioning finished with it: the template's full history (template_full_history), or GitHub's one-commit copy plus the grading workflow provisioning committed. The report reads the repository as not started while its branch is still at it. Absent for GitHub's copy that provisioning added nothing to, where one commit is the start."
     },
     "starter_commit_count": {
       "type": "integer",
       "minimum": 0,
       "description": "How many commits starter_sha has behind it, counted as the collector counts a branch. The report counts a student's commits from it. Present only beside starter_sha."
+    },
+    "full_history": {
+      "type": "boolean",
+      "description": "True when starter_sha is a copy of the template's full history: every branch is the student's to change, so starter sync does not run and the latest commit's author is not evidence of who the student is. Absent otherwise. No default: a schema default is a writer (CLAUDE.md), and validating would stamp it on every record."
     }
   }
 }

@@ -358,12 +358,16 @@
           "starter_sha": {
             "type": "string",
             "pattern": "^[0-9a-f]{40}$",
-            "description": "The commit a repository copied with the template's full history was given, from its repository records (lib/starter-commit.mjs). Carried so the page's Refresh judges 'not started' and counts commits by the report's own rule. Absent for GitHub's one-commit copy."
+            "description": "The commit the repository stood at when provisioning finished with it, from its repository records (lib/starter-commit.mjs). Carried so the page's Refresh judges 'not started' and counts commits by the report's own rule. Absent where GitHub's one-commit copy is the start."
           },
           "starter_commit_count": {
             "type": "integer",
             "minimum": 0,
             "description": "How many commits starter_sha has behind it. commit_count already has it subtracted."
+          },
+          "full_history": {
+            "type": "boolean",
+            "description": "From the repository records: starter_sha is a copy of the template's full history. Starter sync refuses while any row has it (lib/starter-sync.mjs `syncRefusal`), and no author is carried for such a repository."
           },
           "commit_date": {
             "type": [

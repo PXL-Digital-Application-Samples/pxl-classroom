@@ -11,8 +11,8 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { commitAuthor, snapshotObservation } from "../lib/observation.mjs";
-import { parseSubmitTagRef } from "../lib/submit-tag.mjs";
+import { commitAuthor, snapshotObservation, taggedSubmissionObservation } from "../lib/observation.mjs";
+import { latestSubmitTag } from "../lib/submit-tag.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -71,8 +71,8 @@ async function readAssignment(assignmentId) {
 
 // --- Submit-tag discovery ----------------------------------------------------
 // Lists refs/tags/submit/* on a repo, parses the declared timestamp out of the
-// tag name, and returns the lexicographically latest tag (== latest declared
-// time, since the format is ISO-8601-Z). Returns null when no submit/ tags are
+// tag name, and returns the tag with the latest declared time
+// (latestSubmitTag). Returns null when no submit/ tags are
 // present or the latest one is malformed. We intentionally do NOT trust the
 // student-supplied timestamp for classification - the tag itself is the
 // observation (lecturer-side declared_at is observed-not-authoritative).
@@ -85,27 +85,27 @@ async function findLatestSubmitTag(org, repoName) {
   const res = await gh("GET", `/repos/${org}/${repoName}/git/matching-refs/tags/submit/?per_page=100`);
   if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) return null;
 
-  const candidates = [];
-  for (const entry of res.data) {
-    const parsed = parseSubmitTagRef(entry.ref);
-    if (!parsed) continue;
-    candidates.push({ ref: entry.ref, ...parsed, objectSha: entry.object?.sha, objectType: entry.object?.type });
-  }
-  if (candidates.length === 0) return null;
-  // Tag name format is lexicographically sortable on declared_at, then sha.
-  candidates.sort((a, b) => (a.tag < b.tag ? 1 : a.tag > b.tag ? -1 : 0));
-  const latest = candidates[0];
+  const latest = latestSubmitTag(res.data);
+  if (!latest) return null;
 
   // Resolve the tagged SHA. If the tag is annotated, object.sha points at the
   // tag object, not the commit - we need to follow it through /git/tags.
-  let taggedSha = latest.objectSha;
-  if (latest.objectType === "tag" && latest.objectSha) {
-    const tagObj = await gh("GET", `/repos/${org}/${repoName}/git/tags/${latest.objectSha}`);
+  let taggedSha = latest.object?.sha;
+  if (latest.object?.type === "tag" && taggedSha) {
+    const tagObj = await gh("GET", `/repos/${org}/${repoName}/git/tags/${taggedSha}`);
     if (tagObj.ok && tagObj.data?.object?.sha) taggedSha = tagObj.data.object.sha;
   }
   if (!taggedSha || !/^[0-9a-f]{40}$/.test(taggedSha)) return null;
 
-  return { tag: latest.tag, declared_at: latest.declared_at, tagged_sha: taggedSha };
+  // The tagged commit's own time, which the report judges the tag by (a
+  // snapshot is judged by its commit; the collector's clock is after the
+  // deadline at the finalize). Null when it cannot be read.
+  const commitRes = await gh("GET", `/repos/${org}/${repoName}/commits/${taggedSha}`);
+  const commitDate = commitRes.ok
+    ? commitRes.data?.commit?.committer?.date || commitRes.data?.commit?.author?.date || null
+    : null;
+
+  return { tag: latest.tag, declared_at: latest.declared_at, tagged_sha: taggedSha, commit_date: commitDate };
 }
 
 // --- Read repository records -------------------------------------------------
@@ -351,18 +351,16 @@ async function main() {
         try {
           const submit = await findLatestSubmitTag(cfg.org, repoName);
           if (submit) {
-            const tagObservation = {
-              schema_version: 1,
-              type: "tagged-submission",
-              assignment_id: assignmentId,
-              github_login: login,
-              repo_id: repoRes.data.id,
-              observed_at: now,
-              tag: submit.tag,
-              declared_at: submit.declared_at,
-              tagged_sha: submit.tagged_sha,
-              observer_run: cfg.runUrl,
-            };
+            const tagObservation = taggedSubmissionObservation({
+              assignmentId, login, repoId: repoRes.data.id, submit, observedAt: now, observerRun: cfg.runUrl,
+            });
+            const tagCheck = validateAgainst("observation", tagObservation);
+            if (!tagCheck.valid) {
+              throw new Error(
+                "tag observation does not match observation.schema.json: " +
+                  tagCheck.errors.slice(0, 3).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
+              );
+            }
             const tagPath = join(obsDir, `${safeTs}-tag.json`);
             await writeFile(tagPath, JSON.stringify(tagObservation, null, 2) + "\n");
             tagNote = ` · tag ${submit.tag}`;

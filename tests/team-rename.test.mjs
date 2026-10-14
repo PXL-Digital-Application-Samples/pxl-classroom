@@ -21,8 +21,11 @@ const team = {
 
 test("the slug is the rule acceptance applies to a typed name - read from accept.mjs, not copied", () => {
   const accept = readFileSync(join(root, "acceptance", "accept.mjs"), "utf8");
-  const body = accept.slice(accept.indexOf("function slugify(value)"), accept.indexOf("function deriveRepoName"));
-  assert.ok(body.includes(".toLowerCase()"), "accept.mjs's slugify was renamed; this guard would compare nothing");
+  const start = accept.indexOf("function slugify(value)");
+  assert.ok(start > 0, "accept.mjs's slugify was renamed; this guard would compare nothing");
+  // To the end of the function: the first line that closes a top-level block.
+  const body = accept.slice(start, accept.indexOf("\n}\n", start) + 2);
+  assert.ok(body.includes(".toLowerCase()") && body.trim().endsWith("}"), body);
   const acceptSlugify = new Function(`${body}; return slugify;`)();
   for (const name of ["3TINA_Krusty Krabs", "  Team -- A!! ", "Ñandú 3B", "already-a-slug"]) {
     assert.equal(teamSlug(name), acceptSlugify(name), name);

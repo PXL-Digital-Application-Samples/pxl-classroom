@@ -2851,3 +2851,16 @@ Asked straight after "is everything still working, now there are branches?", a s
 - **Tagged submissions had never worked at all**: the documented tag name has colons in it, which git refuses. Found while writing a test that made a real tag with real git, for something else.
 
 Mocks agree with the code that was written against them; a reviewer reading the code path end to end, with the platform's own rules (a token's scope, git's ref grammar) in mind, does not. Ask for it, and verify what it says.
+
+### The fixes from a review are new code, and a second review of them found as much as the first.
+
+2026-10-14, the same day: the review's own fixes reviewed again, four reviewers once more, and every finding checked before anything changed. Most of what they found was a fix that reached one reader of a rule and not the others:
+
+- **The submit-tag name moved to dashes, and only the collector moved with it.** The student page had its own colon-only pattern, so a student who tagged exactly as told never saw "Submission tagged"; the observation schema still refused the new name, unnoticed only because the tag write was never validated; and the report dated a tag by the collector's clock, so every tag was late from the first collect after the deadline - which is the finalize's own - and every tagged student got a late notice, because the notice asked the weaker of two late conditions. Tags had never worked, so none of this had ever run; the fix that made them possible made all of it live.
+- **The editor decided whether Sync Starter Code runs from the checkbox**, while the page, the workflow and the CLI had just learned to refuse wherever any student holds a full-history copy. Untick the box after students accepted and the editor pointed at a sync everything else refused.
+- **`grade --login` and the page's Read score again** answered the same one-student action with opposite rules: the CLI replaced a stored score with a 502, the page kept it. One function decides now (`oneReadReplaces`), and the summary's "read by" stays the cohort read's.
+- **`renamed_from` never reached the Teams tab's rows** (`teamRows` built the rows field by field and did not list it), so the two checks written on it that afternoon compared an empty list and passed. A page opened before a rename still waited for the old repository; the published teams file carries the old slugs now, and the page follows them.
+- **Provisioning repaired a reused copy's default branch at the end**, after the grading workflow and the feedback baseline had gone to whichever prepared branch was default; and it read the starting commit back from GitHub when it had just pushed it, so a failed read recorded nothing.
+- **The emptied-team cleanup**, narrowed by the first review to the repository the record names, had stopped covering its own main case: the record names it only after the invitation, and Switch team is offered from the invitation.
+
+The first review asked what the new code assumed; this one asked what each fix left on the other side of the line it moved. Ask both, in that order.

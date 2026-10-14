@@ -230,6 +230,13 @@
             ],
             "description": "Why this one was not frozen. Recorded rather than inferred from permission_after, because `admin` is also what a transient failure leaves behind and a grade dispute should not turn on somebody re-deriving the difference months later."
           },
+          "snapshot_unread": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why this student's snapshot could not be read on this pass (an HTTP status), beside `snapshot_sha: null`. Not a submission and not 'no submission': the repository is locked, and find-finalizable queues another pass to read it. Absent on a row whose snapshot was read."
+          },
           "deferred_until": {
             "type": [
               "string",

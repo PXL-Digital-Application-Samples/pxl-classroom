@@ -70,17 +70,7 @@ Done by a lecturer.
 
 **And it has to stay that way for as long as students are still accepting.** Both checks run while you are setting the assignment up - nothing looks at the template again between publishing and a student clicking Accept. If the owner makes it private, deletes it, or unticks *Template repository* mid-cohort, every acceptance from that moment fails: the student waits and then times out, and you get a *"Failed to provision repo"* comment on the tracking issue. If the repository is replaced by a new one with the same name, that is caught - the assignment records the template's id and refuses rather than handing later students different starter code - but it is still caught one student at a time. A template you do not control is worth a word with whoever does before the deadline.
 
-**A git exercise: every branch with its history.** Normally a student gets the template's default branch as one fresh commit, which is what almost every assignment wants. For an exercise with prepared branches to merge, rebase or repair, open **Advanced** in the assignment form and tick **Give students every branch and its full history** (while it is on, a line under the template box says so): each student repository then gets every branch, tag and commit of the template, with the same history, so the branches merge into each other. What changes with it:
-
-- Students can read everything ever committed to the template. Never commit a solution to it, not even one you remove again.
-- A student counts as **not handed in** while their default branch is still at the commit they were given, and the **Commits** column counts only the commits they added.
-- **Sync Starter Code** is not offered: those branches are the students' to change.
-- Only the default branch is locked and archived at the deadline, so the exercise has to end with the work on it.
-- With a hand-in message, the template's commits on the default branch the student was given never count as a hand-in, whatever their message says. A template commit the student brings onto it from a prepared branch can, so do not word a template commit like the hand-in message. A template with more than about 1000 commits cannot be read for hand-ins at all.
-- If the template carries a `submit/` tag, it is not copied: it would read as every student's declared submission.
-- A workflow in the template that runs on push runs once per branch in every student's repository when it is copied. Keep the exercise's template free of workflows unless it needs one.
-
-The setting reaches students who accept after you save it; the template still has to be ticked as a **Template repository**.
+**A git exercise: every branch with its history.** Normally a student gets the template's default branch as one fresh commit, which is what almost every assignment wants. For an exercise with prepared branches to merge, rebase or repair, open **Advanced** in the assignment form and tick **Give students every branch and its full history** (while it is on, a line under the template box says so): each student repository then gets every branch, tag and commit of the template, with the same history, so the branches merge into each other. What else changes with it (students can read everything ever committed to the template, only the default branch is graded and archived, hand-in messages, workflows, Sync Starter Code) is the manual's topic **Every branch and its history** (`MANUAL.md`), which is also the help the checkbox opens: one list, read from the form.
 
 **A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
@@ -941,13 +931,7 @@ If `app-permissions match manifest` reports drift, re-approve the App in the org
 
 `collect/` lists `refs/tags/submit/*` on each student repo in addition to the default-branch snapshot. When a matching tag is found, a `tagged-submission` observation is written alongside the snapshot, and `report.mjs` prefers the tagged SHA for classification.
 
-Tag format students copy from the template README:
-
-```bash
-git tag submit/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
-```
-
-The time is written with dashes (`T14-05-00Z`): git refuses a colon in a tag name.
+The command students run is in the control repo's README (`control-repo-template/README.md`, *Optional: tagged submissions*), ready to copy into course materials. Its time is written with dashes (`T14-05-00Z`), because git refuses a colon in a tag name.
 
 The system never requires the tag - untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
 
@@ -1082,7 +1066,7 @@ pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run   
 
 Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only - uses `/bin/sh`).
 
-Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the assignment's **Grading** tab.
+Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the assignment's **Grading** tab. With `--login` only that student's row in `summary.json` changes, by the rule **Read score again** follows on the page: a score replaces their earlier result, a read that failed changes nothing and says so, and everyone else's scores stay as they were.
 
 #### What provisioning does with a template that already grades
 

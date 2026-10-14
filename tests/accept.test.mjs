@@ -1239,6 +1239,43 @@ test("...and only the repository the team's RECORD names: an untouched one at th
   }
 });
 
+test("...EXCEPT the one the leaving student's own decision into that team made: a switch that beat the record push still removes it", () => {
+  // Review 2026-10-14: the manifest learns repo_name only at the record step,
+  // after the invitation; a student switching straight back from a team made
+  // by mistake met a manifest naming nothing, and kept it vacant over an
+  // orphan repository the next student to make that team was refused over.
+  const unrecorded = { ...ALONE_IN_TYPO };
+  delete unrecorded.repo_name;
+  const own = (over = {}) => ({ "test-asgn": { alice: {
+    schema_version: 1, assignment_id: "test-asgn", github_login: "alice", accepted_at: "2026-10-14T10:00:00Z",
+    team_slug: "typo-team", status: "accepted", decided_by_run_id: "123", reused_existing_repo: false, ...over,
+  } } });
+  const run = (acceptances, yaml = selfServiceYaml()) => {
+    probe.setRepos({ "asgn-typo-team": { commits: [GENERATED_ROOT] } });
+    try {
+      return runAccept(
+        { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Right Team", TEAM_ACTION: "switch" },
+        { assignmentYaml: yaml, teams: { "test-asgn": { "typo-team": unrecorded } }, acceptances },
+      );
+    } finally {
+      probe.setRepos({});
+    }
+  };
+  const removed = run(own());
+  assert.equal(removed.status, 0, removed.stdout + removed.stderr);
+  assert.equal(existsSync(join(removed.dir, "teams", "test-asgn", "typo-team.json")), false);
+  assert.equal(removed.outputs.previous_repo, "asgn-typo-team");
+  assert.equal(removed.outputs.previous_repo_remove, "true");
+
+  // Not a lecturer's record (it asked GitHub nothing), not one that reused
+  // what stood there, and not another team's.
+  for (const over of [{ decided_by_run_id: "0" }, { reused_existing_repo: true }, { team_slug: "other-team" }]) {
+    const kept = run(own(over));
+    assert.equal(kept.status, 0, kept.stdout + kept.stderr);
+    assert.equal(kept.outputs.previous_repo_remove, "false", JSON.stringify(over));
+  }
+});
+
 test("a team a student leaves with others still in it is not touched by any of this", () => {
   probe.setRepos({ "asgn-alpha": { commits: [GENERATED_ROOT] } });
   try {

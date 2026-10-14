@@ -448,7 +448,7 @@
                    from now on, and publishing again does not change that. -->
               <small v-if="templateSwitchCount" class="form-hint" role="note">
                 {{ templateSwitchCount === 1 ? '1 student already has' : `${templateSwitchCount} students already have` }}
-                a repository from the current template. The new one is used only for students who accept from now on<template v-if="form.template_full_history">;
+                a repository from the current template. The new one is used only for students who accept from now on<template v-if="!syncAvailable">;
                 Sync Starter Code does not run on an assignment that gives students the full history.</template><template v-else>;
                 after saving, Sync Starter Code sends it to the others.</template>
               </small>
@@ -550,7 +550,7 @@
                    template's field, and opens Advanced on it (DESIGN.md §1.8). -->
               <div v-if="form.template_full_history" class="derived-line" data-derived="template-history">
                 <span class="text-muted">Students get every branch and its full history</span>
-                <button type="button" class="btn-link" @click="scrollToSection('settings-advanced')">Change</button>
+                <button type="button" class="btn-link" aria-label="Change whether students get every branch and its full history" @click="openFullHistorySetting">Change</button>
               </div>
               <!-- "STUDENTS START FROM NOTHING" IS AN ORDINARY THING TO WANT,
                    and until now the form had no answer for it: GitHub Classroom
@@ -836,7 +836,8 @@
                     <strong>Pushing stops</strong>
                     <small>
                       The submission is the last commit before the deadline. Students keep their
-                      Actions, secrets and runners.
+                      Actions, secrets and runners.<template v-if="form.template_full_history">
+                      Only the default branch stops; their other branches stay open.</template>
                     </small>
                   </span>
                 </label>
@@ -1416,8 +1417,8 @@
               <label>Submission ref</label>
               <input v-model="form.submission_ref" placeholder="refs/heads/main" @input="manualSubmissionRef = true" />
               <small v-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch && form.template_full_history">
-                Students get every branch; the one collected, locked and archived is this one, the template's default:
-                <code>refs/heads/{{ templateValidationStatus.defaultBranch }}</code>.
+                Students get every branch, but only the template's default branch,
+                <code>refs/heads/{{ templateValidationStatus.defaultBranch }}</code>, is graded and archived.
               </small>
               <small v-else-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch">
                 Student repositories start with the template's default branch only:
@@ -1630,7 +1631,7 @@
       :submission-marker="form.submission_marker_value || ''"
       :submission-marker-multiple="form.submission_marker_multiple !== false"
       :submission-marker-max-hand-ins="readMaxHandIns(Number(form.submission_marker_max_hand_ins))"
-      :sync-available="form.template_full_history !== true"
+      :sync-available="syncAvailable"
       :template-grades="form.template_grades"
       :template="templateWorkflow"
       @check-template="checkTemplateWorkflow"
@@ -1674,6 +1675,7 @@ import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff } from '../lib/org-session.js'
 import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, dispatchWorkflowRun, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { syncRefusal } from '../lib/starter-sync.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
@@ -2500,6 +2502,16 @@ async function scrollToSection(id) {
   // near the end cannot reach the top of the window, and the page's own
   // reading of where it stands would light a neighbour instead.
   jumpedTo = id
+}
+
+// The line under the template opens Advanced ON the checkbox it describes, and
+// moves focus there: left on the Change button, focus stayed far up the page.
+async function openFullHistorySetting() {
+  await scrollToSection('settings-advanced')
+  const box = document.querySelector('[data-template-history] input[type="checkbox"]')
+  if (!box) return
+  box.scrollIntoView({ block: 'center' })
+  box.focus({ preventScroll: true })
 }
 
 // --- the section list beside the form ---------------------------------------
@@ -4640,6 +4652,7 @@ watch(
   async (differs) => {
     const id = form.value.id
     if (!differs || repositoryCountFor.value.id === id) return
+    readGivenRows(id)
     try {
       const files = await listRepoDir(getToken(), props.org, config.controlRepo, repositoriesDir(id))
       repositoryCountFor.value = { id, count: files.filter((f) => f.type === 'file' && f.name.endsWith('.json')).length }
@@ -4854,8 +4867,30 @@ async function noticeTemplateChange(id, before, after) {
   const notice = templateChangeNotice({ before, after, repositoryCount })
   // Where students got the template's full history, starter sync does not
   // run (lib/starter-sync.mjs `syncRefusal`), so it is not offered as the way on.
-  templateNotice.value = notice ? { ...notice, id, syncable: form.value.template_full_history !== true } : null
+  if (notice) await readGivenRows(id)
+  templateNotice.value = notice ? { ...notice, id, syncable: syncAvailable.value } : null
 }
+
+// WHETHER STARTER SYNC RUNS is `syncRefusal` over the assignment AND its
+// students, the question the workflow, the CLI and the assignment page ask:
+// the setting can be unticked after some accepted with a full-history copy,
+// and the checkbox alone then pointed at a sync the page refuses. The report's
+// rows carry `starter_sha`; read once per assignment, when something here is
+// about to name Sync Starter Code. A report that cannot be read leaves the
+// setting's answer, and the workflow still asks the records themselves.
+const givenRows = ref({ id: null, rows: [] })
+async function readGivenRows(id) {
+  if (!id || isNew.value || givenRows.value.id === id) return
+  let rows = []
+  try {
+    const text = await getRepoContent(getToken(), props.org, config.controlRepo, reportPath(id))
+    rows = (text && JSON.parse(text)?.students) || []
+  } catch { rows = [] }
+  if (form.value.id === id) givenRows.value = { id, rows: Array.isArray(rows) ? rows : [] }
+}
+const syncAvailable = computed(() =>
+  !syncRefusal(form.value, givenRows.value.id === form.value.id ? givenRows.value.rows : []))
+watch(showAutogradeModal, (open) => { if (open) readGivenRows(form.value.id) })
 
 /** Save a closed or archived assignment without changing its state. */
 async function saveKeepingState() {
@@ -5502,7 +5537,9 @@ async function setState(newState) {
     },
     archived: {
       title: `Archive "${name}"?`,
-      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Existing repositories are untouched.'],
+      // Finalized all the same (scripts/find-finalizable.mjs): archived before
+      // the nightly, an exam was never locked or archived (review 2026-10-14).
+      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Students who accepted are still locked and their work archived at the deadline.'],
       confirmLabel: 'Archive',
       destructive: true,
     },
