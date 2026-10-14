@@ -210,7 +210,8 @@ function commitRow(c, extra = {}) {
 
 async function loadHandIns() {
   const students = props.teamLogins.length ? props.teamLogins : [props.student.github_login].filter(Boolean)
-  const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true, students })
+  // The graders' own exclusion (lib/grade-cohort.mjs): what a full-history copy was given is not a hand-in.
+  const listed = await listHandIns(get, { repoFullName: repo.value, branch: props.branch, marker: props.marker, withRuns: true, students, given: props.student.starter_sha ?? null })
   if (!listed.ok) throw new Error(`Could not read their ${({ runs: 'run history', activity: 'push history' })[listed.failedRead] || 'commits'} (HTTP ${listed.status}).`)
   // A walk that hit its cap returns no hand-ins - which is NOT "they handed
   // nothing in". Said as what it is.

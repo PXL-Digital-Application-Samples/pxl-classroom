@@ -37,6 +37,7 @@ import { assignmentAdmitsStudent, restrictsCohort } from "../lib/cohort.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, CONTROL_REPO } from "../lib/deployment.mjs";
 import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaimDomains } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
+import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -509,7 +510,21 @@ async function main() {
     // Determine status using the effective (post-override) deadline.
     // A repo with 0 commits or only the single automatic "Initial commit" (commit_count <= 1)
     // without a submit/ tag represents an unstarted repository where the student submitted no work.
-    const isUnstarted = !latestTagObservation && (latestCommitCount != null ? latestCommitCount <= 1 : false);
+    // One copied with the template's full history has many commits from the
+    // start, and is unstarted while it is still at the commit it was given
+    // (lib/starter-commit.mjs).
+    const given = starterFor(repo, repos);
+    const isUnstarted = !latestTagObservation && unstartedRepo({
+      starterSha: given.sha,
+      latestSha: latestObservedSha,
+      commitCount: latestCommitCount,
+    });
+    // A full-history copy's latest commit can be the template's - at the start,
+    // and after a fast-forward or a rebase of a prepared branch - and so its
+    // author the lecturer, whom the roster harvest (lib/roster-harvest.mjs)
+    // would offer as this student. Its authors are not evidence of who the
+    // student is, so none is carried.
+    const historyCopy = Boolean(given.sha);
 
     // LATE ACTIVITY IS A DIFFERENT SHA, NOT A LATER OBSERVATION.
     //
@@ -658,8 +673,8 @@ async function main() {
       full_name: rosterEntry?.full_name ?? null,
       email: rosterEntry?.email ?? null,
       class_group: rosterEntry?.class_group ?? null,
-      author_name: latestAuthorName ?? null,
-      author_email: latestAuthorEmail ?? null,
+      author_name: historyCopy ? null : latestAuthorName ?? null,
+      author_email: historyCopy ? null : latestAuthorEmail ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
       // What this acceptance was admitted on. accept.mjs has written these
       // since roster_mode: claim shipped and NOTHING had ever read them - the
@@ -719,7 +734,11 @@ async function main() {
       latest_commit_date: latestCommitDate ?? null,
       commit_message: latestCommitMessage ?? null,
       latest_commit_message: latestCommitMessage ?? null,
-      commit_count: latestCommitCount ?? null,
+      // The student's commits: a full-history copy's own are subtracted.
+      commit_count: addedCommits({ starterCount: given.count, commitCount: latestCommitCount ?? null }),
+      // What it was given, for the page's Refresh to apply the same rule.
+      ...(given.sha ? { starter_sha: given.sha } : {}),
+      ...(given.sha && given.count != null ? { starter_commit_count: given.count } : {}),
       late_commit_count: latestLateCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
       tagged_submission_tag: latestTagObservation?.tag ?? null,
@@ -856,7 +875,8 @@ async function main() {
       repo_id: t.repo_id || firstMember?.repo_id || null,
       submission_status: firstMember?.submission_status || "no-submission",
       latest_observed_sha: firstMember?.latest_observed_sha || null,
-      commit_count: firstMember?.commit_count || null,
+      // `??`: a full-history copy nobody has touched added 0, which is an answer.
+      commit_count: firstMember?.commit_count ?? null,
       lock_down_at: firstMember?.lock_down_at || null,
       preservation_status: firstMember?.preservation_status || null,
       preserved_sha: firstMember?.preserved_sha || null,

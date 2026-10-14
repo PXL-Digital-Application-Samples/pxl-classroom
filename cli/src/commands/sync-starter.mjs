@@ -35,6 +35,7 @@ import {
   readTemplateCommit,
   selectionIsAll,
   startingPointFor,
+  syncRefusal,
 } from "../../../lib/starter-sync.mjs";
 
 const CONCURRENCY = 4;
@@ -74,6 +75,12 @@ export function registerSyncStarterCommand(program) {
 
       if (!tplRepo) {
         process.stderr.write(`Assignment ${opts.assignment} has no template repository configured.\n`);
+        process.exit(1);
+      }
+      // The workflow's own refusal (lib/starter-sync.mjs), dry run included.
+      const refused = syncRefusal(assignment);
+      if (refused) {
+        process.stderr.write(`Not synced: ${refused}.\n`);
         process.exit(1);
       }
 

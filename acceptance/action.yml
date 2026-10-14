@@ -214,6 +214,9 @@ outputs:
   feedback_pr_baseline_branch:
     description: Baseline branch name for the Feedback PR
     value: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
+  template_full_history:
+    description: Whether the repository gets every branch of the template with its history (true | false)
+    value: ${{ steps.accept.outputs.template_full_history }}
   student_permission:
     description: The permission the assignment grants its students (pull | triage | push | maintain | admin)
     value: ${{ steps.accept.outputs.student_permission }}

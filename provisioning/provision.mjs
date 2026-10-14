@@ -10,10 +10,13 @@
 // Emits GitHub Actions outputs (repo_id, repo_url, repo_name, outcome) and a
 // step summary. No npm dependencies (Node 18+ fetch).
 
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, mkdtemp, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
+import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
 import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
@@ -50,7 +53,11 @@ const cfg = {
   // Exactly "true". Absent, empty or anything else keeps an existing
   // repository: the safe default is never to delete.
   recreateEmpty: env("RECREATE_EMPTY", "") === "true",
+  // Exactly "true": the assignment's `template_full_history`. Anything else is
+  // GitHub's template copy, which is what every assignment before it meant.
+  fullHistory: env("TEMPLATE_FULL_HISTORY", "") === "true",
   apiBase: env("GITHUB_API_URL", "https://api.github.com"),
+  serverUrl: env("GITHUB_SERVER_URL", "https://github.com"),
 };
 
 // --- Actions output / summary helpers --------------------------------------
@@ -426,6 +433,99 @@ export function buildAutogradingWorkflow(assignment, org) {
   });
 }
 
+// --- A template copied with every branch and its whole history -------------
+//
+// `generate` gives a repository one commit, and with `include_all_branches`
+// one commit per branch with no history in common, so branches cannot be
+// merged into each other. A git exercise with prepared branches to merge,
+// rebase or repair cannot be built on that (asked 2026-10-14). With the
+// assignment's `template_full_history` the repository is created EMPTY and
+// the template is pushed into it whole: every branch and tag, every commit,
+// the same SHAs. A fork would carry the same, and is not used: deleting a
+// private template deletes every fork of it, and the forks inherit the
+// template's team access.
+//
+// What the student's repository was given is recorded (`starter_sha`, read at
+// the end, after anything this step adds), because "not started" can no longer
+// mean "one commit": such a repository has the template's history from the
+// first second.
+async function createWithFullHistory(tpl) {
+  const branch = tpl.data?.default_branch;
+  if (!branch || !BRANCH.test(branch)) {
+    await fail("fail:create", `${cfg.templateOwner}/${cfg.templateRepo} reports no usable default branch ("${branch ?? ""}")`);
+  }
+  const created = await gh("POST", `/orgs/${cfg.org}/repos`, { name: cfg.targetRepo, private: cfg.isPrivate, auto_init: false });
+  if (!created.ok) await fail("fail:create", `create HTTP ${created.status} ${created.data?.message ?? ""}`);
+  const repo = created.data;
+  log("create", { ok: true, note: `id=${repo.id} ${repo.html_url} (empty, for the template's full history)` });
+  // Said before the copy, for the reason the generate path says it at once: a
+  // failure below leaves this repository behind, and its team must be told.
+  await setOutput("repo_id", repo.id ?? "");
+  await setOutput("repo_url", repo.html_url ?? "");
+  await setOutput("repo_name", repo.full_name ?? "");
+
+  const work = await mkdtemp(join(tmpdir(), "pxl-history-"));
+  const bare = join(work, "template.git");
+  const env = { ...process.env, ...gitAuthEnv(cfg.token, cfg.serverUrl), GIT_TERMINAL_PROMPT: "0" };
+  // An argument array, never a shell string, and stdin closed so a missing
+  // credential fails instead of waiting for a password nobody will type.
+  const git = (args, cwd) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  let copyFailed = "";
+  try {
+    // `--bare`, not `--mirror`: a mirror clone of a GitHub repository also
+    // fetches refs/pull/*, which GitHub refuses on push. GitHub's own
+    // "duplicating a repository" is exactly these two commands.
+    git(["clone", "--bare", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.templateOwner, cfg.templateRepo), bare], work);
+    // `--atomic`: every branch or none. A copy cut off halfway would be a
+    // repository with SOME of the exercise in it, which a retry reuses as it
+    // is; an empty one it removes and copies again (step 3).
+    git(["push", "--mirror", "--atomic", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.org, cfg.targetRepo)], bare);
+    const branches = git(["for-each-ref", "--format=%(refname:short)", "refs/heads"], bare).split("\n").filter(Boolean);
+    log("copy-history", { ok: true, note: `${branches.length} branch(es) with their history: ${branches.join(", ")}` });
+  } catch (e) {
+    copyFailed = String(e.stderr || e.message || e).trim().split("\n").slice(-3).join(" ");
+  } finally {
+    // Before any failure is reported: fail() ends the process, finally or not.
+    await rm(work, { recursive: true, force: true });
+  }
+  if (copyFailed) {
+    await fail(
+      "fail:create",
+      `${cfg.org}/${cfg.targetRepo} was created, but copying ${cfg.templateOwner}/${cfg.templateRepo} with its history ` +
+        `into it failed: ${copyFailed}. Retry this student in ten minutes: an attempt then removes the empty repository and copies it again.`,
+    );
+  }
+
+  // The first branch pushed into an empty repository becomes its default, and
+  // a mirror push names them in no promised order. The template's is the one
+  // every reader here uses (`submission_ref`, lib/template-source.mjs).
+  const patch = await gh("PATCH", `/repos/${cfg.org}/${cfg.targetRepo}`, { default_branch: branch });
+  if (!patch.ok) {
+    await fail("fail:create", `${cfg.org}/${cfg.targetRepo} has the template's history, but its default branch could not be set to ${branch} (HTTP ${patch.status})`);
+  }
+  repoPopulated = true;
+  return repo;
+}
+
+/** The commit `branch` points at now, or "" when it cannot be read. */
+async function branchHead(branch) {
+  const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/branches/${encodeURIComponent(branch)}`);
+  const sha = res.ok ? res.data?.commit?.sha : null;
+  return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : "";
+}
+
+/**
+ * How many commits `sha` has behind it, counted as the collector counts a
+ * branch (collect/collect.mjs: one per page, the `last` link's page number),
+ * so the report can subtract the one from the other. "" when unread.
+ */
+async function commitCountAt(sha) {
+  const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?sha=${sha}&per_page=1`);
+  if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) return "";
+  const last = String(res.headers?.get?.("link") || "").match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
+  return last ? last[1] : String(res.data.length);
+}
+
 async function injectAutogradingWorkflow(assignment) {
   // The repository has to be filled in before either half of this is sound:
   // the check below reads an empty repository as "the template shipped no
@@ -595,7 +695,13 @@ async function main() {
   // failure path, so the caller can only ever be told about an invitation that
   // GitHub actually reported creating.
   let grantInvited = false;
-  if (!alreadyExists && !cfg.dryRun) {
+  // Whether THIS run copied the template with its history - the one case whose
+  // starting commit is recorded (step 7). A reuse made nothing.
+  let copiedHistory = false;
+  if (!alreadyExists && !cfg.dryRun && cfg.fullHistory) {
+    repo = await createWithFullHistory(tpl);
+    copiedHistory = true;
+  } else if (!alreadyExists && !cfg.dryRun) {
     const gen = await gh("POST", `/repos/${cfg.templateOwner}/${cfg.templateRepo}/generate`, {
       owner: cfg.org, name: cfg.targetRepo, private: cfg.isPrivate, include_all_branches: false,
     });
@@ -708,7 +814,26 @@ async function main() {
     baselineSha = (await setupFeedbackBaseline(repo)) || "";
   }
 
+  // 7. What a repository copied with its history was given: its default
+  // branch as it stands after every write above (an injected grading workflow
+  // is a commit too), and how many commits that is. The report reads "not
+  // started" as "still at this commit" and counts the student's commits from
+  // this number (lib/starter-commit.mjs), since such a repository never has
+  // just one. Unread is left empty - the report then counts every commit - rather
+  // than guessed.
+  let starterSha = "";
+  let starterCount = "";
+  if (copiedHistory) {
+    starterSha = await branchHead(tpl.data.default_branch);
+    if (starterSha) starterCount = await commitCountAt(starterSha);
+    log("starter", starterSha
+      ? { ok: true, note: `starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ", commit count unread"}` }
+      : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
+  }
+
   const outcome = cfg.dryRun ? "dry-run:ok" : alreadyExists ? "reused" : "created";
+  await setOutput("starter_sha", starterSha);
+  await setOutput("starter_commit_count", starterCount);
   await setOutput("repo_id", repo?.id ?? "");
   await setOutput("repo_url", repo?.html_url ?? "");
   await setOutput("repo_name", repo?.full_name ?? "");

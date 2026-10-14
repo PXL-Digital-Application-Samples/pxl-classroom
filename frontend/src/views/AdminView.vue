@@ -112,10 +112,12 @@
               <template v-else>Students who already accepted have repositories</template>
               made from the previous template. The new one, <code>{{ templateNotice.template }}</code>, is used for
               students who accept from now on; publishing again does not change existing repositories.
-              Sync Starter Code brings them up to the new template, and shows every change before it is sent.
+              <template v-if="templateNotice.syncable">Sync Starter Code brings them up to the new template, and shows every change before it is sent.</template>
+              <template v-else>Sync Starter Code does not run on this assignment: its students were given the template with its full history.</template>
             </p>
             <div class="cohort-actions">
               <router-link
+                v-if="templateNotice.syncable"
                 class="btn btn-secondary btn-sm"
                 :to="{ name: 'assignment-detail', params: { org, assignmentId: templateNotice.id }, query: { sync: '1' } }"
               >Sync Starter Code</router-link>
@@ -446,8 +448,9 @@
                    from now on, and publishing again does not change that. -->
               <small v-if="templateSwitchCount" class="form-hint" role="note">
                 {{ templateSwitchCount === 1 ? '1 student already has' : `${templateSwitchCount} students already have` }}
-                a repository from the current template. The new one is used only for students who accept from now on;
-                after saving, Sync Starter Code sends it to the others.
+                a repository from the current template. The new one is used only for students who accept from now on<template v-if="form.template_full_history">;
+                Sync Starter Code does not run on an assignment that gives students the full history.</template><template v-else>;
+                after saving, Sync Starter Code sends it to the others.</template>
               </small>
               <!-- Pre-flight Template Validation Badge (2.B) -->
               <div v-if="templateValidationStatus" class="template-preflight-badge" style="margin-top: var(--space-xs);" role="status">
@@ -590,6 +593,25 @@
                   {{ blankStarterError }}
                 </div>
               </div>
+            </div>
+
+            <!-- EVERY BRANCH AND ITS HISTORY (asked 2026-10-14). GitHub's copy
+                 gives one commit, and with all branches one commit each with
+                 no history in common, so a git exercise with prepared branches
+                 to merge cannot be built on it. Under the template because it
+                 is about what the template becomes. Read at acceptance only. -->
+            <div class="field checkbox" data-template-history>
+              <div class="checkbox-with-help">
+                <label>
+                  <input type="checkbox" v-model="form.template_full_history" />
+                  Give students every branch and its full history
+                </label>
+                <HelpButton topic="every-branch-and-its-history" label="every branch and its history" />
+              </div>
+              <small>
+                Students can read everything ever committed to the template.
+                <template v-if="!isNew">Reaches students who accept after you save.</template>
+              </small>
             </div>
 
             <!-- SECOND, BECAUSE PICKING THE TEMPLATE FILLS IT IN. -->
@@ -3213,6 +3235,7 @@ function emptyForm() {
     lock_down_enabled: false,
     feedback_pr: false,
     feedback_pr_baseline_branch: 'pxl-baseline',
+    template_full_history: false,
     autograde_enabled: false,
     template_grades: null,
     autograde_execution_environment: 'lecturer_local',
@@ -3602,6 +3625,7 @@ async function editAssignment(a, { confirmed = false } = {}) {
     claim_address_format: a.claim_address_format === false ? false : undefined,
     feedback_pr: a.feedback_pr === true,
     feedback_pr_baseline_branch: a.feedback_pr_baseline_branch || 'pxl-baseline',
+    template_full_history: a.template_full_history === true,
     // The configuration's existence is the flag (ARCHITECTURE §11.6), so
     // `enabled: true` with no checks loads as off rather than as a state the
     // summary calls "Off" while Save fails on `tests.minItems`. A hand-edited
@@ -4814,7 +4838,9 @@ async function noticeTemplateChange(id, before, after) {
     if (e?.status === 404) repositoryCount = 0
   }
   const notice = templateChangeNotice({ before, after, repositoryCount })
-  templateNotice.value = notice ? { ...notice, id } : null
+  // Where students got the template's full history, starter sync does not
+  // run (lib/starter-sync.mjs `syncRefusal`), so it is not offered as the way on.
+  templateNotice.value = notice ? { ...notice, id, syncable: form.value.template_full_history !== true } : null
 }
 
 /** Save a closed or archived assignment without changing its state. */

@@ -87,6 +87,16 @@
     "feedback_pr_baseline_sha": {
       "type": ["string", "null"],
       "description": "SHA the baseline branch was pinned to at provisioning."
+    },
+    "starter_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The commit a repository copied with the template's full history was given (template_full_history). The report reads the repository as not started while its branch is still at it. Absent for GitHub's one-commit template copy."
+    },
+    "starter_commit_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many commits starter_sha has behind it, counted as the collector counts a branch. The report counts a student's commits from it. Present only beside starter_sha."
     }
   }
 }

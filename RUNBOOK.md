@@ -70,6 +70,17 @@ Done by a lecturer.
 
 **And it has to stay that way for as long as students are still accepting.** Both checks run while you are setting the assignment up - nothing looks at the template again between publishing and a student clicking Accept. If the owner makes it private, deletes it, or unticks *Template repository* mid-cohort, every acceptance from that moment fails: the student waits and then times out, and you get a *"Failed to provision repo"* comment on the tracking issue. If the repository is replaced by a new one with the same name, that is caught - the assignment records the template's id and refuses rather than handing later students different starter code - but it is still caught one student at a time. A template you do not control is worth a word with whoever does before the deadline.
 
+**A git exercise: every branch with its history.** Normally a student gets the template's default branch as one fresh commit, which is what almost every assignment wants. For an exercise with prepared branches to merge, rebase or repair, tick **Give students every branch and its full history** under the template box: each student repository then gets every branch, tag and commit of the template, with the same history, so the branches merge into each other. What changes with it:
+
+- Students can read everything ever committed to the template. Never commit a solution to it, not even one you remove again.
+- A student counts as **not handed in** while their default branch is still at the commit they were given, and the **Commits** column counts only the commits they added.
+- **Sync Starter Code** is not offered: those branches are the students' to change.
+- Only the default branch is locked and archived at the deadline, so the exercise has to end with the work on it.
+- With a hand-in message, the template's own commits never count as a hand-in, whatever their message says.
+- A workflow in the template that runs on push runs once per branch in every student's repository when it is copied. Keep the exercise's template free of workflows unless it needs one.
+
+The setting reaches students who accept after you save it; the template still has to be ticked as a **Template repository**.
+
 **A fork can be a template.** GitHub's repository search omits forks unless the query says `fork:true`, which the picker's query carries. If a template still does not appear, the other cause is **search indexing lag** on a brand-new repository - type `owner/repo` into the box directly, which probes the repository via the REST API instead and works immediately.
 
 Step 2 is the one people miss, and it is the most common reason the editor's template list is empty: a repository that is not ticked as a **Template repository** does not appear in the `template:true` search the picker runs, whatever it contains. The form says so in place now - an organization with no templates gets the explanation and a link to `https://github.com/organizations/<org>/repositories/new` rather than one line assuming you know what a template is. The text box stays usable in that state on purpose: typing `owner/repo` by hand is the only way to name a template in another organization, and the panel probes it live and reports back.
@@ -125,6 +136,7 @@ Afterwards the Teams tab shows a "carried over from …" line, a standing "N stu
 
 - **Move to…** puts one student in another team in one step. The question before it says what happens to their access in this case: they lose the old team's repository at once, and get an invitation to the new one that they accept on GitHub. **Moving someone into a team that has no repository yet leaves them with none** until they open the invitation link and accept again - tell them. A student who never accepted has nothing to lose.
 - **Remove** takes a member off the list; nothing changes until **Save Changes**. An empty team is deleted from the same dialog (**Delete team**).
+- **Rename team** (top of the dialog) changes a team's name, and with it the name of the repository it will get, while nobody in it has accepted. The box shows that repository name as you type. Once a member has accepted it says why not: the repository already carries the old name.
 - A student whose roster row has **no GitHub username yet** (only an email address) cannot be placed, because a team stores usernames. They are listed greyed, and the tab offers **Copy confirm-email link**: once they confirm their address, they can be placed (press Refresh). On a draft there is no link yet; it exists once the assignment is published.
 - A member whose username is **not a GitHub account** (a typo) had no access to remove, and removing them says so rather than reporting a failure. The Roster tab asks GitHub before storing a username: **Add student** refuses one that is not an account, and a CSV import marks it before you commit.
 

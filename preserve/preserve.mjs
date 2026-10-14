@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
+import { gitAuthEnv } from "../lib/git-auth.mjs";
 import { archiveRepoName, archiveReadme } from "../lib/archive-repo.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -77,16 +78,11 @@ function validate() {
 // that mints installation tokens for every participating org, and it only holds
 // as long as nobody changes how the token is obtained.
 //
-// http.extraheader keeps it in the process environment instead. execSync's
-// error message quotes the command, so a failed push now quotes a plain URL.
+// http.extraheader keeps it in the process environment instead
+// (lib/git-auth.mjs, shared with provisioning). execSync's error message quotes
+// the command, so a failed push now quotes a plain URL.
 function gitEnv() {
-  const basic = Buffer.from(`x-access-token:${cfg.token}`).toString("base64");
-  return {
-    ...process.env,
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: `http.${new URL(cfg.serverUrl).origin}/.extraheader`,
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}`,
-  };
+  return { ...process.env, ...gitAuthEnv(cfg.token, cfg.serverUrl) };
 }
 
 /**

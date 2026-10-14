@@ -81,10 +81,23 @@
 
   class CoolCave {
     constructor() {
+      // THE CANVAS ON SCREEN HOLDS EXACTLY THE DEVICE PIXELS IT COVERS, AND THE
+      // FINISHED 320X240 FRAME IS COPIED ONTO IT AT A WHOLE-NUMBER SCALE (SEE
+      // FITSCREEN). STRETCHING A 320X240 CANVAS WITH CSS GAVE EACH GAME PIXEL
+      // 3.74 X 3.04 DEVICE PIXELS, AND EDGES SHIMMERED AS THE CAVE SCROLLED.
       this.canvas = document.getElementById('cave-canvas');
-      this.ctx = this.canvas.getContext('2d', { alpha: false });
+      this.screenCtx = this.canvas.getContext('2d', { alpha: false });
+      this.scale = 1;
+
+      this.frame = document.createElement('canvas');
+      this.frame.width = W;
+      this.frame.height = H;
+      this.ctx = this.frame.getContext('2d', { alpha: false });
       this.ctx.imageSmoothingEnabled = false;
 
+      this.wrapper = document.getElementById('game-wrapper');
+      this.topBar = document.getElementById('top-bar');
+      this.bottomBar = document.getElementById('bottom-bar');
       this.levelText = document.getElementById('level-text');
       this.scoreText = document.getElementById('score-text');
       this.bestText = document.getElementById('best-text');
@@ -143,9 +156,73 @@
       this.initEvents();
       this.updateHud(true);
       this.initWorld();
+      this.initScreen();
       this.render();
 
       requestAnimationFrame(this.loop.bind(this));
+    }
+
+    // PIXEL-EXACT SCALING. CSS ALONE CANNOT DO IT: WITH A FRACTIONAL
+    // DEVICEPIXELRATIO "CERTAIN PIXELS MAY BE DRAWN LARGER THAN OTHERS" (MDN,
+    // GAMES/TECHNIQUES/CRISP_PIXEL_ART_LOOK), AND A CSS SIZE OF N/DPR MAY SNAP
+    // A PIXEL OFF. SO THE BACKING STORE IS SIZED FROM DEVICE-PIXEL-CONTENT-BOX
+    // (WEB.DEV/ARTICLES/DEVICE-PIXEL-CONTENT-BOX; CHROME 84, FIREFOX 108) AND
+    // THE FRAME IS DRAWN INTO IT AT AN INTEGER MULTIPLE, SMOOTHING OFF.
+    initScreen() {
+      const ro = new ResizeObserver(entries => {
+        const e = entries[entries.length - 1];
+        const box = e.devicePixelContentBoxSize && e.devicePixelContentBoxSize[0];
+        const dpr = window.devicePixelRatio || 1;
+        this.setBackingStore(
+          box ? box.inlineSize : Math.round(e.contentRect.width * dpr),
+          box ? box.blockSize : Math.round(e.contentRect.height * dpr));
+      });
+      try {
+        ro.observe(this.canvas, { box: 'device-pixel-content-box' });
+      } catch (e) {
+        ro.observe(this.canvas);
+      }
+
+      // A ZOOM OR A MOVE TO ANOTHER MONITOR CHANGES THE RATIO WITHOUT A RESIZE
+      // (MDN, WINDOW/DEVICEPIXELRATIO: A ONE-SHOT RESOLUTION QUERY, RE-ARMED).
+      const watchRatio = () => {
+        matchMedia('(resolution: ' + window.devicePixelRatio + 'dppx)')
+          .addEventListener('change', () => { this.fitScreen(); watchRatio(); }, { once: true });
+      };
+      watchRatio();
+      window.addEventListener('resize', () => this.fitScreen());
+      this.fitScreen();
+    }
+
+    // THE LARGEST WHOLE-NUMBER SCALE THAT FITS BETWEEN THE BARS. ONE DEVICE
+    // PIXEL OF SLACK, SO ROUNDING CAN ONLY ADD A BG EDGE, NEVER CROP THE FRAME.
+    fitScreen() {
+      const dpr = window.devicePixelRatio || 1;
+      const root = document.documentElement;
+      const bars = this.topBar.getBoundingClientRect().height + this.bottomBar.getBoundingClientRect().height;
+      const fit = Math.min(root.clientWidth * dpr / W, (root.clientHeight - bars) * dpr / H);
+      this.scale = Math.max(1, Math.floor(fit));
+      const cssW = (W * this.scale + 1) / dpr;
+      const cssH = (H * this.scale + 1) / dpr;
+      this.canvas.style.width = cssW + 'px';
+      this.canvas.style.height = cssH + 'px';
+      this.wrapper.style.width = cssW + 'px';
+    }
+
+    setBackingStore(w, h) {
+      if (this.canvas.width !== w) this.canvas.width = w;
+      if (this.canvas.height !== h) this.canvas.height = h;
+      // RESIZING A CANVAS RESETS ITS CONTEXT STATE, SMOOTHING INCLUDED
+      this.screenCtx.imageSmoothingEnabled = false;
+      this.present();
+    }
+
+    present() {
+      const s = this.scale;
+      const cw = this.canvas.width, ch = this.canvas.height;
+      this.screenCtx.fillStyle = this.theme.bg;
+      this.screenCtx.fillRect(0, 0, cw, ch);
+      this.screenCtx.drawImage(this.frame, Math.floor((cw - W * s) / 2), Math.floor((ch - H * s) / 2), W * s, H * s);
     }
 
     loadBest() {
@@ -525,6 +602,8 @@
         renderPixelText(this.ctx, 'REACHED LVL ' + this.currentLevel.level, bx + 36, by + 68, 1, this.theme.ink);
         renderPixelText(this.ctx, 'TAP / [SPACE] TO RETRY', bx + 22, by + 82, 1, this.theme.ink);
       }
+
+      this.present();
     }
 
     loop() {

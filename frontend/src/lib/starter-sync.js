@@ -10,6 +10,7 @@
 export {
   changedPaths,
   outcomeFor,
+  syncRefusal,
 } from '../../../lib/starter-sync.mjs'
 // Each student's plan runs from their OWN starting point, through the same
 // reads the workflow makes (lib/starter-sync-cohort.mjs).

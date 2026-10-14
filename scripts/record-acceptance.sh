@@ -21,7 +21,9 @@
 #
 # Env: DATA_DIR (default control), ASSIGNMENT_ID, LOGIN, TEAM_SLUG, OUTCOME,
 # ORG, TARGET_REPO, REPO_ID, REPO_URL, BASELINE_SHA, STUDENT_PERMISSION,
-# RUN_URL, COMMIT_LABEL ("Provision" / "Retry-provision"), GITHUB_RUN_ID.
+# RUN_URL, COMMIT_LABEL ("Provision" / "Retry-provision"), GITHUB_RUN_ID, and
+# STARTER_SHA and STARTER_COMMIT_COUNT (optional: the commit a full-history
+# copy was given, and how many commits that is).
 
 set -euo pipefail
 
@@ -64,6 +66,8 @@ apply() {
       --repo-id "$REPO_ID" \
       --repo-url "$REPO_URL" \
       --baseline-sha "$BASELINE_SHA" \
+      --starter-sha "${STARTER_SHA:-}" \
+      --starter-commit-count "${STARTER_COMMIT_COUNT:-}" \
       --student-permission "$STUDENT_PERMISSION" \
       --run-url "$RUN_URL" \
       --data-dir "$DIR" || return 2

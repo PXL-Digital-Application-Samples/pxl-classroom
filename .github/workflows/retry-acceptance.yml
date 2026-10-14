@@ -213,6 +213,7 @@ jobs:
           remove-previous-repo: ${{ steps.accept.outputs.previous_repo_remove }}
           recreate-empty: ${{ steps.accept.outputs.own_earlier_attempt }}
           student-permission: ${{ steps.accept.outputs.student_permission }}
+          template-full-history: ${{ steps.accept.outputs.template_full_history }}
 
       - name: Notify on failure
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && startsWith(steps.prov.outputs.outcome, 'fail')
@@ -241,6 +242,8 @@ jobs:
           REPO_ID: ${{ steps.prov.outputs.repo-id }}
           REPO_URL: ${{ steps.prov.outputs.repo-url }}
           BASELINE_SHA: ${{ steps.prov.outputs.baseline-sha }}
+          STARTER_SHA: ${{ steps.prov.outputs.starter-sha }}
+          STARTER_COMMIT_COUNT: ${{ steps.prov.outputs.starter-commit-count }}
           STUDENT_PERMISSION: ${{ steps.accept.outputs.student_permission }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_LABEL: Retry-provision

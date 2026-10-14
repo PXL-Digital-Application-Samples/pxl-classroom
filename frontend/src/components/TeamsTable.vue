@@ -365,6 +365,36 @@
           <button class="modal-close" type="button" @click="managingTeam = null" aria-label="Close">×</button>
         </header>
         <div class="modal-body flex flex-col gap-md">
+          <!-- RENAME, while nobody in the team has accepted (asked 2026-10-12):
+               until then nothing hangs on the name, and the repository the
+               team will get is named after it. After that it says why not. -->
+          <div class="team-rename" data-team-rename>
+            <template v-if="renaming">
+              <label class="section-label" for="team-rename-input">New name</label>
+              <div class="flex gap-xs items-center">
+                <input
+                  id="team-rename-input"
+                  ref="renameInput"
+                  v-model="renameName"
+                  type="text"
+                  maxlength="100"
+                  class="team-rename-input"
+                  :disabled="saving"
+                  @keydown.enter.prevent="saveRename"
+                  @keydown.esc.prevent="cancelRename"
+                />
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="saving || !renameName.trim()" @click="saveRename">Rename</button>
+                <button class="btn-link" type="button" :disabled="saving" @click="cancelRename">Cancel</button>
+              </div>
+              <small class="text-muted">
+                Its repository will be called <code>{{ renameRepoPreview }}</code> when the first member accepts.
+              </small>
+              <div v-if="renameError" class="field-error-msg" role="alert">{{ renameError }}</div>
+            </template>
+            <button v-else-if="!renameBlocked" class="btn-link" type="button" @click="startRename">Rename team</button>
+            <small v-else class="text-muted">Cannot be renamed: {{ renameBlocked }}.</small>
+          </div>
+
           <!-- Current Members list -->
           <div class="current-members-section">
             <label class="section-label">Current Members ({{ manageMembers.length }}/{{ maxTeamSize }})</label>
@@ -490,8 +520,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
+import { planTeamRename, renameBlocker, teamSlug } from '../../../lib/team-rename.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
@@ -865,6 +896,114 @@ function openManageTeamModal(team) {
   managingTeam.value = team
   manageMembers.value = [...(team.members || [])]
   selectedStudentToAdd.value = ''
+  renaming.value = false
+  renameError.value = ''
+}
+
+// --- Rename (lib/team-rename.mjs decides) ---------------------------------
+const renaming = ref(false)
+const renameName = ref('')
+const renameError = ref('')
+const renameInput = ref(null)
+
+/** Why the open team cannot be renamed, from what the page shows; asked again at the click. */
+const renameBlocked = computed(() =>
+  managingTeam.value ? renameBlocker(managingTeam.value, (m) => hasAccepted(m)) : null,
+)
+
+const renameRepoPreview = computed(() => {
+  const slug = teamSlug(renameName.value) || '…'
+  const pattern = props.assignment?.repository_name_pattern || `${props.assignment?.id}-{team_slug}`
+  return pattern.replace('{team_slug}', slug)
+})
+
+async function startRename() {
+  renameName.value = managingTeam.value?.team_name || ''
+  renameError.value = ''
+  renaming.value = true
+  await nextTick()
+  renameInput.value?.focus()
+  renameInput.value?.select()
+}
+
+function cancelRename() {
+  renaming.value = false
+  renameError.value = ''
+}
+
+/**
+ * One commit: the manifest under its new slug, the old file removed - after
+ * reading both at the click, so a student who accepted meanwhile, or an empty
+ * team already holding the new name, stops it with nothing written.
+ */
+async function saveRename() {
+  const team = managingTeam.value
+  if (!team || saving.value) return
+  renameError.value = ''
+  saving.value = true
+  try {
+    const token = getToken()
+    const id = props.assignment.id
+    // getRepoContent: null for a file that is not there, a throw for one that
+    // could not be read - so an unreadable answer stops the rename (below)
+    // rather than reading as "nobody" or "free".
+    const read = async (path) => {
+      const text = await getRepoContent(token, props.org, config.controlRepo, path)
+      return text ? JSON.parse(text) : null
+    }
+    const stored = await read(teamPath(id, team.team_slug))
+    if (!stored) {
+      renameError.value = 'This team is no longer there. Nothing was changed.'
+      return
+    }
+    // Who accepted since the page loaded: a record is the evidence, matched by
+    // login as GitHub spells it (acceptance files a record under that spelling).
+    const recorded = new Set()
+    for (const dir of [repositoriesDir(id), acceptancesDir(id)]) {
+      let files = []
+      try {
+        files = await listRepoDir(token, props.org, config.controlRepo, dir)
+      } catch (e) {
+        if (e?.status !== 404) throw e
+      }
+      for (const f of files) if (f.type === 'file' && f.name.endsWith('.json')) recorded.add(f.name.slice(0, -'.json'.length))
+    }
+    const plan = planTeamRename({
+      team: stored,
+      newName: renameName.value,
+      assignmentId: id,
+      otherSlugs: (props.teams || []).filter((t) => t.team_slug !== team.team_slug).map((t) => t.team_slug),
+      accepted: (m) => hasAccepted(m) || [...recorded].some((r) => sameLogin(r, m)),
+    })
+    if (!plan.ok) {
+      renameError.value = `Not renamed: ${plan.reason}.`
+      return
+    }
+    // A team everybody left is not on this page, and its file still holds the name.
+    if (plan.slug !== stored.team_slug && (await read(teamPath(id, plan.slug)))) {
+      renameError.value = `Not renamed: a team file called ${plan.slug} already exists in this assignment (it may be an empty team).`
+      return
+    }
+    const { valid, errors } = await validateAgainst('team', plan.doc)
+    if (!valid) {
+      renameError.value = `Not renamed: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}`
+      return
+    }
+    const res = await commitFiles(token, props.org, config.controlRepo, plan.changes, `Rename team ${stored.team_slug} to ${plan.slug} (${id})`)
+    if (!res.ok) {
+      renameError.value = `Could not rename the team: ${res.error || 'the save failed'}. Nothing was changed.`
+      return
+    }
+    await republishTeams(token)
+    toast.success(`Renamed to "${plan.doc.team_name}".`)
+    renaming.value = false
+    managingTeam.value = null
+    emit('refresh')
+  } catch (e) {
+    renameError.value = `Could not rename the team: ${e.message}`
+  } finally {
+    saving.value = false
+  }
 }
 
 function removeMemberFromTeam(login) {
@@ -1637,6 +1776,19 @@ async function deleteVacantTeam(team) {
 .section-label {
   font-weight: 600;
   font-size: 0.85rem;
+}
+
+/* Rename sits under the dialog's title: a link, then a box in its place. */
+.team-rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+}
+.team-rename-input {
+  min-width: 0;
+  width: 22rem;
+  max-width: 100%;
 }
 
 /* A well, for the same reason as the list above: a row here holds a select and

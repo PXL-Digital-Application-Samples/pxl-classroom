@@ -1122,3 +1122,48 @@ test("UNCAPPED `multiple: false` takes the FIRST hand-in from the run history to
   assert.equal(found.commit.sha, sha(1));
   assert.equal(found.handIns, null, "no cap, no count to report");
 });
+
+// template_full_history (2026-10-14): the repository holds the template's own
+// commits, and the provisioning push that copied them is in its push log and
+// started its runs. A lecturer whose template's last commit happens to read
+// like the hand-in would otherwise have handed in for every student.
+function copiedWorld({ givenStatus = 200 } = {}) {
+  const tplRoot = sha(91);
+  const tplHead = sha(90);
+  const mine = sha(1);
+  const given = [commitRow(tplHead, `${MSG}\n`, at(-600)), commitRow(tplRoot, "Start", at(-700))];
+  const branch = [commitRow(mine, `${MSG}\n`, at(30)), ...given];
+  // The copy's push started the template's grading workflow at acceptance.
+  const runs = [runRow(mine, MSG, at(31), { id: 2 }), runRow(tplHead, MSG, at(0), { id: 1 })];
+  const get = async (path) => {
+    if (path.startsWith(`/repos/${REPO}/commits?sha=main&`)) return { status: 200, data: branch };
+    if (path.startsWith(`/repos/${REPO}/commits?sha=${tplHead}&`)) return givenStatus === 200 ? { status: 200, data: given } : { status: givenStatus, data: null };
+    if (path.startsWith(`/repos/${REPO}/actions/runs?event=push`)) return { status: 200, data: { workflow_runs: runs } };
+    if (path.startsWith(`/repos/${REPO}/actions/runs?event=workflow_dispatch`)) return { status: 200, data: { workflow_runs: [] } };
+    if (path.startsWith(`/repos/${REPO}/activity?`)) return { status: 200, data: pushLog(runs) };
+    return { status: 404, data: null };
+  };
+  return { get, tplHead, mine };
+}
+
+test("a full-history copy's own commits, and the push that copied them, are not hand-ins", async () => {
+  const w = copiedWorld();
+  const without = await listHandIns(w.get, { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] });
+  assert.deepEqual(without.handIns.map((x) => x.sha), [w.tplHead, w.mine], "without it, the template's commit is a hand-in");
+  const res = await listHandIns(w.get, { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"], given: w.tplHead });
+  assert.equal(res.ok, true);
+  assert.equal(res.complete, true);
+  assert.deepEqual(res.handIns.map((x) => x.sha), [w.mine], "only what the student pushed");
+
+  // The graders pass it from the report row (lib/grade-cohort.mjs).
+  const found = await resolveHandIn(w.get, { row: row({ starter_sha: w.tplHead }), marker: marker({ multiple: false }) });
+  assert.equal(found.verdict, "found");
+  assert.equal(found.commit.sha, w.mine);
+});
+
+test("what was given that cannot be read is a failed read, never nothing given", async () => {
+  const w = copiedWorld({ givenStatus: 500 });
+  const res = await listHandIns(w.get, { repoFullName: REPO, branch: "main", marker: marker(), given: w.tplHead });
+  assert.equal(res.ok, false);
+  assert.equal(res.failedRead, "commits");
+});

@@ -145,6 +145,18 @@ A **team** is not a **class group**. A team shares one repository for one assign
 - **Joining a team needs a code from someone in it** keeps strangers out of a team. The student who creates a team gets a code to give their teammates. You can see every team's code on the **Teams** tab, for a student who lost it. Teams you make or seed have no code and anyone can join them.
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
 - Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
+- A team nobody has accepted into yet can be renamed: **Manage**, then **Rename team**. Its repository will get the new name. Once someone has accepted, the repository already has the old name, so the team keeps it.
+
+## Every branch and its history
+
+Normally each student gets the template's default branch as one fresh commit, with no history. Tick **Give students every branch and its full history** for an exercise built on the history itself, such as prepared branches to merge, rebase or repair.
+
+- Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other.
+- Students can read everything ever committed to the template. Do not commit a solution to it, not even one you remove later.
+- A student counts as not handed in until their default branch moves on from the commit they were given. The commit count shows only the commits they added.
+- **Sync Starter Code** does not run on such an assignment: the branches are the students' to change.
+- Only the default branch is locked and archived at the deadline.
+- It reaches students who accept after you save it.
 
 ## Autograding
 

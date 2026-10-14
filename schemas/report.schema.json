@@ -355,6 +355,16 @@
             "enum": ["scheduled", "manual", "deadline", "lockdown", "preservation", null],
             "description": "How the most recent observation was made: its `collection_type` (the nightly check is `scheduled`, a lecturer's Refresh is `manual`). Shown beside the read time on the Progress tab. Null for a tagged submission or an observation that recorded none."
           },
+          "starter_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "The commit a repository copied with the template's full history was given, from its repository records (lib/starter-commit.mjs). Carried so the page's Refresh judges 'not started' and counts commits by the report's own rule. Absent for GitHub's one-commit copy."
+          },
+          "starter_commit_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many commits starter_sha has behind it. commit_count already has it subtracted."
+          },
           "commit_date": {
             "type": [
               "string",
@@ -391,7 +401,7 @@
               "null"
             ],
             "minimum": 0,
-            "description": "Total commit count on the submission ref. Populated by backend collection and frontend refresh."
+            "description": "Commit count on the submission ref, from backend collection and frontend refresh. For a repository copied with the template's full history, the commits it was not given (the observed count less its repository record's starter_commit_count, lib/starter-commit.mjs)."
           },
           "late_commit_count": {
             "type": [

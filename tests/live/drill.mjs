@@ -5,11 +5,16 @@
 // real accounts in .env.test, so a change to the jobs that run an exam can be
 // proven the same day instead of at the next real deadline:
 //
-//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock]
+//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock] [--full-history]
 //       create and publish drill-<utc stamp> (individual, late work blocked,
 //       lock on), accept it as both students with their invitation labels,
 //       push one commit each, have the lecturer refused, retry one student.
 //       --repo-lock locks with repository rulesets and demotion instead.
+//       --full-history gives the students the template with every branch and
+//       its history (template_full_history), from `history-template`, which
+//       the drill makes once: two commits, two prepared branches, a tag. Start
+//       checks the copy and what it recorded; verify checks the report counts
+//       only the student's commit and that starter sync refuses it.
 //       --deadline pins the instant instead of deriving it from --minutes, so a
 //       second drill started minutes later SHARES it. That is what an exam with
 //       several groups does, and the sentinel that is already waiting has to
@@ -83,6 +88,10 @@ import { deletePlanStale } from "./cleanup-plan.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
+// --full-history's template: made by ensureHistoryTemplate, kept between drills.
+const HISTORY_TEMPLATE = "history-template";
+const HISTORY_BRANCHES = ["main", "feature-x", "bugfix"];
+const HISTORY_COMMITS = 2;
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 const ON_TIME_MESSAGE = "drill: on-time submission";
 // Written on every drill assignment; cleanup refuses anything without it.
@@ -183,6 +192,86 @@ async function waitForRun(run, { minutes = 10 } = {}) {
   return null;
 }
 
+// --- the full-history template --------------------------------------------------
+
+/**
+ * `history-template` on the drill org: `main` with two commits (the second
+ * puts in a bug), `feature-x` and `bugfix` branched from it with one commit
+ * each, and a tag - a git exercise in miniature. Made once, through the API as
+ * the lecturer; a repository of that name that is not it stops the drill.
+ */
+async function ensureHistoryTemplate() {
+  const T = LECTURER.token;
+  const at = `/repos/${ORG}/${HISTORY_TEMPLATE}`;
+  const have = await api(at, { token: T });
+  if (have.ok) {
+    const branches = ((await api(`${at}/branches`, { token: T })).data || []).map((b) => b.name);
+    if (have.data.is_template && HISTORY_BRANCHES.every((b) => branches.includes(b))) {
+      ok(`${ORG}/${HISTORY_TEMPLATE} is there: ${branches.join(", ")}`);
+      return;
+    }
+    bad(`${ORG}/${HISTORY_TEMPLATE} exists but is not the drill's (template: ${have.data.is_template}, branches: ${branches.join(", ")}) - delete it and start again`);
+    finish();
+  }
+  if (have.status !== 404) { bad(`${ORG}/${HISTORY_TEMPLATE}: HTTP ${have.status}`); finish(); }
+
+  const step = (res, what) => {
+    if (!res.ok) { bad(`making ${HISTORY_TEMPLATE}: ${what} HTTP ${res.status} ${res.data?.message ?? ""}`); finish(); }
+    return res.data;
+  };
+  step(await api(`/orgs/${ORG}/repos`, {
+    token: T, method: "POST",
+    body: { name: HISTORY_TEMPLATE, private: true, auto_init: false, description: "Drill template with history and prepared branches (tests/live/drill.mjs --full-history). Safe to delete." },
+  }), "create");
+  const put = async (path, text, message, extra = {}) => step(await api(`${at}/contents/${path}`, {
+    token: T, method: "PUT", body: { message, content: Buffer.from(text).toString("base64"), ...extra },
+  }), `${message}:`);
+  const first = await put("app.py", "print('v1')\n", "Start");
+  const bug = await put("app.py", "print('v2')  # bug: should print v1\n", "Add a bug", { sha: first.content.sha });
+  for (const ref of ["refs/heads/feature-x", "refs/heads/bugfix", "refs/tags/v1"]) {
+    step(await api(`${at}/git/refs`, { token: T, method: "POST", body: { ref, sha: bug.commit.sha } }), ref);
+  }
+  await put("feature.py", "x = 1\n", "Feature x", { branch: "feature-x" });
+  await put("app.py", "print('v1')\n", "Fix the bug", { branch: "bugfix", sha: bug.content.sha });
+  step(await api(at, { token: T, method: "PATCH", body: { is_template: true } }), "mark as template");
+  ok(`made ${ORG}/${HISTORY_TEMPLATE}: ${HISTORY_BRANCHES.join(", ")} and tag v1`);
+}
+
+/** Every branch and tag of a repository on the drill org: ref -> sha. */
+async function refsOf(repo) {
+  const out = {};
+  for (const kind of ["heads", "tags"]) {
+    const res = await api(`/repos/${ORG}/${repo}/git/matching-refs/${kind}/`, { token: LECTURER.token });
+    if (!res.ok) return null;
+    for (const x of res.data || []) out[x.ref] = x.object?.sha;
+  }
+  return out;
+}
+
+/** The copy, checked before the student touches it: the same refs, the same default, what was recorded. */
+async function checkHistoryCopy(student, record, tpl) {
+  const repo = bareRepo(record.repo_name);
+  const [want, got] = [await refsOf(tpl.name), await refsOf(repo)];
+  if (!want || !got) { bad(`${student.login}: the refs could not be read`); return; }
+  const diff = [...new Set([...Object.keys(want), ...Object.keys(got)])].filter((ref) => want[ref] !== got[ref]);
+  if (diff.length === 0) ok(`${student.login}: every branch and tag of the template, same SHAs (${Object.keys(got).join(", ")})`);
+  else bad(`${student.login}: refs differ from the template: ${diff.map((ref) => `${ref} ${want[ref]?.slice(0, 7) ?? "-"} vs ${got[ref]?.slice(0, 7) ?? "-"}`).join("; ")}`);
+
+  const repoData = (await api(`/repos/${ORG}/${repo}`, { token: LECTURER.token })).data;
+  if (repoData?.default_branch === tpl.default_branch) ok(`${student.login}: default branch ${repoData.default_branch}`);
+  else bad(`${student.login}: default branch ${repoData?.default_branch}, the template's is ${tpl.default_branch}`);
+
+  const given = want[`refs/heads/${tpl.default_branch}`];
+  if (record.starter_sha === given && record.starter_commit_count === HISTORY_COMMITS) ok(`${student.login}: the record says it was given ${given.slice(0, 7)}, ${HISTORY_COMMITS} commits`);
+  else bad(`${student.login}: the record says starter_sha ${record.starter_sha}, starter_commit_count ${record.starter_commit_count}; expected ${given}, ${HISTORY_COMMITS}`);
+
+  // What GitHub's copy cannot do, and the reason for the setting: the prepared
+  // branches share history with the default branch.
+  const cmp = (await api(`/repos/${ORG}/${repo}/compare/${tpl.default_branch}...feature-x`, { token: LECTURER.token })).data;
+  if (cmp?.merge_base_commit?.sha === given) ok(`${student.login}: feature-x merges into ${tpl.default_branch} (merge base ${given.slice(0, 7)})`);
+  else bad(`${student.login}: feature-x and ${tpl.default_branch} share no history (${cmp?.message ?? cmp?.status ?? "unreadable"})`);
+}
+
 // --- start ----------------------------------------------------------------------
 
 async function start() {
@@ -218,9 +307,12 @@ async function start() {
     else bad(`${s.login} is not on ${ORG}'s roster - roster_mode enforced would refuse them`);
   }
 
-  const tpl = await api(`/repos/${ORG}/${TEMPLATE}`, { token: LECTURER.token });
-  if (!tpl.ok) bad(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}`);
-  else ok(`template ${ORG}/${TEMPLATE} #${tpl.data.id}, default branch ${tpl.data.default_branch}`);
+  const fullHistory = flag("full-history");
+  if (fullHistory) await ensureHistoryTemplate();
+  const templateName = fullHistory ? HISTORY_TEMPLATE : TEMPLATE;
+  const tpl = await api(`/repos/${ORG}/${templateName}`, { token: LECTURER.token });
+  if (!tpl.ok) bad(`template ${ORG}/${templateName}: HTTP ${tpl.status}`);
+  else ok(`template ${ORG}/${templateName} #${tpl.data.id}, default branch ${tpl.data.default_branch}`);
   stopIfFailed();
 
   console.log("\n2. The assignment, saved the way the Admin Panel saves it\n");
@@ -243,7 +335,7 @@ async function start() {
     title: `Deadline drill ${isoSeconds(now).slice(0, 16).replace("T", " ")} UTC`,
     description: DRILL_DESCRIPTION,
     organization: ORG,
-    template: `${ORG}/${TEMPLATE}`,
+    template: `${ORG}/${templateName}`,
     repository_name_pattern: `${id}-{github_login}`,
     opens_at_local: utcToLocalInput(opensAt),
     _opens_at_original: opensAt,
@@ -263,6 +355,7 @@ async function start() {
     // `org_scoped_lock: false` take, and the one `migrate` moves. Either way
     // `lock_down_enabled: true` demotes on top of the ruleset.
     ...(flag("repo-lock") ? { org_scoped_lock: false } : {}),
+    ...(fullHistory ? { template_full_history: true } : {}),
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
   // A copy: lib/validate.mjs runs Ajv with useDefaults, which writes into the
@@ -322,6 +415,7 @@ async function start() {
     }
     if (!record) { bad(`no ${recordPath} after 240s - check the hub's acceptance-handler run`); continue; }
     ok(`provisioned ${record.repo_url}`);
+    if (fullHistory) await checkHistoryCopy(student, record, tpl.data);
 
     // The label step runs with continue-on-error, so a token that cannot label
     // leaves the run green. The label is the only evidence it worked. It is put
@@ -352,11 +446,23 @@ async function start() {
   // so provisioning reuses it.
   console.log(`\n${5 + STUDENTS.length}. A lecturer retries ${STUDENTS[0].login}'s acceptance\n`);
   const retryAt = Date.now() - 5_000;
+  const firstRecordPath = `repositories/${id}/${normalizeLogin(STUDENTS[0].login)}.json`;
+  const beforeRetry = fullHistory ? await readControlJson(firstRecordPath) : null;
   if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: STUDENTS[0].login })) {
     const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
     const done = run ? await waitForRun(run) : null;
     if (done?.conclusion === "success") ok(`retry run succeeded: ${run.html_url}`);
     else bad(`retry run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`);
+    // A retry provisions nothing (`reused`) and rewrites the record whole; what
+    // the copy was given is known only to the run that copied it.
+    if (fullHistory) {
+      const after = await readControlJson(firstRecordPath);
+      if (after?.starter_sha && after.starter_sha === beforeRetry?.starter_sha && after.starter_commit_count === beforeRetry?.starter_commit_count) {
+        ok(`the retry kept what ${STUDENTS[0].login}'s repository was given (${after.starter_sha.slice(0, 7)})`);
+      } else {
+        bad(`the retry rewrote ${firstRecordPath} without what it was given: ${after?.starter_sha ?? "none"} (was ${beforeRetry?.starter_sha ?? "none"})`);
+      }
+    }
   }
 
   if (Date.now() >= new Date(deadlineAt).getTime()) {
@@ -627,10 +733,50 @@ async function verify() {
     }
   }
 
+  if (doc.template_full_history === true) await verifyHistoryCopy(id, report);
+
   if (plan === "free") {
     console.log(`\n${ORG} is on the free plan: rulesets were NOT exercised. Lockdown and sentinel token changes need a drill on a Team organization.`);
   }
   finish();
+}
+
+/**
+ * A --full-history drill after the deadline: the report counted the student's
+ * one hand-in and not the template's commits, carried no author (the
+ * template's is the lecturer), and starter sync refuses the assignment.
+ */
+async function verifyHistoryCopy(id, report) {
+  console.log("\n10. The template's full history\n");
+  for (const student of STUDENTS) {
+    const login = normalizeLogin(student.login);
+    const row = (report?.students || []).find((x) => normalizeLogin(x.github_login) === login);
+    if (!row) { bad(`${login}: no row in reports/${id}.json`); continue; }
+    if (row.commit_count === 1) ok(`${login}: 1 commit of their own (the template's ${row.starter_commit_count} not counted)`);
+    else bad(`${login}: commit_count ${row.commit_count}, expected 1 - the template's ${row.starter_commit_count ?? "?"} commits counted or the start was not recorded`);
+    if (row.starter_sha) ok(`${login}: the report carries what it was given (${row.starter_sha.slice(0, 7)})`);
+    else bad(`${login}: the report row has no starter_sha`);
+    if (row.author_name == null && row.author_email == null) ok(`${login}: no author carried`);
+    else bad(`${login}: author ${row.author_name} <${row.author_email}> carried on a full-history copy`);
+  }
+
+  const syncAt = Date.now() - 5_000;
+  if (await dispatch("sync-starter-code.yml", { org: ORG, assignment_id: id })) {
+    const run = await findDispatchedRun("sync-starter-code.yml", syncAt);
+    const done = run ? await waitForRun(run) : null;
+    if (!done) { bad("the starter sync run did not appear or finish"); return; }
+    const jobs = (await api(`/repos/${HUB}/actions/runs/${run.id}/jobs`, { token: LECTURER.token })).data?.jobs || [];
+    let log = "";
+    for (const job of jobs) log += (await api(`/repos/${HUB}/actions/jobs/${job.id}/logs`, { token: LECTURER.token })).data?.raw ?? "";
+    if (done.conclusion === "failure" && /Not synced: its students were given the template with its full history/.test(log)) {
+      ok(`starter sync refused it before touching anything (${run.html_url})`);
+    } else {
+      bad(`starter sync ${done.conclusion} without the refusal in its log (${run.html_url})`);
+    }
+    const records = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/syncs/${id}`, { token: LECTURER.token });
+    if (records.status === 404) ok("no sync record was written");
+    else bad(`syncs/${id} exists (HTTP ${records.status}) - the refused sync recorded something`);
+  }
 }
 
 // --- migrate --------------------------------------------------------------------
@@ -898,4 +1044,4 @@ else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
 else if (command === "cleanup") await cleanup();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");

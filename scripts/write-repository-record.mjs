@@ -10,7 +10,7 @@
 // does not say so makes accept.mjs refuse every teammate as `rejected:repo-exists`
 // over their own team's repository.
 
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { validateAgainst } from "../lib/validate.mjs";
@@ -26,6 +26,8 @@ const { values } = parseArgs({
     "repo-id":       { type: "string" },
     "repo-url":      { type: "string" },
     "baseline-sha":  { type: "string" },
+    "starter-sha":   { type: "string" },
+    "starter-commit-count": { type: "string" },
     "run-url":       { type: "string" },
     "student-permission": { type: "string" },
     "data-dir":      { type: "string", default: "." },
@@ -57,6 +59,35 @@ if (repoId === null || Number.isNaN(repoId)) {
   process.exit(2);
 }
 
+/**
+ * The commit a repository copied with the template's full history was given,
+ * and how many commits that was - both or neither, from one source.
+ *
+ * This record is rebuilt whole on every write, and only the run that COPIED
+ * the repository knows them - so a retry (`reused`) would drop them from the
+ * record it rewrites, and a teammate joining later never had them. Carried
+ * over from any record of this assignment naming the same repository.
+ */
+function starter() {
+  const count = (v) => (/^\d+$/.test(String(v ?? "")) ? Number(v) : null);
+  const given = (values["starter-sha"] || "").trim();
+  if (/^[0-9a-f]{40}$/.test(given)) return { sha: given, count: count(values["starter-commit-count"]) };
+  const dir = join(values["data-dir"], "repositories", assignmentId);
+  if (!existsSync(dir)) return { sha: null, count: null };
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
+    try {
+      const rec = JSON.parse(readFileSync(join(dir, name), "utf8"));
+      if (rec?.repo_id === repoId && /^[0-9a-f]{40}$/.test(String(rec.starter_sha || ""))) {
+        return { sha: rec.starter_sha, count: Number.isInteger(rec.starter_commit_count) ? rec.starter_commit_count : null };
+      }
+    } catch {
+      // A record that cannot be read carries nothing over; the report still
+      // asks every record naming the repository (lib/starter-commit.mjs).
+    }
+  }
+  return { sha: null, count: null };
+}
+
 if (!teamOnly) {
   // One builder, shared with the Teams tab (lib/team-member-records.mjs).
   const record = buildRepositoryRecord({
@@ -70,6 +101,8 @@ if (!teamOnly) {
     studentPermission: values["student-permission"] || "admin",
     runUrl: values["run-url"],
     baselineSha,
+    starterSha: starter().sha,
+    starterCommitCount: starter().count,
   });
 
   const { valid, errors } = validateAgainst("repository-record", record);

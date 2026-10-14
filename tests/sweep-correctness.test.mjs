@@ -103,19 +103,24 @@ test("the concurrency expression is preserved, not mangled by the serialiser", (
 
 // --- F16: no credential in a git command line -------------------------------
 
-test("preserve.mjs never builds a credential into a URL", () => {
-  const src = readFileSync(join(root, "preserve", "preserve.mjs"), "utf8");
-  // The URL shape specifically. Building `x-access-token:<token>` for a basic
-  // auth HEADER is the fix, not the bug - what must not exist is a credential
-  // followed by `@host`, which is what lands in the logged command string.
-  assert.ok(
-    !/x-access-token:\S*@/.test(src.replace(/^\s*\/\/.*$/gm, "")),
-    "no token in a git URL"
-  );
-  assert.ok(!/authedUrl/.test(src), "the helper that built one is gone");
-  assert.match(src, /extraheader/, "the token goes in a header instead");
+test("preserve.mjs and provision.mjs never build a credential into a URL", () => {
+  // Both push with the App token: preservation into the archive, provisioning
+  // a template copied with its full history. One helper builds the header.
+  const helper = readFileSync(join(root, "lib", "git-auth.mjs"), "utf8");
+  assert.match(helper, /extraheader/, "the token goes in a header instead");
   // The command string is logged, so anything in it is in a public run log.
-  assert.match(src, /GIT_CONFIG_KEY_0/, "and through the environment, not an argument");
+  assert.match(helper, /GIT_CONFIG_KEY_0/, "and through the environment, not an argument");
+  for (const file of [join("preserve", "preserve.mjs"), join("provisioning", "provision.mjs"), join("lib", "git-auth.mjs")]) {
+    const src = readFileSync(join(root, file), "utf8");
+    // The URL shape specifically. Building `x-access-token:<token>` for a basic
+    // auth HEADER is the fix, not the bug - what must not exist is a credential
+    // followed by `@host`, which is what lands in the logged command string.
+    assert.ok(!/x-access-token:\S*@/.test(src.replace(/^\s*\/\/.*$/gm, "")), `${file}: no token in a git URL`);
+    assert.ok(!/authedUrl/.test(src), `${file}: the helper that built one is gone`);
+  }
+  for (const file of [join("preserve", "preserve.mjs"), join("provisioning", "provision.mjs")]) {
+    assert.match(readFileSync(join(root, file), "utf8"), /gitAuthEnv\(/, `${file} authenticates through lib/git-auth.mjs`);
+  }
 });
 
 test("no workflow builds a credential into a git remote", () => {

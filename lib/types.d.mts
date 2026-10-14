@@ -72,6 +72,7 @@ export type Assignment = {
   org_scoped_lock?: boolean;
   feedback_pr?: boolean;
   feedback_pr_baseline_branch?: string;
+  template_full_history?: boolean;
   template_grades?: boolean;
   autograde?: {
     enabled?: boolean;
@@ -441,6 +442,8 @@ export type Report = {
     latest_observed_sha?: string;
     latest_observed_at?: string;
     latest_observation_type?: "scheduled" | "manual" | "deadline" | "lockdown" | "preservation" | null;
+    starter_sha?: string;
+    starter_commit_count?: number;
     commit_date?: string;
     latest_commit_date?: string;
     commit_message?: string;
@@ -491,6 +494,8 @@ export type RepositoryRecord = {
   feedback_pr_number?: number;
   feedback_pr_url?: string;
   feedback_pr_baseline_sha?: string;
+  starter_sha?: string;
+  starter_commit_count?: number;
 };
 
 /** What was deleted, when, by whom, and where the code still is (schemas/retired-manifest.schema.json) */

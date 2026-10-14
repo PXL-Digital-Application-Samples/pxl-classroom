@@ -1509,14 +1509,10 @@ export async function setupStandardMockRoutes(page, {
           await route.fulfill({ status: 200, body: JSON.stringify({ content: contentBase64, encoding: 'base64', sha: 'team_sha_123' }) });
           return;
         }
-        await route.fulfill({
-          status: 200,
-          body: JSON.stringify({
-            content: Buffer.from(JSON.stringify({ team_slug: slug, members: [] })).toString('base64'),
-            encoding: 'base64',
-            sha: 'team_sha_123',
-          }),
-        });
+        // A team file that is not there is a 404, as on GitHub. This served an
+        // empty team for ANY slug, so "is that name free?" could never be
+        // answered here - the rename (spec 108) read every new name as taken.
+        await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments')) {
         const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);

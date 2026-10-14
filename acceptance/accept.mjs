@@ -1461,6 +1461,7 @@ async function main() {
     await setOutput("template_repository_id", assignment.template.repository_id ?? "");
     await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
     await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
+    await setOutput("template_full_history", assignment.template_full_history === true ? "true" : "false");
     await summary(`### Acceptance: \`already-accepted\`\n\n${login} already accepted ${assignmentId}.`);
     process.exit(0);
   }
@@ -1682,6 +1683,9 @@ async function main() {
   await setOutput("template_repository_id", assignment.template.repository_id ?? "");
   await setOutput("feedback_pr", assignment.feedback_pr === true ? "true" : "false");
   await setOutput("feedback_pr_baseline_branch", assignment.feedback_pr_baseline_branch || "pxl-baseline");
+  // Every branch and its history instead of GitHub's one-commit copy
+  // (provisioning/provision.mjs `createWithFullHistory`).
+  await setOutput("template_full_history", assignment.template_full_history === true ? "true" : "false");
 
   await summary(
     `### Acceptance: \`accepted\`\n\n` +

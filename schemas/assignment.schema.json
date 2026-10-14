@@ -325,6 +325,10 @@
       "default": "pxl-baseline",
       "description": "Name of the frozen baseline branch used as the PR base. Rarely changed."
     },
+    "template_full_history": {
+      "type": "boolean",
+      "description": "NO `default` HERE (a default is a writer, tests/schema-defaults-are-writers.test.mjs). True: each student repository is created empty and the template is pushed into it with every branch, tag and commit - for an exercise with prepared branches to merge or repair, which GitHub's template copy cannot carry (one commit, branches with no history in common). Students can read everything ever committed to the template. Absent or false: GitHub's template copy, as every assignment before the field. Read at acceptance only, so a change reaches students who accept afterwards."
+    },
     "template_grades": {
       "type": "boolean",
       "description": "NO `default` HERE ON PURPOSE, for the reason org_scoped_lock gives: lib/validate.mjs runs Ajv with `useDefaults: true`, so a default is a WRITER. `default: false` inserted the field into every validated assignment and collapsed the THREE states below into two - turning 'nobody has been asked' into 'they answered no', which ends the question and takes the grading controls away from exactly the template-graded assignments the evidence fallback exists for. The lecturer answered that the grading comes with the template repository. Recorded because `autograde` absent was written for BOTH 'the checks come with my template' and 'remove all' - the two were stored identically, the lecturer's own answer was discarded at save, and every surface downstream had to guess, which is why the CI grading controls appeared on assignments that grade nothing. This is a CHOICE, like late_policy, not a probe of the template: the editor's live look at the template can go stale and is deliberately stored nowhere, but what the lecturer picked cannot. ABSENT means an assignment saved before this field existed OR one that grades nothing, and those need not be told apart - both fall through to positive evidence (frontend/src/lib/autograde.js gradesInCi), and an assignment that grades nothing has none."

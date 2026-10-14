@@ -888,6 +888,55 @@ test("student with 1 commit (unstarted repo) is classified as no-submission", ()
   assert.equal(frank.commit_count, 1);
 });
 
+test("GitHub's one-commit copy keeps its author for the roster harvest", () => {
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "jan", status: "accepted" }],
+    repositories: [{ schema_version: 1, assignment_id: "test-asgn", github_login: "jan", repo_id: 5, repo_name: "TestOrg/test-asgn-jan", repo_url: "https://github.com/TestOrg/test-asgn-jan" }],
+    observations: { jan: [{ observed_at: "2026-09-05T10:00:00Z", sha: "e".repeat(40), commit_count: 4, author_name: "Jan Peeters", author_email: "jan.peeters@student.pxl.be" }] },
+  });
+  const jan = report.students.find((s) => s.github_login === "jan");
+  assert.deepEqual([jan.author_name, jan.author_email, jan.commit_count], ["Jan Peeters", "jan.peeters@student.pxl.be", 4]);
+  assert.equal("starter_sha" in jan, false);
+});
+
+test("a repository copied with the template's history is not started while it is at the commit it was given", () => {
+  // template_full_history: 14 commits from the first second, so a count read
+  // every student as handed in the moment they accepted (lib/starter-commit.mjs).
+  const given = "c".repeat(40);
+  const rec = (login, extra = {}) => ({
+    schema_version: 1, assignment_id: "test-asgn", github_login: login, repo_id: 77,
+    repo_name: "TestOrg/test-asgn-team", repo_url: "https://github.com/TestOrg/test-asgn-team", ...extra,
+  });
+  const report = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "gina", status: "accepted" }, { github_login: "hugo", status: "accepted" }, { github_login: "ivo", status: "accepted" }],
+    // Hugo joined later: his record has no starter_sha, Gina's (the run that
+    // copied it) does - it is the repository's, so it is asked of both.
+    repositories: [rec("gina", { starter_sha: given, starter_commit_count: 14 }), rec("hugo"), rec("ivo", { repo_id: 78, starter_sha: given, starter_commit_count: 14 })],
+    observations: {
+      // At the commit it was given, whose author is the lecturer who wrote the template.
+      gina: [{ observed_at: "2026-09-05T10:00:00Z", sha: given, commit_count: 14, author_name: "Lecturer", author_email: "lecturer@pxl.be" }],
+      hugo: [{ observed_at: "2026-09-05T10:00:00Z", sha: given, commit_count: 14 }],
+      // A fast-forward merge of a prepared branch: another template commit, which is work.
+      ivo: [{ observed_at: "2026-09-05T10:00:00Z", sha: "d".repeat(40), commit_count: 17, author_name: "Ivo", author_email: "ivo@student.pxl.be" }],
+    },
+  });
+  const row = (l) => report.students.find((s) => s.github_login === l);
+  assert.equal(row("gina").submission_status, "no-submission");
+  assert.equal(row("hugo").submission_status, "no-submission");
+  assert.equal(row("ivo").submission_status, "on-time");
+  // The student's commits, not the template's.
+  assert.deepEqual([row("gina").commit_count, row("hugo").commit_count, row("ivo").commit_count], [0, 0, 3]);
+  // Not the lecturer, offered by the roster harvest as Gina - nor after Ivo's
+  // fast-forward, whose head is also a template commit: a full-history copy's
+  // authors are never carried.
+  assert.deepEqual([row("gina").author_name, row("gina").author_email], [null, null]);
+  assert.deepEqual([row("ivo").author_name, row("ivo").author_email], [null, null]);
+  // Carried for the page's Refresh, which applies the same rule.
+  assert.deepEqual([row("hugo").starter_sha, row("hugo").starter_commit_count], [given, 14]);
+});
+
 test("group assignment report aggregates teams, calculates under_capacity, and attaches team metadata to students", () => {
   const groupYaml = `schema_version: 1
 id: test-asgn

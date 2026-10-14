@@ -232,7 +232,7 @@
              when two syncs were cut off and 43 students were left without a
              lab. -->
         <StarterSyncStatus
-          v-if="assignment && assignment.template"
+          v-if="assignment && assignment.template && !syncRefused"
           :org="org"
           :assignment="assignment"
           :refresh-key="syncStatusKey"
@@ -414,17 +414,24 @@
               </button>
 
               <div v-if="moreActionsOpen" class="export-dropdown-menu fade-in" role="menu">
+                <!-- Kept, disabled, where it does not run (DESIGN.md §1.5): a
+                     lecturer looking for it is told why, not left to wonder
+                     where it went. -->
                 <button
                   v-if="assignment && assignment.template"
                   class="export-dropdown-item"
                   type="button"
                   role="menuitem"
+                  :disabled="syncRefused"
+                  data-sync-starter
                   @click="handleSyncStarterCode"
                 >
                   <Icon name="git-pull-request" :size="14" class="dropdown-icon" />
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Sync Starter Code</span>
-                    <span class="dropdown-item-sub">Propagate template updates to students</span>
+                    <span class="dropdown-item-sub">{{ syncRefused
+                      ? 'Not here: students were given the template with its full history, and its branches are theirs'
+                      : 'Propagate template updates to students' }}</span>
                   </div>
                 </button>
 
@@ -1502,6 +1509,8 @@ import {
   lockdownRecordPath, unlockRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
 import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.mjs'
+import { addedCommits, unstartedRepo } from '../../../lib/starter-commit.mjs'
+import { syncRefusal } from '../lib/starter-sync.js'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
 import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
@@ -3257,9 +3266,14 @@ function toggleMoreActions() {
 }
 
 function handleSyncStarterCode() {
+  if (syncRefused.value) return
   moreActionsOpen.value = false
   showStarterSyncModal.value = true
 }
+
+// Starter sync does not run where students were given the template's full
+// history (lib/starter-sync.mjs `syncRefusal`): its menu row says so, disabled.
+const syncRefused = computed(() => Boolean(syncRefusal(assignment.value)))
 
 
 
@@ -3615,7 +3629,7 @@ function applySyncIntent() {
   if (route.query.sync !== '1') return
   const { sync: _sync, ...rest } = route.query
   router.replace({ query: rest })
-  if (loadError.value || !assignment.value?.template) return
+  if (loadError.value || !assignment.value?.template || syncRefused.value) return
   followSyncRun.value = null
   showStarterSyncModal.value = true
 }
@@ -4270,7 +4284,12 @@ async function refreshOne(token, s) {
     const res = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits?sha=${encodeURIComponent(branch)}&per_page=1`)
     if (!res.ok) return false
 
-    s.commit_count = totalFromLinkHeader(res.headers, res.data)
+    // The branch's whole count goes into the observation, as the collector
+    // stores it; the row shows what the report shows - the commits a
+    // full-history copy was not given (lib/starter-commit.mjs).
+    const observedCount = totalFromLinkHeader(res.headers, res.data)
+    const givenSha = s.starter_sha || null
+    s.commit_count = addedCommits({ starterCount: Number.isInteger(s.starter_commit_count) ? s.starter_commit_count : null, commitCount: observedCount })
 
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
@@ -4285,7 +4304,7 @@ async function refreshOne(token, s) {
           repoId: s.repo_id,
           ref: assignment.value?.submission_ref || `refs/heads/${branch}`,
           commit,
-          commitCount: s.commit_count,
+          commitCount: observedCount,
           observedAt: new Date().toISOString(),
           collectionType: 'manual',
         }))
@@ -4313,14 +4332,21 @@ async function refreshOne(token, s) {
 
       const authorName = commit.commit?.author?.name || null
       const authorEmail = commit.commit?.author?.email || null
-      if (authorName && authorName !== s.github_login && !isBotAuthorName(authorName)) {
-        s.author_name = authorName
-      }
-      if (authorEmail && !isGitHubNoreplyAddress(authorEmail)) {
-        s.author_email = authorEmail
+      if (givenSha) {
+        // A full-history copy: its latest commit may be the template's, by the
+        // lecturer - not evidence of who the student is (report/report.mjs).
+        s.author_name = null
+        s.author_email = null
+      } else {
+        if (authorName && authorName !== s.github_login && !isBotAuthorName(authorName)) {
+          s.author_name = authorName
+        }
+        if (authorEmail && !isGitHubNoreplyAddress(authorEmail)) {
+          s.author_email = authorEmail
+        }
       }
 
-      const isUnstarted = (s.commit_count != null ? s.commit_count <= 1 : false) && !s.tagged_submission_tag
+      const isUnstarted = unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount }) && !s.tagged_submission_tag
       if (isUnstarted) {
         s.submission_status = 'no-submission'
       } else if (deadline) {
@@ -4446,7 +4472,8 @@ async function refreshLiveStatus() {
         team.repo_id = team.repo_id || firstMember.repo_id || null
         team.submission_status = firstMember.submission_status || 'no-submission'
         team.latest_observed_sha = firstMember.latest_observed_sha || null
-        team.commit_count = firstMember.commit_count || null
+        // `??`, as the report: a full-history copy nobody touched added 0.
+        team.commit_count = firstMember.commit_count ?? null
         team.lock_down_at = firstMember.lock_down_at || null
         team.preservation_status = firstMember.preservation_status || null
         team.preserved_sha = firstMember.preserved_sha || null

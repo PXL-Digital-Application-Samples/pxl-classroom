@@ -25,6 +25,7 @@ import {
   readTemplateCommit,
   selectionIsAll,
   startingPointFor,
+  syncRefusal,
 } from "../lib/starter-sync.mjs";
 import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
 import { assignmentOutcome, issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
@@ -116,6 +117,10 @@ async function main() {
   const tplOwner = assignment.template?.owner || cfg.org;
   const tplRepo = assignment.template?.repository;
   if (!tplRepo) throw new Error("Assignment has no template repository configured");
+  // Before anything is read or written: nothing was sent, so there is nothing
+  // to record.
+  const refused = syncRefusal(assignment);
+  if (refused) throw new Error(`Not synced: ${refused}.`);
 
   const templateFullName = `${tplOwner}/${tplRepo}`;
   console.log(`[sync] Template repository: ${templateFullName}`);
