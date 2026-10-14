@@ -40,7 +40,7 @@ const students = ['a', 'b', 'c'].map((x) => ({
  * `changedAtCommit`: the records read at a parent commit (`?ref=`) differ from
  * the ones read during the press - a move or a permission change meanwhile.
  */
-async function open(page, { changedAtCommit = false } = {}) {
+async function open(page, { changedAtCommit = false, noCommitsFor = null } = {}) {
   const gitCommits = [];
   const pullBodies = [];
   await injectAuth(page, LECTURER);
@@ -74,6 +74,10 @@ async function open(page, { changedAtCommit = false } = {}) {
     if (route.request().url().includes('student-a')) {
       return route.fulfill({ status: 201, body: JSON.stringify({ number: 7, html_url: `https://github.com/${ORG}/${ID}-student-a/pull/7` }) });
     }
+    // GitHub's answer for a branch with nothing past the baseline.
+    if (noCommitsFor && route.request().url().includes(noCommitsFor)) {
+      return route.fulfill({ status: 422, body: JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'PullRequest', code: 'custom', message: 'No commits between pxl-baseline and master' }] }) });
+    }
     return route.fulfill({ status: 500, body: JSON.stringify({ message: 'Server Error' }) });
   });
   await page.goto(`/dashboard/${ORG}/${ID}`);
@@ -104,6 +108,15 @@ test.describe('113 - Open feedback PRs, pressed', () => {
     await expect(page.locator('.toast', { hasText: /1 feedback PR could not be opened/ })).toBeVisible();
     expect(gitCommits).toHaveLength(1);
     expect(gitCommits[0].files.map((f) => f.path)).toEqual([`repositories/${ID}/student-a.json`]);
+  });
+
+  test('S10 (TS-12): nothing past the starting point yet is said as that, never as a PR that could not be opened', async ({ page }) => {
+    await open(page, { noCommitsFor: 'student-b' });
+    await press(page);
+    await expect(page.locator('.toast', { hasText: '1 student has nothing past the starting point yet, so no feedback PR was opened for them.' })).toBeVisible();
+    await expect(cell(page, 'student-a')).toContainText('#7');
+    await page.waitForTimeout(500);
+    await expect(page.locator('.toast', { hasText: /could not be opened/ })).toHaveCount(0);
   });
 
   test('a record changed during the press refuses the write, and the column shows no PR number it did not save (P2-4, P2-7)', async ({ page }) => {

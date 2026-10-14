@@ -751,6 +751,43 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(card.locator('.summary-value')).toHaveText('2');
     await expect(card.locator('.summary-value')).toHaveClass(/stat-red/);
     await expect(card.locator('.summary-label')).toHaveText('No submission: 1 past their deadline');
+    // The hover says why it is red when only some are (TS-10).
+    await expect(card).toHaveAttribute('title', '1 of 2 past their own deadline; the others are not due yet');
+  });
+
+  test('TS-10: before everyone\'s deadline the progress card is grey, "No submission yet", and its hover says that is normal', async ({ page }) => {
+    const future = '2099-01-01T12:00:00.000Z';
+    await setup(page, {
+      summary: mixedSummary,
+      assignment: { ...assignment, deadline_at: future, state: 'published' },
+      report: { ...mixedReport, students: mixedReport.students.map((s) => ({ ...s, effective_deadline_at: future })) },
+    });
+    const card = page.locator('[data-card="no-submission"]');
+    await expect(card.locator('.summary-label')).toHaveText('No submission yet');
+    await expect(card.locator('.summary-value')).toHaveClass(/stat-neutral/);
+    await expect(card).toHaveAttribute('title', 'No submission yet, which is normal before the deadline');
+  });
+
+  test('TS-10: past everyone\'s deadline the cards are red and their hovers say "by their deadline"', async ({ page }) => {
+    const both = { ...mixedReport, students: mixedReport.students.map((s) => (s.github_login === 'student-charlie' ? { ...s, effective_deadline_at: undefined } : s)) };
+    await setup(page, { summary: mixedSummary, report: both });
+    const progress = page.locator('[data-card="no-submission"]');
+    await expect(progress.locator('.summary-label')).toHaveText('No submission');
+    await expect(progress.locator('.summary-value')).toHaveClass(/stat-red/);
+    await expect(progress).toHaveAttribute('title', 'No submission by their deadline');
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=grading`);
+    const grading = page.locator('[data-grading-cards] [data-card="not-handed-in"]');
+    await expect(grading.locator('.summary-label')).toHaveText('Not handed in');
+    await expect(grading).toHaveAttribute('title', 'Nothing handed in by their deadline');
+  });
+
+  test('TS-10 (D17a): two results with no points are counted in the plural', async ({ page }) => {
+    const noPoints = {
+      ...initialSummary,
+      students: initialSummary.students.map((s) => (['student-alice', 'student-bob'].includes(s.login) ? { ...s, earned_points: 0, total_points: 0 } : s)),
+    };
+    await setup(page, { summary: noPoints, tab: 'grading' });
+    await expect(page.locator('[data-grading-box]')).toContainText('2 students were graded by checks that carry no points: those results are pass or fail, not a score.');
   });
 });
 

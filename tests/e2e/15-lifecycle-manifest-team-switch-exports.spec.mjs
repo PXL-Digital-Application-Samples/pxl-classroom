@@ -158,8 +158,37 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
       await expect(row).toBeFocused();
     }
     const toasts = await page.locator('.toast', { hasText: /CLI command copied/i }).count();
+    let downloads = 0;
+    page.on('download', () => { downloads++; });
     await exportMenu.locator('.export-dropdown-item', { hasText: 'Copy CLI Download' }).click({ force: true });
+    // The keyboard's two ways to press a button do nothing either (TS-9).
+    for (const name of ['Download Manifest', 'Copy CLI Download']) {
+      if (!(await exportMenu.isVisible())) await exportBtn.click();
+      const row = exportMenu.locator('.export-dropdown-item', { hasText: name });
+      await row.focus();
+      await page.keyboard.press('Enter');
+      if (!(await exportMenu.isVisible())) await exportBtn.click();
+      await row.focus();
+      await page.keyboard.press('Space');
+    }
+    // Absent after a wait, not at once: a toast or a download is asynchronous,
+    // and asserting the instant after the press passes before either could land.
+    await page.waitForTimeout(800);
     await expect(page.locator('.toast', { hasText: /CLI command copied/i })).toHaveCount(toasts);
+    expect(downloads, 'no manifest is downloaded').toBe(0);
+
+    // Dimmed the same in both themes: the dimming is opacity, and a row that
+    // dims in light and not in dark is a row that looks pressable (TS-9).
+    if (!(await exportMenu.isVisible())) await exportBtn.click();
+    const dimmed = exportMenu.locator('.export-dropdown-item', { hasText: 'Download Manifest' });
+    const live = exportMenu.locator('.export-dropdown-item', { hasText: 'Export CSV' });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      expect(await dimmed.evaluate((el) => getComputedStyle(el).opacity), colorScheme).toBe('0.55');
+      expect(await dimmed.evaluate((el) => getComputedStyle(el).cursor), colorScheme).toBe('not-allowed');
+      expect(await live.evaluate((el) => getComputedStyle(el).opacity), colorScheme).toBe('1');
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
   });
 
   test('Scenario 3 (Student Dynamic Team Switching): Provisioned student initiates team switch, updates team capacities, and resolves new target repo', async ({ page }) => {

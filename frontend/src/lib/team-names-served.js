@@ -35,8 +35,15 @@ export function renamedTeamsServed(stored, served) {
   return { state: stale.length ? 'stale' : 'current', stale }
 }
 
-/** One line for the lecturer, from the answer above. */
-export function renamedTeamsLine(answer) {
+/**
+ * One line for the lecturer, from the answer above.
+ *
+ * @param {ReturnType<typeof renamedTeamsServed>} answer
+ * @param {{ asked?: boolean }} [opts]  this page asked GitHub for the rebuild
+ *   a few minutes ago and GitHub accepted: said, because an Update press that
+ *   leaves the line exactly as it was reads as a press that did nothing.
+ */
+export function renamedTeamsLine(answer, { asked = false } = {}) {
   if (answer.state === 'current') return 'Students see every renamed team under its new name.'
   if (answer.state === 'unreadable') return 'Could not read the student page, so whether students see the new team names is unknown.'
   if (answer.state !== 'stale') return ''
@@ -44,5 +51,8 @@ export function renamedTeamsLine(answer) {
   const one = answer.stale[0]
   const was = one.served ? `, they see "${one.served}"` : ''
   const more = answer.stale.length > 1 ? ` (and ${answer.stale.length - 1} more renamed team${answer.stale.length === 2 ? '' : 's'})` : ''
-  return `Students do not see "${one.name}" yet${was}${more}: the student pages have not been rebuilt since the rename.`
+  const why = asked
+    ? 'an update was asked for, and usually takes a minute or two'
+    : 'the student pages have not been rebuilt since the rename'
+  return `Students do not see "${one.name}" yet${was}${more}: ${why}.`
 }

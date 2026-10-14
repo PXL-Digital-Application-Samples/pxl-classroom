@@ -123,6 +123,31 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
     await expect(page.getByText('No accepted assignments yet')).toHaveCount(0);
   });
 
+  test('TS-3 (PG5): only a pending invitation to the team repository is listed as one; the same name in another org is not this assignment', async ({ page }) => {
+    const team = {
+      id: 'grp-lab', title: 'Group Lab', organization: ORG, assignment_type: 'group', state: 'published',
+      deadline_at: new Date(Date.now() + 3600 * 1000 * 48).toISOString(), repository_name_pattern: 'grp-{team_slug}',
+    };
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      participatingOrgs: [{ login: ORG, name: 'Cloud Essentials' }],
+      allOrgAssignments: { [ORG]: { 'grp-lab': team } },
+      // A repository of that shape, but in ANOTHER organization: not ours.
+      userRepos: [{ id: 301, name: 'grp-krusty-krabs', full_name: 'Some-Other-Org/grp-krusty-krabs', owner: { login: 'Some-Other-Org' }, html_url: 'https://github.com/Some-Other-Org/grp-krusty-krabs' }],
+      // The team repository in THIS org, as an invitation not accepted yet.
+      invitations: [{
+        id: 9, repository: { name: 'grp-krusty-krabs', full_name: `${ORG}/grp-krusty-krabs`, owner: { login: ORG }, html_url: `https://github.com/${ORG}/grp-krusty-krabs` },
+        html_url: `https://github.com/${ORG}/grp-krusty-krabs/invitations`,
+      }],
+      currentUser: STUDENT_1,
+    });
+    await page.goto('/');
+    const card = page.locator('.my-assignment-card', { hasText: 'Group Lab' });
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card).toContainText('Invitation pending');
+    await expect(page.locator('a[href*="Some-Other-Org"]')).toHaveCount(0);
+  });
+
   test('Scenario 2 (Lecturer Portal Landing & Organization Entry): Welcomes lecturer and routes to lecturer dashboard', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {

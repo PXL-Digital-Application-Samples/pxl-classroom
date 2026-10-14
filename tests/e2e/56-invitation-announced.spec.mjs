@@ -296,7 +296,9 @@ test.describe('56 - An announced invitation', () => {
       },
       brokerIssues: [{
         number: 7,
-        title: `pxl-accept:sometoken team:${TEAM}`,
+        // The team in the body, as the page sends it: a `team:` in the title parses to nothing.
+        title: 'pxl-accept:sometoken',
+        body: JSON.stringify({ team_slug: TEAM, team_name: 'Team Alpha' }),
         user: { login: STUDENT_1.login },
         created_at: new Date().toISOString(),
       }],
@@ -331,6 +333,7 @@ test.describe('56 - An announced invitation', () => {
     // lecturer to put them in it. Their own request still named the old team;
     // the published list (the lecturer's move) wins over it.
     const MOVED = 'grp-moved';
+    const DEADLINE = new Date(Date.now() + 3 * 86400_000).toISOString();
     const team = (slug, name, members) => ({
       team_slug: slug, team_name: name, members, member_count: members.length, max_members: 3, is_full: members.length >= 3,
       repo_name: `${ORG}/${MOVED}-${slug}`, repo_url: `https://github.com/${ORG}/${MOVED}-${slug}`,
@@ -340,7 +343,7 @@ test.describe('56 - An announced invitation', () => {
       currentUser: STUDENT_1,
       assignments: { [MOVED]: {
         id: MOVED, title: 'Groepsindeling', organization: ORG, assignment_type: 'group', roster_mode: 'open', state: 'published',
-        deadline_at: new Date(Date.now() + 3 * 86400_000).toISOString(),
+        deadline_at: DEADLINE, timezone: 'Europe/Brussels',
         group_config: { max_team_size: 3, min_team_size: 1, allow_team_creation: true, require_join_code: true },
         template: { owner: ORG, repository: 'starter' }, repository_name_pattern: `${MOVED}-{team_slug}`, broker_repo: `broker-${MOVED}`,
       } },
@@ -366,7 +369,12 @@ test.describe('56 - An announced invitation', () => {
       .toHaveAttribute('href', `https://github.com/${ORG}/${MOVED}-systeempiraten/invitations`);
     // Where the team is first seen is where a wrong one is noticed (review
     // 2026-10-14): Switch team is offered here too, as on the ready card.
-    await expect(invited.locator('[data-team-switch]')).toContainText('You can change team yourself until');
+    // Until WHICH date (TS-12): the assignment's deadline, the hub's rule (T4),
+    // in the page's own format (frontend/src/lib/format.js) and zone.
+    const until = new Date(DEADLINE).toLocaleString('en-GB', {
+      timeZone: 'Europe/Brussels', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+    });
+    await expect(invited.locator('[data-team-switch]')).toContainText(`You can change team yourself until ${until}.`);
     await expect(invited.locator('[data-team-switch]').getByRole('button', { name: 'Switch team' })).toBeEnabled();
   });
 });

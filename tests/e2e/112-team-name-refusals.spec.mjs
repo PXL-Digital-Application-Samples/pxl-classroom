@@ -42,6 +42,10 @@ test('an email address in the name is refused on the page, and nothing is sent',
   await input.fill('ann.dewit@student.pxl.be');
   await expect(page.locator('[data-team-name-problem]')).toHaveText(/A team name is shown on a public page, so it cannot contain an email address\./);
   await expect(submit).toBeDisabled();
+  // Enter in the field is the other way to send it (TS-4): nothing either.
+  await input.press('Enter');
+  await page.waitForTimeout(500);
+  expect(issues, 'Enter while refused sends nothing').toEqual([]);
   await input.fill('The Code Crusaders');
   await expect(page.locator('[data-team-name-problem]')).toHaveCount(0);
   await expect(submit).toBeEnabled();
@@ -57,4 +61,21 @@ test("a renamed team's old name is refused and names the team it is now", async 
   await input.fill('Krusty Krabbers');
   await expect(page.locator('[data-slug-renamed]')).toHaveCount(0);
   await expect(submit).toBeEnabled();
+});
+
+test('TS-4: the old name in any case, of a full team the list does not offer, is refused too - and Enter sends nothing', async ({ page }) => {
+  // Full: not offered to join, so not on the list - and its old name still
+  // belongs to it.
+  const full = { team_slug: 'pod-pirates', team_name: 'Pod Pirates', members: ['a', 'b', 'c'], member_count: 3, max_members: 3, is_full: true, renamed_from: ['old-pirates'] };
+  const { issues, input, submit } = await openCreate(page, { teams: [full] });
+  await input.fill('OLD Pirates');
+  await expect(page.locator('[data-slug-renamed]')).toContainText('old-pirates was the name of the team now called Pod Pirates');
+  await expect(submit).toBeDisabled();
+  await input.press('Enter');
+  await page.waitForTimeout(500);
+  expect(issues).toEqual([]);
+  // ...where a name that may be used IS sent by Enter, so the check above can fail.
+  await input.fill('Fresh Pirates');
+  await input.press('Enter');
+  await expect.poll(() => issues.length, { timeout: 10000 }).toBe(1);
 });

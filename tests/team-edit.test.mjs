@@ -9,6 +9,7 @@ import {
   memberStatus,
   revokeOutcome,
   notAnAccountNote,
+  membersEdited,
 } from "../frontend/src/lib/team-edit.js";
 
 const withRepo = (slug) => ({
@@ -84,4 +85,17 @@ test("the not-an-account note is neutral and names everyone", () => {
   assert.equal(notAnAccountNote([]), "");
   assert.equal(notAnAccountNote(["x"]), "@x is not a GitHub account, so there was no access to remove.");
   assert.equal(notAnAccountNote(["x", "y"]), "@x, @y are not GitHub accounts, so there was no access to remove.");
+});
+
+test("TS-5: a member edit is any difference in who is listed, and a login's spelling is not one", () => {
+  assert.equal(membersEdited(["ann", "bob"], ["ann", "bob"]), false);
+  assert.equal(membersEdited(["ann", "bob"], ["bob", "ann"]), false, "order is not an edit");
+  assert.equal(membersEdited(["Ann"], ["ann"]), false, "the same account spelled differently");
+  assert.equal(membersEdited(["ann", "bob"], ["ann"]), true, "a removal");
+  assert.equal(membersEdited(["ann"], ["ann", "bob"]), true, "an addition");
+  assert.equal(membersEdited(["ann", "bob"], ["ann", "cid"]), true, "a swap keeps the count");
+  // Same length, every shown one listed before, but one opened member missing.
+  assert.equal(membersEdited(["ann", "bob"], ["ann", "ann"]), true, "a duplicate hiding a removal");
+  assert.equal(membersEdited(undefined, []), false);
+  assert.equal(membersEdited([], undefined), false);
 });

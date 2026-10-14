@@ -604,6 +604,7 @@ import { copyText } from '../lib/clipboard.js'
 import { normalizeRosterMode, rosterMatchesLogin, claimRequired } from '../../../lib/roster-mode.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 import { personPushed } from '../../../lib/untouched-repo.mjs'
+import { commitDateOf } from '../../../lib/observation.mjs'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -970,7 +971,8 @@ async function refreshStudentSubmissionMeta(org, repoName) {
       const c = res.data[0]
       studentLatestCommit.value = {
         sha: c.sha,
-        date: c.commit?.author?.date || c.commit?.committer?.date,
+        // The committer's date, as the hub judges it (lib/observation.mjs).
+        date: commitDateOf(c),
         message: c.commit?.message,
       }
     }

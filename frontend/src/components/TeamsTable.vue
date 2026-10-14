@@ -88,9 +88,9 @@
         <button type="button" class="btn-link" :disabled="checkingNames" @click="checkRenamedNames">
           {{ checkingNames ? 'Checking…' : 'Check again' }}
         </button>
-        <template v-if="namesServed.state === 'stale'">
+        <template v-if="namesServed.state === 'stale' && !namesAsked">
           ·
-          <button type="button" class="btn-link" :disabled="checkingNames" @click="rebuildForNames">Update the student pages</button>
+          <button type="button" class="btn-link" :disabled="checkingNames" @click="rebuildForNames">{{ rebuildingNames ? 'Updating…' : 'Update the student pages' }}</button>
         </template>
       </span>
     </p>
@@ -575,6 +575,7 @@ import {
   memberStatus,
   revokeOutcome,
   notAnAccountNote,
+  membersEdited,
 } from '../lib/team-edit.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { validateAgainst } from '../lib/validate.js'
@@ -988,12 +989,8 @@ const renameBlocked = computed(() =>
 // Adds or removes made in Manage and not saved yet. A move and a rename both
 // close Manage and write from what is stored, so either would drop them
 // unasked (review 2026-10-14): one thing at a time.
-const memberEditsPending = computed(() => {
-  if (!managingTeam.value) return false
-  const shown = manageMembers.value || []
-  const opened = managingTeam.value.members || []
-  return shown.length !== opened.length || shown.some((m) => !opened.some((o) => sameLogin(o, m)))
-})
+const memberEditsPending = computed(() =>
+  Boolean(managingTeam.value) && membersEdited(managingTeam.value.members, manageMembers.value))
 
 // The name acceptance will give it (lib/repo-name.mjs); a pattern naming
 // `{github_login}` too takes the first member's, not known yet.
@@ -1133,25 +1130,32 @@ function addMemberToTeam(login) {
 // Students never read the control repo - they read the generated public teams
 // file. A lecturer edit that skips this is invisible to them until the next
 // nightly run, which is exactly how lecturer-created teams used to vanish.
-function republishTeams(token) {
-  return republishStudentPages({
-    token,
-    org: props.org,
-    failure: 'Saved, but publishing the change to students failed',
-  })
+function republishTeams(token, failure = 'Saved, but publishing the change to students failed') {
+  return republishStudentPages({ token, org: props.org, failure })
 }
 
 // Whether students see each renamed team's new name (lib/team-names-served.js).
 // Asked of the file the student site serves, never remembered from the rename.
 const namesServed = ref({ state: 'none', stale: [] })
 const checkingNames = ref(false)
-const namesLine = computed(() => renamedTeamsLine(namesServed.value))
+const rebuildingNames = ref(false)
+// This page asked for the rebuild and GitHub took it: read the page again every
+// NAMES_TICK_MS until it is current, for NAMES_WAIT_MS, then offer Update again.
+// The same as a card's "Update the student page now" (useStudentPageStatus.js).
+const namesAsked = ref(false)
+const NAMES_TICK_MS = 20_000
+const NAMES_WAIT_MS = 10 * 60_000
+let namesAskedAt = 0
+let namesTimer = null
+const namesLine = computed(() => renamedTeamsLine(namesServed.value, { asked: namesAsked.value }))
 let namesRun = 0
 async function checkRenamedNames() {
   const mine = ++namesRun
+  clearTimeout(namesTimer)
   const secret = linkSecretFrom(props.assignment)
   if (!secret || !(props.teams || []).some((t) => Array.isArray(t?.renamed_from) && t.renamed_from.length)) {
     namesServed.value = { state: 'none', stale: [] }
+    namesAsked.value = false
     // An earlier read this one superseded returns without clearing it.
     checkingNames.value = false
     return
@@ -1172,15 +1176,30 @@ async function checkRenamedNames() {
   if (mine !== namesRun) return
   namesServed.value = renamedTeamsServed(props.teams, served)
   checkingNames.value = false
+  if (namesServed.value.state === 'stale' && namesAsked.value && Date.now() - namesAskedAt < NAMES_WAIT_MS) {
+    namesTimer = setTimeout(checkRenamedNames, NAMES_TICK_MS)
+  } else {
+    namesAsked.value = false
+  }
 }
 async function rebuildForNames() {
-  // Said at the press (DESIGN.md §1.5): both buttons read "Checking…" until
-  // the rebuild is asked for and the page read again.
+  // Said at the press (DESIGN.md §1.5): "Updating…", with Check again held,
+  // until the rebuild is asked for and the page read again.
+  rebuildingNames.value = true
   checkingNames.value = true
-  await republishTeams(getToken())
-  await checkRenamedNames()
+  try {
+    // Nothing was saved by this press, so its failure says only what failed.
+    if (await republishTeams(getToken(), 'Starting the student page update failed')) {
+      namesAsked.value = true
+      namesAskedAt = Date.now()
+    }
+    await checkRenamedNames()
+  } finally {
+    rebuildingNames.value = false
+  }
 }
 watch(() => props.teams, checkRenamedNames, { immediate: true })
+onBeforeUnmount(() => clearTimeout(namesTimer))
 
 async function removeSeededTeams() {
   const removable = removableSeededTeams.value

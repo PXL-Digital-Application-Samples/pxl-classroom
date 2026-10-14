@@ -320,6 +320,14 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     let reads = 0;
     page.on('request', (r) => { if (/\/pulls(\?|\/)/.test(r.url())) reads++; });
     await control.click({ force: true });
+    // And the keyboard's two presses (TS-9).
+    for (const key of ['Enter', 'Space']) {
+      await control.focus();
+      await page.keyboard.press(key);
+    }
+    // Counted after a wait: a read starts asynchronously, and counted the
+    // instant after the click it is 0 whether or not one is coming (TS-12).
+    await page.waitForTimeout(800);
     await expect(control).toBeVisible();
     expect(reads, 'a refused click reads nothing').toBe(0);
   });

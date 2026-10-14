@@ -1095,7 +1095,9 @@ test("AC9 (decided): a JOIN of a team with no file makes it, as a create does - 
   );
   assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
   assert.ok(existsSync(join(res.dir, "teams", "test-asgn", "ghost.json")), "the team is made");
-  assert.doesNotMatch(readFileSync(new URL("../lib/rejection-notice.mjs", import.meta.url), "utf8"), /team-gone/, "and no refusal for it is left behind");
+  // (A grep that no `team-gone` wording was left in lib/rejection-notice.mjs
+  // stood here; it could not fail for a reason that mattered, since the run
+  // above is what says the join is not refused - TS-12.)
 });
 
 test("seeded team - pre-assigned member accepts with no team in the payload", () => {

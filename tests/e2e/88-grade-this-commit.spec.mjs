@@ -50,14 +50,15 @@ const summary = {
 const overridePath = `overrides/${ID}/${LOGIN}.json`;
 const summaryPath = `grading/${ID}/summary.json`;
 
-async function setup(page, { workflow = withEntry } = {}) {
+async function setup(page, { workflow = withEntry, extra = {}, row = {} } = {}) {
   const contentWrites = [];
   const dispatches = [];
   let dispatched = false;
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER, contentWrites,
-    assignments: { [ID]: assignment }, reports: { [ID]: report },
+    assignments: { [ID]: { ...assignment, ...extra } },
+    reports: { [ID]: { ...report, students: report.students.map((s) => ({ ...s, ...row })) } },
     gradingSummaries: { [ID]: summary },
   });
   const esc = REPO.replace('/', '\\/');
@@ -159,4 +160,22 @@ test.describe('88 - grade this commit now', () => {
     await expect(picker(page)).toContainText('Its template\'s grading workflow needs a workflow_dispatch input named grade_sha')
     await expect(picker(page)).toContainText('once the template has them, Sync Starter Code sends the workflow to this repository');
   });
+
+  // GR7 on screen (TS-7): where Sync Starter Code does not run, the advice does
+  // not send the lecturer to it - by the setting, or by a student's own copy
+  // after the setting was unticked.
+  for (const [label, opts] of [
+    ['the setting is on', { extra: { template_full_history: true } }],
+    ['the setting is off, and this student holds such a copy', { row: { starter_sha: 'c'.repeat(40), starter_commit_count: 14, full_history: true } }],
+  ]) {
+    test(`TS-7 (GR7): a workflow without the entry, where starter sync does not run (${label}): the repository's own workflow is the fix`, async ({ page }) => {
+      await setup(page, { workflow: withoutEntry, ...opts });
+      // What the copy was given: one commit of the template's, before every hand-in.
+      await page.route(new RegExp(`/repos/${REPO.replace('/', '\\/')}/commits\\?sha=c{40}`), (route) =>
+        route.fulfill({ status: 200, body: JSON.stringify([{ sha: 'c'.repeat(40), commit: { message: 'template', committer: { date: at(0) } } }]) }));
+      await openPicker(page);
+      await expect(picker(page)).toContainText('starter sync does not run on this assignment, so the workflow has to be changed in this repository itself');
+      await expect(picker(page)).not.toContainText('Sync Starter Code sends');
+    });
+  }
 });

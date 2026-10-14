@@ -58,6 +58,22 @@ test("no teams file yet is behind; an unreadable one is unknown, never current",
   assert.match(renamedTeamsLine(u), /unknown/);
 });
 
+test("TS-6: an update this page asked for is said on the stale line, and only there", () => {
+  const stored = [team("rockets", "Rockets", { renamed_from: ["team-a"] })];
+  const stale = renamedTeamsServed(stored, ok([team("team-a", "Team A")]));
+  assert.equal(
+    renamedTeamsLine(stale, { asked: true }),
+    'Students do not see "Rockets" yet, they see "Team A": an update was asked for, and usually takes a minute or two.',
+  );
+  const current = renamedTeamsServed(stored, ok([team("rockets", "Rockets")]));
+  assert.equal(renamedTeamsLine(current, { asked: true }), renamedTeamsLine(current));
+  const unreadable = renamedTeamsServed(stored, { status: "unreadable" });
+  assert.equal(renamedTeamsLine(unreadable, { asked: true }), renamedTeamsLine(unreadable));
+  // Not on the page at all, and two more: the count says "teams".
+  const three = renamedTeamsServed([...stored, team("b", "B", { renamed_from: ["x"] }), team("c", "C", { renamed_from: ["y"] })], ok([]));
+  assert.equal(renamedTeamsLine(three), 'Students do not see "Rockets" yet (and 2 more renamed teams): the student pages have not been rebuilt since the rename.');
+});
+
 test("a team everybody left is not on the page and is not asked about", () => {
   const stored = [team("rockets", "Rockets", { renamed_from: ["team-a"], vacant: true, members: [] })];
   assert.equal(renamedTeamsServed(stored, ok([])).state, "none");

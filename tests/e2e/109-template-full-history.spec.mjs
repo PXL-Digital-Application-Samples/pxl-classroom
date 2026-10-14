@@ -9,7 +9,7 @@
 
 import { test, expect } from '@playwright/test';
 import { parse } from 'yaml';
-import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings, openMoreActionsMenu } from '../fixtures/e2e-fixtures.mjs';
+import { ORG, LECTURER, injectAuth, setupStandardMockRoutes, inviteToken, expandSettings, openMoreActionsMenu, openAutogradeModal } from '../fixtures/e2e-fixtures.mjs';
 
 const ID = 'git-exercise';
 
@@ -85,7 +85,9 @@ test.describe('109 - every branch and its full history', () => {
     await openEditor(page, { template_full_history: true });
     await expect(historyLine(page)).toBeVisible();
     await expect(box(page)).toBeHidden();
-    await historyLine(page).getByRole('button', { name: 'Change' }).click();
+    // By its whole name, which says what it changes (D13): a bare "Change" would
+    // match any button that merely contains the word.
+    await historyLine(page).getByRole('button', { name: 'Change whether students get every branch and its full history', exact: true }).click();
     await expect(box(page)).toBeVisible();
     await expect(box(page)).toBeChecked();
     // On it: focus moves to the checkbox the line is about (DESIGN.md §1.8).
@@ -103,6 +105,118 @@ test.describe('109 - every branch and its full history', () => {
     expect(doc).not.toBeNull();
     expect('template_full_history' in doc).toBe(false);
   });
+
+  test('TS-7 (D3/D4): the lock and the branch hints say what full history changes, and only when it is on', async ({ page }) => {
+    await openEditor(page);
+    await openAdvanced(page);
+    const refHint = page.locator('.field', { has: page.locator('label', { hasText: 'Submission ref' }) }).locator('small');
+    const option = (title) => page.locator('.policy-option', { has: page.locator('strong', { hasText: new RegExp(`^${title}$`) }) });
+    const stops = option('Pushing stops');
+    const readOnly = option('The repository becomes read-only');
+    const OTHER_BRANCHES = 'Only the default branch stops; their other branches stay open.';
+    await expect(refHint).toHaveText(/^\s*Student repositories start with the template's default branch only: refs\/heads\/[\w.-]+\.\s*$/, { timeout: 15000 });
+    await expect(stops).not.toContainText(OTHER_BRANCHES);
+
+    await box(page).check();
+    await expect(refHint).toHaveText(/^\s*Students get every branch, but only the template's default branch, refs\/heads\/[\w.-]+, is graded and archived\.\s*$/);
+    await expect(stops).toContainText(OTHER_BRANCHES);
+    // Read-only takes the whole repository, every branch: the sentence is not true there.
+    await expect(readOnly).not.toContainText('branches stay open');
+  });
+
+  // THE TEMPLATE-CHANGE HINT AND THE NOTICE AFTER THE SAVE, for each answer the
+  // students' records give: Sync Starter Code runs, it does not, or the report
+  // could not be read and nobody knows (TS-7: that was a guess that it runs).
+  for (const [label, extra, report, said, link] of [
+    ['ordinary', {}, 'empty', 'Sync Starter Code brings them up to the new template, and shows every change before it is sent.', true],
+    ['full history on', { template_full_history: true }, 'empty', 'Sync Starter Code does not run on this assignment: students in it were given the template with its full history.', false],
+    ['report unreadable', {}, 500, 'Whether Sync Starter Code can bring them up to the new template could not be read just now; it says so itself before anything is sent.', true],
+  ]) {
+    test(`TS-7: a template change on an assignment with a student, ${label}: the hint and the notice say only what was read`, async ({ page }) => {
+      const contentWrites = [];
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, {
+        currentUser: LECTURER,
+        assignments: { [ID]: assignment(extra) },
+        userRepos: [brokerRepo],
+        contentWrites,
+        reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), students: [] } },
+        controlRepositories: { [ID]: [{
+          schema_version: 1, assignment_id: ID, github_login: 'ann', repo_id: 7001,
+          repo_name: `${ORG}/${ID}-ann`, repo_url: `https://github.com/${ORG}/${ID}-ann`,
+        }] },
+      });
+      if (report === 500) {
+        await page.route(`**/pxl-classroom-control/contents/reports/${ID}.json*`, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"Server Error"}' }));
+      }
+      await page.route((url) => url.href.includes('/actions/workflows/') && url.href.includes('/dispatches'),
+        (route) => route.fulfill({ status: 204, body: '' }));
+      await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+      await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
+      await expandSettings(page);
+      await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/another-template`);
+
+      const hint = page.locator('.form-hint[role="note"]', { hasText: 'already has' });
+      await expect(hint).toContainText('1 student already has a repository from the current template. The new one is used only for students who accept from now on', { timeout: 10000 });
+      if (report === 500) {
+        await expect(hint).toHaveText(/accept from now on\.$/);
+        await expect(hint).not.toContainText('Sync Starter Code');
+      } else if (link) {
+        await expect(hint).toContainText('after saving, Sync Starter Code sends it to the others.');
+      } else {
+        await expect(hint).toContainText('Sync Starter Code does not run on this assignment');
+      }
+
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      const notice = page.locator('.published-info-card', { hasText: 'Existing repositories still have the old template' });
+      await expect(notice).toBeVisible({ timeout: 15000 });
+      await expect(notice).toContainText('1 student has a repository made from the previous template.');
+      await expect(notice).toContainText(said);
+      await expect(notice.getByRole('link', { name: 'Sync Starter Code' })).toHaveCount(link ? 1 : 0);
+    });
+  }
+
+  // The same three answers in the Autograde dialog, after it writes a starter
+  // grading workflow to the template.
+  for (const [label, extra, report, said] of [
+    ['ordinary', {}, 'empty', 'Students who accepted before now keep their copy until you run Sync Starter Code on this assignment.'],
+    ['full history on', { template_full_history: true }, 'empty', 'Students who accepted before now do not get it: Sync Starter Code does not run on this assignment, whose students were given the template with its full history.'],
+    ['report unreadable', {}, 500, 'Students who accepted before now keep their copy. Whether Sync Starter Code can send it to them could not be read just now.'],
+  ]) {
+    test(`TS-7: the Autograde dialog, after adding a starter workflow to the template, ${label}`, async ({ page }) => {
+      const contentWrites = [];
+      const TEMPLATE = `${ORG}/git-exercise-template`;
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, {
+        currentUser: LECTURER,
+        assignments: { [ID]: assignment(extra) },
+        userRepos: [brokerRepo],
+        contentWrites,
+        reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), students: [] } },
+      });
+      if (report === 500) {
+        await page.route(`**/pxl-classroom-control/contents/reports/${ID}.json*`, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"Server Error"}' }));
+      }
+      await page.route(`https://api.github.com/repos/${TEMPLATE}/contents/.github/workflows`, (route) =>
+        route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' }));
+      await page.route(`https://api.github.com/repos/${TEMPLATE}/contents/.github/workflows/classroom.yml`, (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' })
+          : route.fallback());
+      await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
+      await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
+      await expandSettings(page);
+      await openAutogradeModal(page);
+      const dialog = page.locator('.autograde-setup-modal');
+      await page.getByRole('radio', { name: /They come with my template/ }).check();
+      await expect(dialog.locator('.ag-template-state')).toContainText(`No grading workflow in ${TEMPLATE}`, { timeout: 10000 });
+      await page.getByRole('radio', { name: /Only on a hand-in commit/ }).check();
+      await page.getByLabel('Commit message', { exact: true }).fill('einde examen');
+      await dialog.getByRole('button', { name: /Add a starter workflow/ }).click();
+      await expect.poll(() => contentWrites.some((w) => w.path === '.github/workflows/classroom.yml'), { timeout: 10000 }).toBe(true);
+      await expect(dialog.locator('.ag-marker-hint', { hasText: 'Added to your template repository.' })).toHaveText(`Added to your template repository. ${said}`);
+    });
+  }
 
   // A student holding a full-history copy, on an assignment whose box was
   // unticked after they accepted: the copy is per student, the setting per assignment.
@@ -130,6 +244,10 @@ test.describe('109 - every branch and its full history', () => {
       await expect(item).toHaveCount(1);
       if (!reason) {
         await expect(item).toBeEnabled();
+        // ...and Enter opens it there, so the keyboard checks below can fail.
+        await item.focus();
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#starter-sync-title')).toBeVisible();
       } else {
         await expect(item).toBeDisabled();
         await expect(item).toContainText(reason);
@@ -138,6 +256,14 @@ test.describe('109 - every branch and its full history', () => {
         await item.focus();
         await expect(item).toBeFocused();
         await item.click({ force: true });
+        // Enter and Space press a button too (TS-9).
+        for (const key of ['Enter', 'Space']) {
+          if (!(await item.isVisible())) await openMoreActionsMenu(page);
+          await item.focus();
+          await page.keyboard.press(key);
+        }
+        // Absent after a wait: the dialog opens asynchronously.
+        await page.waitForTimeout(800);
         await expect(page.locator('#starter-sync-title')).toHaveCount(0);
       }
     });

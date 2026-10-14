@@ -113,11 +113,12 @@
               made from the previous template. The new one, <code>{{ templateNotice.template }}</code>, is used for
               students who accept from now on; publishing again does not change existing repositories.
               <template v-if="templateNotice.syncable">Sync Starter Code brings them up to the new template, and shows every change before it is sent.</template>
-              <template v-else>Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template>
+              <template v-else-if="templateNotice.syncable === false">Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template>
+              <template v-else>Whether Sync Starter Code can bring them up to the new template could not be read just now; it says so itself before anything is sent.</template>
             </p>
             <div class="cohort-actions">
               <router-link
-                v-if="templateNotice.syncable"
+                v-if="templateNotice.syncable !== false"
                 class="btn btn-secondary btn-sm"
                 :to="{ name: 'assignment-detail', params: { org, assignmentId: templateNotice.id }, query: { sync: '1' } }"
               >Sync Starter Code</router-link>
@@ -448,9 +449,9 @@
                    from now on, and publishing again does not change that. -->
               <small v-if="templateSwitchCount" class="form-hint" role="note">
                 {{ templateSwitchCount === 1 ? '1 student already has' : `${templateSwitchCount} students already have` }}
-                a repository from the current template. The new one is used only for students who accept from now on<template v-if="!syncAvailable">;
-                Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template><template v-else>;
-                after saving, Sync Starter Code sends it to the others.</template>
+                a repository from the current template. The new one is used only for students who accept from now on<template v-if="syncAvailable === false">;
+                Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template><template v-else-if="syncAvailable">;
+                after saving, Sync Starter Code sends it to the others.</template><template v-else>.</template>
               </small>
               <!-- Pre-flight Template Validation Badge (2.B) -->
               <div v-if="templateValidationStatus" class="template-preflight-badge" style="margin-top: var(--space-xs);" role="status">
@@ -4916,20 +4917,32 @@ async function noticeTemplateChange(id, before, after) {
 // the setting can be unticked after some accepted with a full-history copy,
 // and the checkbox alone then pointed at a sync the page refuses. The report's
 // rows carry `starter_sha`; read once per assignment, when something here is
-// about to name Sync Starter Code. A report that cannot be read leaves the
-// setting's answer, and the workflow still asks the records themselves.
-const givenRows = ref({ id: null, rows: [] })
+// about to name Sync Starter Code. No report yet is nobody; a report that
+// cannot be read leaves it UNKNOWN (null) unless the setting alone refuses,
+// and every sentence below says so rather than guess - the assignment page and
+// the workflow still ask the records themselves (review 2026-10-14, TS-7).
+const givenRows = ref({ id: null, rows: [], unreadable: false })
 async function readGivenRows(id) {
-  if (!id || isNew.value || givenRows.value.id === id) return
+  if (!id || isNew.value || (givenRows.value.id === id && !givenRows.value.unreadable)) return
   let rows = []
+  let unreadable = false
   try {
     const text = await getRepoContent(getToken(), props.org, config.controlRepo, reportPath(id))
     rows = (text && JSON.parse(text)?.students) || []
-  } catch { rows = [] }
-  if (form.value.id === id) givenRows.value = { id, rows: Array.isArray(rows) ? rows : [] }
+  } catch { unreadable = true }
+  if (form.value.id === id) givenRows.value = { id, rows: Array.isArray(rows) ? rows : [], unreadable }
 }
-const syncAvailable = computed(() =>
-  !syncRefusal(form.value, givenRows.value.id === form.value.id ? givenRows.value.rows : []))
+/**
+ * true: Sync Starter Code runs here; false: it does not; null: not known - not
+ * read yet, or unreadable. A new assignment has no students to ask about.
+ */
+const syncAvailable = computed(() => {
+  if (syncRefusal(form.value, [])) return false
+  if (isNew.value) return true
+  const read = givenRows.value.id === form.value.id ? givenRows.value : null
+  if (!read || read.unreadable) return null
+  return !syncRefusal(form.value, read.rows)
+})
 watch(showAutogradeModal, (open) => { if (open) readGivenRows(form.value.id) })
 
 /** Save a closed or archived assignment without changing its state. */

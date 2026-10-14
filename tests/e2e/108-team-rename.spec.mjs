@@ -131,13 +131,75 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await expect.poll(() => commits.length, { timeout: 15000 }).toBe(1);
   });
 
+  test('TS-5: the team gone at the click, a name another team had before ITS rename, and a stored file that would not be valid', async ({ page }) => {
+    const pirates = { ...team('pod-pirates', 'Pod Pirates', ['stud3']), renamed_from: ['old-pirates'] };
+    const commits = await open(page, { extra: { controlTeams: { [ID]: [team('krusty-krab', 'Krusty Krab', ['stud1', 'stud2']), pirates] } } });
+    const modal = await manage(page, 'Krusty Krab');
+    const alert = modal.locator('[data-team-rename] [role="alert"]');
+
+    await modal.getByRole('button', { name: 'Rename team' }).click();
+    await modal.locator('#team-rename-input').fill('Old Pirates');
+    await modal.locator('#team-rename-input').press('Enter');
+    await expect(alert).toHaveText('Not renamed: another team in this assignment was called that until it was renamed (old-pirates). Nothing was changed.', { timeout: 15000 });
+
+    // Gone at the click: deleted in another tab since the page loaded.
+    await page.route(`**/pxl-classroom-control/contents/teams/${ID}/krusty-krab.json`, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: 'Not Found' }) }));
+    await modal.locator('#team-rename-input').fill('Krusty Krabs');
+    await modal.locator('#team-rename-input').press('Enter');
+    await expect(alert).toHaveText('This team is no longer there. Nothing was changed.', { timeout: 15000 });
+
+    // A stored file the schema refuses (P1-3): not about the name typed.
+    await page.unroute(`**/pxl-classroom-control/contents/teams/${ID}/krusty-krab.json`);
+    await page.route(`**/pxl-classroom-control/contents/teams/${ID}/krusty-krab.json`, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ content: Buffer.from(JSON.stringify({ ...team('krusty-krab', 'Krusty Krab', ['stud1', 'stud2']), not_a_field: true })).toString('base64'), encoding: 'base64', sha: 'x' }),
+    }));
+    await modal.locator('#team-rename-input').press('Enter');
+    await expect(alert).toHaveText("Not renamed: the team's stored file would not be valid afterwards. This is not about the name you typed; tell whoever runs PXL Classroom. Nothing was changed.", { timeout: 15000 });
+    expect(commits).toEqual([]);
+  });
+
+  test('TS-5: the box takes at most 100 characters; Cancel gives focus back; opened with Enter it does not commit on the keyup', async ({ page }) => {
+    const commits = await open(page);
+    const modal = await manage(page, 'Krusty Krab');
+    const button = modal.getByRole('button', { name: 'Rename team' });
+    // From the keyboard: Enter's keydown opens the box, and its keyup lands in it.
+    await button.focus();
+    await page.keyboard.press('Enter');
+    const box = modal.locator('#team-rename-input');
+    await expect(box).toBeFocused();
+    await page.waitForTimeout(300);
+    expect(commits, 'opening with Enter commits nothing').toEqual([]);
+    await expect(box).toBeVisible();
+    // A save of the unchanged name would have said so here.
+    await expect(modal.locator('[data-team-rename] [role="alert"]')).toHaveCount(0);
+
+    await box.fill('');
+    await box.pressSequentially('A'.repeat(105));
+    expect((await box.inputValue()).length).toBe(100);
+
+    await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(box).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Rename team' })).toBeFocused();
+    expect(commits).toEqual([]);
+  });
+
+  test('TS-5: a member who accepted is named by their address where one is known', async ({ page }) => {
+    const rows = students(['stud1']).map((s) => (s.github_login === 'stud1' ? { ...s, claimed_email: 'stud.one@student.pxl.be' } : s));
+    await open(page, { extra: { reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: rows } } } });
+    const modal = await manage(page, 'Krusty Krab');
+    await expect(modal).toContainText('Cannot be renamed: stud.one@student.pxl.be has accepted');
+    await expect(modal.getByRole('button', { name: 'Rename team' })).toHaveCount(0);
+  });
+
   test('a name another team has is refused, and nothing is written', async ({ page }) => {
     const commits = await open(page);
     const modal = await manage(page, 'Krusty Krab');
     await modal.getByRole('button', { name: 'Rename team' }).click();
     await modal.locator('#team-rename-input').fill('Pod-Pirates');
     await modal.locator('#team-rename-input').press('Enter');
-    await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('another team in this assignment is already called that');
+    // Exact (D10): "Nothing was changed" once, not twice.
+    await expect(modal.locator('[data-team-rename] [role="alert"]')).toHaveText('Not renamed: another team in this assignment is already called that (pod-pirates). Nothing was changed.');
     expect(commits).toEqual([]);
   });
 
@@ -459,5 +521,89 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await expect(line).toContainText('Students see every renamed team under its new name.');
     expect(reads).toBe(before + 1);
     await expect(line.getByRole('button', { name: 'Update the student pages' })).toHaveCount(0);
+  });
+
+  // TS-6: the same line, for every answer the student site can give.
+  async function namesLine(page, { teams, served, inviteKey = inviteToken(ORG, ID), workflowDispatches = [] }) {
+    const reads = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: { ...assignment(), ...(inviteKey ? { invite_key: inviteKey } : {}) } },
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: students() } },
+      controlTeams: { [ID]: teams },
+      roster,
+      workflowDispatches,
+    });
+    await page.route(/\/data\/[^/]+\/i\/[^/]+\.teams\.json/, (route) => {
+      reads.push(route.request().url());
+      const s = served();
+      return typeof s === 'number'
+        ? route.fulfill({ status: s, body: '' })
+        : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: s }) });
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    return { reads, line: page.locator('[data-note="renamed-served"]') };
+  }
+  const renamedTeam = (slug, name, from, members = ['stud1']) => ({ ...team(slug, name, members), renamed_from: [from] });
+
+  test('TS-6: a teams file that cannot be read says unknown, and offers no update', async ({ page }) => {
+    const { line } = await namesLine(page, { teams: [renamedTeam('krusty-krabs', 'Krusty Krabs', 'krusty-krab')], served: () => 500 });
+    await expect(line).toHaveAttribute('data-state', 'unreadable');
+    await expect(line).toContainText('Could not read the student page, so whether students see the new team names is unknown.');
+    await expect(line.getByRole('button', { name: 'Check again' })).toBeVisible();
+    await expect(line.getByRole('button', { name: 'Update the student pages' })).toHaveCount(0);
+  });
+
+  test('TS-6: no teams file yet, and two renamed teams: behind, naming one and counting the other', async ({ page }) => {
+    const { line } = await namesLine(page, {
+      teams: [renamedTeam('krusty-krabs', 'Krusty Krabs', 'krusty-krab'), renamedTeam('pod-pirates', 'Pod Pirates', 'old-pirates', ['stud3'])],
+      served: () => 404,
+    });
+    await expect(line).toHaveAttribute('data-state', 'stale');
+    await expect(line).toContainText('Students do not see "Krusty Krabs" yet (and 1 more renamed team): the student pages have not been rebuilt since the rename.');
+  });
+
+  test('TS-6: Update the student pages says it is working, asks for the rebuild, and says so until the page catches up', async ({ page }) => {
+    const dispatches = [];
+    let served = [{ team_slug: 'krusty-krab', team_name: 'Krusty Krab', members: ['stud1'] }];
+    const { line, reads } = await namesLine(page, { teams: [renamedTeam('krusty-krabs', 'Krusty Krabs', 'krusty-krab')], served: () => served, workflowDispatches: dispatches });
+    await expect(line).toHaveAttribute('data-state', 'stale');
+    // Hold the dispatch, so the press can be seen before GitHub answers.
+    let release;
+    const held = new Promise((r) => { release = r; });
+    await page.route('**/actions/workflows/*/dispatches', async (route) => { await held; await route.fallback(); });
+    await line.getByRole('button', { name: 'Update the student pages' }).click();
+    await expect(line.getByRole('button', { name: 'Updating…' })).toBeDisabled();
+    await expect(line.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+    const before = reads.length;
+    release();
+    await expect(line).toContainText('Students do not see "Krusty Krabs" yet, they see "Krusty Krab": an update was asked for, and usually takes a minute or two.');
+    expect(dispatches).toEqual([{ workflow: 'regenerate-dashboard.yml', inputs: { org: ORG } }]);
+    expect(reads.length, 'the page is read again after the request').toBe(before + 1);
+    // Asked once: not offered again while it is on its way.
+    await expect(line.getByRole('button', { name: 'Update the student pages' })).toHaveCount(0);
+    served = [{ team_slug: 'krusty-krabs', team_name: 'Krusty Krabs', members: ['stud1'] }];
+    await line.getByRole('button', { name: 'Check again' }).click();
+    await expect(line).toHaveAttribute('data-state', 'current');
+  });
+
+  test('TS-6: an update GitHub refuses says that, and nothing about a save; the line still offers it', async ({ page }) => {
+    const { line } = await namesLine(page, { teams: [renamedTeam('krusty-krabs', 'Krusty Krabs', 'krusty-krab')], served: () => 404 });
+    await page.route('**/actions/workflows/*/dispatches', (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Resource not accessible by integration' }) }));
+    await line.getByRole('button', { name: 'Update the student pages' }).click();
+    const toast = page.locator('.toast', { hasText: 'Starting the student page update failed' });
+    await expect(toast).toBeVisible();
+    await expect(toast).not.toContainText('Saved');
+    await expect(line).toContainText('the student pages have not been rebuilt since the rename.');
+    await expect(line.getByRole('button', { name: 'Update the student pages' })).toBeEnabled();
+  });
+
+  test('TS-6: an assignment with no invitation link has no student page to ask, so nothing is said or read', async ({ page }) => {
+    const { line, reads } = await namesLine(page, { teams: [renamedTeam('krusty-krabs', 'Krusty Krabs', 'krusty-krab')], served: () => 404, inviteKey: null });
+    await expect(page.locator('tr', { hasText: 'Krusty Krabs' })).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(line).toHaveCount(0);
+    expect(reads).toEqual([]);
   });
 });

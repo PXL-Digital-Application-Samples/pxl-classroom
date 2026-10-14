@@ -157,7 +157,8 @@
           <p v-if="template.added" class="ag-marker-hint">
             Added to your template repository.
             <template v-if="syncAvailable">Students who accepted before now keep their copy until you run Sync Starter Code on this assignment.</template>
-            <template v-else>Students who accepted before now do not get it: Sync Starter Code does not run on this assignment, whose students were given the template with its full history.</template>
+            <template v-else-if="syncAvailable === false">Students who accepted before now do not get it: Sync Starter Code does not run on this assignment, whose students were given the template with its full history.</template>
+            <template v-else>Students who accepted before now keep their copy. Whether Sync Starter Code can send it to them could not be read just now.</template>
           </p>
         </fieldset>
 
@@ -343,7 +344,8 @@ const props = defineProps({
   submissionMarkerMaxHandIns: { type: Number, default: null },
   /** Whether Sync Starter Code can bring this assignment's students the
    *  change: not where they were given the full history (lib/starter-sync.mjs
-   *  `syncRefusal`), so the dialog does not send them to it. */
+   *  `syncRefusal`), so the dialog does not send them to it. null when the
+   *  students' records could not be read, and the dialog says that instead. */
   syncAvailable: { type: Boolean, default: true },
   /**
    * What the parent found in the template repository, and nothing this dialog

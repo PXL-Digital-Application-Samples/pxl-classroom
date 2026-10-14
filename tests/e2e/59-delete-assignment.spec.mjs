@@ -56,13 +56,13 @@ async function openClosedAssignment(
   page,
   {
     gitCommits, workflowDispatches, treeTruncated = false, brokerStatus = 200, reportStudents = [],
-    ancestry = 'ahead', sourcesStatus = 200, reportStatus = 200, extraRoutes = null,
+    ancestry = 'ahead', sourcesStatus = 200, reportStatus = 200, extraRoutes = null, assignmentOver = {},
   } = {},
 ) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
-    assignments: { [ID]: assignment() },
+    assignments: { [ID]: assignment(assignmentOver) },
     // The evidence has to exist to be kept: without a report on record the
     // delete correctly copies nothing, which is not what this is testing.
     reports: { [ID]: { schema_version: 1, assignment_id: ID, derived_from: DERIVED_FROM, students: reportStudents } },
@@ -154,6 +154,26 @@ test.describe('59 - the dialog says what it costs before it can be used', () => 
     await openClosedAssignment(page, { extraRoutes: routes(404) });
     await chooseState(page, 'Delete assignment');
     await expect(dialog(page).locator('[data-delete-unarchived]')).toContainText('Nothing has been archived yet');
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
+  test('TS-11: a draft that was published once, with students in it, says the same, in exact words', async ({ page }) => {
+    // Back to draft after students accepted: still finalized after the deadline
+    // (A1, P2-25), so "by the nightly check after the deadline" is true of it.
+    await openClosedAssignment(page, {
+      // Published once: it still carries the invitation it was given.
+      assignmentOver: { state: 'draft', invite_nonce: 'e2e00059' },
+      extraRoutes: async (p) => {
+        await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+          route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' }));
+        await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/repositories/${ID}`, (route) =>
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: 'alice.json', type: 'file' }]) }));
+      },
+    });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-delete-unarchived]')).toHaveText(
+      "Nothing has been archived yet. Students' work is locked and copied to the archive by the nightly check after the deadline, and a deleted assignment never gets there: no copy of what they had at the deadline will exist. To keep one, delete it after that check has run.",
+    );
     await expect(dialog(page)).not.toContainText('The archive is kept');
   });
 

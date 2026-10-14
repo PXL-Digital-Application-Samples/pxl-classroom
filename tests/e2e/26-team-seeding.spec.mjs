@@ -147,6 +147,74 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(error).toHaveCount(0);
   });
 
+  test('TS-11: a read that fails at Copy says so in the dialog, in words, and writes nothing', async ({ page }) => {
+    const gitCommits = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      gitCommits,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+    });
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+    // The plan is read again at the press; this time the target's teams cannot be.
+    await page.route(new RegExp(`/pxl-classroom-control/contents/teams/${NEXT}(\\?|$)`), (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Server Error' }) }));
+    await page.locator('.modal-foot button', { hasText: /Copy 1 team/ }).click();
+    const error = page.locator('[data-seed-error]');
+    await expect(error).toContainText('Nothing was copied.');
+    await expect(error.locator('.seed-banner-text')).toHaveText('A read from GitHub failed (HTTP 500). Try again in a minute.');
+    await expect(page.locator('.seed-modal')).toBeVisible();
+    expect(gitCommits).toEqual([]);
+  });
+
+  test('TS-11: a roster that cannot be read is not an empty one', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT, { roster_mode: 'enforced' }) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      roster: [{ student_number: '1', full_name: 'Student One', github_login: STUDENT_1.login, team_slug: 'pair-1' }],
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login, 'graduated-student'])] },
+    });
+    await page.route(/\/pxl-classroom-control\/contents\/students\/roster\.yml/, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Server Error' }) }));
+    await openSeedModal(page, NEXT);
+    // From a previous assignment: the copy is still possible, and the notes it
+    // could not check are said not to have been checked.
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-banner-warn')).toContainText('The roster could not be read, so whether these students are on it, and in this assignment, was not checked.', { timeout: 10000 });
+    await expect(page.locator('.modal-foot .btn-primary')).toBeEnabled();
+    // From the roster's Team column: nothing to plan from, and said as that,
+    // never "no roster entries carry a team_slug".
+    await page.locator('#seed-source').selectOption('roster');
+    const failed = page.locator('.seed-banner-danger');
+    await expect(failed).toContainText('Could not plan the copy.');
+    await expect(failed).toContainText('The roster could not be read, so its Team column could not be copied. Try again in a minute.');
+    await expect(page.locator('.seed-modal')).not.toContainText('team_slug');
+  });
+
+  test('TS-11: the footnote says when students see the teams: at once when published, at publishing when a draft', async ({ page }) => {
+    for (const [state, words] of [
+      ['published', 'The teams are saved now and students see them right away; no repository is created until a student accepts.'],
+      ['draft', 'The teams are saved now. Students see them once the assignment is published; no repository is created until a student accepts.'],
+    ]) {
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, {
+        currentUser: LECTURER,
+        assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT, { state }) },
+        reports: { [NEXT]: emptyReport(NEXT) },
+        controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+      });
+      await openSeedModal(page, NEXT);
+      await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+      await expect(page.locator('.seed-footnote')).toHaveText(words, { timeout: 10000 });
+    }
+  });
+
   test('Blocked: a team larger than the target maximum refuses the whole seed', async ({ page }) => {
     const gitCommits = [];
     await injectAuth(page, LECTURER);

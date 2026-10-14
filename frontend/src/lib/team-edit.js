@@ -19,6 +19,24 @@
 //   * a student who never accepted has no access anywhere to take away.
 
 import { teamRepository } from '../../../lib/team-member-records.mjs'
+import { sameLogin } from '../../../lib/github-login.mjs'
+
+/**
+ * Whether the Manage dialog's member list differs from the team it opened on:
+ * a rename or a move writes the stored members, so either would save these
+ * unannounced (or lose them). Logins compare as GitHub does, so a different
+ * spelling of the same account is not an edit.
+ *
+ * @param {string[]|undefined} opened  the members when the dialog opened
+ * @param {string[]|undefined} shown   the members the dialog shows now
+ */
+export function membersEdited(opened = [], shown = []) {
+  const before = opened || []
+  const now = shown || []
+  return before.length !== now.length
+    || now.some((m) => !before.some((o) => sameLogin(o, m)))
+    || before.some((o) => !now.some((m) => sameLogin(o, m)))
+}
 
 const repoShort = (repo) => String(repo.repo_name).split('/').pop()
 const nameOf = (team) => team?.team_name || team?.team_slug || 'the team'

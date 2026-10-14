@@ -192,3 +192,29 @@ export function pastDeadline(deadline, now = Date.now()) {
   const at = new Date(deadline).getTime()
   return Number.isFinite(at) && at < now
 }
+
+/**
+ * The label of a missing-work card (No submission, Not handed in). Its count
+ * is all of them and it is red once one is past their own deadline, so a split
+ * is said rather than implied (review 2026-10-14, D17b): a red "5 Not handed
+ * in" over one overdue student and four with an extension overstated it.
+ *
+ * @param {string} word   the card's name
+ * @param {number} total  how many the card counts
+ * @param {number} past   how many of those are past their own deadline
+ */
+export function missingWorkLabel(word, total, past) {
+  if (!total || past === total) return word
+  if (!past) return `${word} yet`
+  return `${word}: ${past} past their deadline`
+}
+
+/** The same card's hover text, which says why it is grey or red. */
+export function missingWorkTitle(word, total, past) {
+  // Nobody: neither "normal before the deadline" nor "by their deadline" is
+  // about anyone (TS-10).
+  if (!total) return `${word}: nobody`
+  if (!past) return `${word} yet, which is normal before the deadline`
+  if (past === total) return `${word} by their deadline`
+  return `${past} of ${total} past their own deadline; the others are not due yet`
+}

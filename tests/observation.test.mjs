@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { commitAuthor, isBotAuthorName, snapshotObservation } from "../lib/observation.mjs";
+import { commitAuthor, commitDateOf, isBotAuthorName, snapshotObservation } from "../lib/observation.mjs";
 import { observationPath } from "../lib/control-layout.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
@@ -20,6 +20,20 @@ const base = {
   assignmentId: "labs", login: "ann", repoId: 42, ref: "refs/heads/main",
   commit: commit(), commitCount: 7, observedAt: "2026-09-26T09:00:00.000Z",
 };
+
+test("when a commit counts as made is its COMMITTER date, everywhere - the author's only where there is none", () => {
+  // The student pages read the author's first: rebased after the deadline,
+  // a commit told the student "on time" and the lecturer "late".
+  assert.equal(commitDateOf(commit()), "2026-09-26T08:01:00Z");
+  assert.equal(commitDateOf(commit({ committer: {} })), "2026-09-26T08:00:00Z");
+  assert.equal(commitDateOf({}), null);
+  assert.equal(snapshotObservation({ ...base, commit: commit() }).commit_date, commitDateOf(commit()), "the observation the hub classifies by");
+  // Every page asks the same function.
+  for (const f of ["frontend/src/views/AssignmentView.vue", "frontend/src/components/GroupAcceptanceCard.vue", "frontend/src/views/AssignmentDetailView.vue"]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    assert.doesNotMatch(src, /commit\?\.author\?\.date \|\| c\.commit\?\.committer|author\?\.date \|\| commit\.commit\?\.committer/, f);
+  }
+});
 
 test("a Refresh observation (manual, no run) is valid against the schema", () => {
   const doc = snapshotObservation({ ...base, collectionType: "manual" });

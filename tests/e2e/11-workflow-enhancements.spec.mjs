@@ -248,6 +248,57 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(card.locator('.badge-success')).toHaveCount(0);
     card = await setup(['pxl-classroom-provisioner[bot]', STUDENT_EXTENDED.login]);
     await expect(card.locator('.badge-success')).toContainText('Submitted on time');
+
+    // TS-2: no push log to read (403). GitHub's own first commit is still
+    // nothing handed in; anybody else's commit falls back to its date.
+    for (const [generated, expected] of [[true, 'No commits pushed'], [false, 'Submitted on time']]) {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      await injectAuth(page, STUDENT_EXTENDED);
+      await setupStandardMockRoutes(page, {
+        currentUser: STUDENT_EXTENDED,
+        userRepos: [{ name: 'lab-pushed-student-extended', full_name: `${ORG}/lab-pushed-student-extended`, html_url: `https://github.com/${ORG}/lab-pushed-student-extended` }],
+        assignments: { 'lab-pushed': { id: 'lab-pushed', title: 'Pushed Lab', organization: ORG, state: 'published', assignment_type: 'individual', deadline_at: deadline } },
+      });
+      await page.route(`**/repos/${ORG}/lab-pushed-student-extended/activity**`, (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Forbidden' }) }));
+      await page.route(`**/repos/${ORG}/lab-pushed-student-extended/commits?*`, (route) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify([{
+          sha: '7'.repeat(40), parents: generated ? [] : [{ sha: '6'.repeat(40) }],
+          committer: { login: generated ? 'web-flow' : STUDENT_EXTENDED.login }, author: { login: generated ? 'pxl-classroom-provisioner[bot]' : STUDENT_EXTENDED.login },
+          commit: { message: 'x', author: { date: new Date(Date.now() - 3600_000).toISOString() }, committer: { date: new Date(Date.now() - 3600_000).toISOString() }, verification: { verified: generated } },
+        }]),
+      }));
+      await page.goto(inviteUrl(ORG, 'lab-pushed'));
+      await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
+      await expect(page.locator('.student-status-card .badge').filter({ hasText: /Submitted|No commits/ }), `generated: ${generated}`).toContainText(expected);
+    }
+  });
+
+  test('a commit authored before the deadline and committed after it is late on the student page, as the hub judges it', async ({ page }) => {
+    // The page read the AUTHOR date first: a rebase after the deadline said
+    // "Submitted on time" to the student while the lecturer's page said late
+    // (review 2026-10-14; lib/observation.mjs `commitDateOf`).
+    const deadline = new Date(Date.now() - 3600 * 1000 * 24);
+    await injectAuth(page, STUDENT_EXTENDED);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_EXTENDED,
+      userRepos: [{ name: 'lab-rebased-student-extended', full_name: `${ORG}/lab-rebased-student-extended`, html_url: `https://github.com/${ORG}/lab-rebased-student-extended` }],
+      assignments: { 'lab-rebased': { id: 'lab-rebased', title: 'Rebased Lab', organization: ORG, state: 'published', assignment_type: 'individual', deadline_at: deadline.toISOString() } },
+    });
+    await page.route(`**/repos/${ORG}/lab-rebased-student-extended/activity**`, (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify([{ actor: { login: STUDENT_EXTENDED.login }, activity_type: 'push' }]),
+    }));
+    await page.route(`**/repos/${ORG}/lab-rebased-student-extended/commits?*`, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([{ sha: '9'.repeat(40), commit: {
+        message: 'rebased work',
+        author: { name: 'S', date: new Date(deadline.getTime() - 3600_000).toISOString() },
+        committer: { name: 'S', date: new Date(deadline.getTime() + 3600_000).toISOString() },
+      } }]),
+    }));
+    await page.goto(inviteUrl(ORG, 'lab-rebased'));
+    await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();
+    await expect(page.locator('.student-status-card .badge-warning')).toContainText('Submitted late');
   });
 
   test('Scenario 4 (Freeze & Lockdown with Consequences Confirmation Dialog): Displays full impact warning before workflow trigger', async ({ page }) => {

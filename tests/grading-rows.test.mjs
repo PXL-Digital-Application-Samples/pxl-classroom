@@ -33,6 +33,8 @@ import {
   scoreStatsSentence,
   resultsWithoutPoints,
   nothingGradedMessage,
+  missingWorkLabel,
+  missingWorkTitle,
 } from "../frontend/src/lib/grading-rows.js";
 import { GRADING_STATUS_LABELS, gradingStatusLabel } from "../frontend/src/lib/status-labels.js";
 
@@ -252,6 +254,21 @@ test("a result with no points is scored, averages to nothing, and is said apart 
   assert.equal(resultsWithoutPoints(rows), 2);
   assert.equal(scoreStats(rows).count, 1, "averaged over the one with points");
   assert.equal(resultsWithoutPoints([{ graded: { earned_points: 5, total_points: 10 } }]), 0);
+});
+
+test("TS-10 (D17b): a missing-work card says the split it counts, and its hover says why it is that colour", () => {
+  // All before their deadline: grey, and ordinary.
+  assert.equal(missingWorkLabel("No submission", 4, 0), "No submission yet");
+  assert.equal(missingWorkTitle("No submission", 4, 0), "No submission yet, which is normal before the deadline");
+  // All past: the plain name, red.
+  assert.equal(missingWorkLabel("Not handed in", 4, 4), "Not handed in");
+  assert.equal(missingWorkTitle("Nothing handed in", 4, 4), "Nothing handed in by their deadline");
+  // Some past: how many.
+  assert.equal(missingWorkLabel("No submission", 5, 1), "No submission: 1 past their deadline");
+  assert.equal(missingWorkTitle("No submission", 5, 1), "1 of 5 past their own deadline; the others are not due yet");
+  // Nobody: about no one, before the deadline or after it.
+  assert.equal(missingWorkLabel("No submission", 0, 0), "No submission");
+  assert.equal(missingWorkTitle("No submission", 0, 0), "No submission: nobody");
 });
 
 test("a cohort read that saved nothing says why, by kind - never 'all checks missing or failed'", () => {

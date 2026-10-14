@@ -155,3 +155,15 @@ test("a zero id is not a pin", () => {
   // provision.mjs parses only /^\d+$/ from a non-empty env var, and
   // validateTemplateRepository returns null unless GitHub gave an integer.
 });
+
+test("TS-7: the full-history setting is written only when on, and only by a real true", () => {
+  const on = buildAssignmentDoc({ ...formFor("org/starter"), template_full_history: true });
+  assert.equal(on.template_full_history, true);
+  // Absent is GitHub's one-commit copy, what every assignment before the field
+  // meant: unticking removes it rather than writing false, and a value that is
+  // not the boolean (a hand-edited "true") is not the setting.
+  for (const off of [false, undefined, null, "true", 1]) {
+    const doc = buildAssignmentDoc({ ...formFor("org/starter"), template_full_history: off });
+    assert.equal("template_full_history" in doc, false, `written for ${JSON.stringify(off)}`);
+  }
+});

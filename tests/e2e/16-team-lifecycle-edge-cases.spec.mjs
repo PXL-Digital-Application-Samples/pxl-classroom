@@ -476,6 +476,86 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     await expect(page.locator('.pending-state, .provisioned-state, .status-badge')).toBeVisible();
   });
 
+  // TS-1 (T4, D8): the switch follows the ASSIGNMENT'S deadline on a clock
+  // that ticks - not the student's extension, and not the moment the page loaded.
+  async function readyTeamCard(page, { deadline, now, overrides = null, routes = null }) {
+    const assignmentId = 'cloud-group-switch-clock';
+    const team = {
+      team_slug: 'team-red', team_name: 'Team Red', members: [STUDENT_1.login],
+      repo_name: `${ORG}/${assignmentId}-team-red`, repo_url: `https://github.com/${ORG}/${assignmentId}-team-red`,
+      submission_status: 'on-time', commit_count: 1,
+    };
+    await page.clock.install({ time: now });
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      assignments: { [assignmentId]: {
+        id: assignmentId, title: 'Switch Clock', organization: ORG, assignment_type: 'group', roster_mode: 'open',
+        state: 'published', group_config: { max_team_size: 3, allow_team_creation: true, formation_mode: 'self-service' },
+        template: { owner: ORG, repository: 'group-template' }, repository_name_pattern: `${assignmentId}-{team_slug}`,
+        deadline_at: deadline.toISOString(),
+      } },
+      teams: { [assignmentId]: [team] },
+      userRepos: [{ id: 401, name: `${assignmentId}-team-red`, full_name: team.repo_name, owner: { login: ORG }, html_url: team.repo_url }],
+      currentUser: STUDENT_1,
+      ...(overrides ? { controlOverrides: { [assignmentId]: { [STUDENT_1.login]: { schema_version: 1, assignment_id: assignmentId, github_login: STUDENT_1.login, overrides } } } } : {}),
+    });
+    // After the fixture's, so these win.
+    if (routes) await routes(page);
+    await page.goto(inviteUrl(ORG, assignmentId));
+    await expect(page.locator('.provisioned-state')).toContainText('Team Red', { timeout: 15000 });
+  }
+
+  // Times are relative to now: the stored sign-in expires hours from the real
+  // clock, and a page clock days ahead of it reads as signed out.
+  test('TS-1 (T4): an extension past the deadline does not stretch the switch - between the two, no switch is offered', async ({ page }) => {
+    const now = Date.now();
+    await readyTeamCard(page, {
+      deadline: new Date(now - 86400_000),
+      now: new Date(now),
+      overrides: [{ type: 'deadline_extension', value: new Date(now + 3 * 86400_000).toISOString(), reason: 'medical', overridden_by: 'lecturer1', overridden_at: new Date(now - 2 * 86400_000).toISOString() }],
+    });
+    await expect(page.locator('.provisioned-state')).toContainText('Deadline Extended');
+    await expect(page.locator('[data-team-switch]')).toHaveCount(0);
+  });
+
+  test('TS-2 (PG7): on the team card, a repository only PXL Classroom pushed to is "No commits pushed"; a 403 log falls back as the student page does', async ({ page }) => {
+    const repo = `${ORG}/cloud-group-switch-clock-team-red`;
+    const head = (generated) => ({
+      sha: '7'.repeat(40), parents: generated ? [] : [{ sha: '6'.repeat(40) }],
+      committer: { login: generated ? 'web-flow' : STUDENT_1.login }, author: { login: generated ? 'pxl-classroom-provisioner[bot]' : STUDENT_1.login },
+      commit: { message: 'x', author: { date: new Date(Date.now() - 3600_000).toISOString() }, committer: { date: new Date(Date.now() - 3600_000).toISOString() }, verification: { verified: generated } },
+    });
+    const badge = page.locator('.provisioned-state .badge');
+    for (const [label, log, generated, expected] of [
+      ['only the App pushed', { status: 200, body: [{ actor: { login: 'pxl-classroom-provisioner[bot]' } }] }, false, 'No commits pushed'],
+      ['the student pushed', { status: 200, body: [{ actor: { login: STUDENT_1.login } }] }, false, 'Submitted on time'],
+      ['no log, GitHub\'s own first commit', { status: 403, body: { message: 'Forbidden' } }, true, 'No commits pushed'],
+      ['no log, somebody\'s commit: the date decides', { status: 403, body: { message: 'Forbidden' } }, false, 'Submitted on time'],
+    ]) {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      const now = Date.now();
+      await readyTeamCard(page, {
+        deadline: new Date(now + 86400_000),
+        now: new Date(now),
+        routes: async (p) => {
+          await p.route(`**/repos/${repo}/activity**`, (route) => route.fulfill({ status: log.status, contentType: 'application/json', body: JSON.stringify(log.body) }));
+          await p.route(`**/repos/${repo}/commits?*`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([head(generated)]) }));
+        },
+      });
+      await expect(badge.filter({ hasText: /Submitted|No commits/ }), label).toContainText(expected, { timeout: 15000 });
+    }
+  });
+
+  test('TS-1 (D8): left open across the deadline, the switch line goes and the countdown turns, together', async ({ page }) => {
+    const now = Date.now();
+    const deadline = new Date(now + 60_000);
+    await readyTeamCard(page, { deadline, now: new Date(now) });
+    await expect(page.locator('[data-team-switch]')).toContainText('You can change team yourself until');
+    await page.clock.runFor(120_000);
+    await expect(page.locator('[data-team-switch]')).toHaveCount(0, { timeout: 10000 });
+    await expect(page.locator('.provisioned-state .deadline-countdown')).toContainText('Deadline passed');
+  });
+
   // The switch is offered only where the hub allows one (acceptance/accept.mjs
   // step 5): a deadline that has passed, or teams the lecturer assigned, would
   // only produce a refusal.

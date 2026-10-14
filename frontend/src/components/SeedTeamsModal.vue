@@ -55,7 +55,7 @@
         <!-- Read failure -->
         <div v-else-if="loadError" class="diag-banner seed-banner-danger">
           <div>
-            <strong>Could not read the source.</strong>
+            <strong>Could not plan the copy.</strong>
             <p class="seed-banner-text">{{ loadError }}</p>
           </div>
         </div>
@@ -199,6 +199,7 @@ import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import HelpButton from './HelpButton.vue'
 import { planSeed, teamsFromRoster, seedCommitMessage, seedSignature, SEED_SKIP_REASONS } from '../../../lib/seed-teams.mjs'
+import { rosterGatesAcceptance } from '../../../lib/roster-mode.mjs'
 import { contentsAt, seedRefusalAt } from '../../../lib/team-write-guard.mjs'
 import { decodeBase64 } from '../../../lib/grade-dispatch.mjs'
 import { parse as parseYaml } from 'yaml'
@@ -346,10 +347,19 @@ async function buildPlan() {
     plan.value = fresh
   } catch (e) {
     if (requestId !== planRequestId) return
-    loadError.value = e?.message || 'Unknown error'
+    loadError.value = readFailure(e)
   } finally {
     if (requestId === planRequestId) loading.value = false
   }
+}
+
+/**
+ * A read that failed, as a sentence: GitHub's own message ("Server Error") is
+ * not one. A throw of ours carries its own words.
+ */
+function readFailure(e) {
+  if (Number.isInteger(e?.status) && e.status > 0) return `A read from GitHub failed (HTTP ${e.status}). Try again in a minute.`
+  return e?.message || 'A read from GitHub failed. Try again in a minute.'
 }
 
 /** Read the control repo and plan. Throws; callers decide how to report. */
@@ -359,12 +369,16 @@ async function computePlan() {
     const existingTeams = await listTeams(token, props.org, config.controlRepo, props.assignment.id)
     let sourceTeams = []
     let roster = null
+    let rosterUnreadable = false
 
     try {
       const rosterText = await getRepoContent(token, props.org, config.controlRepo, ROSTER_PATH)
       if (rosterText) roster = parseYaml(rosterText)
     } catch {
-      // No roster is a warning-level fact, not a reason to refuse to plan.
+      // No roster (a 404, which reads as null) is a fact the plan's notes
+      // handle. One that could not be read is not "no roster": said below
+      // (TS-11; unreadable is not evidence).
+      rosterUnreadable = true
     }
 
     // WHERE A CLAIM STUDENT'S LOGIN ACTUALLY LIVES. Under `claim` the roster's
@@ -387,12 +401,14 @@ async function computePlan() {
     }
 
     if (sourceKey.value === 'roster') {
+      // Planned from nothing, it said the roster's Team column was empty.
+      if (rosterUnreadable) throw new Error('The roster could not be read, so its Team column could not be copied. Try again in a minute.')
       sourceTeams = teamsFromRoster(roster?.students || [])
     } else if (sourceAssignment.value) {
       sourceTeams = await listTeams(token, props.org, config.controlRepo, sourceAssignment.value.id)
     }
 
-    return planSeed({
+    const result = planSeed({
       sourceTeams,
       existingTeams,
       targetAssignment: props.assignment,
@@ -404,6 +420,15 @@ async function computePlan() {
       source: sourceKey.value === 'roster' ? 'roster' : 'assignment',
       forScreen: true,
     })
+    // The notes about who is not on the roster need the roster: where it gates
+    // acceptance and could not be read, their absence is not "everyone is on it".
+    if (rosterUnreadable && result.ok && result.teams.length && rosterGatesAcceptance(props.assignment.roster_mode)) {
+      result.warnings.push({
+        code: 'roster-unreadable',
+        message: 'The roster could not be read, so whether these students are on it, and in this assignment, was not checked.',
+      })
+    }
+    return result
   }
 }
 
@@ -472,7 +497,10 @@ async function apply() {
     emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
     emit('close')
   } catch (e) {
-    applyError.value = `Copying failed: ${e.message}`
+    // Every throw here is the plan read again, before anything is written
+    // (commitFiles answers rather than throws), so the banner's "Nothing was
+    // copied." is true of it.
+    applyError.value = readFailure(e)
   } finally {
     applying.value = false
   }

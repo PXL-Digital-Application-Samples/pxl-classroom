@@ -1495,7 +1495,7 @@ import {
   repositoriesDir, repositoryPath, overridesDir, overridePath,
   lockdownRecordPath, unlockRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
-import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.mjs'
+import { snapshotObservation, isBotAuthorName, commitDateOf } from '../../../lib/observation.mjs'
 import { addedCommits, noSubmissionRow, unstartedRepo } from '../../../lib/starter-commit.mjs'
 import { refreshStatus } from '../../../lib/refresh-status.mjs'
 import { syncRefusal } from '../lib/starter-sync.js'
@@ -1574,7 +1574,7 @@ import {
 } from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel, gradingStatusLabel, observationTypeLabel } from '../lib/status-labels.js'
-import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline, resultsWithoutPoints, nothingGradedMessage } from '../lib/grading-rows.js'
+import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline, resultsWithoutPoints, nothingGradedMessage, missingWorkLabel, missingWorkTitle } from '../lib/grading-rows.js'
 import { commitsRead, sameMoment, scoresRead } from '../lib/data-freshness.js'
 import InfoBlock from '../components/InfoBlock.vue'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
@@ -3142,17 +3142,7 @@ const notHandedInPast = computed(() =>
   gradingRowsAll.value.filter((r) => r.status === 'not-handed-in' && pastDeadline(gradingDeadline(r), nowMs.value)).length,
 )
 const notHandedInOverdue = computed(() => notHandedInPast.value > 0)
-/** The card's label: the count is all of them, so a split is said, not implied. */
-function missingWorkLabel(word, total, past) {
-  if (!total || past === total) return word
-  if (!past) return `${word} yet`
-  return `${word}: ${past} past their deadline`
-}
-function missingWorkTitle(word, total, past) {
-  if (!past) return `${word} yet, which is normal before the deadline`
-  if (past === total) return `${word} by their deadline`
-  return `${past} of ${total} past their own deadline; the others are not due yet`
-}
+// The cards' label and hover: missingWorkLabel / missingWorkTitle (lib/grading-rows.js).
 
 // The preservation banner used to appear on nothing more than "the deadline has
 // passed", which put a "Preservation Pending" panel on assignments still marked
@@ -4393,7 +4383,7 @@ async function refreshOne(token, s) {
           collectionType: 'manual',
         }))
       }
-      const commitDate = commit.commit?.committer?.date || commit.commit?.author?.date || null
+      const commitDate = commitDateOf(commit)
       const commitMessage = commit.commit?.message || null
 
       // Source of truth for the deadline: per-student override (already on

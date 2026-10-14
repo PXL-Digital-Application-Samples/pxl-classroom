@@ -36,7 +36,7 @@ const record = (over = {}) => ({
   ...over,
 });
 
-async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus = 200, assignmentExtra = {} }) {
+async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus = 200, assignmentExtra = {}, rowExtra = {} }) {
   const calls = { runs: 0 };
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -49,7 +49,7 @@ async function setup(page, { rec, run = null, templateHead = HEAD, listingStatus
         schema_version: 1,
         generated_at: new Date().toISOString(),
         assignment_id: ID,
-        students: [{ github_login: STUDENT_1.login, acceptance_state: 'provisioned', submission_status: 'on-time', repo_name: `${ORG}/${ID}-${STUDENT_1.login}` }],
+        students: [{ github_login: STUDENT_1.login, acceptance_state: 'provisioned', submission_status: 'on-time', repo_name: `${ORG}/${ID}-${STUDENT_1.login}`, ...rowExtra }],
       },
     },
   });
@@ -128,6 +128,32 @@ test.describe('81 - The assignment page says where the last starter sync stands'
     await expect(line(page)).not.toContainText('Run the sync again');
     await expect(line(page).getByRole('button', { name: 'Sync again' })).toHaveCount(0);
     await expect(line(page).locator('.status-dot.dot-neutral')).toBeVisible();
+  });
+
+  test('TS-8: the setting off, one student holding a full-history copy: a stopped sync is said, with "some of its students" and no Sync again', async ({ page }) => {
+    await setup(page, {
+      rec: record({ status: 'stopped', total_students: 111, remaining: 43, results: [] }),
+      rowExtra: { starter_sha: 'c'.repeat(40), starter_commit_count: 14, full_history: true },
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(line(page)).toContainText('stopped with 43 students not reached');
+    await expect(line(page)).toContainText('Some of its students were given the template with its full history, so their branches are theirs to change and starter sync does not run on it.');
+    await expect(line(page).getByRole('button', { name: 'Sync again' })).toHaveCount(0);
+    await expect(line(page).locator('.status-dot.dot-neutral')).toBeVisible();
+  });
+
+  test('TS-8: refused, with students it could not update: they are still named, red, and nothing is offered', async ({ page }) => {
+    await setup(page, {
+      rec: record({ results: [{ github_login: 'ada', repo_name: `${ORG}/r-ada`, outcome: 'failed', error: 'push refused' }, { github_login: 'bo', repo_name: `${ORG}/r-bo`, outcome: 'auto-merged' }], total_students: 2 }),
+      assignmentExtra: { template_full_history: true },
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await expect(line(page)).toHaveAttribute('data-state', 'completed-with-failures');
+    await expect(line(page).locator('[data-sync-failed]')).toContainText('@ada: push refused');
+    await expect(line(page)).toContainText('Its students were given the template with its full history');
+    await expect(line(page)).not.toContainText(/[Ss]ync again|[Rr]un (the sync|it) again/);
+    await expect(line(page).getByRole('button', { name: 'Sync again' })).toHaveCount(0);
+    await expect(line(page).locator('.status-dot.dot-danger')).toBeVisible();
   });
 
   test('running: progress and Follow - and the page itself reads nothing on its own', async ({ page }) => {

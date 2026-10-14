@@ -6,7 +6,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { readFileSync } from "node:fs";
 import { personPushed, repoTouched } from "../lib/untouched-repo.mjs";
 
 // The generated first commit, as measured on PXL-Systems-Expert's team
@@ -94,13 +93,9 @@ test("PG7: an empty log says nothing, unless the head is still the commit GitHub
   assert.equal(personPushed(log(...Array(100).fill("x[bot]")), student), null);
 });
 
-test("PG7: both student pages ask it, beside the newest commit", () => {
-  for (const f of ["../frontend/src/views/AssignmentView.vue", "../frontend/src/components/GroupAcceptanceCard.vue"]) {
-    const src = readFileSync(new URL(f, import.meta.url), "utf8");
-    assert.match(src, /personPushed\(log, res\.ok && Array\.isArray\(res\.data\) \? res\.data\[0\] : null\)/, f);
-    assert.match(src, /Pushed\.value === false\) return 'no-submission'/, f);
-  }
-});
+// PG7, that both student pages ask it, is run rather than grepped (TS-12):
+// tests/e2e/11 (the student page) and tests/e2e/16 (the team card), where only
+// the App pushed reads "No commits pushed" and a person's push does not.
 
 test("a read that failed is unknown - never untouched, so nothing is deleted on it", async () => {
   assert.equal(await repoTouched(fake({ branchesStatus: 403 }).get, "o/t"), "unknown");

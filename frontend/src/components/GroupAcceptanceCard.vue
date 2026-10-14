@@ -572,6 +572,8 @@ import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { teamNameProblem } from '../../../lib/public-text.mjs'
 import { personPushed } from '../../../lib/untouched-repo.mjs'
+import { commitDateOf } from '../../../lib/observation.mjs'
+import { teamSwitchWindow } from '../lib/team-switch.js'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -1203,20 +1205,12 @@ const isPastDeadline = computed(() => {
 // On the same clock as isPastDeadline, so the words and their colour turn together.
 const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, new Date(nowTick.value)))
 
-// Whether a switch would be allowed: the hub's own rule (acceptance/accept.mjs
-// step 4) - self-service, which is what `canChooseAnother` says, and before the
-// ASSIGNMENT'S deadline on an assignment that is accepting. Not the student's
-// extension: the hub reads none for an acceptance, so a student with one was
-// offered a switch until a date the hub refused it at (review 2026-10-14).
-const switchDeadline = computed(() => (props.assignment?.deadline_at ? new Date(props.assignment.deadline_at) : null))
-const canSwitchTeam = computed(() =>
-  canChooseAnother.value && props.assignment?.state === 'published' &&
-  !(switchDeadline.value && nowTick.value > switchDeadline.value.getTime()),
-)
+// Whether a switch would be allowed, and until when: the hub's own rule, by the
+// ASSIGNMENT'S deadline, never the student's extension (lib/team-switch.js).
+const switchWindow = computed(() => teamSwitchWindow({ canChooseAnother: canChooseAnother.value, assignment: props.assignment, now: nowTick.value }))
+const canSwitchTeam = computed(() => switchWindow.value.can)
 // Null with no deadline: "until the deadline" named one that does not exist.
-const switchUntil = computed(() =>
-  switchDeadline.value ? formatDate(switchDeadline.value.toISOString(), props.assignment?.timezone) : null,
-)
+const switchUntil = computed(() => (switchWindow.value.until ? formatDate(switchWindow.value.until, props.assignment?.timezone) : null))
 
 // Whether a person has pushed to the team's repository, from its push log
 // (lib/untouched-repo.mjs `personPushed`); null when it could not be read.
@@ -1244,7 +1238,8 @@ async function refreshTeamSubmissionMeta(org, repoName) {
       const c = res.data[0]
       teamLatestCommit.value = {
         sha: c.sha,
-        date: c.commit?.author?.date || c.commit?.committer?.date,
+        // The committer's date, as the hub judges it (lib/observation.mjs).
+        date: commitDateOf(c),
         message: c.commit?.message,
       }
     }

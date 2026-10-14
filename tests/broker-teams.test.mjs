@@ -327,7 +327,6 @@ test("attemptTeamSlug: an attempt naming a renamed team's old slug is that team,
   // The renamed team is not listed: no team to move them into, so the slug stands.
   assert.equal(attemptTeamSlug("team-alpha", renamedTo, new Map([["gamma", {}]])), "team-alpha");
   assert.equal(attemptTeamSlug("team-alpha", undefined, listed), "team-alpha");
-  // The card asks it, rather than spelling the mapping.
-  const card = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "frontend", "src", "components", "GroupAcceptanceCard.vue"), "utf8");
-  assert.match(card, /attemptTeamSlug\(asked, renamedTo\.value, teamsMap\)/);
+  // That the card asks it is run, not grepped: tests/e2e/111, whose student's
+  // own attempt names the old slug (TS-12).
 });

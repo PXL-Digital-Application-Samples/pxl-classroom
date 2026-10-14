@@ -99,10 +99,8 @@ test("GR7: where starter sync does not run, the advice does not send a lecturer 
   assert.match(gradeEntryMissing({ canSync: true }), /Sync Starter Code sends the workflow/);
   assert.doesNotMatch(gradeEntryMissing({ canSync: false }), /Sync Starter Code sends/);
   assert.match(gradeEntryMissing({ canSync: false }), /starter sync does not run on this assignment/);
-  const modal = readFileSync(new URL("../frontend/src/components/RegradeCommitModal.vue", import.meta.url), "utf8");
-  assert.match(modal, /gradeEntryMissing\(\{ canSync: props\.canSync \}\)/);
-  const page = readFileSync(new URL("../frontend/src/views/AssignmentDetailView.vue", import.meta.url), "utf8");
-  assert.match(page, /:can-sync="!syncRefused"/);
+  // The dialog's wiring is run, not grepped: tests/e2e/88 (TS-7), by the
+  // setting and by one student's own copy.
 });
 
 test("the run's own result is read - from its check suite, not the commit", async () => {

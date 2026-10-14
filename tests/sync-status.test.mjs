@@ -161,6 +161,15 @@ test("REFUSED (G13f): where the last sync left the cohort is still said, and no 
   assert.equal(describeSyncStatus({ record: record({ status: "stopped", total_students: 2, remaining: 1, results: [res("a", "auto-merged")] }) }).action, "sync-again");
 });
 
+test("TS-8: refused because SOME students hold such a copy (the setting off): said so, capitalised, and nothing to sync again", async () => {
+  const { syncRefusal } = await import("../lib/starter-sync.mjs");
+  const refused = syncRefusal({ template_full_history: false }, [{ repo_id: 1 }, { repo_id: 2, full_history: true }]);
+  const v = describeSyncStatus({ refused, record: record({ status: "stopped", total_students: 111, remaining: 43, results: [res("a", "auto-merged")] }) });
+  assert.equal(v.action, null);
+  assert.equal(v.tone, "neutral");
+  assert.equal(v.detail, "It stopped at its time limit. Some of its students were given the template with its full history, so their branches are theirs to change and starter sync does not run on it.");
+});
+
 test("the title names its commit so a surface can set it in monospace", () => {
   const v = describeSyncStatus({ record: record(), templateHeadSha: HEAD });
   assert.equal(v.commit, "aaaaaaa");

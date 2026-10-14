@@ -199,21 +199,10 @@ test("S1: the pull request's head is the submission branch, run for real against
   }
 });
 
-test("S1: no surface spells `main` as the head any more", () => {
-  const view = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
-  const cli = readFileSync(join(root, "cli", "src", "commands", "feedback.mjs"), "utf8");
-  for (const [name, src] of [["script", code], ["page", stripComments(view)], ["cli", stripComments(cli)]]) {
-    assert.doesNotMatch(src, /head:\s*['"]main['"]|:main&|\.\.\.main\b/, name);
-    assert.match(src, /submissionBranch\(/, `${name} takes the head from the submission branch`);
-  }
-});
-
-test("S10: the page offers a feedback PR only for a started repository, and 'no commits yet' is not a failure", () => {
-  const view = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
-  assert.match(view, /const hasWorkToReview = \(s\) => s\.submission_status === 'on-time' \|\| s\.submission_status === 'late'/);
-  const fn = view.slice(view.indexOf("async function executeOpenFeedbackPrs"));
-  assert.match(fn.slice(0, fn.indexOf("\n}\n")), /isNoCommitsBetween\(prRes\.status, prRes\.data\)\) \{\s*pending\+\+/);
-});
+// S1 on the other two surfaces and S10 are run, not grepped (TS-12): the page
+// opens from `master` in tests/e2e/113, which also says "nothing past the
+// starting point" apart from a failure and leaves an unstarted repository out;
+// the CLI does in cli/tests/writes.test.mjs.
 
 test("the records are committed even when the run failed", () => {
   // The script now exits non-zero on partial failure, and the records for the
