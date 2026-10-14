@@ -113,8 +113,8 @@ test.describe('109 - every branch and its full history', () => {
   };
   for (const [label, extra, students, reason] of [
     ['an ordinary assignment offers Sync Starter Code (the control)', {}, [], null],
-    ['a full-history assignment shows Sync Starter Code disabled, and says why', { template_full_history: true }, [], "students were given the template's full history"],
-    ['unticked after a student got such a copy: still disabled, and says some students have one', {}, [COPY_ROW], "some students were given the template's full history"],
+    ['a full-history assignment shows Sync Starter Code disabled, and says why', { template_full_history: true }, [], 'students were given the template with its full history'],
+    ['unticked after a student got such a copy: still disabled, and says some students have one', {}, [COPY_ROW], 'some students were given the template with its full history'],
   ]) {
     test(label, async ({ page }) => {
       await injectAuth(page, LECTURER);
@@ -166,7 +166,7 @@ test.describe('109 - every branch and its full history', () => {
     await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/another-template`);
     const hint = page.locator('.form-hint[role="note"]', { hasText: 'already has' });
     await expect(hint).toBeVisible({ timeout: 10000 });
-    await expect(hint).toContainText('Sync Starter Code does not run on an assignment that gives students the full history');
+    await expect(hint).toContainText('Sync Starter Code does not run on this assignment: students in it were given the template with its full history');
     await expect(hint).not.toContainText('Sync Starter Code sends it');
   });
 

@@ -232,7 +232,7 @@ half-screen, 12px on a phone - and never 0, which is the bug it replaced.
 | `.dot-neutral` | Not started, no submission, unknown. **Not** an error: an empty population is not a failure. |
 | `.dot-info` | Informational only. One use; prefer `.dot-neutral` unless the row genuinely reads as a notice. |
 
-**Missing work is neutral until its deadline and danger after it** (decided 2026-10-08). *No submission* and *Not handed in* are where every student starts, so before the deadline they are grey (`.dot-neutral`, and `.stat-neutral` on a card, where the label adds *yet*). After the deadline nothing more will come in, so they turn red (`.dot-danger`, `.stat-red`). The line is that student's own deadline (`pastDeadline` in `frontend/src/lib/grading-rows.js`). A red "20 grading failure(s)" four days before an exam's deadline was what prompted the rule: twenty students who simply had not finished.
+**Missing work is neutral until its deadline and danger after it** (decided 2026-10-08). *No submission* and *Not handed in* are where every student starts, so before the deadline they are grey (`.dot-neutral`, and `.stat-neutral` on a card, where the label adds *yet*). After the deadline nothing more will come in, so they turn red (`.dot-danger`, `.stat-red`). The line is that student's own deadline (`pastDeadline` in `frontend/src/lib/grading-rows.js`). A card counts every student the table shows under it, so when only some of them are past their own deadline it is red and its label says how many (*Not handed in: 1 past their deadline*), and its hover says the others are not due yet: a red count over students with an extension overstated it. A red "20 grading failure(s)" four days before an exam's deadline was what prompted the rule: twenty students who simply had not finished.
 
 **An assignment's tabs share one layout** (asked 2026-10-08): summary cards that filter the table (`.summary-card`), one box under them saying where things stand (`.status-box` with `.diag-banner`, in style.css because Progress's starter-sync box and Grading's scores box are the same box), the search and filter pills on the left with the tab's own action and its menus on the right, then one table with a row per student. A student a tab has nothing to report on is still a row and says why, never a list at the bottom behind a click.
 
@@ -721,9 +721,9 @@ graded table's ten columns.
 against what its scroller has, at 1920px: 1000 of 1190px, and 1167 once CI
 Status and Score are showing. The second number is tight, 23px, which is less
 than any column.
-Run it before adding a column or lengthening a label here. Feedback PR, Submit
-tag and Team are not in that budget: an assignment showing them on top of grades
-still scrolls inside the table's own box.
+Run it before adding a column or lengthening a label here. Feedback PR and Team
+are not in that budget: an assignment showing them on top of grades still
+scrolls inside the table's own box.
 
 It waits for Inter before measuring, because `index.html` loads the font late on
 purpose and the table needs 38px more once it has swapped in. A measurement

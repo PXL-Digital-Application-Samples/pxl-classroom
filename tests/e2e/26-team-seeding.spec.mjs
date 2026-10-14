@@ -116,6 +116,37 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     expect(workflowDispatches.some((d) => d.workflow === 'regenerate-dashboard.yml')).toBe(true);
   });
 
+  test('A write that fails is said in the dialog and stays there, not only in a toast (P1-2)', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      controlTeams: { [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login])] },
+    });
+    // Registered after the fixture, so it wins: GitHub refuses to move the branch.
+    await page.route(/\/git\/refs\//, (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 500, body: JSON.stringify({ message: 'Server Error' }) })
+        : route.fallback());
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    await expect(page.locator('.seed-preview-row')).toHaveCount(1, { timeout: 10000 });
+    await page.locator('.modal-foot button', { hasText: /Copy 1 team/ }).click();
+
+    const error = page.locator('[data-seed-error]');
+    await expect(error).toContainText('Nothing was copied.');
+    await expect(error).toContainText('The teams could not be written');
+    await expect(page.locator('.seed-modal')).toBeVisible();
+    // Still there after the toast would have gone.
+    await page.waitForTimeout(6000);
+    await expect(error).toBeVisible();
+    // Another source clears it.
+    await page.locator('#seed-source').selectOption('roster');
+    await expect(error).toHaveCount(0);
+  });
+
   test('Blocked: a team larger than the target maximum refuses the whole seed', async ({ page }) => {
     const gitCommits = [];
     await injectAuth(page, LECTURER);
@@ -1002,8 +1033,9 @@ test.describe('26 - Carrying groups forward between assignments', () => {
 
     await page.locator('.modal-foot .btn-primary').click();
 
-    // Nothing written, modal still open, plan re-rendered with the new truth.
-    await expect(page.locator('.toast-warning')).toContainText('changed while you were reviewing', { timeout: 10000 });
+    // Nothing written, modal still open, plan re-rendered with the new truth -
+    // and said in the dialog, where it stays (P1-2), not in a toast.
+    await expect(page.locator('[data-seed-replanned]')).toContainText('changed while you were reviewing', { timeout: 10000 });
     expect(gitCommits).toHaveLength(0);
     await expect(page.locator('.seed-modal')).toBeVisible();
     await expect(page.locator('.seed-preview-row')).toContainText(`@${STUDENT_2.login}`);

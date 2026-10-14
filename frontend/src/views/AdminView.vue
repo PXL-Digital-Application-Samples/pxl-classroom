@@ -113,7 +113,7 @@
               made from the previous template. The new one, <code>{{ templateNotice.template }}</code>, is used for
               students who accept from now on; publishing again does not change existing repositories.
               <template v-if="templateNotice.syncable">Sync Starter Code brings them up to the new template, and shows every change before it is sent.</template>
-              <template v-else>Sync Starter Code does not run on this assignment: its students were given the template with its full history.</template>
+              <template v-else>Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template>
             </p>
             <div class="cohort-actions">
               <router-link
@@ -449,7 +449,7 @@
               <small v-if="templateSwitchCount" class="form-hint" role="note">
                 {{ templateSwitchCount === 1 ? '1 student already has' : `${templateSwitchCount} students already have` }}
                 a repository from the current template. The new one is used only for students who accept from now on<template v-if="!syncAvailable">;
-                Sync Starter Code does not run on an assignment that gives students the full history.</template><template v-else>;
+                Sync Starter Code does not run on this assignment: students in it were given the template with its full history.</template><template v-else>;
                 after saving, Sync Starter Code sends it to the others.</template>
               </small>
               <!-- Pre-flight Template Validation Badge (2.B) -->

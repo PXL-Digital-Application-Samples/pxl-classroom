@@ -1050,7 +1050,11 @@ async function saveRename() {
     }
     const { valid, errors } = await validateAgainst('team', plan.doc)
     if (!valid) {
-      renameError.value = `Not renamed: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}. Nothing was changed.`
+      // The validator's own words are for whoever debugs it, not the lecturer
+      // (DESIGN.md §1.7). Every refusal a typed name can cause is worded by
+      // planTeamRename above, so this one is about the stored file.
+      console.error('team rename refused by the schema', errors)
+      renameError.value = 'Not renamed: the team\'s stored file would not be valid afterwards. This is not about the name you typed; tell whoever runs PXL Classroom. Nothing was changed.'
       return
     }
     // WHAT IT WAS DECIDED FROM, ASKED AGAIN OF THE COMMIT IT LANDS ON
@@ -1117,6 +1121,8 @@ async function checkRenamedNames() {
   const secret = linkSecretFrom(props.assignment)
   if (!secret || !(props.teams || []).some((t) => Array.isArray(t?.renamed_from) && t.renamed_from.length)) {
     namesServed.value = { state: 'none', stale: [] }
+    // An earlier read this one superseded returns without clearing it.
+    checkingNames.value = false
     return
   }
   checkingNames.value = true
@@ -1137,6 +1143,9 @@ async function checkRenamedNames() {
   checkingNames.value = false
 }
 async function rebuildForNames() {
+  // Said at the press (DESIGN.md §1.5): both buttons read "Checking…" until
+  // the rebuild is asked for and the page read again.
+  checkingNames.value = true
   await republishTeams(getToken())
   await checkRenamedNames()
 }

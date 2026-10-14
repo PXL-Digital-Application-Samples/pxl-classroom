@@ -11,6 +11,18 @@ One phase at a time: a phase starts only when the one before it is done. Scope i
 3. **Documentation, in two parts.** (a) The documents: every fact today's work changed, checked in ARCHITECTURE.md, RUNBOOK.md, ADMIN.md, INSTALL.md, MANUAL.md, CLAUDE.md and LESSONS.md - still true, said once and linked elsewhere, section references still resolving, nothing describing removed behaviour (submit tags above all). (b) The built-in help: every help text, hover, hint and explanation the SPA shows (the contextual help, dialog and form explanations, the student pages), checked against what the code does now.
 4. **A review from afar, then close up, last.** As if seeing it for the first time. From afar: read the day's changes as a whole and ask what they add up to, where the reasoning has gaps, and which areas nobody thought about at all (a reader of a changed rule that was never visited, a path no test or drill walks, a case between two features). Close up: area by area, whether an assumption was wrong, whether the logic and the algorithm are right, whether a fix in one place broke a rule somewhere else, best practices, and bugs. Review agents for the areas too large to hold at once (acceptance and provisioning; grading; lockdown, sentinel and archive; the SPA). Every finding a row here, fixed like the rest.
 
+### Phase 1: DESIGN.md against today's UI files (first pass)
+| # | Finding | Status |
+|---|---|---|
+| P1-1 | Delete dialog says "the nightly", a word only this codebase uses | FIXED ("the nightly check", as the Organization tab says it) |
+| P1-2 | Copy teams: a failed write is said only in a toast (§1.5) | FIXED (said in the dialog until the next press or another source, and the plan is read again; a changed plan likewise. The skip reason now says "with members or a repository", as the planner decides; e2e) |
+| P1-3 | Rename team: a schema refusal prints the validator's raw `instancePath` and message | FIXED (every refusal a typed name can cause is worded by the planner; this one says it is about the stored file and who to tell, the details go to the console) |
+| P1-4 | Open feedback PRs: failures, "nothing to review yet" and a records save that failed are said only in toasts, without naming who; the column shows a failed student as "pending" like one with nothing to review (§1.5) | FIXED (the column is worked out from facts: handed in with no PR is "Not opened", nothing past the start is a dash that says so on hover; it also covers a failed press, after a refresh too, and the records-failed message points at it; e2e) |
+| P1-5 | "control repository" in lecturer-facing errors (the editor's save, feedback PRs) | ACCEPTED (it names a real repository in the lecturer's organization, which setup creates and the Organization tab links by that name) |
+| P1-6 | DESIGN.md §4's missing-work rule does not describe the "N past their deadline" label added today | FIXED |
+| P1-7 | DESIGN.md §7 still budgets a "Submit tag" column, removed today | FIXED |
+| P1-8 | The full-history sync refusal is worded four ways (menu row, sync box, editor notice, grading dialog) | FIXED (one phrase, "given the template with its full history", and "students in it" where some or all may hold such a copy; e2e updated) |
+
 Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or the working tree), **OPEN** (being fixed - every one will be), **ASK** (will be built with the recommended option, named here), **REMOVED** (the feature was removed on request: submit tags, 2026-10-14; LESSONS.md has why), **DECIDED** (an ASK item: the recommended option is what stands, named with why), **ACCEPTED** (left as it is, with the reason: a fix would cost more than the defect, or make it worse).
 
 ## Round 1: first review of the week's work (fixes pushed in 462930c)
@@ -108,7 +120,7 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | F4b | With the setting off, a failed full-history copy is never recovered | FIXED (recovered whenever nobody but the App pushed, whatever the setting; real-git test) |
 | F5 | A fast-forward onto a template commit after the deadline reads on time (template dates) | DECIDED (recommended option: the manual's advice to choose "Pushing stops", which the lock makes true; LD4 keeps HEAD after a confirmed stop. Classifying by push time would need every push's log entry for every student at every report) |
 | F6 | Commit count is "minus what was given", not "what they added" | FIXED (docs say what it is) |
-| F8 | The reuse recovery (push log actor) has never run against real GitHub | OPEN (live test) |
+| F8 | The reuse recovery (push log actor) has never run against real GitHub | FIXED (live: drill-20261014-1658 strips the second student's start and retries before they push; GitHub's push log names only the App, and the run logged "only PXL Classroom has pushed to it: starts at 103ca3f (2 commits)"; the first student's retry after a push is the other side. A step of every `--full-history` drill now) |
 | F9 | Unit test sends no auth header over file:// | FIXED (the copy runs over git's own smart HTTP, `git http-backend`, which answers 401 without the token's header; a wrong token fails at once in our words) |
 | F10 | Private template's branch names in the public run log | FIXED |
 | F11 | No time limit on clone/push | FIXED |
@@ -123,7 +135,7 @@ Status: **FIXED-462930c** (pushed), **FIXED** (in the commit after 462930c, or t
 | A3 | A failed preservation reads "not required", which opens Reopen | FIXED (lib/preservation-status.mjs + unit) |
 | A4 | A read failure during lockdown loses that student's preservation silently | FIXED (`snapshot_unread` row, read again next pass, shows as failed; unit) |
 | A5 | The retry ceiling counts passes, not failures | FIXED (counts only passes that retried owed work; unit) |
-| A6 | Archive pushes run the template's workflows in the archive repository | FIXED (Actions turned off on the archive every pass; unit; live check at the next drill) |
+| A6 | Archive pushes run the template's workflows in the archive repository | FIXED (Actions turned off on the archive every pass; unit; live: drill-20261014-1658's archive answers `enabled: false` with no runs, where drill-20261014-1358's, made before the fix, answers `enabled: true`) |
 | A7 | `block`: a student who pushed only after the deadline reads on time with the starter preserved | FIXED (a deadline snapshot still at the start is `no_submission`; unit) |
 | A8 | Submit tags read late after any post-deadline collect, and sent false late notices | REMOVED |
 | A9 | Preservation and grading ignore the tag the report calls the submission | REMOVED |

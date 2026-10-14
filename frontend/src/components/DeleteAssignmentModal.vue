@@ -31,9 +31,9 @@
           <div v-if="unarchived === true" class="flex gap-sm items-start" data-delete-unarchived>
             <Icon name="alert-triangle" :size="16" class="stat-red consequence-icon" />
             <div>
-              <strong>Nothing has been archived yet.</strong> Students' work is locked and copied to the archive by the nightly
+              <strong>Nothing has been archived yet.</strong> Students' work is locked and copied to the archive by the nightly check
               after the deadline, and a deleted assignment never gets there: no copy of what they had at the deadline will exist.
-              To keep one, delete it after that nightly has run.
+              To keep one, delete it after that check has run.
             </div>
           </div>
           <div v-else class="flex gap-sm items-start">

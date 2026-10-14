@@ -330,7 +330,24 @@ test.describe('39 - The Feedback PR column answers what the CLI answers', () => 
     await expect(page.locator('td.col-feedback-pr').first()).toContainText('Open', { timeout: 15000 });
 
     const rows = page.locator('td.col-feedback-pr');
-    await expect(rows.nth(1)).toContainText('pending');
+    // Handed in with no PR: one Open feedback PRs would open, said from the
+    // facts on every load (P1-4), never "- pending".
+    await expect(rows.nth(1)).toContainText('Not opened');
+    await expect(rows.nth(1).locator('[data-fb-pr="not-opened"]')).toHaveAttribute('title', /Open feedback PRs/);
     await expect(rows.nth(1)).not.toContainText('Closed');
+    await expect(rows.nth(1)).not.toContainText('pending');
+  });
+
+  test('A student with nothing past the starting point has nothing to review: a dash that says so (P1-4)', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: { [ID]: { ...report, students: [{ ...students[1], submission_status: 'no-submission', commit_count: 0 }] } },
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    const cell = page.locator('td.col-feedback-pr').first();
+    await expect(cell.locator('[data-fb-pr="nothing-yet"]')).toHaveText('-', { timeout: 15000 });
+    await expect(cell.locator('[data-fb-pr="nothing-yet"]')).toHaveAttribute('title', /nothing to review/);
   });
 });

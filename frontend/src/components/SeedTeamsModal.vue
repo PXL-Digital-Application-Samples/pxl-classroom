@@ -137,6 +137,22 @@
               </ul>
             </div>
 
+            <!-- What the last press did, said where it was pressed and kept
+                 there (DESIGN.md §1.5): a toast was the only place either was
+                 said (review 2026-10-14). -->
+            <div v-if="applyError" class="diag-banner seed-banner-danger" role="alert" data-seed-error>
+              <div>
+                <strong>Nothing was copied.</strong>
+                <p class="seed-banner-text">{{ applyError }}</p>
+              </div>
+            </div>
+            <div v-else-if="replanned" class="diag-banner seed-banner-warn" role="status" data-seed-replanned>
+              <div>
+                <strong>The teams changed while you were reviewing.</strong>
+                <p class="seed-banner-text">This is the plan as it stands now. Check it, then copy again.</p>
+              </div>
+            </div>
+
             <p v-if="plan.teams.length" class="seed-footnote">
               <template v-if="assignment.state === 'published'">
                 The teams are saved now and students see them right away; no repository is created
@@ -207,6 +223,10 @@ const loading = ref(false)
 const loadError = ref(null)
 const plan = ref(null)
 const applying = ref(false)
+// What the last Copy press found: a write that failed, or a plan that changed
+// under the review. Kept on screen until the next press or another source.
+const applyError = ref('')
+const replanned = ref(false)
 
 // The assignment by its title: the id is a slug only this system uses
 // (DESIGN.md §1.6), and the lecturer named the assignment themselves.
@@ -289,7 +309,9 @@ const SKIP_REASONS = {
   vacant: 'already empty in the source',
   'no-members': 'had no members',
   'invalid-slug': 'had an unusable slug',
-  'already-populated': 'already exist here with members',
+  // With members, or with a repository a team everybody left still has
+  // (lib/seed-teams.mjs `planSeed`).
+  'already-populated': 'already exist here, with members or a repository',
   'all-members-already-teamed': 'every member is already in another team here',
 }
 
@@ -309,6 +331,8 @@ const skippedSummary = computed(() => {
 watch(sourceKey, () => {
   plan.value = null
   loadError.value = null
+  applyError.value = ''
+  replanned.value = false
   if (sourceKey.value) buildPlan()
 })
 
@@ -393,6 +417,8 @@ async function computePlan() {
 async function apply() {
   if (!canApply.value) return
   applying.value = true
+  applyError.value = ''
+  replanned.value = false
   try {
     const token = getToken()
     const sourceLabel =
@@ -405,7 +431,7 @@ async function apply() {
     const fresh = await computePlan()
     if (!fresh.ok || fresh.teams.length === 0 || seedSignature(fresh) !== seedSignature(plan.value)) {
       plan.value = fresh
-      toast.warn('The teams changed while you were reviewing. Check the updated plan and apply again.')
+      replanned.value = true
       return
     }
 
@@ -427,7 +453,10 @@ async function apply() {
       },
     )
     if (!res.ok) {
-      toast.error(`Could not write the teams: ${res.error}. Nothing was written; open Copy teams again for the new plan.`)
+      // The refusal may be a team made or joined since the plan: read it again,
+      // so what is on screen is what Copy would now do.
+      applyError.value = `The teams could not be written: ${res.error}. The plan below has been read again.`
+      plan.value = await computePlan()
       return
     }
 
@@ -450,7 +479,7 @@ async function apply() {
     emit('seeded', { teams: fresh.stats.teams, students: fresh.stats.students })
     emit('close')
   } catch (e) {
-    toast.error(`Seeding failed: ${e.message}`)
+    applyError.value = `Copying failed: ${e.message}`
   } finally {
     applying.value = false
   }

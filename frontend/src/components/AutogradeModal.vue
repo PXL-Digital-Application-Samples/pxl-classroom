@@ -157,7 +157,7 @@
           <p v-if="template.added" class="ag-marker-hint">
             Added to your template repository.
             <template v-if="syncAvailable">Students who accepted before now keep their copy until you run Sync Starter Code on this assignment.</template>
-            <template v-else>Students who accepted before now do not get it: Sync Starter Code does not run on an assignment that gives students the full history.</template>
+            <template v-else>Students who accepted before now do not get it: Sync Starter Code does not run on this assignment, whose students were given the template with its full history.</template>
           </p>
         </fieldset>
 

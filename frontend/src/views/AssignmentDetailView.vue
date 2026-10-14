@@ -437,8 +437,8 @@
                     <span class="dropdown-item-title">Sync Starter Code</span>
                     <span class="dropdown-item-sub">{{ syncRefused
                       ? (assignment.template_full_history === true
-                        ? 'Does not run here: students were given the template\'s full history, and its branches are theirs to change'
-                        : 'Does not run here: some students were given the template\'s full history, and its branches are theirs to change')
+                        ? 'Does not run here: students were given the template with its full history, so their branches are theirs to change'
+                        : 'Does not run here: some students were given the template with its full history, so their branches are theirs to change')
                       : 'Propagate template updates to students' }}</span>
                   </div>
                 </button>
@@ -760,7 +760,16 @@
                       </span>
                     </span>
                   </template>
-                  <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
+                  <!-- From facts, not from the last press (review 2026-10-14,
+                       DESIGN.md §1.5): work to review and no PR is a PR Open
+                       feedback PRs would open - a press that failed for this
+                       student included - and nothing past the starting point
+                       is nothing to review yet. "- pending" said both. -->
+                  <span v-else-if="s.repo_name && hasWorkToReview(s)" class="status-indicator" data-fb-pr="not-opened" title="Handed in and no feedback PR yet: Open feedback PRs, on the Grading tab, opens one.">
+                    <span class="status-dot dot-warning"></span>
+                    <span class="status-text">Not opened</span>
+                  </span>
+                  <span v-else class="text-muted" data-fb-pr="nothing-yet" title="Nothing past the starting point yet, so there is nothing to review.">-</span>
                 </td>
                 <td class="col-actions">
                   <!-- No actions for a student the report does not hold: every
@@ -2390,8 +2399,8 @@ async function executeOpenFeedbackPrs() {
   }
   if (!recordsSaved) {
     toast.error(
-      'The pull requests were opened but could not be saved to the control repository. ' +
-      'Run this again - it will adopt them rather than open duplicates.',
+      'The pull requests were opened, but recording them in the control repository failed, so the Feedback PR column shows them as not opened. ' +
+      'Open feedback PRs again: it finds the ones already open instead of making new ones.',
     )
   }
   if (pending > 0) {
