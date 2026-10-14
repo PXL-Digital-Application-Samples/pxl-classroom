@@ -34,7 +34,7 @@ const STUDENT_COMMIT = { sha: ROOT, parents: [{ sha: "f".repeat(40) }], committe
  * copy whose first run failed before the workflow was added), and the commit
  * under the one this run adds is `GENERATED_ROOT` or a student's.
  */
-async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204 } = {}) {
+async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204, injectStatus = 201 } = {}) {
   const calls = [];
   let generated = Boolean(existing);
   const server = createServer((req, res) => {
@@ -64,6 +64,7 @@ async function withApi(fn, { templateGrades = false, existing = null, contentsEm
       return templateGrades && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
     }
     if (url === "/repos/Org/lab-ann/contents/.github/workflows/autograding.yml" && req.method === "PUT") {
+      if (injectStatus !== 201) return send(injectStatus, { message: "Resource not accessible by integration" });
       return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: INJECTED } });
     }
     if (url === "/repos/Org/lab-ann/commits") {
@@ -147,6 +148,28 @@ test("...and one provisioning added nothing to records none: one commit is the s
     assert.equal(r.status, 0, r.log);
     assert.equal(output(r.outputs, "starter_sha"), "");
   }, { templateGrades: true });
+});
+
+test("TA-9: a grading workflow that cannot be added fails the run, so a student who would never be graded is seen - and still recorded", async () => {
+  // It logged and reported the acceptance done: green, and that student's work
+  // was never graded.
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.equal(r.status, 1, r.log);
+    assert.equal(output(r.outputs, "outcome"), "fail:grading-workflow");
+    assert.match(r.log, /the grading workflow could not be added \(HTTP 403\)/);
+    assert.match(r.log, /Retry acceptance/);
+    assert.equal(output(r.outputs, "granted"), "true", "they hold it, so the record step still records them");
+    assert.equal(output(r.outputs, "repo_name"), "Org/lab-ann");
+  }, { injectStatus: 403 });
+  // A template that ships its own grading workflow is not written over: no
+  // write, no failure.
+  await withApi(async (api, calls) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.ok(!calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml")));
+    assert.match(r.log, /workflow already present from template - skipping injection/);
+  }, { templateGrades: true, injectStatus: 500 });
 });
 
 test("TL-7: `granted` is said the moment the student holds the repository, so a later failure still leaves them on a record lockdown reads", async () => {

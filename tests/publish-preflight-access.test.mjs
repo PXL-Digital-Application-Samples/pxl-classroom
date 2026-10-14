@@ -22,14 +22,14 @@ import { fileURLToPath } from "node:url";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-publish-preflight.mjs");
 
-async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Java-Essentials", extraYaml = "", branches = ["main"], workflowsStatus = 404, defaultBranch = "main" } = {}) {
+async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Java-Essentials", extraYaml = "", branches = ["main"], workflowsStatus = 404, defaultBranch = "main", workflowBranches = [], branchesStatus = 200 } = {}) {
   const calls = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
-    const url = req.url.split("?")[0];
+    const [url, query = ""] = req.url.split("?");
     calls.push(`${req.method} ${url}`);
     if (url === "/installation/repositories") {
       return accessStatus === 200
@@ -38,8 +38,12 @@ async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Jav
     }
     if (url === `/repos/${org}/tpl`) return send(200, { id: 7, private: true, is_template: true, default_branch: defaultBranch });
     if (url === `/repos/${org}/tpl/commits`) return send(200, [{ sha: "a".repeat(40) }]);
-    if (url === `/repos/${org}/tpl/branches`) return send(200, branches.map((name) => ({ name })));
+    if (url === `/repos/${org}/tpl/branches`) return branchesStatus === 200 ? send(200, branches.map((name) => ({ name }))) : send(branchesStatus, { message: "x" });
     if (url === `/repos/${org}/tpl/contents/.github/workflows`) {
+      // `workflowsStatus` answers for the default branch; `workflowBranches`
+      // are the other branches that have workflows.
+      const ref = new URLSearchParams(query).get("ref");
+      if (ref !== defaultBranch) return workflowBranches.includes(ref) ? send(200, [{ name: "ci.yml", type: "file" }]) : send(404, { message: "Not Found" });
       return workflowsStatus === 200 ? send(200, [{ name: "ci.yml", type: "file" }]) : send(workflowsStatus, { message: "x" });
     }
     if (url === `/orgs/${org}`) return send(200, { plan: { name: "team" } });
@@ -114,6 +118,24 @@ test("full history: a default branch provisioning cannot name refuses; workflows
   assert.match(wf.out, /::warning::The template has workflows/);
   const unread = await preflight({ extraYaml: "template_full_history: true\n", workflowsStatus: 500 });
   assert.match(unread.out, /::warning::Could not check whether the template has workflows/);
+});
+
+test("TA-4: a workflow on a prepared branch only warns too; more branches than are checked is not a whole answer", async () => {
+  // Every branch is pushed, and a workflow that runs on push runs on each.
+  const onBranch = await preflight({ extraYaml: "template_full_history: true\n", branches: ["main", "feature-x"], workflowBranches: ["feature-x"] });
+  assert.equal(onBranch.status, 0, onBranch.out);
+  assert.match(onBranch.out, /::warning::The template has workflows/);
+  // None anywhere: nothing said.
+  const none = await preflight({ extraYaml: "template_full_history: true\n", branches: ["main", "feature-x"] });
+  assert.doesNotMatch(none.out, /workflows/);
+  // Twenty-one branches with none in the first twenty: not known.
+  const many = await preflight({ extraYaml: "template_full_history: true\n", branches: ["main", ...Array.from({ length: 20 }, (_, i) => `b${i}`)] });
+  assert.match(many.out, /::warning::Could not check whether the template has workflows/);
+  // A branch listing that failed, under feedback PRs: both said, nothing refused.
+  const unlisted = await preflight({ extraYaml: "template_full_history: true\nfeedback_pr: true\n", branchesStatus: 502 });
+  assert.equal(unlisted.status, 0, unlisted.out);
+  assert.match(unlisted.out, /::warning::Could not list the template's branches, so whether one is called pxl-baseline was not checked/);
+  assert.match(unlisted.out, /::warning::Could not check whether the template has workflows/);
 });
 
 test("an unreadable answer warns and does not refuse - it is not evidence of a narrowed installation", async () => {

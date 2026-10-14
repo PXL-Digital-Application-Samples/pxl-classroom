@@ -86,12 +86,15 @@ async function main() {
   }
 
   const recorded = new Map();
+  // Assignments that ever copied a template with its history: the setting, or
+  // a record saying so (TA-7). Turned off later, the setting alone left a copy
+  // made while it was on - whose record was lost - found by nothing.
+  const everCopied = new Set();
   for (const a of assignments) {
-    const names = [
-      ...(await jsonFilesIn(join(dataDir, repositoriesDir(a.id)))),
-      ...(await jsonFilesIn(join(dataDir, teamsDir(a.id)))),
-    ].map((doc) => doc?.repo_name).filter(Boolean);
+    const records = await jsonFilesIn(join(dataDir, repositoriesDir(a.id)));
+    const names = [...records, ...(await jsonFilesIn(join(dataDir, teamsDir(a.id))))].map((doc) => doc?.repo_name).filter(Boolean);
     recorded.set(a.id, names);
+    if (a.template_full_history === true || records.some((r) => r?.full_history === true)) everCopied.add(a.id);
   }
 
   let repos;
@@ -114,7 +117,7 @@ async function main() {
     let verdict = generatedFrom(await gh("GET", `/repos/${org}/${c.repo}`), a?.template);
     // A full-history copy is pushed, so it names no template: asked by its
     // root commit instead (lib/unrecorded-repos.mjs `copiedFrom`).
-    if (verdict === false && a?.template_full_history === true && a?.template?.owner && a?.template?.repository) {
+    if (verdict === false && everCopied.has(c.assignment_id) && a?.template?.owner && a?.template?.repository) {
       const key = `${a.template.owner}/${a.template.repository}`;
       if (!templateRoots.has(key)) templateRoots.set(key, await rootCommit(a.template.owner, a.template.repository));
       verdict = copiedFrom(await rootCommit(org, c.repo), templateRoots.get(key));

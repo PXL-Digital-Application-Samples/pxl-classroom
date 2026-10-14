@@ -305,10 +305,10 @@
     </div>
 
     <!-- Modal: Create Team -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal card">
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false" @keydown.esc="showCreateModal = false">
+      <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="create-team-title">
         <header class="modal-head flex justify-between items-center">
-          <h3>Create a team in {{ assignmentTitle }}</h3>
+          <h3 id="create-team-title">Create a team in {{ assignmentTitle }}</h3>
           <button class="modal-close" type="button" @click="showCreateModal = false" aria-label="Close">×</button>
         </header>
         <form @submit.prevent="submitCreateTeam" class="modal-form">
@@ -317,6 +317,7 @@
               <label for="create-team-name">Team Name <span class="req">*</span></label>
               <input
                 id="create-team-name"
+                ref="createNameEl"
                 v-model="newTeamForm.name"
                 type="text"
                 class="form-control"
@@ -374,10 +375,10 @@
     </div>
 
     <!-- Modal: Manage Team -->
-    <div v-if="managingTeam" class="modal-overlay" @click.self="managingTeam = null">
-      <div class="modal card">
+    <div v-if="managingTeam" class="modal-overlay" @click.self="managingTeam = null" @keydown.esc="managingTeam = null">
+      <div ref="manageDialogEl" class="modal card" role="dialog" aria-modal="true" aria-labelledby="manage-team-title" tabindex="-1">
         <header class="modal-head flex justify-between items-center">
-          <h3>Manage {{ managingTeam.team_name }}</h3>
+          <h3 id="manage-team-title">Manage {{ managingTeam.team_name }}</h3>
           <button class="modal-close" type="button" @click="managingTeam = null" aria-label="Close">×</button>
         </header>
         <div class="modal-body flex flex-col gap-md">
@@ -397,7 +398,7 @@
                   class="team-rename-input"
                   :disabled="saving"
                   @keydown.enter.prevent="saveRename"
-                  @keydown.esc.prevent="cancelRename"
+                  @keydown.esc.stop.prevent="cancelRename"
                 />
                 <button class="btn btn-secondary btn-sm" type="button" :disabled="saving || !renameName.trim()" @click="saveRename">{{ saving ? 'Renaming…' : 'Rename' }}</button>
                 <button class="btn-link" type="button" :disabled="saving" @click="cancelRename">Cancel</button>
@@ -617,6 +618,24 @@ const teamStatusFilter = ref('')
 const showSeedModal = ref(false)
 const showCreateModal = ref(false)
 const managingTeam = ref(null)
+// Focus goes into a dialog when it opens, so Escape (on the overlay) reaches
+// it, and back to whatever opened it when it closes - from any of the places
+// that close it, hence watched rather than set beside each one.
+const createNameEl = ref(null)
+const manageDialogEl = ref(null)
+let dialogOpener = null
+function followDialog(open, focusInside) {
+  if (open) {
+    dialogOpener = document.activeElement
+    nextTick(() => focusInside()?.focus())
+  } else if (dialogOpener) {
+    const back = dialogOpener
+    dialogOpener = null
+    nextTick(() => { if (back.isConnected) back.focus() })
+  }
+}
+watch(showCreateModal, (open) => followDialog(open, () => createNameEl.value))
+watch(() => Boolean(managingTeam.value), (open) => followDialog(open, () => manageDialogEl.value))
 const manageMembers = ref([])
 const selectedStudentToAdd = ref('')
 const saving = ref(false)

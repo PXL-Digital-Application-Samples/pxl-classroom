@@ -93,6 +93,26 @@ async function listBranchNames(token, owner, repo) {
   return null;
 }
 
+/**
+ * Whether any branch the copy carries has workflows: true, false, or null when
+ * that could not be read whole (TA-4, review 2026-10-14). Only the default
+ * branch was asked, and a workflow on a prepared branch runs on the push that
+ * creates every student repository just the same. Each branch is one call, so
+ * up to WORKFLOW_BRANCHES of them; more is not a whole answer, unless one of
+ * those already has workflows.
+ */
+const WORKFLOW_BRANCHES = 20;
+async function workflowsOnAnyBranch(token, owner, repo, defaultBranch, branches) {
+  const names = Array.isArray(branches) ? [defaultBranch, ...branches.filter((b) => b !== defaultBranch)] : [defaultBranch];
+  let unknown = !Array.isArray(branches) || names.length > WORKFLOW_BRANCHES;
+  for (const name of names.slice(0, WORKFLOW_BRANCHES)) {
+    const wf = await gh(token, `/repos/${owner}/${repo}/contents/.github/workflows?ref=${encodeURIComponent(name || "")}`);
+    if (wf.ok && Array.isArray(await wf.json())) return true;
+    if (!wf.ok && wf.status !== 404) unknown = true;
+  }
+  return unknown ? null : false;
+}
+
 async function main() {
   const path = process.argv[2];
   if (!path) fail("usage: check-publish-preflight.mjs <assignment.yml>");
@@ -200,8 +220,7 @@ async function main() {
   // with this token, which is the one the copy clones with.
   if (doc.template_full_history === true) {
     const branches = await listBranchNames(token, owner, repo);
-    const wf = await gh(token, `/repos/${owner}/${repo}/contents/.github/workflows?ref=${encodeURIComponent(data.default_branch || "")}`);
-    const hasWorkflows = wf.ok ? Array.isArray(await wf.json()) : wf.status === 404 ? false : null;
+    const hasWorkflows = await workflowsOnAnyBranch(token, owner, repo, data.default_branch, branches);
     const found = fullHistoryFindings({
       defaultBranch: data?.default_branch,
       branches,

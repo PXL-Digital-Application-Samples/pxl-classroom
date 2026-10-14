@@ -98,6 +98,39 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await expect(page.locator('.toast', { hasText: 'Renamed to "Krusty Krabs"' })).toBeVisible();
   });
 
+  test('TA-6 (T7): saved but not published: no success said, the failure is, and the team shows its new name', async ({ page }) => {
+    const commits = await open(page);
+    await page.route('**/actions/workflows/regenerate-dashboard.yml/dispatches', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Server Error' }) }));
+    const modal = await manage(page, 'Krusty Krab');
+    await modal.getByRole('button', { name: 'Rename team' }).click();
+    await modal.locator('#team-rename-input').fill('Krusty Krabs');
+    await modal.locator('#team-rename-input').press('Enter');
+    await expect.poll(() => commits.length, { timeout: 15000 }).toBe(1);
+    await expect(page.locator('.toast', { hasText: 'Saved, but publishing the change to students failed' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.toast', { hasText: 'Renamed to' })).toHaveCount(0);
+  });
+
+  test('TA-6: the button says "Renaming…" while the commit is on its way, and nothing can be pressed twice', async ({ page }) => {
+    const commits = await open(page);
+    let release;
+    const held = new Promise((r) => { release = r; });
+    await page.route('**/git/refs/heads/main', async (route) => {
+      if (route.request().method() === 'PATCH') await held;
+      return route.fallback();
+    });
+    const modal = await manage(page, 'Krusty Krab');
+    await modal.getByRole('button', { name: 'Rename team' }).click();
+    await modal.locator('#team-rename-input').fill('Krusty Krabs');
+    await modal.locator('#team-rename-input').press('Enter');
+    const button = modal.locator('[data-team-rename]').getByRole('button', { name: 'Renaming…' });
+    await expect(button).toBeVisible({ timeout: 15000 });
+    await expect(button).toBeDisabled();
+    await expect(modal.locator('#team-rename-input')).toBeDisabled();
+    release();
+    await expect.poll(() => commits.length, { timeout: 15000 }).toBe(1);
+  });
+
   test('a name another team has is refused, and nothing is written', async ({ page }) => {
     const commits = await open(page);
     const modal = await manage(page, 'Krusty Krab');
@@ -286,6 +319,48 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await page.locator('#create-team-name').fill('Krusty Krab');
     await expect(page.locator('[data-new-slug-problem]')).toContainText('"Krusty Krabs" was called krusty-krab until it was renamed');
     await expect(page.locator('.modal-foot').getByRole('button', { name: 'Create Team' })).toBeDisabled();
+  });
+
+  test('TA-5 (PG1): a name with an email address is refused in Create Team and in the rename box, and nothing is written', async ({ page }) => {
+    // Published on every student page, and one address failed the Pages
+    // deploy for every organization (lib/public-text.mjs).
+    const commits = await open(page);
+    await page.getByRole('button', { name: /Create Team/i }).first().click();
+    await page.locator('#create-team-name').fill('ann.dewit@student.pxl.be');
+    await expect(page.locator('[data-new-slug-problem]')).toContainText('A team name is shown on a public page, so it cannot contain an email address.');
+    await expect(page.locator('.modal-foot').getByRole('button', { name: 'Create Team' })).toBeDisabled();
+    await page.locator('.modal-foot').getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.locator('#create-team-name')).toHaveCount(0);
+
+    const modal = await manage(page, 'Krusty Krab');
+    await modal.getByRole('button', { name: 'Rename team' }).click();
+    await modal.locator('#team-rename-input').fill('Mail ann.dewit@student.pxl.be');
+    await modal.locator('#team-rename-input').press('Enter');
+    await expect(modal.locator('[data-team-rename]')).toContainText('cannot contain an email address', { timeout: 15000 });
+    expect(commits).toEqual([]);
+  });
+
+  test('the Teams dialogs are dialogs: focus goes in, Escape closes them, and focus comes back', async ({ page }) => {
+    // Found writing the test above: neither had a dialog role, Escape did
+    // nothing, and focus stayed on the button behind the overlay.
+    await open(page);
+    const create = page.getByRole('button', { name: /Create Team/i }).first();
+    await create.click();
+    await expect(page.getByRole('dialog', { name: /Create a team in/ })).toBeVisible();
+    await expect(page.locator('#create-team-name')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: /Create a team in/ })).toHaveCount(0);
+    await expect(create).toBeFocused();
+
+    const modal = await manage(page, 'Krusty Krab');
+    await expect(page.getByRole('dialog', { name: /Manage Krusty Krab/ })).toBeVisible();
+    // Escape in the rename box closes the box, not the dialog.
+    await modal.getByRole('button', { name: 'Rename team' }).click();
+    await modal.locator('#team-rename-input').press('Escape');
+    await expect(page.getByRole('dialog', { name: /Manage Krusty Krab/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: /Manage Krusty Krab/ })).toHaveCount(0);
+    await expect(page.locator('tr', { hasText: 'Krusty Krab' }).getByRole('button', { name: 'Manage' })).toBeFocused();
   });
 
   // Review 2026-10-14 (P2-18): Create Team wrote from the page's copy of the

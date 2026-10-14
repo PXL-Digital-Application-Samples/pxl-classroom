@@ -65,9 +65,12 @@ const hasRefs = (bare) => existsSync(bare) && refs(bare).length > 0;
  * (our own failed copy, an hour old) or "has-commits" (a repository to reuse).
  * `defaultBranch`: what GitHub reports for the template.
  */
-async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master", generatedFrom = null } = {}) {
+async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master", generatedFrom = null, createdAgoMs = 3600_000, fillAfter = 0, raceCreate = false, patchStatus = 200, headStatus = 200 } = {}) {
   const calls = [];
   const repo = join(srv, "Org", "lab-ann.git");
+  // `fillAfter`: an empty repository that another run is filling, which
+  // GitHub shows as filled from that many reads of its contents on.
+  let contentReads = 0;
   if (target !== "absent") {
     git(["init", "-q", "--bare", repo], srv);
     if (target === "has-commits") {
@@ -101,7 +104,7 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         return existsSync(repo)
           ? send(200, {
               id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", default_branch: repoDefault,
-              created_at: new Date(Date.now() - 3600_000).toISOString(),
+              created_at: new Date(Date.now() - createdAgoMs).toISOString(),
               // GitHub names the template of a repository IT generated; a pushed copy has none.
               template_repository: generatedFrom ? { full_name: generatedFrom } : null,
             })
@@ -113,17 +116,23 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         return send(204);
       }
       if (url === "/orgs/Org/repos" && req.method === "POST") {
+        // `raceCreate`: another run made it between this run's look and its create.
+        if (raceCreate && !existsSync(repo)) git(["init", "-q", "--bare", repo], srv);
         if (existsSync(repo)) return send(422, { message: "name already exists on this account" });
         git(["init", "-q", "--bare", repo], srv);
         return send(201, { id: 11, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann" });
       }
       if (url === "/repos/Org/lab-ann" && req.method === "PATCH") {
+        if (patchStatus !== 200) return send(patchStatus, { message: "Server Error" });
         const { default_branch } = JSON.parse(body);
         git(["symbolic-ref", "HEAD", `refs/heads/${default_branch}`], repo);
         return send(200, { default_branch });
       }
       const head = url.match(/^\/repos\/Org\/lab-ann\/branches\/([^/]+)$/);
-      if (head) return send(200, { commit: { sha: git(["rev-parse", `refs/heads/${decodeURIComponent(head[1])}`], repo) } });
+      if (head) {
+        if (headStatus !== 200) return send(headStatus, { message: "Server Error" });
+        return send(200, { commit: { sha: git(["rev-parse", `refs/heads/${decodeURIComponent(head[1])}`], repo) } });
+      }
       if (url === "/repos/Org/lab-ann/commits") {
         if (!hasRefs(repo)) return send(409, { message: "Git Repository is empty." });
         // As GitHub pages it: one per page, the `last` link's page is the count.
@@ -133,6 +142,7 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         return send(200, [{ sha: git(["rev-parse", sha], repo) }], link);
       }
       if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") {
+        if (fillAfter && ++contentReads >= fillAfter && !hasRefs(repo)) git(["push", "-q", "--mirror", repo], join(srv, "Org", "tpl.git"));
         return hasRefs(repo) ? send(200, [{ name: "app.py", type: "file" }]) : send(404, { message: "This repository is empty." });
       }
       if (/^\/repos\/Org\/lab-ann\/contents\/\.github\/workflows\/(autograding|classroom)\.yml$/.test(url) && req.method === "GET") {
@@ -240,7 +250,7 @@ async function withGitHttp(srv, token, fn) {
   }
 }
 
-function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null, feedbackPr = "false", serverUrl = pathToFileURL(srv).href, token = "stub-token" } = {}) {
+function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null, feedbackPr = "false", serverUrl = pathToFileURL(srv).href, token = "stub-token", env = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-"));
   // Provisioning reads the assignment from the control checkout for step 5.5.
   if (assignment) {
@@ -270,6 +280,7 @@ function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false"
         PXL_FILL_WAIT_CHECKS: "2",
         GITHUB_OUTPUT: join(dir, "out.env"),
         GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
+        ...env,
       },
     });
     let log = "";
@@ -295,6 +306,10 @@ test("every branch, tag and commit arrives with the same SHAs; GitHub's pull ref
     const r = await provision(api, srv);
     assert.equal(r.status, 0, r.log);
     assert.equal(output(r.outputs, "outcome"), "created");
+    // F10 (TA-3): the run log is public and the template may be private, so
+    // it counts branches and never names one.
+    assert.match(r.log, /3 branch\(es\) with their history/);
+    assert.doesNotMatch(r.log, /feature-x|bugfix/);
     assert.deepEqual(refs(repo), tplRefs(srv), "the template's branches and tag, exactly");
     assert.ok(!calls.some((c) => c.includes("/generate")), "GitHub's template copy is not used");
     assert.ok(calls.some((c) => c.startsWith("POST /orgs/Org/repos") && c.includes('"auto_init":false')), "created empty");
@@ -491,7 +506,10 @@ test("F4b: the copy is recovered even after the setting was turned off, since it
 });
 
 test("...but one a person pushed to, or whose push log cannot be read, recovers nothing", async () => {
-  for (const activity of [[{ actor: { login: `${APP_SLUG}[bot]` } }, { actor: { login: "ann" } }], null]) {
+  // TA-9: an EMPTY log and a FULL page are not "only the App" either - the
+  // first says nothing, the second may have more on the next page.
+  const bot = { actor: { login: `${APP_SLUG}[bot]` } };
+  for (const activity of [[bot, { actor: { login: "ann" } }], null, [], Array.from({ length: 100 }, () => bot)]) {
     const srv = makeServer();
     await withApi(srv, async (api, calls) => {
       const r = await provision(api, srv, { recreateEmpty: "true" });
@@ -616,6 +634,96 @@ test("AC7: a teammate waits for a full-history copy as long as that copy may tak
     const minutes = Number(text.match(/timeout-minutes: (\d+)/)?.[1]);
     assert.ok(longest + 5 * 60 * 1000 <= minutes * 60 * 1000, `${wf}: five minutes left for the rest of the run`);
   }
+});
+
+test("TA-9: a fresh copy whose default branch cannot be set fails, saying so; a recovered copy whose start cannot be read records none", async () => {
+  // The first branch pushed becomes the default in no promised order, so a
+  // copy left on a prepared branch is not handed out.
+  const srv = makeServer();
+  await withApi(srv, async (api) => {
+    const r = await provision(api, srv);
+    assert.equal(r.status, 1, r.log);
+    assert.equal(output(r.outputs, "outcome"), "fail:create");
+    assert.match(r.log, /its default branch could not be set to master \(HTTP 403\)/);
+    assert.equal(output(r.outputs, "repo_id"), "11", "the repository it made is still said, for its team");
+  }, { patchStatus: 403 });
+
+  // Recovering an earlier run's copy, the head cannot be read: nothing is
+  // recorded rather than a guess, and the run is not failed for it.
+  const srv2 = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` } };
+  await withApi(srv2, async (api) => {
+    const r = await provision(api, srv2, { recreateEmpty: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "starter_sha"), "");
+    assert.equal(output(r.outputs, "full_history"), "false", "no start, so not said to be a recovered copy");
+    assert.match(r.log, /the starting commit could not be read, so it is not recorded/);
+  }, { target: "copy", activity: [bot, bot], headStatus: 502 });
+});
+
+test("TA-9: a teammate's run that made the repository between this run's look and its create fails this one clearly, and touches nothing", async () => {
+  // DECIDED (review 2026-10-14): not adopted on the spot - the other run may
+  // still be pushing into it, and only the kept-repository path waits for a
+  // fill. The page offers "send it again", and that attempt finds it and
+  // reuses it.
+  const srv = makeServer();
+  await withApi(srv, async (api, calls, repo) => {
+    const r = await provision(api, srv);
+    assert.equal(r.status, 1, r.log);
+    assert.equal(output(r.outputs, "outcome"), "fail:create");
+    assert.match(r.log, /create HTTP 422 name already exists/);
+    assert.ok(!calls.some((c) => c.startsWith("DELETE ")), "the other run's repository is not removed");
+    assert.ok(existsSync(repo));
+    assert.ok(!calls.some((c) => /\/collaborators\//.test(c)), "nobody is granted a repository this run did not make");
+    assert.equal(output(r.outputs, "repo_id"), undefined, "and no record is told it is this run's");
+  }, { raceCreate: true });
+});
+
+test("TA-3 (F11): a git server that never answers stops the copy at the step limit, in its own words", async () => {
+  const sockets = new Set();
+  const stall = createServer(() => { /* never answers */ });
+  stall.on("connection", (s) => sockets.add(s));
+  await new Promise((r) => stall.listen(0, "127.0.0.1", r));
+  const srv = makeServer();
+  const started = Date.now();
+  try {
+    await withApi(srv, async (api) => {
+      const r = await provision(api, srv, { serverUrl: `http://127.0.0.1:${stall.address().port}`, env: { PXL_GIT_STEP_MS: "1500" } });
+      assert.equal(r.status, 1, r.log);
+      assert.equal(output(r.outputs, "outcome"), "fail:create", r.log);
+      assert.match(r.log, /the clone of the template did not finish within/);
+      assert.ok(Date.now() - started < 30_000, "stopped by the step limit, not left hanging");
+    });
+  } finally {
+    for (const s of sockets) s.destroy();
+    await new Promise((r) => stall.close(r));
+  }
+});
+
+test("TA-3 (AC7): run as provisioning computes it, unpinned, a teammate waits as long as a full-history copy may take - and GitHub's copy the two minutes", async () => {
+  // A repository made a minute ago, empty, that another run fills on the
+  // 70th read: past the two minutes (60 checks) a GitHub copy gets, inside
+  // what a full-history copy may take. 5ms between checks instead of 2s.
+  // RECREATE_EMPTY: acceptance says the empty repository is the team's own -
+  // a teammate's - which is what keeps it and waits instead of removing it.
+  const env = { PXL_FILL_WAIT_CHECKS: "", PXL_FILL_WAIT_DELAY_MS: "5" };
+  const reads = (calls) => calls.filter((c) => c.startsWith("GET /repos/Org/lab-ann/contents/ ") || c === "GET /repos/Org/lab-ann/contents/").length;
+  const srv = makeServer();
+  await withApi(srv, async (api, calls) => {
+    const r = await provision(api, srv, { env, recreateEmpty: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "reused");
+    assert.match(r.log, /another run may still be filling it, so it is kept/);
+    assert.ok(reads(calls) >= 70, `it waited past the two minutes: ${reads(calls)} reads`);
+  }, { target: "empty", createdAgoMs: 60_000, fillAfter: 70 });
+
+  const srv2 = makeServer();
+  await withApi(srv2, async (api, calls) => {
+    const r = await provision(api, srv2, { env, fullHistory: "false", recreateEmpty: "true" });
+    assert.equal(r.status, 1, r.log);
+    assert.match(r.log, /exists and is still empty/);
+    assert.equal(reads(calls), 60, "GitHub's copy gets the two minutes");
+  }, { target: "empty", createdAgoMs: 60_000, fillAfter: 70 });
 });
 
 test("without the setting, GitHub's template copy is asked for, never an empty repository and a push", async () => {

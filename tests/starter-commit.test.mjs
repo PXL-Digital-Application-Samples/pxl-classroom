@@ -117,6 +117,29 @@ test("AC5: the team's file keeps its repository's start, so a joiner after the o
   assert.deepEqual([bob.starter_sha, bob.starter_commit_count, bob.full_history], [A, 14, true], "carried from the team's file");
 });
 
+test("TA-9: a different repository at the team's name (removed and made again) drops the old one's start from the team's file", () => {
+  // `sameRepo` false: the file's start was the old repository's, and this run
+  // recorded none for the new one - so none is kept, rather than the old one.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-starter-remade-"));
+  const teamFile = join(dir, "teams", "lab", "alpha.json");
+  mkdirSync(dirname(teamFile), { recursive: true });
+  writeFileSync(teamFile, JSON.stringify({
+    schema_version: 1, assignment_id: "lab", team_slug: "alpha", team_name: "Alpha", members: ["ann"], max_members: 3,
+    created_at: "2026-10-14T10:00:00Z", created_by: "ann", repo_id: 41, starter_sha: A, starter_commit_count: 14, full_history: true,
+  }));
+  const record = write(dir, "ann", ["--team-slug", "alpha"]);
+  assert.equal(record.starter_sha, undefined, "the old repository's start is not carried onto the new one's record");
+  const team = JSON.parse(readFileSync(teamFile, "utf8"));
+  assert.equal(team.repo_id, 77);
+  assert.equal(team.starter_sha, undefined);
+  assert.equal(team.starter_commit_count, undefined);
+  assert.equal(team.full_history, undefined);
+  // The same repository with nothing new to say keeps what the file holds.
+  writeFileSync(teamFile, JSON.stringify({ ...team, repo_id: 77, starter_sha: A, starter_commit_count: 14 }));
+  write(dir, "ann", ["--team-slug", "alpha"]);
+  assert.equal(JSON.parse(readFileSync(teamFile, "utf8")).starter_sha, A);
+});
+
 test("starterFor: where a team's records differ, every member is read against the one with the most commits", () => {
   // Ann's record holds the copy's head (14); Bob's run recovered the head after
   // the App added the grading workflow (15). One repository, one answer.

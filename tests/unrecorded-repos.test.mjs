@@ -95,7 +95,7 @@ test("loginFromRepoName reads the login out of the ordinary pattern, and nothing
 
 // --- the script, against a stub API ------------------------------------------
 
-function controlDir({ fullHistory = false } = {}) {
+function controlDir({ fullHistory = false, recordFullHistory = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-unrecorded-"));
   mkdirSync(join(dir, "assignments"));
   writeFileSync(
@@ -104,11 +104,11 @@ function controlDir({ fullHistory = false } = {}) {
       (fullHistory ? "template_full_history: true\n" : ""),
   );
   mkdirSync(join(dir, "repositories", "lab"), { recursive: true });
-  writeFileSync(join(dir, "repositories", "lab", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "Org/lab-ann" }));
+  writeFileSync(join(dir, "repositories", "lab", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "Org/lab-ann", ...(recordFullHistory ? { full_history: true } : {}) }));
   return dir;
 }
 
-async function run({ listStatus = 200, repos, fullHistory = false } = {}) {
+async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false } = {}) {
   const list = repos ?? [
     { name: "lab-ann", from: "Org/starter" },
     { name: "lab-TimoHubner444", from: "Org/starter" },
@@ -138,7 +138,7 @@ async function run({ listStatus = 200, repos, fullHistory = false } = {}) {
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const dir = controlDir({ fullHistory });
+  const dir = controlDir({ fullHistory, recordFullHistory });
   const out = join(dir, "out.env");
   try {
     return await new Promise((resolve, reject) => {
@@ -194,6 +194,15 @@ test("S7: a full-history copy no record names is reported by its root commit; a 
   // Without the setting a repository naming no template is still not ours.
   const plain = await run({ repos: [{ name: "lab-lost", from: null, root: "c0ffee" }] });
   assert.match(plain.outputs, /^count=0$/m, plain.log);
+
+  // TA-7: the setting turned off since, while a record says a copy was made
+  // with it: a lost copy is still found.
+  const since = await run({
+    recordFullHistory: true,
+    repos: [{ name: "lab-ann", from: null, root: "c0ffee" }, { name: "lab-lost", from: null, root: "c0ffee" }],
+  });
+  assert.match(since.outputs, /^count=1$/m, since.log);
+  assert.match(since.outputs, /`lab-lost` - student `lost`/);
 });
 
 test("nothing to report writes a zero and no notice text", async () => {

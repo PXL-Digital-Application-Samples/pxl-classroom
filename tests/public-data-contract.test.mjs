@@ -415,6 +415,9 @@ test("a team's join code is never published - only whether joining needs one", (
     writeFileSync(join(dir, "teams", "test-valid", "kept.json"), left("kept", { join_code: "M2X9RT", repo_name: "o/kept" }));
     writeFileSync(join(dir, "teams", "test-valid", "norepo.json"), left("norepo", { join_code: "M2X9RT" }));
     writeFileSync(join(dir, "teams", "test-valid", "nocode.json"), left("nocode", { repo_name: "o/nocode" }));
+    // TA-5 (PG1): a held name that is an address, from before the screens
+    // refused one, is held under its slug and never published as written.
+    writeFileSync(join(dir, "teams", "test-valid", "mailed.json"), left("mailed", { team_name: "ann.dewit@student.pxl.be", join_code: "M2X9RT", repo_name: "o/mailed" }));
     const outDir = join(dir, "public");
     const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
     assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
@@ -427,7 +430,12 @@ test("a team's join code is never published - only whether joining needs one", (
   assert.equal(on.teams.find((t) => t.team_slug === "coded").needs_code, true);
   assert.equal(on.teams.find((t) => t.team_slug === "open").needs_code, undefined, "a team without a code is open");
   assert.ok(Number.isFinite(Date.parse(on.generated_at)), "says when it was made, so the page can tell an older request from a newer one");
-  assert.deepEqual(on.taken, [{ team_slug: "kept", team_name: "kept" }], "names only, and only the empty team that keeps a repository and a code");
+  assert.deepEqual(
+    [...on.taken].sort((a, b) => a.team_slug.localeCompare(b.team_slug)),
+    [{ team_slug: "kept", team_name: "kept" }, { team_slug: "mailed", team_name: "mailed" }],
+    "names only, and only the empty teams that keep a repository and a code - an address as its slug",
+  );
+  assert.ok(!JSON.stringify(on).includes("ann.dewit"), "the address is nowhere in the public file");
   assert.ok(!JSON.stringify(on.taken).includes("members"));
   const off = run(false);
   assert.equal(off.teams.find((t) => t.team_slug === "coded").needs_code, undefined, "with codes off, no team needs one");

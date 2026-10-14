@@ -955,6 +955,26 @@ test("...and self-service: no new team under the old name, with them alone in it
   assert.deepEqual(team.members, ["alice", "bob"]);
 });
 
+test("TA-6: ...also when the page sends only the old team NAME, and after two renames", () => {
+  // The create form sends a name, not a slug; its slug is the old one.
+  const byName = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Alpha" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "alpha-squad": RENAMED } } },
+  );
+  assert.equal(byName.outputs.outcome, "accepted", byName.stdout + byName.stderr);
+  assert.equal(byName.outputs.team_slug, "alpha-squad");
+  assert.equal(existsSync(join(byName.dir, "teams", "test-asgn", "alpha.json")), false);
+  // Renamed twice: a page from before either rename still lands there.
+  const twice = { ...RENAMED, team_slug: "alpha-crew", team_name: "Alpha Crew", renamed_from: ["alpha", "alpha-squad"] };
+  for (const slug of ["alpha", "alpha-squad"]) {
+    const res = runAccept(
+      { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: slug },
+      { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { "alpha-crew": twice } } },
+    );
+    assert.equal(res.outputs.team_slug, "alpha-crew", `${slug}: ${res.stdout}${res.stderr}`);
+  }
+});
+
 test("...but only for a member, and only while no team holds the old slug", () => {
   // Somebody else may not take the old slug (T5b, review 2026-10-14): a team
   // there turned the mapping off for every member's page loaded before the
@@ -1010,6 +1030,58 @@ test("AC3: a switch whose provisioning failed early is finished by the next atte
   );
   assert.equal(kept.outputs.previous_repo, "asgn-team-a");
   assert.equal(kept.outputs.previous_repo_remove, "false");
+
+  // TA-1: a repository record that cannot be read names no repository to
+  // leave - never a guess, and never one to delete.
+  const unread = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "team-b", TEAM_ACTION: "join" },
+    {
+      assignmentYaml: selfServiceYaml(), teams,
+      acceptances: { "test-asgn": { alice: { github_login: "alice", github_id: 101, accepted_at: "2026-10-14T10:00:00Z", status: "failed", team_slug: "team-b", team_name: "Team B" } } },
+      beforeAccept: (dir) => {
+        mkdirSync(join(dir, "repositories", "test-asgn"), { recursive: true });
+        writeFileSync(join(dir, "repositories", "test-asgn", "alice.json"), "{ not json");
+      },
+    },
+  );
+  assert.equal(unread.outputs.outcome, "already-accepted", unread.stdout + unread.stderr);
+  assert.equal(unread.outputs.previous_repo ?? "", "");
+  assert.equal(unread.outputs.previous_repo_remove ?? "false", "false");
+});
+
+test("TA-5 (PG1): a hand-made request naming a team with an address is accepted, and its slug carries no address", () => {
+  // The pages refuse such a name before anything is sent; the hub does not,
+  // because the name only matters where it is PUBLISHED, and the generator
+  // publishes its slug instead (lib/public-text.mjs `publishedTeamName`).
+  const res = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "ann.dewit@student.pxl.be", TEAM_ACTION: "create" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": {} } },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.doesNotMatch(res.outputs.team_slug, /@/);
+  assert.doesNotMatch(res.outputs.target_repo, /@/);
+});
+
+test("TA-1 (AC8): switching teams under an explicit reuse, a stranger's repository at the new team's name is never taken for the student's own", () => {
+  // The record still names the team being left, and that attempt asked GitHub
+  // about THAT team's name - so it is no evidence about this one, and an
+  // empty repository here must not be removed and generated over.
+  probe.setRepos({ "asgn-team-b": { commits: [GENERATED_ROOT] } });
+  try {
+    const res = runAccept(
+      { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Team B", TEAM_ACTION: "switch" },
+      {
+        assignmentYaml: `${selfServiceYaml()}\nexisting_repo_policy: reuse`,
+        teams: { "test-asgn": { "team-a": { ...SEEDED_ALPHA, team_slug: "team-a", team_name: "Team A", members: ["alice"] } } },
+        acceptances: { "test-asgn": { alice: { github_login: "alice", github_id: 101, accepted_at: "2026-10-14T10:00:00Z", status: "provisioned", team_slug: "team-a", team_name: "Team A", decided_by_run_id: "77" } } },
+      },
+    );
+    assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+    assert.equal(res.outputs.team_slug, "team-b");
+    assert.equal(res.outputs.own_earlier_attempt, "false");
+  } finally {
+    probe.setRepos({});
+  }
 });
 
 test("AC9 (decided): a JOIN of a team with no file makes it, as a create does - its creator's request may not be saved yet", () => {
@@ -1650,6 +1722,14 @@ test("AC1: under refuse, a lecturer's Retry hands back the repository the attemp
     { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
   );
   assert.equal(reused.outputs.outcome, "rejected:repo-exists");
+  // TA-1: ...and a lecturer's record (a Teams-tab move, run id "0") asked
+  // GitHub nothing about this name, so it proves nothing either.
+  writeFileSync(aside, JSON.stringify({ github_login: "charlie", accepted_at: "2026-09-29T13:00:00.000Z", status: "provisioned", decided_by_run_id: "0" }));
+  const lecturers = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(lecturers.outputs.outcome, "rejected:repo-exists");
   // And no set-aside record at all: an ordinary first acceptance, refused.
   const first = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside + ".missing" },

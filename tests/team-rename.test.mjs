@@ -81,12 +81,27 @@ test("a name the public pages may not show is refused (PG1, review 2026-10-14)",
   assert.equal(planTeamRename({ team, newName: "Krusty Krabs", assignmentId: "pe", accepted: nobody }).ok, true);
 });
 
-test("both screens that take a typed team name ask the same judge", () => {
-  // The Teams tab's new-team form and the student's create-team form; the
-  // rename goes through planTeamRename above.
-  for (const f of ["frontend/src/components/TeamsTable.vue", "frontend/src/components/GroupAcceptanceCard.vue"]) {
-    const src = readFileSync(join(root, f), "utf8");
-    assert.match(src, /import \{ teamNameProblem \} from '\.\.\/\.\.\/\.\.\/lib\/public-text\.mjs'/, f);
-    assert.match(src, /teamNameProblem\((newTeamForm\.value\.name|newTeamName\.value)\)/, `${f} must judge the typed name`);
-  }
+// The Teams tab's new-team form and the student's create-team form are run in
+// the browser with an address typed (tests/e2e/108 and 112); a grep of the two
+// sources stood here and could not fail (TS-12).
+
+test("TA-6: rename edges - over 100 characters, a name another team had, two renames in a row, and the history capped", () => {
+  const plan = (t, newName, extra = {}) => planTeamRename({ team: t, newName, assignmentId: "pe", accepted: nobody, ...extra });
+  assert.match(plan(team, "A" + "!".repeat(100)).reason, /longer than 100 characters/);
+  assert.equal(plan(team, "A" + "!".repeat(99)).ok, true, "a hundred is allowed");
+  // The slug has its own limit, 64, which a long name of letters reaches first.
+  assert.match(plan(team, "x".repeat(70)).reason, /at most 64/);
+  assert.match(plan(team, "Old Pirates", { reservedSlugs: ["old-pirates"] }).reason, /was called that until it was renamed \(old-pirates\)/);
+  // Two renames: both old names stay this team's, oldest first.
+  const once = plan(team, "Krusty Two").doc;
+  const twice = plan(once, "Krusty Three").doc;
+  assert.deepEqual(twice.renamed_from, ["3tina-krusty-krabs", "krusty-two"]);
+  assert.equal(twice.team_slug, "krusty-three");
+  // At most twenty kept, the newest: the file stays small, and a page loaded
+  // twenty renames ago is not a case worth carrying.
+  const many = { ...team, renamed_from: Array.from({ length: 25 }, (_, i) => `old-${i}`) };
+  const capped = plan(many, "Fresh Name").doc.renamed_from;
+  assert.equal(capped.length, 20);
+  assert.equal(capped.at(-1), "3tina-krusty-krabs", "the slug it had until now is the newest kept");
+  assert.ok(!capped.includes("old-0") && capped.includes("old-24"));
 });

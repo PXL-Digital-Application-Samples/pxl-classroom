@@ -655,9 +655,11 @@ test.describe('49 - the picker at a real course size', () => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {}, roster: BIG });
     await page.goto(`/dashboard/${ORG}/new`);
-    await expect(guardrails(page)).toBeVisible({ timeout: 20000 });
+    // 40s, not 20: two hundred rows under a full parallel run missed 20 once
+    // (2026-10-14) and pass in seconds alone.
+    await expect(guardrails(page)).toBeVisible({ timeout: 40000 });
     await gateOnRoster(page);
-    await expect(page.locator('.cohort-row')).toHaveCount(200, { timeout: 20000 });
+    await expect(page.locator('.cohort-row')).toHaveCount(200, { timeout: 40000 });
   }
 
   test('every student is offered, and the chips add up to the roster', async ({ page }) => {

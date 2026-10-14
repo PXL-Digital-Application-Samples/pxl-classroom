@@ -131,6 +131,9 @@ let repoPopulated = false;
 // two minutes, inside the job's fifteen. `PXL_FILL_WAIT_CHECKS` exists for the
 // unit test, which would otherwise wait the two minutes for a stub.
 const FILL_WAIT_CHECKS = Number(process.env.PXL_FILL_WAIT_CHECKS) > 0 ? Number(process.env.PXL_FILL_WAIT_CHECKS) : 60;
+// ...and the time between them. `PXL_FILL_WAIT_DELAY_MS` is for the test that
+// runs the wait as provisioning computes it, unpinned (TA-3); no workflow sets it.
+const FILL_WAIT_DELAY_MS = Number(process.env.PXL_FILL_WAIT_DELAY_MS) > 0 ? Number(process.env.PXL_FILL_WAIT_DELAY_MS) : 2000;
 // The longest one git command of a full-history copy may take (clone, then
 // push): four minutes each, so both together end inside the ten minutes
 // `mayStillBeFilling` keeps a new repository from being removed by a retry.
@@ -593,7 +596,10 @@ async function createWithFullHistory(tpl) {
     copyFailed = gitCopyFailure(stage, e, GIT_STEP_MS);
   } finally {
     // Before any failure is reported: fail() ends the process, finally or not.
-    await rm(work, { recursive: true, force: true });
+    // Best effort (TA-3): a git the step limit killed can still hold the
+    // directory for a moment, and the removal's error replaced the copy's own
+    // failure with `fail:exception`. The runner is discarded after the job.
+    await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
   }
   if (copyFailed) {
     await fail(
@@ -687,9 +693,16 @@ async function injectAutogradingWorkflow(assignment) {
     message: "Add autograding workflow",
     content: b64
   });
+  // A FAILED WRITE FAILS THE RUN, for the reason above (TA-9, review
+  // 2026-10-14): it logged and reported the acceptance done, so that student
+  // was never graded and nothing anywhere was red. The grant has happened, so
+  // the record is still written (`granted`), and Retry adds the workflow.
   if (!res.ok) {
-    log("inject-autograding", { ok: false, note: `failed to inject workflow HTTP ${res.status}` });
-    return null;
+    await fail(
+      "fail:grading-workflow",
+      `${cfg.org}/${cfg.targetRepo} was created and the student has it, but the grading workflow could not be added ` +
+        `(HTTP ${res.status}), so their work would not be graded. Re-run Retry acceptance for this student.`,
+    );
   }
   log("inject-autograding", { ok: true, note: "injected .github/workflows/autograding.yml" });
   // The commit it made, on the default branch (the PUT names no other).
@@ -796,7 +809,7 @@ async function main() {
       const attempts = process.env.PXL_FILL_WAIT_CHECKS
         ? FILL_WAIT_CHECKS
         : fillWaitChecks({ fullHistory: cfg.fullHistory, createdAt: existing.data?.created_at });
-      if (!cfg.dryRun && !(await ensureRepoPopulated({ attempts, delayMs: 2000 }))) {
+      if (!cfg.dryRun && !(await ensureRepoPopulated({ attempts, delayMs: FILL_WAIT_DELAY_MS }))) {
         await fail(
           "fail:create",
           `${cfg.org}/${cfg.targetRepo} exists and is still empty: an earlier attempt left it, or GitHub has not ` +

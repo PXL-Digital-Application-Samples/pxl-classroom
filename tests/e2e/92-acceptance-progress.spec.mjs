@@ -58,7 +58,7 @@ const group = () => ({
  * (null: the issue read fails), and the hub's run list answering `runs`
  * (null: the run list read fails). Returns a record of what the page sent.
  */
-async function setup(page, { title, run = undefined, runs = undefined, groupMode = false }) {
+async function setup(page, { title, run = undefined, runs = undefined, groupMode = false, teams = null }) {
   const sent = { issues: [] };
   await page.clock.install({ time: T0 });
   await injectAuth(page, STUDENT_1);
@@ -67,7 +67,8 @@ async function setup(page, { title, run = undefined, runs = undefined, groupMode
     assignments: groupMode ? { [GROUP_ID]: group() } : { [ID]: individual() },
     ...(groupMode
       ? {
-          teams: {
+          // `teams`: a test that changes the published file while the page waits.
+          teams: teams ?? {
             [GROUP_ID]: [
               { team_slug: 'team-alpha', team_name: 'Team Alpha', members: ['someone'], member_count: 1, max_members: 3, is_full: false },
             ],
@@ -189,6 +190,46 @@ test.describe('92 - Which step the request is at', () => {
     // And it still ends where it used to: the ordinary timeout.
     await advance(page, 5 * 60_000);
     await expect(page.locator('.timeout-state')).toContainText(/has not appeared/i, { timeout: 15000 });
+  });
+
+  // TA-8 (T1): the stale page's follow on the two paths 111 does not walk.
+  const renamedTeams = (members) => {
+    const alpha = { team_slug: 'team-alpha', team_name: 'Team Alpha', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false };
+    return { files: { [GROUP_ID]: [alpha] }, after: { ...alpha, team_slug: 'team-beta', team_name: 'Team Beta', members, renamed_from: ['team-alpha'] } };
+  };
+  const NEW_REPO = `${GROUP_ID}-team-beta`;
+
+  test('TA-8: a run that finished with no answer follows a rename to the repository the hub made', async ({ page }) => {
+    const { files, after } = renamedTeams([STUDENT_1.login]);
+    await setup(page, { title: HANDLED_TITLE_BY_PURPOSE.accept, run: { status: 'completed', conclusion: 'success', updated_at: T0.toISOString() }, groupMode: true, teams: files });
+    await page.route(`**/api.github.com/repos/${ORG}/${NEW_REPO}`, (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ name: NEW_REPO, full_name: `${ORG}/${NEW_REPO}`, html_url: `https://github.com/${ORG}/${NEW_REPO}` }),
+    }));
+    await page.goto(inviteUrl(ORG, GROUP_ID));
+    await page.getByRole('button', { name: 'Accept & Join Team' }).click();
+    await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });
+    files[GROUP_ID] = [after];
+    await advance(page, 3 * 60_000);
+    await expect(page.getByRole('heading', { name: 'Your team repository is ready!' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.team-badge-banner')).toContainText('team-beta');
+  });
+
+  test('TA-8: a rename the student is not a member of is never followed', async ({ page }) => {
+    const { files, after } = renamedTeams(['somebody-else']);
+    await setup(page, { title: HANDLED_TITLE_BY_PURPOSE.accept, run: { status: 'completed', conclusion: 'success', updated_at: T0.toISOString() }, groupMode: true, teams: files });
+    const asked = [];
+    await page.route(`**/api.github.com/repos/${ORG}/${NEW_REPO}`, (route) => {
+      asked.push(NEW_REPO);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ name: NEW_REPO, full_name: `${ORG}/${NEW_REPO}` }) });
+    });
+    await page.goto(inviteUrl(ORG, GROUP_ID));
+    await page.getByRole('button', { name: 'Accept & Join Team' }).click();
+    await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });
+    files[GROUP_ID] = [after];
+    await advance(page, 5 * 60_000);
+    await expect(page.locator('.timeout-state')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Your team repository is ready!' })).toHaveCount(0);
+    expect(asked, 'never looked for the team it is not in').toEqual([]);
   });
 
   test('a team join GitHub stopped: the card says so, and sending it again joins the SAME team', async ({ page }) => {
