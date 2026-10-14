@@ -43,8 +43,6 @@ html, body {
   align-items: center;
   justify-content: center;
   background-color: var(--bg);
-  width: 100%;
-  max-width: 640px;
 }
 
 #top-bar {
@@ -55,6 +53,7 @@ html, body {
   padding: 6px 8px;
   font-size: 13px;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 #game-title {
@@ -78,10 +77,9 @@ html, body {
   text-decoration: underline;
 }
 
+/* Sized by fitScreen() in game.js to a whole-number multiple of 320x240 in
+   device pixels; a CSS stretch here is what made the edges shimmer. */
 #cave-canvas {
-  width: 100%;
-  max-height: 75vh;
-  aspect-ratio: 4 / 3;
   display: block;
   background-color: var(--bg);
   image-rendering: pixelated;

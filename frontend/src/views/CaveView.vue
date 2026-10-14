@@ -24,8 +24,11 @@ const gameUrl = `${import.meta.env.BASE_URL}coolcave/index.html`
 </script>
 
 <style scoped>
+/* The easter egg (UserBadge, four clicks on the profile picture). The frame
+   takes the window's height because the game scales only by whole numbers:
+   a fixed 520px frame left room for 1x on a 100% display. */
 .cave-page {
-  min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-canvas);
@@ -55,16 +58,16 @@ const gameUrl = `${import.meta.env.BASE_URL}coolcave/index.html`
 
 .cave-frame-container {
   flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
   justify-content: center;
   padding: var(--space-md);
 }
 
 .cave-frame {
   width: 100%;
-  max-width: 640px;
-  height: 520px;
+  max-width: 1000px;
+  height: 100%;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background-color: transparent;
