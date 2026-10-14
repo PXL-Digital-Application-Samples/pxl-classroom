@@ -561,6 +561,11 @@ export async function setupStandardMockRoutes(page, {
   // for these, and DELETE of one as a collaborator answers 403 "Resource not
   // accessible by integration", which is what GitHub does (testbed, 2026-10-04).
   notAccounts = [],
+  // A student repository's deadline variable (lib/deadline-variable.mjs):
+  // `owner/repo` -> value, read and written by the route below, which records
+  // every write in `variableWrites`.
+  repoVariables = {},
+  variableWrites = [],
   userRepos = [],
   invitations = [],
   brokerIssues = [],
@@ -1649,6 +1654,28 @@ export async function setupStandardMockRoutes(page, {
         return;
       } else if (url.includes('/pxl-classroom-control/contents/assignments.yml') || url.includes('/pxl-classroom-control/contents/roster.yml')) {
         await route.fulfill({ status: 200, body: JSON.stringify({ content: '', encoding: 'base64' }) });
+      } else if (/\/repos\/[^/]+\/[^/]+\/actions\/variables(\/PXL_DEADLINE)?(\?|$)/.test(url)) {
+        // A student repository's own deadline (lib/deadline-variable.mjs), as
+        // GitHub answers it: 404 for a variable that is not there - not the
+        // repository object the catch-all below would hand back.
+        const [, owner, name] = url.match(/\/repos\/([^/]+)\/([^/]+)\/actions\/variables/);
+        const key = `${owner}/${name}`;
+        const method = route.request().method();
+        let value = null;
+        try { value = route.request().postDataJSON()?.value ?? null; } catch {}
+        const notFound = () => route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+        if (method === 'GET') {
+          return key in repoVariables ? route.fulfill({ status: 200, body: JSON.stringify({ name: 'PXL_DEADLINE', value: repoVariables[key] }) }) : notFound();
+        }
+        if (method === 'PATCH' && !(key in repoVariables)) return notFound();
+        if (method === 'DELETE') {
+          if (!(key in repoVariables)) return notFound();
+          delete repoVariables[key];
+        } else {
+          repoVariables[key] = value;
+        }
+        variableWrites.push({ repo: key, method, value });
+        return route.fulfill({ status: method === 'POST' ? 201 : 204, body: '' });
       } else if (url.includes('/actions/workflows/') && url.includes('/dispatches')) {
         const wf = url.match(/\/workflows\/([^/]+)\/dispatches/);
         let inputs = null;
@@ -1735,7 +1762,11 @@ export async function setupStandardMockRoutes(page, {
       const targetRepo = match ? `${match[1]}/${match[2]}` : '';
       const existing = userRepos.find((r) => r.full_name === targetRepo || r.name === match?.[2]);
       if (existing) {
-        await route.fulfill({ status: 200, body: JSON.stringify(existing) });
+        // As GitHub answers a collaborator: with what THIS reader may do. The
+        // student pages ask `permissions.push` to know whether a 404 on their
+        // deadline variable means none (lib/deadline-variable.mjs); a spec
+        // gives a locked student `permissions: { push: false }`.
+        await route.fulfill({ status: 200, body: JSON.stringify({ permissions: { admin: true, maintain: true, push: true, triage: true, pull: true }, ...existing }) });
       } else if (match?.[2] === 'pxl-classroom-control') {
         await route.fulfill({ status: 200, body: JSON.stringify({ full_name: `${match[1]}/pxl-classroom-control`, name: 'pxl-classroom-control' }) });
       } else if (match?.[2]?.includes('template')) {

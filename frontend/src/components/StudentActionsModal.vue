@@ -20,6 +20,24 @@
           Currently extended to <strong>{{ formatDate(extension.value) }}</strong>
           ("{{ extension.reason }}"). Granting again adds a new extension to their override history.
         </p>
+        <!-- What THEIR page shows, read from their repository when this opens
+             (lib/deadline-variable.mjs): the control repository is private to
+             staff, so the extension reaches their page only through it. -->
+        <p v-if="pageDeadline && pageDeadline.state !== 'none'" class="text-sm" data-page-deadline :data-state="pageDeadline.state">
+          <template v-if="pageDeadline.state === 'current'">Their own page shows this deadline.</template>
+          <template v-else-if="pageDeadline.state === 'no-repo'">They have no repository yet; their page shows the extension once they accept.</template>
+          <template v-else-if="pageDeadline.state === 'unknown'">Could not read what their own page shows as their deadline.</template>
+          <template v-else-if="pageDeadline.expected && pageDeadline.at">Their own page still shows {{ formatDate(pageDeadline.at.toISOString()) }}.</template>
+          <template v-else-if="pageDeadline.expected">Their own page does not show it yet: it shows the assignment deadline.</template>
+          <template v-else>Their own page shows {{ formatDate(pageDeadline.at.toISOString()) }}, which no extension gives.</template>
+          <button
+            v-if="pageDeadline.state === 'behind'"
+            type="button"
+            class="btn-link"
+            :disabled="busy || sendingPageDeadline"
+            @click="emit('send-page-deadline')"
+          >{{ sendingPageDeadline ? 'Sending…' : 'Send it to their page' }}</button>
+        </p>
         <div class="field">
           <label>New deadline (just for this student)</label>
           <input type="datetime-local" v-model="ext.deadline_local" />
@@ -313,6 +331,13 @@ const props = defineProps({
   student: { type: Object, required: true },
   /** The extension currently in force, or null. `{ value, reason }`. */
   extension: { type: Object, default: null },
+  /**
+   * What the student's own page shows as their deadline against what it
+   * should, from lib/deadline-variable.mjs `pageDeadlineState`; null while it
+   * is read.
+   */
+  pageDeadline: { type: Object, default: null },
+  sendingPageDeadline: { type: Boolean, default: false },
   /** Where the preserved submission lives, or null when there is nothing to link. */
   archiveUrl: { type: String, default: null },
   extending: { type: Boolean, default: false },
@@ -353,7 +378,7 @@ const props = defineProps({
   deciding: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide', 'send-page-deadline'])
 
 const decision = computed(() => props.grading?.decision || null)
 // A chosen commit whose score has not been read on it yet.

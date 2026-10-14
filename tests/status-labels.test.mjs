@@ -26,6 +26,7 @@ import {
   observationTypeLabel,
   acceptanceLabel,
   assignmentStateLabel,
+  assignmentStatus,
   submissionLabel,
 } from "../frontend/src/lib/status-labels.js";
 
@@ -119,6 +120,22 @@ test("published reads as what a reader wants to know, not as the stored word", (
   assert.equal(assignmentStateLabel("published"), "Accepting");
   assert.equal(assignmentStateLabel("draft"), "Draft");
   assert.equal(assignmentStateLabel("archived"), "Archived");
+});
+
+test("'Accepting' only while the hub accepts: not before it opens, not after its deadline (live UI, 2026-10-15)", () => {
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const at = (h) => new Date(now + h * 3600_000).toISOString();
+  const published = (over) => ({ state: "published", opens_at: at(-24), deadline_at: at(24), ...over });
+  assert.deepEqual(assignmentStatus(published(), now), { label: "Accepting", accepting: true });
+  assert.deepEqual(assignmentStatus(published({ deadline_at: at(-2) }), now), { label: "Deadline passed", accepting: false });
+  assert.deepEqual(assignmentStatus(published({ opens_at: at(2) }), now), { label: "Not open yet", accepting: false });
+  // No dates is the stored state's own answer.
+  assert.deepEqual(assignmentStatus({ state: "published" }, now), { label: "Accepting", accepting: true });
+  // Every other state is its label, never green, whatever the dates say.
+  for (const state of ["draft", "closed", "archived"]) {
+    assert.deepEqual(assignmentStatus(published({ state }), now), { label: assignmentStateLabel(state), accepting: false });
+  }
+  assert.deepEqual(assignmentStatus(null, now), { label: "", accepting: false });
 });
 
 test("every grading runner the schema declares has a label", () => {

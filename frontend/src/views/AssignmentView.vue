@@ -81,8 +81,8 @@
         <div class="card">
           <div class="assignment-meta flex items-center gap-sm">
             <span class="status-indicator">
-              <span class="status-dot" :class="assignment.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
-              <span class="text-sm font-medium">{{ assignmentStateLabel(assignment.state) }}</span>
+              <span class="status-dot" :class="assignmentStatus(assignment).accepting ? 'dot-success' : 'dot-neutral'"></span>
+              <span class="text-sm font-medium">{{ assignmentStatus(assignment).label }}</span>
             </span>
             <span v-if="assignment.acceptance_mode && assignment.acceptance_mode !== 'self-service'" class="text-xs text-muted">({{ assignment.acceptance_mode }})</span>
           </div>
@@ -321,7 +321,7 @@
               <div v-if="studentOverride" class="override-alert-banner flex items-center gap-xs">
                 <Icon name="check-circle" :size="16" class="stat-green" />
                 <span class="text-xs font-semibold text-primary">
-                  🎉 Deadline Extended to {{ new Date(studentOverride.value).toLocaleString() }} ({{ studentOverride.reason || 'Approved extension' }})
+                  Deadline extended to {{ formatDate(studentOverride.value, assignment.timezone) }}{{ studentOverride.reason ? ` (${studentOverride.reason})` : '' }}.
                 </span>
               </div>
 
@@ -329,8 +329,11 @@
               <div class="flex justify-between items-center flex-wrap gap-xs">
                 <div class="flex items-center gap-xs">
                   <span class="text-xs font-semibold text-secondary">Submission Status:</span>
-                  <span :class="['badge', studentSubmissionStatus === 'on-time' ? 'badge-success' : studentSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
-                    {{ studentSubmissionStatus === 'on-time' ? 'Submitted on time' : studentSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+                  <span
+                    :class="['badge', studentSubmissionStatus === 'on-time' ? 'badge-success' : studentSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']"
+                    :title="studentSubmissionStatus === 'after-deadline' ? AFTER_DEADLINE_TITLE : null"
+                  >
+                    {{ submissionBadge(studentSubmissionStatus) }}
                   </span>
                 </div>
 
@@ -347,7 +350,7 @@
               <div v-if="studentLatestCommit" class="latest-commit-info text-xs text-muted flex items-center gap-xs">
                 <span>Latest commit:</span>
                 <code class="mono">{{ studentLatestCommit.sha.slice(0, 7) }}</code>
-                <span v-if="studentLatestCommit.date">· {{ studentLatestCommit.date }}</span>
+                <span v-if="studentLatestCommit.date">· {{ formatDate(studentLatestCommit.date, assignment.timezone) }}</span>
               </div>
             </div>
 
@@ -571,10 +574,10 @@ import ClaimAddressCard from '../components/ClaimAddressCard.vue'
 import AttemptProgress from '../components/AttemptProgress.vue'
 import Icon from '../components/Icon.vue'
 import { config } from '../lib/config.js'
-import { assignmentStateLabel } from '../lib/status-labels.js'
+import { assignmentStatus } from '../lib/status-labels.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
-import { overridePath } from '../../../lib/control-layout.mjs'
+import { readOwnDeadline, submissionBadge, AFTER_DEADLINE_TITLE } from '../lib/own-deadline.js'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
@@ -594,7 +597,6 @@ import { recentAttempt } from '../lib/broker-teams.js'
 import {
   GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
 } from '../lib/acceptance-progress.js'
-import { effectiveDeadlineFor } from '../lib/deadline.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
 import { toast } from '../lib/toast.js'
@@ -935,6 +937,8 @@ async function loadAssignment(isRetry = false) {
 
 const studentLatestCommit = ref(null)
 const studentOverride = ref(null)
+// Whether this page could read the student's own deadline at all.
+const ownDeadlineKnown = ref(true)
 
 const effectiveDeadline = computed(() => {
   if (studentOverride.value?.value) {
@@ -943,7 +947,10 @@ const effectiveDeadline = computed(() => {
   return assignment.value?.deadline_at ? new Date(assignment.value.deadline_at) : null
 })
 
-const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, now.value))
+// The moment in the card's one format and the assignment's zone, as its dates are.
+const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, now.value, {
+  format: (d) => formatDate(d.toISOString(), assignment.value?.timezone),
+}))
 
 // Whether a person has pushed here, from the push log (lib/untouched-repo.mjs
 // `personPushed`); null when it could not be read.
@@ -956,7 +963,10 @@ const studentSubmissionStatus = computed(() => {
   if (studentPushed.value === false) return 'no-submission'
   if (!effectiveDeadline.value) return 'on-time'
   const commitTime = new Date(studentLatestCommit.value.date)
-  return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
+  if (commitTime <= effectiveDeadline.value) return 'on-time'
+  // Late only where this page knows the student's own deadline: one it could
+  // not read may be later than the one it has (own-deadline.js).
+  return ownDeadlineKnown.value ? 'late' : 'after-deadline'
 })
 
 async function refreshStudentSubmissionMeta(org, repoName) {
@@ -981,24 +991,15 @@ async function refreshStudentSubmissionMeta(org, repoName) {
     console.error('Failed to fetch latest commit:', e)
   }
 
-  // Load student override if exists. The rule is shared with the backend
-  // (lib/effective-deadline.mjs): the LAST grant in the append-only history is
-  // the one in force, and an extension only ever extends. Reading the first
-  // entry here used to show a student a deadline a later grant had already
-  // superseded.
-  try {
-    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, overridePath(resolvedId.value, user.value.login))
-    if (overrideFile) {
-      const eff = effectiveDeadlineFor(assignment.value, user.value.login, {
-        overrides: [JSON.parse(overrideFile)],
-      })
-      if (eff.extended) {
-        studentOverride.value = { value: eff.deadline.toISOString(), reason: eff.reason }
-      }
-    }
-  } catch {
-    // optional override
-  }
+  // Their own deadline: the control repository's override for staff, their
+  // repository's variable for the student (frontend/src/lib/own-deadline.js).
+  // Read from the control repository alone, a student never saw an extension,
+  // which that repository is private to staff to hold (live UI, 2026-10-15).
+  const own = await readOwnDeadline({
+    token, org, assignment: { ...assignment.value, id: resolvedId.value }, login: user.value.login, repoFullName: `${org}/${repoName}`,
+  })
+  studentOverride.value = own.extension
+  ownDeadlineKnown.value = own.known
 }
 
 // Check if the user already has a repo for this assignment

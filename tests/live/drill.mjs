@@ -5,7 +5,7 @@
 // real accounts in .env.test, so a change to the jobs that run an exam can be
 // proven the same day instead of at the next real deadline:
 //
-//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock] [--full-history]
+//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock] [--full-history | --grades]
 //       create and publish drill-<utc stamp> (individual, late work blocked,
 //       lock on), accept it as both students with their invitation labels,
 //       push one commit each, have the lecturer refused, retry one student.
@@ -17,6 +17,14 @@
 //       start from their record and retries them before they push, which must
 //       recover it from the push log; verify checks the report counts
 //       only the student's commit and that starter sync refuses it.
+//       --grades defines one check in the assignment, run on GitHub Actions in
+//       the workflow provisioning adds, with a hand-in message: the first
+//       student hands in, the last pushes work without the message. Start
+//       checks the workflow was added and recorded as the start; verify
+//       checks the finalize scored the one and called the other not handed
+//       in, then runs the CLI's `grade` whole and with --login, deletes the
+//       scored student's repository and grades again, which must keep their
+//       score on record.
 //       --deadline pins the instant instead of deriving it from --minutes, so a
 //       second drill started minutes later SHARES it. That is what an exam with
 //       several groups does, and the sentinel that is already waiting has to
@@ -56,8 +64,11 @@
 //
 // Point a worktree at the main checkout's credentials with LIVE_ENV_FILE.
 
-import { hostname } from "node:os";
-import { basename } from "node:path";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { parse, stringify } from "yaml";
 
@@ -75,7 +86,8 @@ import {
 } from "../../lib/report-freshness.mjs";
 import { commitWithRebase } from "../../lib/gittree.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
-import { normalizeLogin } from "../../lib/github-login.mjs";
+import { normalizeLogin, sameLogin } from "../../lib/github-login.mjs";
+import { failedKind } from "../../lib/grade-cohort.mjs";
 import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { deadlineIsImminent, SENTINEL_ARM_WINDOW_MS } from "../../lib/sentinel-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
@@ -88,6 +100,7 @@ import {
 import { CLEANUP_LOCK_REF, acquireCleanupLock, breakCleanupLock, releaseCleanupLock } from "./cleanup-lock.mjs";
 import { deletePlanStale } from "./cleanup-plan.mjs";
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 // --full-history's template: made by ensureHistoryTemplate, kept between drills.
@@ -96,6 +109,13 @@ const HISTORY_BRANCHES = ["main", "feature-x", "bugfix"];
 const HISTORY_COMMITS = 2;
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 const ON_TIME_MESSAGE = "drill: on-time submission";
+// --grades: checks defined in the assignment and run on GitHub Actions, in the
+// workflow provisioning writes into every student repository; the hand-in
+// message is ON_TIME_MESSAGE. The first student hands in; the last pushes work
+// without the message, so their branch has commits and nothing handed in.
+const GRADE_POINTS = 10;
+const WORK_MESSAGE = "drill: work in progress";
+const INJECTED_WORKFLOW = ".github/workflows/autograding.yml";
 // Written on every drill assignment; cleanup refuses anything without it.
 const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
@@ -120,6 +140,11 @@ const { ok, bad, note } = r;
 // A repository record's `repo_name` is `owner/name` (write-repository-record.mjs),
 // the same field lockdown and preserve read with this expression.
 const bareRepo = (repoName) => repoName?.split("/")?.[1] ?? repoName;
+
+/** A --grades drill, as its stored document says. */
+const gradesDrill = (doc) => doc?.autograde?.enabled === true && doc.autograde.execution_environment === "github_actions";
+/** What `start` pushed for STUDENTS[i]: on a --grades drill the last one pushes work, not a hand-in. */
+const pushedMessage = (doc, i) => (gradesDrill(doc) && i === STUDENTS.length - 1 ? WORK_MESSAGE : ON_TIME_MESSAGE);
 
 const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
 const local = (iso) => new Date(iso).toLocaleString("en-GB", { timeZone: TIMEZONE, dateStyle: "short", timeStyle: "short" });
@@ -352,6 +377,8 @@ async function start() {
   }
 
   const fullHistory = flag("full-history");
+  const grades = flag("grades");
+  if (grades && fullHistory) die("--grades and --full-history are separate drills");
   if (fullHistory) await ensureHistoryTemplate();
   const templateName = fullHistory ? HISTORY_TEMPLATE : TEMPLATE;
   const tpl = await api(`/repos/${ORG}/${templateName}`, { token: LECTURER.token });
@@ -400,6 +427,17 @@ async function start() {
     // `lock_down_enabled: true` demotes on top of the ruleset.
     ...(flag("repo-lock") ? { org_scoped_lock: false } : {}),
     ...(fullHistory ? { template_full_history: true } : {}),
+    // One check that passes for anyone who pushed the drill's file; the hand-in
+    // message, not the check, is what separates the two students.
+    ...(grades
+      ? {
+          autograde_enabled: true,
+          autograde_execution_environment: "github_actions",
+          autograde_tests: [{ id: "handed-in", type: "run", command: "test -d drill", points: GRADE_POINTS, timeout_s: 60 }],
+          submission_marker_value: ON_TIME_MESSAGE,
+          submission_marker_multiple: false,
+        }
+      : {}),
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
   // A copy: lib/validate.mjs runs Ajv with useDefaults, which writes into the
@@ -460,6 +498,7 @@ async function start() {
     if (!record) { bad(`no ${recordPath} after 240s - check the hub's acceptance-handler run`); continue; }
     ok(`provisioned ${record.repo_url}`);
     if (fullHistory) await checkHistoryCopy(student, record, tpl.data);
+    if (grades) await checkInjectedWorkflow(student, record);
 
     // The label step runs with continue-on-error, so a token that cannot label
     // leaves the run green. The label is the only evidence it worked. It is put
@@ -474,7 +513,7 @@ async function start() {
     // record's start carried over.
     if (fullHistory && i === STUDENTS.length - 1) await checkHistoryRecovery(id, student, recordPath, record);
 
-    await handIn(student, record);
+    await handIn(student, record, pushedMessage(doc, i));
   }
 
   // The lecturer is not on the roster, and roster_mode is enforced. A refusal
@@ -496,15 +535,16 @@ async function start() {
   console.log(`\n${5 + STUDENTS.length}. A lecturer retries ${STUDENTS[0].login}'s acceptance\n`);
   const retryAt = Date.now() - 5_000;
   const firstRecordPath = `repositories/${id}/${normalizeLogin(STUDENTS[0].login)}.json`;
-  const beforeRetry = fullHistory ? await readControlJson(firstRecordPath) : null;
+  const beforeRetry = fullHistory || grades ? await readControlJson(firstRecordPath) : null;
   if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: STUDENTS[0].login })) {
     const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
     const done = run ? await waitForRun(run) : null;
     if (done?.conclusion === "success") ok(`retry run succeeded: ${run.html_url}`);
     else bad(`retry run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`);
     // A retry provisions nothing (`reused`) and rewrites the record whole; what
-    // the copy was given is known only to the run that copied it.
-    if (fullHistory) {
+    // the copy was given is known only to the run that copied it - for a
+    // --grades drill, GitHub's copy plus the grading workflow (X1).
+    if (fullHistory || grades) {
       const after = await readControlJson(firstRecordPath);
       if (after?.starter_sha && after.starter_sha === beforeRetry?.starter_sha && after.starter_commit_count === beforeRetry?.starter_commit_count) {
         ok(`the retry kept what ${STUDENTS[0].login}'s repository was given (${after.starter_sha.slice(0, 7)})`);
@@ -521,8 +561,23 @@ async function start() {
   printNext(id, deadlineAt, plan);
 }
 
-/** Accept the invitation and push the on-time commit, as the student. */
-async function handIn(student, record) {
+/**
+ * --grades, before the student pushes: provisioning wrote the grading workflow
+ * into the repository, and recorded the commit that did it as what the student
+ * was given, so their own commit is counted from it (X1).
+ */
+async function checkInjectedWorkflow(student, record) {
+  const repo = bareRepo(record.repo_name);
+  const wf = await api(`/repos/${ORG}/${repo}/contents/${INJECTED_WORKFLOW}`, { token: LECTURER.token });
+  if (wf.ok) ok(`${student.login}: ${INJECTED_WORKFLOW} was written into the repository`);
+  else { bad(`${student.login}: no ${INJECTED_WORKFLOW} (HTTP ${wf.status}) - provisioning did not add the grading workflow`); return; }
+  const head = (await api(`/repos/${ORG}/${repo}/commits?per_page=1`, { token: LECTURER.token })).data?.[0];
+  if (head?.sha && record.starter_sha === head.sha) ok(`${student.login}: the record starts at the workflow's commit ${head.sha.slice(0, 7)} (${record.starter_commit_count} commits)`);
+  else bad(`${student.login}: the record's starter_sha is ${record.starter_sha ?? "absent"}, the head is ${head?.sha ?? "unreadable"}`);
+}
+
+/** Accept the invitation and push one commit, as the student: the hand-in unless told otherwise. */
+async function handIn(student, record, message = ON_TIME_MESSAGE) {
   const repo = bareRepo(record.repo_name);
   await acceptInvitation({ student, repoName: repo }, r);
 
@@ -533,12 +588,12 @@ async function handIn(student, record) {
       token: student.token,
       method: "PUT",
       body: {
-        message: ON_TIME_MESSAGE,
-        content: Buffer.from(`Handed in by ${student.login} at ${new Date().toISOString()}\n`).toString("base64"),
+        message,
+        content: Buffer.from(`Pushed by ${student.login} at ${new Date().toISOString()}\n`).toString("base64"),
       },
     });
   }
-  if (pushed?.ok) ok(`pushed ${pushed.data.commit.sha.slice(0, 7)} before the deadline`);
+  if (pushed?.ok) ok(`pushed ${pushed.data.commit.sha.slice(0, 7)} ("${message}") before the deadline`);
   else bad(`${student.login} could not push: HTTP ${pushed?.status} ${pushed?.data?.message ?? ""}`);
 }
 
@@ -556,14 +611,15 @@ async function handinOnly() {
   const doc = parse(stored.text);
   if (Date.now() >= new Date(doc.deadline_at).getTime()) die("the deadline has passed - a hand-in now is late; start a new drill");
 
-  for (const student of STUDENTS) {
+  for (const [i, student] of STUDENTS.entries()) {
     console.log(`\n${student.login}\n`);
     const record = await readControlJson(`repositories/${id}/${normalizeLogin(student.login)}.json`);
     if (!record) { bad(`${student.login} has no repository record - they never accepted`); continue; }
     const q = new URLSearchParams({ per_page: "5" });
     const commits = (await api(`/repos/${ORG}/${bareRepo(record.repo_name)}/commits?${q}`, { token: LECTURER.token })).data;
-    if (Array.isArray(commits) && commits.some((c) => c.commit?.message === ON_TIME_MESSAGE)) { ok("already handed in"); continue; }
-    await handIn(student, record);
+    const message = pushedMessage(doc, i);
+    if (Array.isArray(commits) && commits.some((c) => c.commit?.message === message)) { ok(`already pushed "${message}"`); continue; }
+    await handIn(student, record, message);
   }
   printNext(id, doc.deadline_at, null);
 }
@@ -696,7 +752,7 @@ async function verify() {
   else {
     if (lockdown.error_count === 0) ok(`lockdown record: ${lockdown.locked_count} locked, 0 errors`);
     else bad(`lockdown record: ${lockdown.error_count} error(s)`);
-    for (const student of STUDENTS) {
+    for (const [i, student] of STUDENTS.entries()) {
       const login = normalizeLogin(student.login);
       const row = (lockdown.results || []).find((x) => normalizeLogin(x.github_login) === login);
       if (!row) { bad(`${login}: no row in the lockdown record`); continue; }
@@ -720,8 +776,8 @@ async function verify() {
       const repo = bareRepo(row.repo_name);
       const q = new URLSearchParams({ sha: doc.submission_ref.replace(/^refs\/heads\//, ""), until: doc.deadline_at, per_page: "1" });
       const head = (await api(`/repos/${ORG}/${repo}/commits?${q}`, { token: LECTURER.token })).data?.[0];
-      if (head?.commit?.message !== ON_TIME_MESSAGE) bad(`${login}: the last commit before the deadline is not the drill's hand-in (start did not finish?)`);
-      if (row.snapshot_sha && row.snapshot_sha === head?.sha) ok(`${login}: snapshot ${row.snapshot_sha.slice(0, 7)} is the on-time hand-in`);
+      if (head?.commit?.message !== pushedMessage(doc, i)) bad(`${login}: the last commit before the deadline is not the drill's "${pushedMessage(doc, i)}" (start did not finish?)`);
+      if (row.snapshot_sha && row.snapshot_sha === head?.sha) ok(`${login}: snapshot ${row.snapshot_sha.slice(0, 7)} is the last commit before the deadline`);
       else bad(`${login}: snapshot ${row.snapshot_sha} is not the last commit before the deadline (${head?.sha})`);
       late.set(login, { student, repo, onTime: head?.sha });
     }
@@ -804,11 +860,82 @@ async function verify() {
   }
 
   if (doc.template_full_history === true) await verifyHistoryCopy(id, report);
+  if (gradesDrill(doc)) await verifyGrades(id, late);
 
   if (plan === "free") {
     console.log(`\n${ORG} is on the free plan: rulesets were NOT exercised. Lockdown and sentinel token changes need a drill on a Team organization.`);
   }
   finish();
+}
+
+/**
+ * A --grades drill after the deadline (TV-2): the finalize's score read, then
+ * the CLI over the same cohort - whole, one student, and again after the scored
+ * student's repository is deleted, which must keep the score on record rather
+ * than replace it with the failed read (keepStoredOnFailedReads, G4b, GR8).
+ */
+async function verifyGrades(id, late) {
+  console.log("\n10. Scores read at the deadline\n");
+  const [scored, missing] = [STUDENTS[0], STUDENTS[STUDENTS.length - 1]].map((s) => normalizeLogin(s.login));
+  const handInSha = late.get(scored)?.onTime;
+  const check = (summary, who) => {
+    const row = (summary?.students || []).find((x) => sameLogin(x.login, scored));
+    if (row?.earned_points === GRADE_POINTS && row?.total_points === GRADE_POINTS) ok(`${who}: ${scored} ${row.earned_points}/${row.total_points}`);
+    else bad(`${who}: ${scored} is ${row ? `${row.earned_points}/${row.total_points}` : "not scored"}, expected ${GRADE_POINTS}/${GRADE_POINTS}`);
+    if (row && handInSha && row.graded_sha === handInSha) ok(`${who}: graded on the hand-in ${handInSha.slice(0, 7)}`);
+    else if (row) bad(`${who}: graded on ${row.graded_sha ?? "no recorded commit"}, the hand-in was ${handInSha}`);
+    const gap = (summary?.failed || []).find((x) => sameLogin(x.login, missing));
+    if (gap && failedKind(gap) === "not-handed-in") ok(`${who}: ${missing} not handed in ("${gap.reason}")`);
+    else bad(`${who}: ${missing} is ${gap ? `failed as ${failedKind(gap)}: ${gap.reason}` : "not among the failed rows"}, expected not handed in`);
+    if ((summary?.students || []).some((x) => sameLogin(x.login, missing))) bad(`${who}: ${missing} has a score although nothing was handed in`);
+    return row;
+  };
+  const nightly = await readControlJson(gradingSummaryPath(id));
+  if (!nightly) { bad(`${gradingSummaryPath(id)} is absent - the finalize's score read wrote nothing`); return; }
+  check(nightly, "the nightly");
+
+  console.log("\n11. The CLI reads the same, as the lecturer\n");
+  const cfgDir = mkdtempSync(join(tmpdir(), "pxl-drill-cli-"));
+  try {
+    mkdirSync(join(cfgDir, "pxl-classroom"), { recursive: true });
+    writeFileSync(join(cfgDir, "pxl-classroom", "token"), JSON.stringify({ access_token: LECTURER.token, obtained_at: new Date().toISOString() }));
+    const cli = (...args) => {
+      const res = spawnSync(process.execPath, [join(ROOT, "cli", "bin", "pxl-classroom.mjs"), ...args], {
+        encoding: "utf8", env: { ...process.env, APPDATA: cfgDir, XDG_CONFIG_HOME: cfgDir }, timeout: 10 * 60_000,
+      });
+      const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+      note(`pxl-classroom ${args.join(" ")} -> exit ${res.status}\n${out.trim().split("\n").map((l) => `      ${l}`).join("\n")}`);
+      return { status: res.status, out };
+    };
+
+    const whole = cli("grade", "--org", ORG, "--assignment", id);
+    if (whole.out.includes(`+ ${scored}: ${GRADE_POINTS}/${GRADE_POINTS}`)) ok(`grade: ${scored} ${GRADE_POINTS}/${GRADE_POINTS}`);
+    else bad(`grade did not print ${scored} ${GRADE_POINTS}/${GRADE_POINTS}`);
+    const afterWhole = await readControlJson(gradingSummaryPath(id));
+    check(afterWhole, "after grade");
+    if (sameLogin(afterWhole?.graded_by, LECTURER.login)) ok(`the summary says @${LECTURER.login} read it`);
+    else bad(`the summary says graded_by ${afterWhole?.graded_by}, expected ${LECTURER.login}`);
+
+    const one = cli("grade", "--org", ORG, "--assignment", id, "--login", scored);
+    if (one.status === 0) ok(`grade --login ${scored} exited 0`);
+    else bad(`grade --login ${scored} exited ${one.status}`);
+    // The others' rows are not erased by a one-student read (G3).
+    check(await readControlJson(gradingSummaryPath(id)), "after grade --login");
+
+    console.log(`\n12. ${scored}'s repository is deleted, and read again\n`);
+    const repo = late.get(scored)?.repo;
+    const del = repo ? await api(`/repos/${ORG}/${repo}`, { token: LECTURER.token, method: "DELETE" }) : { ok: false, status: "no repository" };
+    if (del.ok || del.status === 404) ok(`deleted ${ORG}/${repo}`);
+    else { bad(`could not delete ${ORG}/${repo}: HTTP ${del.status}`); return; }
+    const gone = cli("grade", "--org", ORG, "--assignment", id);
+    if (new RegExp(`! ${scored}: `).test(gone.out)) ok(`grade names ${scored} as a read that failed`);
+    else bad(`grade did not name ${scored}'s failed read`);
+    if (gone.out.includes(`= ${scored}: nothing new was read`)) ok(`grade kept ${scored}'s score on record`);
+    else bad(`grade did not say it kept ${scored}'s score`);
+    check(await readControlJson(gradingSummaryPath(id)), "after the repository is gone");
+  } finally {
+    rmSync(cfgDir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -1114,4 +1241,4 @@ else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
 else if (command === "cleanup") await cleanup();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history | --grades] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");

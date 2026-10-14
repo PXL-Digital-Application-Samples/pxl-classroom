@@ -45,15 +45,16 @@ export function countdownParts(deadline, now = new Date()) {
  * The student-facing sentence. Past the deadline it names the moment rather
  * than the elapsed time - "3d ago" is not what a student who has just missed
  * a hand-in needs to read.
+ *
+ * `format` writes that moment, and the page passes its own (format.js
+ * `formatDate` in the assignment's zone): this wrote it in the browser's locale
+ * and zone, so one card said "14 Oct 2026, 22:25 CEST" above "Deadline passed
+ * (Oct 14, 10:25 PM)", and a student abroad read two different times for one
+ * deadline (live UI suite, 2026-10-15).
  */
-export function formatDeadlineCountdown(deadline, now = new Date()) {
+export function formatDeadlineCountdown(deadline, now = new Date(), { format = (d) => d.toISOString() } = {}) {
   const parts = countdownParts(deadline, now)
   if (!parts) return null
-  if (parts.passed) {
-    const when = parts.at.toLocaleDateString(undefined, {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
-    return `Deadline passed (${when})`
-  }
+  if (parts.passed) return `Deadline passed (${format(parts.at)})`
   return `Closes in ${parts.duration}`
 }

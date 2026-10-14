@@ -261,6 +261,7 @@ To restore:
 2. Fill: new deadline, reason. The login comes from the row, so there is nothing to type from memory - the editor's own copy of this form was deleted for that reason (ARCHITECTURE §10.1.1).
 3. The modal shows any extension already in force, then commits `overrides/<id>/<login>.json` (validated against `override.schema.json`), appending to the existing history rather than replacing it.
 4. The next nightly run recomputes `effective_deadline_at` for this student, or the lecturer can trigger a Refresh in the assignment detail view to reclassify and commit the updated status immediately; the dashboard updates after `regenerate-dashboard.yml` runs.
+5. **Their own page shows it at once.** The new deadline is written to the student's repository, the only place their page can read it (the control repository is not theirs to read), and the toast says whether that worked. Opening their **···** again says what their page shows: *Their own page shows this deadline*, or that it does not yet, with **Send it to their page**. A student who has not accepted yet gets it when they accept. Only the date reaches them, never the reason.
 
 **Grant it before the deadline passes.** While the extension runs, the nightly finalize leaves that student's repository open and records them as `deferred` in `lockdowns/<id>/lockdown-record.json` - everyone else is locked at the deadline as normal - and the assignment stays "active" so `daily-activity.yml` keeps observing their work. Once the extension expires, the assignment is re-queued automatically and that student is locked down, preserved and reported (ARCHITECTURE §6.2.2).
 
@@ -1046,6 +1047,8 @@ autograde:
 
 #### Grading from the CLI
 
+Where the assignment grades on GitHub Actions - its checks run there, or its template's own grading workflow grades it - `pxl-classroom grade` runs nothing: it reads the scores GitHub recorded, at each student's hand-in or preserved commit, exactly as **Read all scores again** does, and `--runner` is ignored.
+
 When `execution_environment` is `lecturer_local`, run the grader **on your machine** - never on the platform:
 
 ```bash
@@ -1059,7 +1062,7 @@ pxl-classroom grade --assignment linux-processes-2026 --login alice --dry-run   
 
 Defaults: `--runner docker` (recommended; `--network=none`, read-only mount, 512 MB memory, per-test wall-clock timeouts), or `--runner host` for trusted code (POSIX only - uses `/bin/sh`).
 
-Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the assignment's **Grading** tab. With `--login` only that student's row in `summary.json` changes, by the rule **Read score again** follows on the page: a score replaces their earlier result, a read that failed changes nothing and says so, and everyone else's scores stay as they were.
+Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.json` (validated against `schemas/grading-result.schema.json`) plus `summary.json` driving the assignment's **Grading** tab. It exits non-zero only when something needs a look - a read that failed, or a run with no result; a student who handed nothing in, handed in late or is still being graded is a row without a score, and the last line counts them apart (`2 graded, 3 failed (1 to look at)`). With `--login` only that student's row in `summary.json` changes, by the rule **Read score again** follows on the page: a score replaces their earlier result, a read that failed changes nothing and says so, and everyone else's scores stay as they were.
 
 #### What provisioning does with a template that already grades
 

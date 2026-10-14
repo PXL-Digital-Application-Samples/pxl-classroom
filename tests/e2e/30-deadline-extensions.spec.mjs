@@ -72,7 +72,9 @@ const reportWith = (student = STUDENT) => ({
     github_login: student,
     acceptance_state: 'accepted',
     submission_status: 'on-time',
-    repo_name: `${ID}-${student}`,
+    // `org/repo`, as the report schema says and report.mjs writes: the grant
+    // writes the student's deadline to this repository (lib/deadline-variable.mjs).
+    repo_name: `${ORG}/${ID}-${student}`,
   }],
 });
 

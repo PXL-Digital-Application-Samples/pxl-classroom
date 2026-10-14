@@ -538,8 +538,7 @@ autograde:
     const originalStderrWrite = process.stderr.write;
     process.stdout.write = capturing((c) => { stdout += c; }, originalStdoutWrite);
     process.stderr.write = capturing((c) => { stderr += c; }, originalStderrWrite);
-    // A student without a score exits 1, as any failed row does; caught here,
-    // or it ends the test process.
+    // An exit is caught here, or it ends the test process.
     const originalExit = process.exit;
     let exitCode = null;
     process.exit = (code) => { exitCode = code; throw new Error(`exit ${code}`); };
@@ -554,7 +553,10 @@ autograde:
       process.stderr.write = originalStderrWrite;
     }
     const path = local ? "local runner" : "Actions";
-    assert.equal(exitCode, 1, `${path}: no score for them is a row without a score`);
+    // Not handed in is an answer, not a run that failed (P2-49): exit 0, and
+    // the line says nothing is left to look at.
+    assert.equal(exitCode, null, `${path}: a student who handed nothing in does not fail the run`);
+    assert.match(stdout, /0 graded, 1 failed \(0 to look at\)\./, path);
     assert.ok(!asked.some((u) => u.includes("/check-runs")), `${path}: no score is read for them: ${stdout}${stderr}`);
     // The local runner would have checked out the archive, which this test
     // does not serve, and said so (a no-result row, not not-handed-in).
@@ -577,6 +579,42 @@ autograde:
 // `if: github.event.head_commit.message == 'einde examen'`, so the check run at
 // every OTHER commit exists and says `skipped`. Alice handed in and then pushed
 // a readme fix, which is the ordinary way a student ends up here.
+test("P2-48: an assignment that grades nowhere is refused by name, whichever way it says so", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pxl-grade-none-"));
+  mkdirSync(join(tmp, "pxl-classroom"), { recursive: true });
+  writeFileSync(join(tmp, "pxl-classroom", "token"), JSON.stringify({ access_token: "fake" }));
+  const saved = { ...process.env };
+  const originalFetch = globalThis.fetch;
+  try {
+    Object.assign(process.env, { HOME: tmp, USERPROFILE: tmp, APPDATA: tmp, XDG_CONFIG_HOME: tmp });
+    // `false` is the lecturer's answer that nothing grades; absent with no
+    // marker and no checks is nobody having said so.
+    for (const yaml of ["id: lab\ntemplate_grades: false\n", "id: lab\n"]) {
+      const asked = [];
+      globalThis.fetch = async (url) => {
+        const u = url.toString();
+        asked.push(u);
+        if (u.endsWith("contents/assignments%2Flab.yml")) {
+          return new Response(JSON.stringify({ content: Buffer.from(yaml).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response("Not Found", { status: 404 });
+      };
+      const program = new Command();
+      program.exitOverride();
+      registerGradeCommand(program);
+      await assert.rejects(
+        program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "lab"]),
+        /Assignment lab is not graded: it defines no checks of its own, and its template's grading workflow is not one it reads/,
+        yaml,
+      );
+      assert.ok(!asked.some((u) => u.includes("/check-runs") || u.includes("reports")), `nothing else was read: ${asked.join(", ")}`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.env = saved;
+  }
+});
+
 test("grade command: a skipped run at the preserved commit is read at the hand-in commit instead", async () => {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
   Object.defineProperty(process, "platform", { value: "linux" });
@@ -587,20 +625,17 @@ test("grade command: a skipped run at the preserved commit is read at the hand-i
   mkdirSync(join(homeDir, "pxl-classroom"), { recursive: true });
   writeFileSync(join(homeDir, "pxl-classroom", "token"), JSON.stringify({ access_token: "fake" }));
 
-  // No `autograde.tests`: the checks live in the template's own workflow, which
-  // is the entire point of this setup. The total comes from the annotation.
+  // No `autograde` block: the checks live in the template's own workflow, and
+  // the document says so the way a cloud exam's does (`template_grades`). This
+  // test used to fake that with a 0-point autograde block, because the CLI
+  // refused the real shape (P2-48). The total comes from the annotation.
   const assignmentYaml = `
 id: proef-pe1
 submission_ref: refs/heads/main
+template_grades: true
 submission_marker:
   type: commit_message
   value: einde examen
-autograde:
-  enabled: true
-  execution_environment: github_actions
-  tests:
-    - id: from-template
-      points: 0
 `;
 
   const headSha = "f".repeat(40);   // "fix the readme" - preserved, and skipped

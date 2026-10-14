@@ -839,7 +839,7 @@
           </p>
           <ul style="margin: 0;">
             <li v-for="a in reidentify.plan.affected" :key="a.id">
-              {{ a.title }} <span class="text-muted">({{ assignmentStateLabel(a.state) }})</span>
+              {{ a.title }} <span class="text-muted">({{ assignmentStatus((assignments || []).find((x) => x.id === a.id) || a).label }})</span>
             </li>
           </ul>
           <p class="mono" style="margin: 0;">
@@ -876,7 +876,7 @@ import { planCohortRename } from '../../../lib/cohort-reidentify.mjs'
 import { rosterClassGroups, classGroupChips, studentInClassGroup } from '../lib/class-groups.js'
 // The screen says "Published", not `published`. The helper owns the fallback so
 // a state with no label renders as itself rather than as a blank.
-import { assignmentStateLabel } from '../lib/status-labels.js'
+import { assignmentStatus } from '../lib/status-labels.js'
 import { getToken, getUser } from '../lib/auth.js'
 import HelpButton from './HelpButton.vue'
 import { commitFile, getRepoContent, listRepoDir, listClaims, deleteFile, ghApi, githubAccountExists } from '../lib/api.js'

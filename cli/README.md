@@ -15,7 +15,7 @@ Command groups:
 | `sync-starter` | Smart starter code update sync (auto-merge to main + PR fallback) |
 | `feedback open \| list` | Draft Feedback PRs per student (idempotent) |
 | `download` | Bulk-fetch preserved submissions from the archive repo |
-| `grade` | Run autograde tests against preserved SHAs (docker/host) |
+| `grade` | Read the scores GitHub Actions recorded, or run the assignment's checks against preserved SHAs (docker/host) |
 | `teams seed \| unseed \| list \| sources` | Carry an existing grouping into a group assignment |
 
 See RUNBOOK.md §6 for per-command how-tos.

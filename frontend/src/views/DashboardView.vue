@@ -429,8 +429,8 @@
           >
             <div class="card-header flex items-center justify-between">
               <span class="status-indicator">
-                <span class="status-dot" :class="a.state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
-                <span class="status-text">{{ assignmentStateLabel(a.state) }}</span>
+                <span class="status-dot" :class="assignmentStatus(a).accepting ? 'dot-success' : 'dot-neutral'"></span>
+                <span class="status-text">{{ assignmentStatus(a).label }}</span>
               </span>
               <span class="flex items-center gap-xs">
                 <span class="text-muted text-xs mono">{{ a.id }}</span>
@@ -512,7 +512,7 @@ import InvitationShare from '../components/InvitationShare.vue'
 import Icon from '../components/Icon.vue'
 import WhatsNewCard from '../components/WhatsNewCard.vue'
 import { config } from '../lib/config.js'
-import { assignmentStateLabel } from '../lib/status-labels.js'
+import { assignmentStatus } from '../lib/status-labels.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import {

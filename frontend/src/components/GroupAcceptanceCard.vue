@@ -53,15 +53,18 @@
         <div v-if="teamOverride" class="override-alert-banner flex items-center gap-xs">
           <Icon name="check-circle" :size="16" class="stat-green" />
           <span class="text-xs font-semibold text-primary">
-            🎉 Deadline Extended to {{ new Date(teamOverride.value).toLocaleString() }} ({{ teamOverride.reason || 'Approved extension' }})
+            Deadline extended to {{ formatDate(teamOverride.value, assignment?.timezone) }}{{ teamOverride.reason ? ` (${teamOverride.reason})` : '' }}.
           </span>
         </div>
 
         <div class="flex justify-between items-center flex-wrap gap-xs">
           <div class="flex items-center gap-xs">
             <span class="text-xs font-semibold text-secondary">Team Submission:</span>
-            <span :class="['badge', teamSubmissionStatus === 'on-time' ? 'badge-success' : teamSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']">
-              {{ teamSubmissionStatus === 'on-time' ? 'Submitted on time' : teamSubmissionStatus === 'late' ? 'Submitted late' : 'No commits pushed' }}
+            <span
+              :class="['badge', teamSubmissionStatus === 'on-time' ? 'badge-success' : teamSubmissionStatus === 'late' ? 'badge-warning' : 'badge-neutral']"
+              :title="teamSubmissionStatus === 'after-deadline' ? AFTER_DEADLINE_TITLE : null"
+            >
+              {{ submissionBadge(teamSubmissionStatus) }}
             </span>
           </div>
 
@@ -534,7 +537,7 @@ import Icon from './Icon.vue'
 import StudentDiagnosticsModal from './StudentDiagnosticsModal.vue'
 import { getToken } from '../lib/auth.js'
 import { config } from '../lib/config.js'
-import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
+import { getRepo, getInvitations, acceptInvitation, ghApi } from '../lib/api.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { signedAcceptanceIssueTitle, inviteTeamsUrl } from '../lib/invite.js'
@@ -555,7 +558,7 @@ import {
   RECENT_ATTEMPT_MS as SHARED_RECENT_ATTEMPT_MS,
 } from '../lib/broker-teams.js'
 import { INSTITUTION } from '../lib/deployment.js'
-import { effectiveDeadlineFor } from '../lib/deadline.js'
+import { readOwnDeadline, submissionBadge, AFTER_DEADLINE_TITLE } from '../lib/own-deadline.js'
 import { formatDeadlineCountdown } from '../lib/countdown.js'
 import { formatDate } from '../lib/format.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim, encryptTeamCode } from '../lib/claim.js'
@@ -566,7 +569,6 @@ import { forgetAnyJoinCode, forgetJoinCode, rememberJoinCode, rememberedJoinCode
 import { parseTeamPayload } from '../../../lib/team-payload.mjs'
 import { claimRequired } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
-import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
@@ -1182,6 +1184,8 @@ async function loadTeams() {
 
 const teamLatestCommit = ref(null)
 const teamOverride = ref(null)
+// Whether this page could read the team's own deadline at all.
+const ownDeadlineKnown = ref(true)
 
 const effectiveDeadline = computed(() => {
   if (teamOverride.value?.value) {
@@ -1203,7 +1207,10 @@ const isPastDeadline = computed(() => {
 })
 
 // On the same clock as isPastDeadline, so the words and their colour turn together.
-const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, new Date(nowTick.value)))
+// The moment in the card's one format and the assignment's zone, as its dates are.
+const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value, new Date(nowTick.value), {
+  format: (d) => formatDate(d.toISOString(), props.assignment?.timezone),
+}))
 
 // Whether a switch would be allowed, and until when: the hub's own rule, by the
 // ASSIGNMENT'S deadline, never the student's extension (lib/team-switch.js).
@@ -1223,7 +1230,9 @@ const teamSubmissionStatus = computed(() => {
   if (teamPushed.value === false) return 'no-submission'
   if (!effectiveDeadline.value) return 'on-time'
   const commitTime = new Date(teamLatestCommit.value.date)
-  return commitTime <= effectiveDeadline.value ? 'on-time' : 'late'
+  if (commitTime <= effectiveDeadline.value) return 'on-time'
+  // Late only where this page knows the team's own deadline (own-deadline.js).
+  return ownDeadlineKnown.value ? 'late' : 'after-deadline'
 })
 
 async function refreshTeamSubmissionMeta(org, repoName) {
@@ -1248,22 +1257,14 @@ async function refreshTeamSubmissionMeta(org, repoName) {
     console.error('Failed to fetch team latest commit:', e)
   }
 
-  // Load student or team override if exists. Same rule as the backend
-  // (lib/effective-deadline.mjs): the last grant in the append-only history
-  // wins, and an extension only ever extends.
-  try {
-    const overrideFile = await getRepoContent(token, props.org, config.controlRepo, overridePath(props.assignment.id, props.user.login))
-    if (overrideFile) {
-      const eff = effectiveDeadlineFor(props.assignment, props.user.login, {
-        overrides: [JSON.parse(overrideFile)],
-      })
-      if (eff.extended) {
-        teamOverride.value = { value: eff.deadline.toISOString(), reason: eff.reason }
-      }
-    }
-  } catch {
-    // optional override
-  }
+  // The team's own deadline: the control repository's override for staff, the
+  // team repository's variable - its most generous member's - for a student
+  // (frontend/src/lib/own-deadline.js; live UI, 2026-10-15).
+  const own = await readOwnDeadline({
+    token, org, assignment: props.assignment, login: props.user.login, repoFullName: `${org}/${repoName}`,
+  })
+  teamOverride.value = own.extension
+  ownDeadlineKnown.value = own.known
 }
 
 async function checkExistingState() {

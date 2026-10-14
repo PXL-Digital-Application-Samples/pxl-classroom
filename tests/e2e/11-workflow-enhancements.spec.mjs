@@ -213,7 +213,8 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(statusCard).toBeVisible();
 
     // Verify active extension announcement banner
-    await expect(statusCard.locator('.override-alert-banner')).toContainText('Deadline Extended');
+    // In the card's one date format, not the browser's (live UI, 2026-10-15).
+    await expect(statusCard.locator('.override-alert-banner')).toContainText(/Deadline extended to \d{1,2} \w{3} \d{4}, \d{2}:\d{2} /);
     await expect(statusCard.locator('.override-alert-banner')).toContainText('Approved medical extension');
 
     // Verify on-time status badge (because commit was before extended deadline)
@@ -559,11 +560,15 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     // Verify late badge
     await expect(statusCard.locator('.badge-warning')).toContainText('Submitted late');
 
-    // Verify deadline passed countdown text
-    await expect(statusCard.locator('.deadline-countdown')).toContainText('Deadline passed');
+    // Verify deadline passed countdown text - and the same date format as the
+    // card's own dates, never the browser's or a raw timestamp (live UI, 2026-10-15).
+    const cardDate = /\d{1,2} \w{3} \d{4}, \d{2}:\d{2} \S+/;
+    await expect(statusCard.locator('.deadline-countdown')).toContainText(new RegExp(`Deadline passed \\(${cardDate.source}\\)`));
 
-    // Verify latest commit SHA is displayed
+    // Verify latest commit SHA is displayed, with its time in that format
     await expect(statusCard.locator('.latest-commit-info')).toContainText('deadbee');
+    await expect(statusCard.locator('.latest-commit-info')).toContainText(new RegExp(`· ${cardDate.source}`));
+    await expect(statusCard.locator('.latest-commit-info')).not.toContainText(/\d{4}-\d{2}-\d{2}T/);
 
     // Verify NO extension override alert is present
     await expect(statusCard.locator('.override-alert-banner')).not.toBeVisible();

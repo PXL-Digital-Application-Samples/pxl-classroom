@@ -1387,6 +1387,9 @@
         v-if="actionStudent"
         :student="actionStudent"
         :extension="extensionFor(actionStudent.github_login)"
+        :page-deadline="actionPageDeadline"
+        :sending-page-deadline="actionSendingPageDeadline"
+        @send-page-deadline="resendPageDeadline(actionStudent)"
         :archive-url="studentArchiveUrl(actionStudent)"
         :extending="actionExtending"
         :retrying="actionRetrying"
@@ -1557,6 +1560,7 @@ import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { extensionFrom } from '../lib/deadline.js'
+import { deadlineVariableValue, pageDeadlineState, readDeadlineVariable, writeDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 import {
   claimPath,
   buildClaimRecord,
@@ -5605,7 +5609,11 @@ async function grantHandInsFor(student, { extra, reason, deadline_local }) {
       student, entries, `Allow ${student.github_login} ${extra} extra hand-in(s) on ${props.assignmentId}`,
     )
     if (!ok) return
-    if (newDeadline) student.effective_deadline_at = newDeadline
+    if (newDeadline) {
+      student.effective_deadline_at = newDeadline
+      const notTold = await sendPageDeadline(student)
+      if (notTold && notTold !== NO_REPO_YET) toast.error(`${student.github_login}'s own page could not be told the new deadline: ${notTold}. Their lock and grading use it anyway.`)
+    }
     toast.success(`${student.github_login} may hand in ${extra} more time(s)${newDeadline ? `, until ${fmt(newDeadline)}` : ''}. Reading their score again…`)
   } finally {
     actionHandInsSaving.value = false
@@ -5638,6 +5646,62 @@ async function revokeHandInsFor(student, { reason }) {
   await regradeStudent(student)
 }
 
+// A STUDENT'S OWN DEADLINE REACHES THEIR PAGE THROUGH THEIR REPOSITORY
+// (lib/deadline-variable.mjs, decided 2026-10-15): the control repository is
+// private to staff, so their page never saw an extension. A team repository
+// carries its most generous member's.
+function expectedPageDeadline(student) {
+  return deadlineVariableValue(assignment.value, student.github_login, {
+    overrides: [...overridesByLogin.value.values()],
+    team: { members: teamMembersOf(student).map((s) => s.github_login).filter(Boolean) },
+  })
+}
+
+/**
+ * Write it to their repository: null when done, `NO_REPO_YET` for a student
+ * with none (provisioning writes it when they accept), or why not.
+ */
+const NO_REPO_YET = 'no-repo-yet'
+async function sendPageDeadline(student) {
+  if (!student?.repo_name) return NO_REPO_YET
+  const token = getToken()
+  try {
+    const res = await writeDeadlineVariable((method, path, body) => ghApi(token, method, path, body), {
+      repoFullName: student.repo_name, value: expectedPageDeadline(student),
+    })
+    return res.ok ? null : `GitHub refused it (HTTP ${res.status})`
+  } catch (e) {
+    return e.message
+  }
+}
+
+// What their page shows, read when their actions open (DESIGN.md §1.5).
+const actionPageDeadline = ref(null)
+const actionSendingPageDeadline = ref(false)
+let pageDeadlineRun = 0
+async function readPageDeadline(student) {
+  const mine = ++pageDeadlineRun
+  actionPageDeadline.value = null
+  if (!student) return
+  const read = student.repo_name
+    ? await readDeadlineVariable((method, path) => ghApi(getToken(), method, path), { repoFullName: student.repo_name, canPush: true })
+      .catch(() => ({ state: 'unreadable', status: 0 }))
+    : { state: 'no-repo' }
+  if (mine === pageDeadlineRun) actionPageDeadline.value = pageDeadlineState({ expected: expectedPageDeadline(student), read })
+}
+watch(actionStudent, (s) => readPageDeadline(s))
+
+async function resendPageDeadline(student) {
+  actionSendingPageDeadline.value = true
+  try {
+    const notTold = await sendPageDeadline(student)
+    if (notTold && notTold !== NO_REPO_YET) toast.error(`Their own page could not be told: ${notTold}.`)
+    await readPageDeadline(student)
+  } finally {
+    actionSendingPageDeadline.value = false
+  }
+}
+
 async function grantExtensionFor(student, ext) {
   if (!ext.deadline_local || !ext.reason.trim()) {
     toast.error('Deadline and reason are required.')
@@ -5668,8 +5732,15 @@ async function grantExtensionFor(student, ext) {
       overridden_at: new Date().toISOString(),
     }], `Grant extension to ${student.github_login} on ${props.assignmentId}`)
     if (ok) {
-      toast.success(`Extension granted to ${student.github_login} (status updates on the next nightly run or Live Status refresh).`)
       student.effective_deadline_at = newExtValue
+      const notTold = await sendPageDeadline(student)
+      if (notTold === NO_REPO_YET) {
+        toast.success(`Extension granted to ${student.github_login}; their page shows it once they accept (the Progress tab updates on the next nightly run or Refresh).`)
+      } else if (notTold) {
+        toast.error(`Extension granted to ${student.github_login}, but their own page could not be told: ${notTold}. Their lock and grading use the new deadline anyway; open their actions to send it again.`)
+      } else {
+        toast.success(`Extension granted to ${student.github_login}; their own page shows it (the Progress tab updates on the next nightly run or Refresh).`)
+      }
       actionStudent.value = null
     }
   } finally {

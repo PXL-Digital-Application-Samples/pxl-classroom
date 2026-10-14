@@ -128,6 +128,30 @@ export function assignmentStateLabel(value) {
 }
 
 /**
+ * An assignment's state as it bears on joining it NOW, for every surface that
+ * shows one with its dot. "Accepting" means a student can join, and the hub
+ * turns every new acceptance away before `opens_at` and after `deadline_at`
+ * (acceptance/accept.mjs, step 4) - so a published assignment two hours past
+ * its deadline, locked and archived, read "Accepting" in green on the
+ * lecturer's header and on the student's own card, three lines above "Closed"
+ * (found in the live UI suite, 2026-10-15). The stored state is unchanged; this
+ * is only what it is called, and whether its dot is green.
+ *
+ * @param {{ state?: string, opens_at?: string, deadline_at?: string }|null|undefined} assignment
+ * @param {number} [now]
+ * @returns {{ label: string, accepting: boolean }}
+ */
+export function assignmentStatus(assignment, now = Date.now()) {
+  const state = assignment?.state;
+  if (state !== "published") return { label: assignmentStateLabel(state), accepting: false };
+  const opens = Date.parse(assignment?.opens_at ?? "");
+  if (Number.isFinite(opens) && now < opens) return { label: "Not open yet", accepting: false };
+  const deadline = Date.parse(assignment?.deadline_at ?? "");
+  if (Number.isFinite(deadline) && now > deadline) return { label: "Deadline passed", accepting: false };
+  return { label: assignmentStateLabel(state), accepting: true };
+}
+
+/**
  * How a set of scores was produced.
  *
  * `github_actions` / `docker` / `host` are the schema's words for a machine, and

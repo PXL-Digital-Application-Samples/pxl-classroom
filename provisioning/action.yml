@@ -157,6 +157,9 @@ runs:
         permission-contents: write
         permission-metadata: read
         permission-workflows: write
+        # The run log warns "Unexpected input(s) 'permission-actions-variables'";
+        # it is applied (the same input publish and finalize ask for).
+        permission-actions-variables: write
 
     - name: Set up Node
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

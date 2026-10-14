@@ -514,7 +514,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       now: new Date(now),
       overrides: [{ type: 'deadline_extension', value: new Date(now + 3 * 86400_000).toISOString(), reason: 'medical', overridden_by: 'lecturer1', overridden_at: new Date(now - 2 * 86400_000).toISOString() }],
     });
-    await expect(page.locator('.provisioned-state')).toContainText('Deadline Extended');
+    await expect(page.locator('.provisioned-state')).toContainText(/Deadline extended to \d{1,2} \w{3} \d{4}, \d{2}:\d{2} /);
     await expect(page.locator('[data-team-switch]')).toHaveCount(0);
   });
 

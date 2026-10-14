@@ -34,7 +34,7 @@ const STUDENT_COMMIT = { sha: ROOT, parents: [{ sha: "f".repeat(40) }], committe
  * copy whose first run failed before the workflow was added), and the commit
  * under the one this run adds is `GENERATED_ROOT` or a student's.
  */
-async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204, injectStatus = 201 } = {}) {
+async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204, injectStatus = 201, variableStatus = 201 } = {}) {
   const calls = [];
   let generated = Boolean(existing);
   const server = createServer((req, res) => {
@@ -64,14 +64,29 @@ async function withApi(fn, { templateGrades = false, existing = null, contentsEm
       return templateGrades && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
     }
     if (url === "/repos/Org/lab-ann/contents/.github/workflows/autograding.yml" && req.method === "PUT") {
-      if (injectStatus !== 201) return send(injectStatus, { message: "Resource not accessible by integration" });
-      return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: INJECTED } });
+      let body = "";
+      req.on("data", (c) => (body += c));
+      return req.on("end", () => {
+        calls.push(`MESSAGE ${JSON.parse(body || "{}").message}`);
+        if (injectStatus !== 201) return send(injectStatus, { message: "Resource not accessible by integration" });
+        return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: INJECTED } });
+      });
     }
     if (url === "/repos/Org/lab-ann/commits") {
       // GitHub's one commit plus the workflow: the `last` page is 2.
       return send(200, [{ sha: INJECTED }], { link: `<http://x/repos/Org/lab-ann/commits?sha=${INJECTED}&per_page=1&page=2>; rel="last"` });
     }
     if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return grantStatus === 204 ? send(204) : send(grantStatus, { message: "Forbidden" });
+    // The student's own deadline (lib/deadline-variable.mjs): none there yet.
+    if (url === "/repos/Org/lab-ann/actions/variables/PXL_DEADLINE" && req.method === "PATCH") return send(404, { message: "Not Found" });
+    if (url === "/repos/Org/lab-ann/actions/variables" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      return req.on("end", () => {
+        calls.push(`BODY ${body}`);
+        send(variableStatus, variableStatus === 201 ? {} : { message: "Resource not accessible by integration" });
+      });
+    }
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -82,12 +97,18 @@ async function withApi(fn, { templateGrades = false, existing = null, contentsEm
   }
 }
 
-function provision(apiBase, { dryRun = false } = {}) {
+/** `files`: more of the control repository, path -> JSON document. */
+function provision(apiBase, { dryRun = false, files = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-inject-"));
   mkdirSync(join(dir, "control", "assignments"), { recursive: true });
   writeFileSync(join(dir, "control", "assignments", "lab.yml"), stringify({
-    id: "lab", autograde: { enabled: true, execution_environment: "github_actions", tests: [{ id: "t", name: "t", run: "true", points: 1 }] },
+    id: "lab", deadline_at: "2026-10-20T22:00:00Z",
+    autograde: { enabled: true, execution_environment: "github_actions", tests: [{ id: "t", name: "t", run: "true", points: 1 }] },
   }));
+  for (const [path, doc] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, "control", path)), { recursive: true });
+    writeFileSync(join(dir, "control", path), JSON.stringify(doc));
+  }
   return new Promise((resolve, reject) => {
     const child = spawn("node", [script], {
       cwd: dir,
@@ -116,6 +137,9 @@ test("GitHub's copy that provisioning committed the grading workflow to records 
     const r = await provision(api);
     assert.equal(r.status, 0, r.log);
     assert.ok(calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml")));
+    // Not run on its own commit: a red cross on every student's first commit,
+    // and a run per acceptance (seen live, drill-20261014-2211).
+    assert.ok(calls.includes("MESSAGE Add autograding workflow [skip ci]"), calls.filter((c) => c.startsWith("MESSAGE")).join(", "));
     assert.equal(output(r.outputs, "starter_sha"), INJECTED);
     assert.equal(output(r.outputs, "starter_commit_count"), "2");
     assert.equal(output(r.outputs, "full_history"), "false", "not a copy of the template's history");
@@ -195,4 +219,53 @@ test("TL-7: `granted` is said the moment the student holds the repository, so a 
     assert.equal(output(r.outputs, "granted"), undefined, r.log);
     assert.ok(!calls.some((c) => c.startsWith("PUT ")), "nothing written");
   });
+});
+
+// THE STUDENT'S OWN DEADLINE (lib/deadline-variable.mjs, decided 2026-10-15):
+// an extension granted before they accepted reaches their page only if the
+// repository carries it from the start.
+const extension = (login, value) => ({
+  schema_version: 1, assignment_id: "lab", github_login: login,
+  overrides: [{ type: "deadline_extension", value, reason: "medical", overridden_by: "l", overridden_at: "2026-10-01T00:00:00Z" }],
+});
+
+test("an extension granted before they accepted is written to the new repository, the date and nothing else", async () => {
+  await withApi(async (api, calls) => {
+    const r = await provision(api, { files: { "overrides/lab/ann.json": extension("ann", "2026-10-25T22:00:00Z") } });
+    assert.equal(r.status, 0, r.log);
+    const body = calls.find((c) => c.startsWith("BODY "));
+    assert.deepEqual(JSON.parse(body.slice(5)), { name: "PXL_DEADLINE", value: "2026-10-25T22:00:00.000Z" });
+    // The run log is public: no date, no word of an extension.
+    assert.doesNotMatch(r.log, /2026-10-25|extension|own-deadline/i);
+  });
+});
+
+test("a team repository carries its most generous member's; nobody extended, or someone else extended, writes nothing", async () => {
+  await withApi(async (api, calls) => {
+    const r = await provision(api, {
+      files: {
+        "overrides/lab/cy.json": extension("cy", "2026-10-27T22:00:00Z"),
+        "teams/lab/alpha.json": { schema_version: 1, assignment_id: "lab", team_slug: "alpha", team_name: "Alpha", members: ["Ann", "cy"] },
+      },
+    });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(JSON.parse(calls.find((c) => c.startsWith("BODY ")).slice(5)).value, "2026-10-27T22:00:00.000Z");
+  });
+  for (const files of [{}, { "overrides/lab/bob.json": extension("bob", "2026-10-27T22:00:00Z") }]) {
+    await withApi(async (api, calls) => {
+      const r = await provision(api, { files });
+      assert.equal(r.status, 0, r.log);
+      assert.ok(!calls.some((c) => c.includes("/actions/variables")), JSON.stringify(files));
+    });
+  }
+});
+
+test("a variable GitHub refuses does not fail the acceptance, and the log says so without the date", async () => {
+  await withApi(async (api) => {
+    const r = await provision(api, { files: { "overrides/lab/ann.json": extension("ann", "2026-10-25T22:00:00Z") } });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "created");
+    assert.match(r.log, /the repository's deadline variable could not be written \(HTTP 403\)/);
+    assert.doesNotMatch(r.log, /2026-10-25/);
+  }, { variableStatus: 403 });
 });

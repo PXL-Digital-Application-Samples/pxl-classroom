@@ -10,7 +10,7 @@
 // Emits GitHub Actions outputs (repo_id, repo_url, repo_name, outcome) and a
 // step summary. No npm dependencies (Node 18+ fetch).
 
-import { appendFile, readFile, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, readFile, readdir, mkdtemp, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,7 @@ import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
 import { submissionBranch } from "../lib/submission-marker.mjs";
+import { deadlineVariableValue, writeDeadlineVariable } from "../lib/deadline-variable.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -690,7 +691,12 @@ async function injectAutogradingWorkflow(assignment) {
   const content = buildAutogradingWorkflow(assignment, cfg.org);
   const b64 = Buffer.from(content).toString("base64");
   const res = await gh("PUT", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`, {
-    message: "Add autograding workflow",
+    // `[skip ci]`: the workflow ran on this, its own commit, in every student
+    // repository - a run per acceptance, and a red cross on a student's first
+    // commit before they had done anything, since the checks fail on the
+    // starter (seen live, drill-20261014-2211). GitHub skips push-triggered
+    // runs for it; a lecturer's dispatch still runs.
+    message: "Add autograding workflow [skip ci]",
     content: b64
   });
   // A FAILED WRITE FAILS THE RUN, for the reason above (TA-9, review
@@ -708,6 +714,39 @@ async function injectAutogradingWorkflow(assignment) {
   // The commit it made, on the default branch (the PUT names no other).
   const sha = res.data?.commit?.sha;
   return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
+/** The JSON files of one control-repository directory, parsed; none when it is absent. */
+async function controlJson(dir) {
+  const out = [];
+  for (const name of await readdir(dir).catch(() => [])) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      out.push(JSON.parse(await readFile(join(dir, name), "utf-8")));
+    } catch {
+      // A file that cannot be parsed extends nobody here; the lock reads it too.
+    }
+  }
+  return out;
+}
+
+async function writeOwnDeadline() {
+  try {
+    const overrides = await controlJson(`control/overrides/${cfg.assignmentId}`);
+    if (!overrides.length) return; // Nobody on this assignment has an extension.
+    const assignment = parse(await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8"));
+    // A team repository carries its most generous member's (lib/effective-deadline.mjs).
+    const team = (await controlJson(`control/teams/${cfg.assignmentId}`))
+      .find((t) => (t?.members || []).some((m) => sameLogin(m, cfg.studentLogin)));
+    const value = deadlineVariableValue(assignment, cfg.studentLogin, { overrides, team: team ? { members: team.members } : undefined });
+    if (!value) return;
+    const res = await writeDeadlineVariable((method, path, body) => gh(method, path, body), {
+      repoFullName: `${cfg.org}/${cfg.targetRepo}`, value,
+    });
+    if (!res.ok) log("own-deadline", { ok: false, note: `the repository's deadline variable could not be written (HTTP ${res.status})` });
+  } catch (e) {
+    log("own-deadline", { ok: false, note: `the repository's deadline variable could not be written: ${e.message}` });
+  }
 }
 
 async function main() {
@@ -996,6 +1035,14 @@ async function main() {
       log("inject-autograding", { ok: false, note: `failed to read assignment config: ${e.message}` });
     }
   }
+
+  // 5.6 The student's own deadline, where an extension makes it later than the
+  // assignment's (lib/deadline-variable.mjs): their page reads it from this
+  // repository, the control repository being private to staff. An extension
+  // granted before they accepted reached nothing else. Best effort - the lock
+  // and grading read the override itself - and the run log is public, so it
+  // says nothing on success and nothing about the student's dates on failure.
+  if (!cfg.dryRun && repo && cfg.assignmentId) await writeOwnDeadline();
 
   // 6. Optional Feedback-PR scaffold: baseline branch + protection. PR open
   //    is deferred to `pxl-classroom feedback open` once student commits land.

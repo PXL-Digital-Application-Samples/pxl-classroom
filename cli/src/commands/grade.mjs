@@ -5,6 +5,13 @@
 // summary.json) in the control repo. Execution stays off the platform on
 // purpose; pick --runner=docker for untrusted student code.
 //
+// Where the assignment grades on GitHub Actions - checks defined here and run
+// there, or a template's own grading workflow - nothing runs here: the scores
+// GitHub recorded are read, as the page and the nightly read them, and whether
+// that applies is `gradesInCi`'s answer, the one they ask. This refused every
+// template-graded assignment, the cloud exams among them, while ARCHITECTURE
+// said it read them (review 2026-10-15, P2-48).
+//
 // Idempotent and resumable: results are written one at a time; if you Ctrl-C
 // halfway through, re-running picks up where you left off. The grader never
 // touches the student's live repo - only archive branches.
@@ -33,7 +40,8 @@ import {
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
 import { readRunScore } from "../../../lib/grade-dispatch.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { gradesInCi } from "../../../lib/autograde-source.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { normalizeLogin, sameLogin } from "../../../lib/github-login.mjs";
@@ -145,7 +153,7 @@ function parseConcurrency(val) {
 export function registerGradeCommand(program) {
   program
     .command("grade")
-    .description("Run the assignment.autograde tests against preserved submissions.")
+    .description("Grade the cohort: read the scores GitHub Actions recorded, or run the assignment's checks on this machine.")
     .option("--org <login>", "GitHub org login (defaults to last used)")
     .requiredOption("--assignment <id>", "Assignment ID")
     .option("--login <login>", "Grade one student only")
@@ -163,11 +171,20 @@ export function registerGradeCommand(program) {
       }
 
       const assignment = await getAssignment(octokit, { org, assignmentId: opts.assignment });
-      if (assignment.autograde?.enabled !== true) {
-        throw new Error(`Assignment ${opts.assignment} does not have autograde.enabled in its YAML.`);
+      // The assignment's hand-in marker, read once for the cohort. Null for
+      // every assignment that does not declare one.
+      const marker = readSubmissionMarker(assignment);
+      const declared = assignment.autograde?.enabled === true;
+      // On GitHub Actions: declared there, or the template's workflow grades -
+      // the judge the page and the nightly ask (lib/autograde-source.mjs).
+      const isGitHubActions = gradesInCi(assignment, { hasSubmissionMarker: Boolean(marker) });
+      if (!declared && !isGitHubActions) {
+        throw new Error(
+          `Assignment ${opts.assignment} is not graded: it defines no checks of its own, and its template's grading workflow is not one it reads (template_grades).`,
+        );
       }
-      const tests = assignment.autograde.tests || [];
-      if (tests.length === 0) throw new Error(`Assignment ${opts.assignment} has no autograde tests.`);
+      const tests = declared ? assignment.autograde.tests || [] : [];
+      if (declared && tests.length === 0) throw new Error(`Assignment ${opts.assignment} has no autograde tests.`);
       // Pin assignment.id since some assignment YAMLs omit it (filename is the SOT)
       assignment.id = assignment.id || opts.assignment;
 
@@ -192,7 +209,6 @@ export function registerGradeCommand(program) {
       }
 
       const gradedBy = await authedLogin(octokit);
-      const isGitHubActions = assignment.autograde?.execution_environment === "github_actions";
       const runnerName = isGitHubActions ? "github_actions" : opts.runner;
 
       if (opts.runner === "host" && !isGitHubActions && !opts.forceHost) {
@@ -214,12 +230,13 @@ export function registerGradeCommand(program) {
       }
       if (isGitHubActions && command.getOptionValueSource("runner") === "cli") {
         process.stderr.write(
-          `warning: --runner ${opts.runner} is ignored - this assignment's execution_environment ` +
-          `is github_actions, so grades come from the Checks API, not a local runner.\n`,
+          `warning: --runner ${opts.runner} is ignored - this assignment grades on GitHub Actions, ` +
+          `so grades come from the Checks API, not a local runner.\n`,
         );
       }
       process.stdout.write(
-        `Grading ${queue.length} student(s) on ${tests.length} test(s) ` +
+        `Grading ${queue.length} student(s) ` +
+        `${declared ? `on ${tests.length} test(s)` : "from the template's grading workflow"} ` +
         `via ${runnerName} runner (concurrency=${opts.concurrency}).\n`,
       );
       if (isGitHubActions) {
@@ -237,10 +254,6 @@ export function registerGradeCommand(program) {
       const failedRead = (login) => failedReads.add(normalizeLogin(login));
       const teamResultsCache = new Map(); // team_slug -> result
 
-      // The assignment's hand-in marker, read once for the cohort. Null for
-      // every assignment that does not declare one, which is all of them until
-      // a template's workflow grades one commit only.
-      const marker = readSubmissionMarker(assignment);
       const markerBranch = submissionBranch(assignment);
       const totalFallback = tests.reduce((acc, t) => acc + (t.points || 0), 0);
       // (`overrides`, read above, also carries the hand-in allowances a cap
@@ -347,8 +360,12 @@ export function registerGradeCommand(program) {
                 process.stderr.write(`  - ${s.github_login}: ${describeIgnoredHandIn(item, { allowed: handIns.allowed })}\n`);
               }
               if (found.verdict !== "found") {
-                if (FAILED_READ_VERDICTS.includes(found.verdict)) failedRead(s.github_login);
-                process.stderr.write(`  ! ${s.github_login}: ${found.reason}\n`);
+                const unread = FAILED_READ_VERDICTS.includes(found.verdict);
+                if (unread) failedRead(s.github_login);
+                // `!` is something to look at; an answer (not handed in, late,
+                // still running) is `-`, as the no-submission line above.
+                const mark = unread || (found.kind || "no-result") === "no-result" ? "!" : "-";
+                process.stderr.write(`  ${mark} ${s.github_login}: ${found.reason}\n`);
                 summary.failed.push({ login: s.github_login, reason: found.reason, kind: found.kind || "no-result", ...(handIns ? { hand_ins: handIns } : {}) });
                 return;
               }
@@ -600,8 +617,17 @@ export function registerGradeCommand(program) {
             : {}),
         });
       }
-      process.stdout.write(`\n${summary.graded.length} graded, ${summary.failed.length} failed.\n`);
+      // "NO SCORE" IS SEVERAL ANSWERS (lib/grade-cohort.mjs FAILED_KINDS): not
+      // handed in, late and still running each say what happened, and a cohort
+      // where some students did nothing is not a run that failed. Non-zero only
+      // for what needs a look - a read that failed, or a run with no result
+      // (review 2026-10-15, P2-49). It exited 1 whenever anyone lacked a score.
+      const toLookAt = summary.failed.filter((f) => failedReads.has(normalizeLogin(f.login)) || failedKind(f) === "no-result");
+      process.stdout.write(
+        `\n${summary.graded.length} graded, ${summary.failed.length} failed` +
+        `${summary.failed.length ? ` (${toLookAt.length} to look at)` : ""}.\n`,
+      );
       if (opts.dryRun) process.stdout.write(`(--dry-run; nothing committed.)\n`);
-      if (summary.failed.length) process.exit(1);
+      if (toLookAt.length) process.exit(1);
     });
 }

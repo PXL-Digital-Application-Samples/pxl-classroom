@@ -26,8 +26,8 @@
             :title="actions.length ? 'Change what this assignment does now' : null"
             @click.stop="toggleStateMenu"
           >
-            <span class="status-dot" :class="state === 'published' ? 'dot-success' : 'dot-neutral'"></span>
-            <span>{{ busy ? 'Updating…' : assignmentStateLabel(state) }}</span>
+            <span class="status-dot" :class="status.accepting ? 'dot-success' : 'dot-neutral'"></span>
+            <span>{{ busy ? 'Updating…' : status.label }}</span>
             <Icon v-if="actions.length" :name="stateMenuOpen ? 'chevron-up' : 'chevron-down'" :size="11" />
           </button>
           <div v-if="stateMenuOpen" class="export-dropdown-menu state-menu fade-in" role="menu">
@@ -126,7 +126,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import InvitationShare from './InvitationShare.vue'
-import { assignmentStateLabel } from '../lib/status-labels.js'
+import { assignmentStatus } from '../lib/status-labels.js'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { stateActions, everPublished } from '../lib/state-actions.js'
 import { keepMenuInView } from '../lib/menu-position.js'
@@ -159,6 +159,8 @@ const emit = defineEmits(['state-action', 'update-student-page'])
 const studentLine = computed(() => (props.studentPage ? studentPageLine(props.studentPage) : ''))
 
 const state = computed(() => props.assignment?.state || null)
+// What the state means for joining now: "Accepting" only while the hub accepts.
+const status = computed(() => assignmentStatus(props.assignment))
 const deadline = computed(() => props.assignment?.deadline_at || null)
 const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.value) < Date.now())
 const deadlineRelative = computed(() => (deadline.value ? formatRelative(deadline.value) : ''))
