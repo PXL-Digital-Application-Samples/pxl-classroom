@@ -544,6 +544,14 @@
               <small v-else-if="!loadingTemplates">
                 Found {{ templates.length }} template {{ templates.length === 1 ? 'repository' : 'repositories' }}.
               </small>
+              <!-- THE FULL-HISTORY COPY, SAID WHERE IT APPLIES. The box is under
+                   Advanced (asked once, rare), and a setting that is on and
+                   folded away is invisible: this line says so, inside the
+                   template's field, and opens Advanced on it (DESIGN.md §1.8). -->
+              <div v-if="form.template_full_history" class="derived-line" data-derived="template-history">
+                <span class="text-muted">Students get every branch and its full history</span>
+                <button type="button" class="btn-link" @click="scrollToSection('settings-advanced')">Change</button>
+              </div>
               <!-- "STUDENTS START FROM NOTHING" IS AN ORDINARY THING TO WANT,
                    and until now the form had no answer for it: GitHub Classroom
                    made the template optional, this cannot, and a lecturer acting
@@ -593,15 +601,6 @@
                   {{ blankStarterError }}
                 </div>
               </div>
-            </div>
-
-            <!-- THE FULL-HISTORY COPY, SAID WHERE IT APPLIES. The box is under
-                 Advanced (asked once, rare), and a setting that is on and folded
-                 away is invisible: this line says so, beside the template it
-                 changes, and opens Advanced on it (DESIGN.md §1.8). -->
-            <div v-if="form.template_full_history" class="derived-line" data-derived="template-history">
-              <span class="text-muted">Students get every branch and its full history</span>
-              <button type="button" class="btn-link" @click="scrollToSection('settings-advanced')">Change</button>
             </div>
 
             <!-- SECOND, BECAUSE PICKING THE TEMPLATE FILLS IT IN. -->
