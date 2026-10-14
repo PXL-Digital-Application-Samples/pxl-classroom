@@ -595,23 +595,13 @@
               </div>
             </div>
 
-            <!-- EVERY BRANCH AND ITS HISTORY (asked 2026-10-14). GitHub's copy
-                 gives one commit, and with all branches one commit each with
-                 no history in common, so a git exercise with prepared branches
-                 to merge cannot be built on it. Under the template because it
-                 is about what the template becomes. Read at acceptance only. -->
-            <div class="field checkbox" data-template-history>
-              <div class="checkbox-with-help">
-                <label>
-                  <input type="checkbox" v-model="form.template_full_history" />
-                  Give students every branch and its full history
-                </label>
-                <HelpButton topic="every-branch-and-its-history" label="every branch and its history" />
-              </div>
-              <small>
-                Students can read everything ever committed to the template.
-                <template v-if="!isNew">Reaches students who accept after you save.</template>
-              </small>
+            <!-- THE FULL-HISTORY COPY, SAID WHERE IT APPLIES. The box is under
+                 Advanced (asked once, rare), and a setting that is on and folded
+                 away is invisible: this line says so, beside the template it
+                 changes, and opens Advanced on it (DESIGN.md §1.8). -->
+            <div v-if="form.template_full_history" class="derived-line" data-derived="template-history">
+              <span class="text-muted">Students get every branch and its full history</span>
+              <button type="button" class="btn-link" @click="scrollToSection('settings-advanced')">Change</button>
             </div>
 
             <!-- SECOND, BECAUSE PICKING THE TEMPLATE FILLS IT IN. -->
@@ -1403,10 +1393,34 @@
                 Students who already accepted keep the permission they were given until you apply the change to them after saving.
               </small>
             </div>
+            <!-- EVERY BRANCH AND ITS HISTORY (asked 2026-10-14, once). GitHub's
+                 copy gives one commit, and with all branches one commit each
+                 with no history in common, so a git exercise with prepared
+                 branches to merge cannot be built on it. Under Advanced because
+                 it is rare; the line under the template says when it is on.
+                 Above Submission ref, which it changes the answer of. Read at
+                 acceptance only. -->
+            <div class="field checkbox" data-template-history>
+              <div class="checkbox-with-help">
+                <label>
+                  <input type="checkbox" v-model="form.template_full_history" />
+                  Give students every branch and its full history
+                </label>
+                <HelpButton topic="every-branch-and-its-history" label="every branch and its history" />
+              </div>
+              <small>
+                Students can read everything ever committed to the template.
+                <template v-if="!isNew">Reaches students who accept after you save.</template>
+              </small>
+            </div>
             <div class="field">
               <label>Submission ref</label>
               <input v-model="form.submission_ref" placeholder="refs/heads/main" @input="manualSubmissionRef = true" />
-              <small v-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch">
+              <small v-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch && form.template_full_history">
+                Students get every branch; the one collected, locked and archived is this one, the template's default:
+                <code>refs/heads/{{ templateValidationStatus.defaultBranch }}</code>.
+              </small>
+              <small v-else-if="templateValidationStatus?.valid && templateValidationStatus.defaultBranch">
                 Student repositories start with the template's default branch only:
                 <code>refs/heads/{{ templateValidationStatus.defaultBranch }}</code>.
               </small>

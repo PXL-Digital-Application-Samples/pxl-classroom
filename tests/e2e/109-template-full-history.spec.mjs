@@ -52,6 +52,12 @@ async function openEditor(page, extra = {}) {
 }
 
 const box = (page) => page.locator('[data-template-history] input[type="checkbox"]');
+// Under Advanced (asked once, rare), which is a closed disclosure.
+const openAdvanced = async (page) => {
+  const advanced = page.locator('#settings-advanced');
+  if (!(await advanced.evaluate((d) => d.open))) await advanced.locator('summary').click();
+};
+const historyLine = (page) => page.locator('[data-derived="template-history"]');
 const savedDoc = (writes) => {
   const w = [...writes].reverse().find((x) => x.path === `assignments/${ID}.yml`);
   return w ? parse(w.content) : null;
@@ -60,17 +66,33 @@ const savedDoc = (writes) => {
 test.describe('109 - every branch and its full history', () => {
   test('ticking the box writes the field; an untouched assignment does not carry it', async ({ page }) => {
     const writes = await openEditor(page);
+    // Off, and folded away: nothing about it in the main flow.
+    await expect(box(page)).toBeHidden();
+    await expect(historyLine(page)).toHaveCount(0);
+    await openAdvanced(page);
     await expect(box(page)).not.toBeChecked();
     await expect(page.locator('[data-template-history]')).toContainText('Students can read everything ever committed to the template.');
     await expect(page.locator('[data-template-history]')).toContainText('Reaches students who accept after you save.');
     await box(page).check();
+    // On: said beside the template it changes.
+    await expect(historyLine(page)).toContainText('Students get every branch and its full history');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.toast', { hasText: `Saved ${ID}` })).toBeVisible({ timeout: 15000 });
     expect(savedDoc(writes)?.template_full_history).toBe(true);
   });
 
+  test('when it is on, the line under the template says so and Change opens Advanced on it', async ({ page }) => {
+    await openEditor(page, { template_full_history: true });
+    await expect(historyLine(page)).toBeVisible();
+    await expect(box(page)).toBeHidden();
+    await historyLine(page).getByRole('button', { name: 'Change' }).click();
+    await expect(box(page)).toBeVisible();
+    await expect(box(page)).toBeChecked();
+  });
+
   test('a stored answer loads ticked, and unticking removes it rather than writing false', async ({ page }) => {
     const writes = await openEditor(page, { template_full_history: true });
+    await openAdvanced(page);
     await expect(box(page)).toBeChecked();
     await box(page).uncheck();
     await page.getByRole('button', { name: 'Save', exact: true }).click();

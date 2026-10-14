@@ -430,7 +430,7 @@
                   <div class="dropdown-item-text">
                     <span class="dropdown-item-title">Sync Starter Code</span>
                     <span class="dropdown-item-sub">{{ syncRefused
-                      ? 'Not here: students were given the template with its full history, and its branches are theirs'
+                      ? 'Not here: students were given the template with its full history, and the branches are theirs'
                       : 'Propagate template updates to students' }}</span>
                   </div>
                 </button>

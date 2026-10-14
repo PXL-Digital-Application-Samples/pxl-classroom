@@ -149,7 +149,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 
 ## Every branch and its history
 
-Normally each student gets the template's default branch as one fresh commit, with no history. Tick **Give students every branch and its full history** for an exercise built on the history itself, such as prepared branches to merge, rebase or repair.
+Normally each student gets the template's default branch as one fresh commit, with no history. Tick **Give students every branch and its full history**, under **Advanced**, for an exercise built on the history itself, such as prepared branches to merge, rebase or repair. While it is on, a line under the template says so.
 
 - Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other.
 - Students can read everything ever committed to the template. Do not commit a solution to it, not even one you remove later.
