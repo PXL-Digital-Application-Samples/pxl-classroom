@@ -12,6 +12,7 @@ import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { commitAuthor, snapshotObservation } from "../lib/observation.mjs";
+import { parseSubmitTagRef } from "../lib/submit-tag.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -75,8 +76,8 @@ async function readAssignment(assignmentId) {
 // present or the latest one is malformed. We intentionally do NOT trust the
 // student-supplied timestamp for classification - the tag itself is the
 // observation (lecturer-side declared_at is observed-not-authoritative).
-const SUBMIT_TAG_RE = /^refs\/tags\/(submit\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)-[0-9a-f]{7,40})$/;
-
+// The tag's name and declared time: lib/submit-tag.mjs (dashes in the time,
+// because git refuses a colon in a ref name).
 async function findLatestSubmitTag(org, repoName) {
   // List up to 100 matching refs (GitHub's max per page). A student spamming
   // more than 100 submit tags is degenerate; we take the latest by name sort
@@ -86,9 +87,9 @@ async function findLatestSubmitTag(org, repoName) {
 
   const candidates = [];
   for (const entry of res.data) {
-    const m = SUBMIT_TAG_RE.exec(entry.ref || "");
-    if (!m) continue;
-    candidates.push({ ref: entry.ref, tag: m[1], declared_at: m[2], objectSha: entry.object?.sha, objectType: entry.object?.type });
+    const parsed = parseSubmitTagRef(entry.ref);
+    if (!parsed) continue;
+    candidates.push({ ref: entry.ref, ...parsed, objectSha: entry.object?.sha, objectType: entry.object?.type });
   }
   if (candidates.length === 0) return null;
   // Tag name format is lexicographically sortable on declared_at, then sha.

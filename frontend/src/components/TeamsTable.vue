@@ -523,6 +523,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import { planTeamRename, renameBlocker, teamSlug } from '../../../lib/team-rename.mjs'
+import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
@@ -951,7 +952,8 @@ async function saveRename() {
       const text = await getRepoContent(token, props.org, config.controlRepo, path)
       return text ? JSON.parse(text) : null
     }
-    const stored = await read(teamPath(id, team.team_slug))
+    const storedText = await getRepoContent(token, props.org, config.controlRepo, teamPath(id, team.team_slug))
+    const stored = storedText ? JSON.parse(storedText) : null
     if (!stored) {
       renameError.value = 'This team is no longer there. Nothing was changed.'
       return
@@ -989,7 +991,33 @@ async function saveRename() {
       renameError.value = `Not renamed: ${errors.map((e) => `${e.instancePath || '/'} ${e.message}`).join('; ')}`
       return
     }
-    const res = await commitFiles(token, props.org, config.controlRepo, plan.changes, `Rename team ${stored.team_slug} to ${plan.slug} (${id})`)
+    // WHAT IT WAS DECIDED FROM, ASKED AGAIN OF THE COMMIT IT LANDS ON (review
+    // 2026-10-14). The reads above are seconds old by the write, and a retry
+    // re-applies the same files to whatever the branch became: a seeded member
+    // accepting in between left their acceptance naming a manifest this
+    // deleted, and the team split across two repositories. Unchanged team
+    // file, no team at the new name, no member with a record - or nothing.
+    const precondition = async ({ request, parentSha }) => {
+      const at = async (path) => {
+        try {
+          const r = await request(`GET /repos/{owner}/{repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, { owner: props.org, repo: config.controlRepo, ref: parentSha })
+          return r.data
+        } catch (e) {
+          if (e?.status === 404) return null
+          throw e
+        }
+      }
+      const now = await at(teamPath(id, stored.team_slug))
+      if (!now?.content || decodeBase64Text(now.content) !== storedText) return 'the team was changed while you renamed it. Nothing was changed; open it again'
+      if (plan.slug !== stored.team_slug && (await at(teamPath(id, plan.slug)))) return `a team called ${plan.slug} was made meanwhile. Nothing was changed`
+      for (const dir of [repositoriesDir(id), acceptancesDir(id)]) {
+        const list = await at(dir)
+        const joined = Array.isArray(list) && list.some((f) => f.name?.endsWith('.json') && (stored.members || []).some((m) => sameLogin(f.name.slice(0, -'.json'.length), m)))
+        if (joined) return 'a member accepted meanwhile, so its repository is named after the current name. Nothing was changed'
+      }
+      return null
+    }
+    const res = await commitFiles(token, props.org, config.controlRepo, plan.changes, `Rename team ${stored.team_slug} to ${plan.slug} (${id})`, { precondition })
     if (!res.ok) {
       renameError.value = `Could not rename the team: ${res.error || 'the save failed'}. Nothing was changed.`
       return

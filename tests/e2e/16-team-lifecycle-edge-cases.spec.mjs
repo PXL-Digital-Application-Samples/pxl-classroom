@@ -457,7 +457,9 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
     // "Switch team", right under the team name (asked 2026-10-08)
     const switchLine = page.locator('[data-team-switch]');
     await expect(switchLine).toContainText('Wrong team, or a typo in the name?');
-    await expect(switchLine).toContainText('You can change team yourself until');
+    // This assignment has no deadline, so the line names none (review
+    // 2026-10-14: "until the deadline" named one that did not exist).
+    await expect(switchLine).toContainText('You can change team yourself while the assignment is accepting.');
     const switchBtn = switchLine.getByRole('button', { name: 'Switch team' });
     await expect(switchBtn).toBeVisible();
     await switchBtn.click();

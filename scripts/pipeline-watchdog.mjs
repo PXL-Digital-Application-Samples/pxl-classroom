@@ -18,7 +18,7 @@ import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { HUB_OWNER, HUB_REPO, PIPELINE_ALERTS } from "../lib/deployment.mjs";
 import { REGISTRY_BRANCH } from "../lib/org-registry.mjs";
 import { pagesOutcome } from "../lib/pages-kept.mjs";
-import { stuckAfterMinutes } from "../lib/stuck-runs.mjs";
+import { runAgeMs, stuckAfterMinutes } from "../lib/stuck-runs.mjs";
 
 const TRACKING_ISSUE_TITLE = "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts";
 const DEDUP_MARKER = "<!-- pxl-watchdog-dedup:";
@@ -209,9 +209,11 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
 
   const stuckRuns = [];
   const waitingRuns = waitingAll.filter(watchedRun);
+  // Every limit from lib/stuck-runs.mjs, the dashboard's and System Health's
+  // too (review 2026-10-14: three surfaces, three copies, one of them missed).
   for (const r of waitingRuns) {
-    const ageMs = now - new Date(r.created_at).getTime();
-    if (ageMs > 15 * 60 * 1000) {
+    const ageMs = runAgeMs(r, now);
+    if (ageMs > stuckAfterMinutes(r.path, r.status) * 60 * 1000) {
       stuckRuns.push({
         ...r,
         ageMs,
@@ -228,8 +230,8 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
   // and dispatched again. Only the deploy: it reads everything afresh, while a
   // queued acceptance cancelled would be a student's attempt lost.
   for (const r of queuedAll.filter(watchedRun).filter((q) => isWorkflow(q, "deploy-frontend.yml"))) {
-    const ageMs = now - new Date(r.created_at).getTime();
-    if (ageMs > 15 * 60 * 1000) {
+    const ageMs = runAgeMs(r, now);
+    if (ageMs > stuckAfterMinutes(r.path, r.status) * 60 * 1000) {
       stuckRuns.push({
         ...r,
         ageMs,
@@ -241,10 +243,10 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
 
   const runningRuns = inProgressAll.filter(watchedRun);
   for (const r of runningRuns) {
-    const ageMs = now - new Date(r.created_at).getTime();
+    const ageMs = runAgeMs(r, now);
     // A workflow built to run long - the Deadline Sentinel waits for hours to
     // lock at the instant - is stuck only past its own limit (lib/stuck-runs.mjs).
-    if (ageMs > stuckAfterMinutes(r.path, "in_progress") * 60 * 1000) {
+    if (ageMs > stuckAfterMinutes(r.path, r.status) * 60 * 1000) {
       stuckRuns.push({
         ...r,
         ageMs,

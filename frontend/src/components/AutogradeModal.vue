@@ -156,7 +156,8 @@
           </div>
           <p v-if="template.added" class="ag-marker-hint">
             Added to your template repository. Students who accepted before now keep their copy
-            until you run Sync Starter Code on this assignment.
+            <template v-if="syncAvailable">until you run Sync Starter Code on this assignment.</template>
+            <template v-else>: Sync Starter Code does not run on an assignment that gives students the full history.</template>
           </p>
         </fieldset>
 
@@ -340,6 +341,10 @@ const props = defineProps({
   /** At most this many hand-ins count per student; null for no limit - what
    *  every assignment before the field means (`readMaxHandIns`). */
   submissionMarkerMaxHandIns: { type: Number, default: null },
+  /** Whether Sync Starter Code can bring this assignment's students the
+   *  change: not where they were given the full history (lib/starter-sync.mjs
+   *  `syncRefusal`), so the dialog does not send them to it. */
+  syncAvailable: { type: Boolean, default: true },
   /**
    * What the parent found in the template repository, and nothing this dialog
    * worked out for itself. AdminView holds the token and does the reading and

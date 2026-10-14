@@ -38,6 +38,9 @@ test("before anyone accepted: name and slug change in one commit - new file writ
     ["teams/pe/3tina-krusty-krabs.json", null],
   ]);
   assert.equal(plan.doc.team_name, "3TINA Krusty Krabs 2");
+  assert.deepEqual(plan.doc.renamed_from, ["3tina-krusty-krabs"], "the old slug is kept: a page loaded before still names it");
+  const again = planTeamRename({ team: plan.doc, newName: "3TINA Krusty Krabs", assignmentId: "pe", accepted: nobody });
+  assert.deepEqual(again.doc.renamed_from, ["3tina-krusty-krabs-2"], "renamed back: the current slug is never its own old one");
   assert.deepEqual(plan.doc.members, team.members, "everything else is kept, seeded_from included");
   assert.deepEqual(plan.doc.seeded_from, team.seeded_from);
   const { valid, errors } = await validateAgainst("team", plan.doc);

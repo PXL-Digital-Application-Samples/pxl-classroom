@@ -42,7 +42,9 @@ Students may tag a submission to bind a sortable, server-side timestamp to a spe
 Tag format - copy/paste this into course materials or a Make target:
 
 ```bash
-git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
+git tag submit/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
 ```
+
+The time is written with dashes (`T14-05-00Z`): git refuses a colon in a tag name.
 
 The system does not mandate tagging - observations on the default-branch tip remain authoritative when no tag exists. The declared timestamp inside the tag name is *observed*, not authoritative: classification on/late uses the time `collect/` saw the tag, not the student-supplied string.

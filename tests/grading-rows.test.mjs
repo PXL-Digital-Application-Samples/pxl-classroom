@@ -31,6 +31,8 @@ import {
   pastDeadline,
   scoreStats,
   scoreStatsSentence,
+  resultsWithoutPoints,
+  nothingGradedMessage,
 } from "../frontend/src/lib/grading-rows.js";
 import { GRADING_STATUS_LABELS, gradingStatusLabel } from "../frontend/src/lib/status-labels.js";
 
@@ -233,4 +235,30 @@ test("every grading status has a word, and 'not handed in' says 'yet' before the
   assert.equal(gradingStatusLabel("not-handed-in", { beforeDeadline: true }), "Not handed in yet");
   assert.equal(gradingStatusLabel("not-handed-in", { beforeDeadline: false }), "Not handed in");
   assert.equal(gradingStatusLabel("no-result"), "No score to read");
+});
+
+test("a result with no points is scored, averages to nothing, and is said apart (review 2026-10-14)", () => {
+  // A template's own workflow that passes or fails with no reporter is stored 0/0:
+  // the Scored card counted 20 over a box that said "Nobody has a score yet".
+  const rows = [
+    { graded: { earned_points: 0, total_points: 0 } },
+    { graded: { earned_points: 0, total_points: 0 } },
+    { graded: { earned_points: 8, total_points: 10 } },
+    { graded: null },
+  ];
+  assert.equal(resultsWithoutPoints(rows), 2);
+  assert.equal(scoreStats(rows).count, 1, "averaged over the one with points");
+  assert.equal(resultsWithoutPoints([{ graded: { earned_points: 5, total_points: 10 } }]), 0);
+});
+
+test("a cohort read that saved nothing says why, by kind - never 'all checks missing or failed'", () => {
+  const message = nothingGradedMessage([
+    { login: "a", kind: "running", reason: "x" },
+    { login: "b", kind: "running", reason: "x" },
+    { login: "c", kind: "not-handed-in", reason: "no repository on record" },
+  ]);
+  assert.match(message, /2 still being graded, 1 not handed in/);
+  assert.match(message, /Nothing was saved/);
+  assert.doesNotMatch(message, /missing or failed/);
+  assert.match(nothingGradedMessage([]), /^Nobody has a score to read yet\. Nothing was saved/);
 });

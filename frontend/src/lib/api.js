@@ -563,9 +563,11 @@ function decodeContentsPayload(data) {
  * against a ~80/min secondary rate limit; this is one commit and one history
  * entry the lecturer can revert in one click.
  */
-export async function commitFiles(token, owner, repo, changes, message, { branch = 'main', signal } = {}) {
+export async function commitFiles(token, owner, repo, changes, message, { branch = 'main', signal, precondition = null } = {}) {
   try {
-    const res = await commitWithRebase({ token, owner, repo, branch, message, changes, signal })
+    // `precondition`: asked of the commit each attempt builds on, and a reason
+    // refuses the write (lib/gittree.mjs) - for a write decided from what it read.
+    const res = await commitWithRebase({ token, owner, repo, branch, message, changes, signal, precondition })
     return { ok: true, commitSha: res.commitSha, attempts: res.attempts }
   } catch (e) {
     if (e?.status === 401) handleSessionExpiry()

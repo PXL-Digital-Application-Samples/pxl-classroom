@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
+import { APP_SLUG } from "../lib/deployment.mjs";
 import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
@@ -476,6 +478,13 @@ async function createWithFullHistory(tpl) {
     // fetches refs/pull/*, which GitHub refuses on push. GitHub's own
     // "duplicating a repository" is exactly these two commands.
     git(["clone", "--bare", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.templateOwner, cfg.templateRepo), bare], work);
+    // A `submit/` tag is how a STUDENT declares a submission, and the collector
+    // reads one wherever it came from (collect/collect.mjs): copied from the
+    // template, every student would start with one, on time (review
+    // 2026-10-14). The template's other tags travel.
+    for (const ref of git(["for-each-ref", "--format=%(refname)", "refs/tags/submit/"], bare).split("\n").filter(Boolean)) {
+      git(["update-ref", "-d", ref], bare);
+    }
     // `--atomic`: every branch or none. A copy cut off halfway would be a
     // repository with SOME of the exercise in it, which a retry reuses as it
     // is; an empty one it removes and copies again (step 3).
@@ -504,14 +513,38 @@ async function createWithFullHistory(tpl) {
     await fail("fail:create", `${cfg.org}/${cfg.targetRepo} has the template's history, but its default branch could not be set to ${branch} (HTTP ${patch.status})`);
   }
   repoPopulated = true;
-  return repo;
+  // The repository as it is now: `created.data` was read while it was empty,
+  // with the org's default branch name, and the feedback baseline reads it
+  // (review 2026-10-14).
+  return { ...repo, default_branch: branch };
 }
 
-/** The commit `branch` points at now, or "" when it cannot be read. */
+/** The commit `branch` points at now, or "" when it cannot be read (asked three times). */
 async function branchHead(branch) {
-  const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/branches/${encodeURIComponent(branch)}`);
-  const sha = res.ok ? res.data?.commit?.sha : null;
-  return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 1500));
+    const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/branches/${encodeURIComponent(branch)}`);
+    const sha = res.ok ? res.data?.commit?.sha : null;
+    if (typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha)) return sha;
+  }
+  return "";
+}
+
+/**
+ * A reused full-history copy that nobody but PXL Classroom has pushed to.
+ *
+ * Its starting commit is recorded only by the run that copied it, so a run
+ * that failed after the copy - the grant, the default branch, the record push -
+ * left a repository whose retry recorded nothing, and the report counted the
+ * template's commits as the student's (review 2026-10-14). The repository's
+ * own push log says whether anyone else has pushed: when only the App has, its
+ * head IS what it was given. Anything else - a person's push, a log that could
+ * not be read or did not fit one page - recovers nothing, never a guess.
+ */
+async function onlyAppPushed() {
+  const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/activity?per_page=100`);
+  if (!res.ok || !Array.isArray(res.data) || res.data.length === 0 || res.data.length >= 100) return false;
+  return res.data.every((a) => sameLogin(a?.actor?.login, `${APP_SLUG}[bot]`));
 }
 
 /**
@@ -780,12 +813,19 @@ async function main() {
       if (cfg.removePreviousRepo) {
         const full = `${cfg.org}/${prevRepoName}`;
         try {
+          // NO AGE GUARD HERE, on purpose (review 2026-10-14). A switch made
+          // straight after the first acceptance can meet a run still writing to
+          // this repository, and deleting it fails that run's last steps with a
+          // notice - while keeping it, the manifest already removed by the
+          // decision, leaves a repository no record names: the typo team
+          // switched away from within minutes is exactly the case this exists for.
           const state = await repoTouched((path) => gh("GET", path), full);
           if (state === "untouched") {
             const del = await gh("DELETE", `/repos/${full}`);
             log("remove-old-repo", { ok: del.ok || del.status === 404, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });
           } else {
-            log("remove-old-repo", { ok: true, note: `kept ${prevRepoName}: ${state === "absent" ? "already gone" : state === "touched" ? "something was pushed to it since" : "could not read it"}` });
+            const why = { absent: "already gone", touched: "something was pushed to it since" }[state] || "could not read it";
+            log("remove-old-repo", { ok: true, note: `kept ${prevRepoName}: ${why}` });
           }
         } catch (e) {
           log("remove-old-repo", { ok: false, note: `kept ${prevRepoName}: ${e.message}` });
@@ -828,6 +868,20 @@ async function main() {
     if (starterSha) starterCount = await commitCountAt(starterSha);
     log("starter", starterSha
       ? { ok: true, note: `starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ", commit count unread"}` }
+      : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
+  } else if (cfg.fullHistory && alreadyExists && !cfg.dryRun && repo && (await onlyAppPushed())) {
+    // A copy an earlier run made and nobody has pushed to since: what it was
+    // given is its head, and a default branch that run left unset is set now.
+    // The record writer keeps a starting commit already on record over this.
+    const branch = tpl.data?.default_branch;
+    if (branch && BRANCH.test(branch) && repo.default_branch !== branch) {
+      const patch = await gh("PATCH", `/repos/${cfg.org}/${cfg.targetRepo}`, { default_branch: branch });
+      log("default-branch", { ok: patch.ok, note: patch.ok ? `set to ${branch}, as the template's` : `could not be set to ${branch} (HTTP ${patch.status})` });
+    }
+    starterSha = branch ? await branchHead(branch) : "";
+    if (starterSha) starterCount = await commitCountAt(starterSha);
+    log("starter", starterSha
+      ? { ok: true, note: `only PXL Classroom has pushed to it: starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ""}` }
       : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
   }
 

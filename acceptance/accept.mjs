@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, manifestRepoName, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance, claimRequired } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
@@ -1166,6 +1166,28 @@ async function main() {
     const unassignedFallback =
       assignment.group_config?.unassigned_fallback === "self-service" ? "self-service" : "block";
 
+    // A TEAM RENAMED SINCE THE STUDENT'S PAGE LOADED (review 2026-10-14). A
+    // lecturer renames a team only while nobody in it has accepted
+    // (lib/team-rename.mjs), and the page a member opened before that still
+    // names the old slug: pre-assigned refused them as not their team, and
+    // self-service made a new team under the old name with them alone in it.
+    // For a member of the renamed team, where no team holds the old slug now,
+    // the old slug is that team.
+    {
+      const requestedSlug = teamSlug || (teamName ? slugify(teamName) : "");
+      const renamedFrom = Array.isArray(oldTeam?.renamed_from) ? oldTeam.renamed_from.map((s) => String(s).toLowerCase()) : [];
+      if (
+        oldTeam && requestedSlug &&
+        requestedSlug.toLowerCase() !== String(oldTeam.team_slug).toLowerCase() &&
+        renamedFrom.includes(requestedSlug.toLowerCase()) &&
+        !existsSync(join(teamsDir, `${requestedSlug.toLowerCase()}.json`))
+      ) {
+        log("team-renamed", { ok: true, note: `${requestedSlug} was renamed to ${oldTeam.team_slug}` });
+        teamSlug = oldTeam.team_slug;
+        teamName = oldTeam.team_name || oldTeam.team_slug;
+      }
+    }
+
     if (formationMode === "pre-assigned" && assignedSlug) {
       // The grouping is the lecturer's. A payload naming a different team is a
       // stale tab or a hand-crafted request, never a legitimate switch - honour
@@ -1227,7 +1249,11 @@ async function main() {
       } else {
         log("team-switch", { ok: true, note: `switching from ${oldTeam.team_slug} to ${teamSlug}` });
         previousTeamSlug = oldTeam.team_slug;
-        previousRepo = deriveRepoName(assignment.repository_name_pattern, oldTeam.team_slug, login);
+        // The repository the team's record names, where it names one: that is
+        // the repository the student loses and, emptied, the one removed. The
+        // pattern's name only where the record has none (review 2026-10-14).
+        const recordedRepo = manifestRepoName(oldTeam.repo_name, org);
+        previousRepo = recordedRepo || deriveRepoName(assignment.repository_name_pattern, oldTeam.team_slug, login);
         // Same coercion, and this one mattered more: `.some()` above stops at
         // the first match, so a non-string sitting AFTER the student was never
         // evaluated there and reached this filter, which evaluates every entry.
@@ -1247,13 +1273,17 @@ async function main() {
         // gets back in with its code.
         let removed = false;
         if (oldTeam.members.length === 0) {
-          const oldRepoFull = String(oldTeam.repo_name || "").includes("/") ? String(oldTeam.repo_name) : `${org}/${previousRepo}`;
-          const state = await repoTouched((path) => gh("GET", path), oldRepoFull);
+          // ONLY A REPOSITORY THE TEAM'S RECORD NAMES (review 2026-10-14). The
+          // name the pattern makes was probed when the record named none, and
+          // whatever sat there - another assignment's, or an empty one made by
+          // hand - could be judged untouched and deleted. A team whose record
+          // names no repository is kept vacant: a seeded team is the
+          // lecturer's plan, and whoever enters it makes the repository.
+          const state = recordedRepo ? await repoTouched((path) => gh("GET", path), `${org}/${recordedRepo}`) : "unrecorded";
           // ONLY a repository that is there and holds nothing. A 404 is not
           // "there is none": it is also what an App that cannot see the
           // repository is told (an owner's "Only select repositories",
-          // PXL-Java-Essentials 2026-09-30). And a team that really never got
-          // a repository needs nothing: whoever enters it makes it again.
+          // PXL-Java-Essentials 2026-09-30).
           if (state === "untouched") {
             await rm(oldTeamFile, { force: true });
             removed = true;
@@ -1261,7 +1291,12 @@ async function main() {
             log("team-removed", { ok: true, note: `${oldTeam.team_slug} is empty and its repository holds nothing anybody pushed - removed` });
           } else {
             oldTeam.vacant = true;
-            const why = { touched: "its repository is somebody's work", absent: "GitHub shows no repository for it", unknown: "its repository could not be read" }[state];
+            const why = {
+              touched: "its repository is somebody's work",
+              absent: "GitHub shows no repository for it",
+              unknown: "its repository could not be read",
+              unrecorded: "its record names no repository of this assignment",
+            }[state];
             log("team-vacant", { ok: true, note: `${oldTeam.team_slug} is empty and kept: ${why}` });
           }
         }

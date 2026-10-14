@@ -221,8 +221,8 @@
           <!-- Grey until the deadline, red after (asked 2026-10-08): before
                it, nothing pushed yet is where every student starts. -->
           <div class="summary-card card" style="cursor: pointer;" @click="statusFilter = 'no-submission'" title="Filter unstarted / no submissions">
-            <span class="summary-value" :class="deadlinePassed ? 'stat-red' : 'stat-neutral'">{{ noSubCount }}</span>
-            <span class="summary-label">No submission</span>
+            <span class="summary-value" :class="noSubOverdue ? 'stat-red' : 'stat-neutral'">{{ noSubCount }}</span>
+            <span class="summary-label">{{ noSubOverdue || !noSubCount ? 'No submission' : 'No submission yet' }}</span>
           </div>
         </div>
 
@@ -646,7 +646,7 @@
                        saying Late, and the classification bug would have been
                        caught the day it shipped rather than after an exam. -->
                   <span class="status-indicator" :title="statusDetail(s)">
-                    <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? (pastDeadline(s.effective_deadline_at || currentDeadline) ? 'dot-danger' : 'dot-neutral') : 'dot-info'))"></span>
+                    <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? (pastDeadline(s.effective_deadline_at || currentDeadline, nowMs) ? 'dot-danger' : 'dot-neutral') : 'dot-info'))"></span>
                     <span class="text-sm">{{ submissionLabel(s.submission_status) }}</span>
                   </span>
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
@@ -1032,9 +1032,9 @@
                 <span class="summary-value stat-yellow">{{ gradingCard('needs-look') }}</span>
                 <span class="summary-label">Needs a look</span>
               </div>
-              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'not-handed-in'" :title="deadlinePassed ? 'Nothing handed in by the deadline' : 'Nothing handed in yet, which is normal before the deadline'">
-                <span class="summary-value" :class="deadlinePassed ? 'stat-red' : 'stat-neutral'">{{ gradingCard('not-handed-in') }}</span>
-                <span class="summary-label">{{ deadlinePassed ? 'Not handed in' : 'Not handed in yet' }}</span>
+              <div class="summary-card card" style="cursor: pointer;" @click="gradingFilter = 'not-handed-in'" :title="notHandedInOverdue ? 'Nothing handed in by their deadline' : 'Nothing handed in yet, which is normal before the deadline'">
+                <span class="summary-value" :class="notHandedInOverdue ? 'stat-red' : 'stat-neutral'">{{ gradingCard('not-handed-in') }}</span>
+                <span class="summary-label">{{ notHandedInOverdue || !gradingCountsNow['not-handed-in'] ? 'Not handed in' : 'Not handed in yet' }}</span>
               </div>
             </div>
 
@@ -1560,7 +1560,7 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { failedKind, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
@@ -1582,7 +1582,7 @@ import {
 } from '../../../lib/hand-in-allowance.mjs'
 import { requiresAcceptanceCap } from '../../../lib/roster-mode.mjs'
 import { acceptanceLabel, submissionLabel, SCORE_SOURCE_LABELS, scoreWasReported, gradingRunnerLabel, gradingStatusLabel, observationTypeLabel } from '../lib/status-labels.js'
-import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline } from '../lib/grading-rows.js'
+import { gradingRows, gradingCounts, inGradingFilter, scoreStats, scoreStatsSentence, pastDeadline, resultsWithoutPoints, nothingGradedMessage } from '../lib/grading-rows.js'
 import { commitsRead, sameMoment, scoresRead } from '../lib/data-freshness.js'
 import InfoBlock from '../components/InfoBlock.vue'
 import { archiveBranchName, archiveBranchUrl, archiveBranchesUrl, archiveRepoName, archiveRepoUrl, reportArchiveRepo } from '../lib/archive-repo.js'
@@ -2482,6 +2482,12 @@ const gradingRowsAll = computed(() =>
   gradingRows({ students: report.value?.students || [], summary: autogradeSummary.value }),
 )
 const gradingCountsNow = computed(() => gradingCounts(gradingRowsAll.value))
+// The Being graded and Not read yet pills exist only while they count
+// something; one that empties while chosen would leave "No student matches"
+// with no pill to clear (review 2026-10-14). Back to everyone.
+watch(gradingCountsNow, (counts) => {
+  if ((gradingFilter.value === 'running' || gradingFilter.value === 'not-read') && !counts[gradingFilter.value]) gradingFilter.value = ''
+})
 
 /** A card's number - a dash before the first read, when nothing is known yet. */
 function gradingCard(key) {
@@ -2535,10 +2541,16 @@ const gradingBox = computed(() => {
     // When and how they were read is the info block beside Read all scores
     // again (scoresBlock), not said twice. What is here is what they add up to.
     const running = gradingCountsNow.value.running
+    // A pass/fail with no points is scored (the card counts it) and averages
+    // to nothing, so it is said apart rather than as "nobody has a score".
+    const stats = scoreStats(gradingRowsAll.value)
+    const noPoints = resultsWithoutPoints(gradingRowsAll.value)
+    const noPointsLine = noPoints ? `${noPoints} ${noPoints === 1 ? 'student has' : 'students have'} a result with no points to count.` : ''
     return {
       state: 'read', tone: 'neutral', dot: 'dot-success',
-      title: scoreStatsSentence(scoreStats(gradingRowsAll.value)) || 'Nobody has a score yet.',
+      title: scoreStatsSentence(stats) || noPointsLine || 'Nobody has a score yet.',
       detail: [
+        stats ? noPointsLine : '',
         // Nothing reads these again by itself (decided 2026-10-12), and a run
         // still going at the deadline's read would stay without a score.
         running ? `${running} ${running === 1 ? 'student is' : 'students are'} still being graded: read them again once their runs have finished.` : '',
@@ -2607,14 +2619,14 @@ function gradingDeadline(row) {
 }
 
 function gradingDot(row) {
-  if (row.status === 'not-handed-in') return pastDeadline(gradingDeadline(row)) ? 'dot-danger' : 'dot-neutral'
+  if (row.status === 'not-handed-in') return pastDeadline(gradingDeadline(row), nowMs.value) ? 'dot-danger' : 'dot-neutral'
   if (row.status === 'late') return 'dot-warning'
   if (row.status === 'no-result') return 'dot-danger'
   return 'dot-neutral'
 }
 
 function gradingStatusText(row) {
-  return gradingStatusLabel(row.status, { beforeDeadline: !pastDeadline(gradingDeadline(row)) })
+  return gradingStatusLabel(row.status, { beforeDeadline: !pastDeadline(gradingDeadline(row), nowMs.value) })
 }
 
 /** The Score badge's colour, on both tabs: all points, some, none. */
@@ -3065,10 +3077,27 @@ function statusDetail(s) {
 const currentDeadline = computed(() => {
   return assignment.value?.deadline_at || report.value?.students?.[0]?.effective_deadline_at || null
 })
+// THE CARDS FOLLOW THE ROWS (review 2026-10-14). "Missing work is red after
+// that student's own deadline" (DESIGN.md §4): the cards read the assignment's
+// deadline while each row reads the student's, so three extended students were
+// a red card over three grey rows. A card is red when one it counts is past
+// their own deadline, and says "yet" while none is. `nowMs` ticks, so a page
+// left open across the deadline turns over, cards and rows together.
+const nowMs = ref(Date.now())
+const nowTimer = setInterval(() => { nowMs.value = Date.now() }, 60_000)
+onUnmounted(() => clearInterval(nowTimer))
+
 const deadlinePassed = computed(() => {
   if (!currentDeadline.value) return false
-  return new Date(currentDeadline.value).getTime() < Date.now()
+  return new Date(currentDeadline.value).getTime() < nowMs.value
 })
+
+const noSubOverdue = computed(() =>
+  progressStudents.value.some((s) => s.submission_status === 'no-submission' && pastDeadline(s.effective_deadline_at || currentDeadline.value, nowMs.value)),
+)
+const notHandedInOverdue = computed(() =>
+  gradingRowsAll.value.some((r) => r.status === 'not-handed-in' && pastDeadline(gradingDeadline(r), nowMs.value)),
+)
 
 // The preservation banner used to appear on nothing more than "the deadline has
 // passed", which put a "Preservation Pending" panel on assignments still marked
@@ -3273,7 +3302,7 @@ function handleSyncStarterCode() {
 
 // Starter sync does not run where students were given the template's full
 // history (lib/starter-sync.mjs `syncRefusal`): its menu row says so, disabled.
-const syncRefused = computed(() => Boolean(syncRefusal(assignment.value)))
+const syncRefused = computed(() => Boolean(syncRefusal(assignment.value, report.value?.students || [])))
 
 
 
@@ -3970,7 +3999,11 @@ async function fetchBreakdownForStudent(token, s) {
   }
 
   // 1. Optimization: check if student has submitted anything yet
-  if (!s.repo_name || s.submission_status === 'no-submission' || s.commit_count === 0) {
+  // `commit_count === 0` is an empty repository only for GitHub's copy; on a
+  // full-history copy it is "added nothing", which an amend or a reset inside
+  // the template's history - the work of a git exercise - also gives, and the
+  // status above already says whether that is a submission (review 2026-10-14).
+  if (!s.repo_name || s.submission_status === 'no-submission' || (s.commit_count === 0 && !s.starter_sha)) {
     return 'No submission'
   }
   if (assignment.value?.submission_marker && s.earned_points == null && !s.last_on_time_sha && !s.graded_sha) {
@@ -4123,7 +4156,7 @@ async function fetchBreakdownForStudent(token, s) {
   if (!breakdown) {
     if (s.earned_points != null && s.total_points != null) {
       breakdown = `Total: ${s.earned_points}/${s.total_points} (${s.score_source || s.ci_status || 'graded'})`
-    } else if (s.submission_status === 'no-submission' || s.commit_count === 0) {
+    } else if (s.submission_status === 'no-submission' || (s.commit_count === 0 && !s.starter_sha)) {
       breakdown = 'No submission'
     } else if (s.earned_points == null) {
       breakdown = 'No final submission handed in'
@@ -4884,8 +4917,10 @@ async function syncGradesFromGitHub() {
           'the PXL Classroom App needs the "Checks" permission (read), and "Actions" (read) for a hand-in limit or a commit graded on request. ' +
           'An owner of this organization approves it under Settings → GitHub Apps → PXL Classroom → Review request. Nothing was saved.',
         'api-errors': `CI results could not be read for ${res.apiFailedCount} student(s): ${(res.unreadable || []).slice(0, 3).map((u) => `${u.login} (${u.reason})`).join('; ')}${res.apiFailedCount > 3 ? '; …' : ''}. Nothing was saved.`,
-        'nothing-graded':
-          'Sync results would contain zero graded students (all checks missing or failed). Nothing was saved to avoid overwriting pre-existing grades.',
+        // Said by kind, as the box says it (review 2026-10-14): "all checks
+        // missing or failed" over a cohort whose runs were simply still going
+        // sent a lecturer looking for a fault.
+        'nothing-graded': nothingGradedMessage(res.failed),
       }[res.refusal] || 'Grading sync failed.'
 
       regradePanel.value.status = 'error'
@@ -5106,7 +5141,14 @@ async function regradeStudent(student, { afterDecision = false } = {}) {
     // force: it is replaced by the reason. A read that FAILED is never that
     // answer; it changes nothing.
     const failedRead = ['api-failed', 'unreadable', 'lookup-failed'].includes(outcome.verdict)
-    const replaceWithReason = !hasScore && afterDecision && !failedRead
+    // A "Being graded" row read again once its run ENDED without a score is
+    // a new answer too: the row says to read it again, and keeping it would
+    // say "still running" for ever over a run that timed out (review
+    // 2026-10-14). Still running is the same answer, and writes nothing.
+    const stored = (prev?.failed || []).find((f) => String(f.login).toLowerCase() === login)
+    const nowKind = !hasScore && !failedRead ? rowFromOutcome(student.github_login, outcome).failed?.kind : null
+    const runEnded = Boolean(stored) && failedKind(stored) === 'running' && nowKind && nowKind !== 'running'
+    const replaceWithReason = !hasScore && !failedRead && (afterDecision || runEnded)
     if (!hasScore && !replaceWithReason) {
       // Not a zero and not a failure of this button: it looked and there was no
       // score there. Say which, and change nothing. Under a cap the count it

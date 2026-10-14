@@ -41,12 +41,22 @@ test("the sentinel waiting for its deadline is not stuck; past its own limit it 
   assert.equal(stuckRuns([{ ...sentinel, created_at: "2026-10-12T14:00:00Z" }], now).length, 1, "past 300 + 15 minutes it is stuck");
 });
 
-test("the Pipeline Watchdog asks the same table, never a 45-minute rule of its own", () => {
-  // Its alert emailed "Requires manual cancellation or attention" about the
-  // sentinel at 57 minutes, the same evening.
+test("the Pipeline Watchdog and System Health ask the same table, never a limit of their own", () => {
+  // The watchdog emailed "Requires manual cancellation or attention" about the
+  // sentinel at 57 minutes, the same evening; System Health still offered to
+  // cancel it two days later, from a third copy (review 2026-10-14).
   const watchdog = readFileSync(join(root, "scripts", "pipeline-watchdog.mjs"), "utf8");
-  assert.match(watchdog, /stuckAfterMinutes\(r\.path, "in_progress"\)/);
-  assert.doesNotMatch(watchdog, /ageMs > 45 \* 60/);
+  assert.match(watchdog, /stuckAfterMinutes\(r\.path, r\.status\)/);
+  assert.doesNotMatch(watchdog, /ageMs > (15|45) \* 60/, "no flat limit beside the table");
+  const diagnostics = readFileSync(join(root, "lib", "diagnostics.mjs"), "utf8");
+  assert.match(diagnostics, /from "\.\/stuck-runs\.mjs"/);
+  assert.doesNotMatch(diagnostics, /ageMs > (15|45) \* 60/);
+});
+
+test("a re-run is aged from its own start, not the run's first", () => {
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  const rerun = { id: 3, path: ".github/workflows/regenerate-dashboard.yml", status: "in_progress", created_at: "2026-10-14T06:00:00Z", run_started_at: "2026-10-14T11:50:00Z" };
+  assert.deepEqual(stuckRuns([rerun], now), [], "ten minutes into its re-run");
 });
 
 test("everything else keeps the old limits: 15 minutes waiting, 45 in progress", () => {

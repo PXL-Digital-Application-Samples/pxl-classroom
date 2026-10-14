@@ -928,6 +928,48 @@ template:
   repository: tpl`;
 }
 
+// A TEAM RENAMED SINCE THE STUDENT'S PAGE LOADED (review 2026-10-14): the page
+// still names the old slug. The rename keeps it in `renamed_from`.
+const RENAMED = { ...SEEDED_ALPHA, team_slug: "alpha-squad", team_name: "Alpha Squad", renamed_from: ["alpha"] };
+
+test("a member whose page still names the team's OLD slug is accepted into the renamed team - pre-assigned", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "alpha" },
+    { assignmentYaml: preAssignedYaml(), teams: { "test-asgn": { "alpha-squad": RENAMED } } },
+  );
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(res.outputs.outcome, "accepted", "not refused as not their team");
+  assert.equal(res.outputs.team_slug, "alpha-squad");
+  assert.equal(res.outputs.target_repo, "asgn-alpha-squad");
+});
+
+test("...and self-service: no new team under the old name, with them alone in it", () => {
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "alpha", TEAM_NAME: "Alpha Team" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "alpha-squad": RENAMED } } },
+  );
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(res.outputs.team_slug, "alpha-squad");
+  assert.equal(existsSync(join(res.dir, "teams", "test-asgn", "alpha.json")), false, "no team made under the old slug");
+  const team = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "alpha-squad.json"), "utf8"));
+  assert.deepEqual(team.members, ["alice", "bob"]);
+});
+
+test("...but only for a member, and only while no team holds the old slug", () => {
+  // Somebody else naming the old slug makes a team of that name, as before.
+  const stranger = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "102", TEAM_SLUG: "alpha", TEAM_NAME: "Alpha" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "alpha-squad": { ...RENAMED, members: ["alice"] } } } },
+  );
+  assert.equal(stranger.outputs.team_slug, "alpha", stranger.stdout + stranger.stderr);
+  // A team that took the old name since is that team, member or not.
+  const taken = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "alpha", TEAM_NAME: "Alpha" },
+    { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "alpha-squad": RENAMED, alpha: { ...SEEDED_ALPHA, members: ["dave"] } } } },
+  );
+  assert.equal(taken.outputs.team_slug, "alpha");
+});
+
 test("seeded team - pre-assigned member accepts with no team in the payload", () => {
   const res = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
@@ -1173,6 +1215,28 @@ test("...and a 404 is not 'there is nothing': kept, vacant, as before", () => {
   const typo = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
   assert.equal(typo.vacant, true);
   assert.equal(res.outputs.previous_repo_remove, "false");
+});
+
+test("...and only the repository the team's RECORD names: an untouched one at the pattern's name is not this team's to remove", () => {
+  // Review 2026-10-14: the record named none, so the pattern's name was probed,
+  // and whatever sat there - another assignment's, or one made by hand - was
+  // judged untouched and deleted. "Empty is not whose it is."
+  const unrecorded = { ...ALONE_IN_TYPO };
+  delete unrecorded.repo_name;
+  probe.setRepos({ "asgn-typo-team": { commits: [GENERATED_ROOT] } });
+  try {
+    const res = runAccept(
+      { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Right Team", TEAM_ACTION: "switch" },
+      { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "typo-team": unrecorded } } },
+    );
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    const typo = JSON.parse(readFileSync(join(res.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
+    assert.equal(typo.vacant, true, "kept, vacant");
+    assert.equal(res.outputs.previous_repo_remove, "false");
+    assert.match(res.stdout + res.stderr, /its record names no repository of this assignment/);
+  } finally {
+    probe.setRepos({});
+  }
 });
 
 test("a team a student leaves with others still in it is not touched by any of this", () => {

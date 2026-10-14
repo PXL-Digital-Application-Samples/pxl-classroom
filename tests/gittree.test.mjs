@@ -195,6 +195,29 @@ test("commitWithRebase: non-FF triggers rebase retry, succeeds on second attempt
   assert.equal(refReads.length, 2, "must re-read ref after non-FF");
 });
 
+test("commitWithRebase: a precondition is asked of the commit EACH attempt builds on, and a reason refuses it, unretried", async () => {
+  // Review 2026-10-14: a team rename re-applied on a retry after a member's
+  // acceptance landed deleted the manifest that acceptance names.
+  const { fetchImpl, calls } = makeMockFetch({
+    "GET /repos/{owner}/{repo}/git/ref/{ref}": [refRes("parent-1"), refRes("parent-2")],
+    "GET /repos/{owner}/{repo}/git/commits/{commit_sha}": [commitRes("parent-1", "tree-1"), commitRes("parent-2", "tree-2")],
+    "POST /repos/{owner}/{repo}/git/blobs": [blobRes("blob-x"), blobRes("blob-x")],
+    "POST /repos/{owner}/{repo}/git/trees": [treeRes("new-tree-1"), treeRes("new-tree-2")],
+    "POST /repos/{owner}/{repo}/git/commits": [commitRes("commit-1", "new-tree-1"), commitRes("commit-2", "new-tree-2")],
+    "PATCH /repos/{owner}/{repo}/git/refs/{ref}": [{ status: 422, body: { message: "Update is not a fast forward" } }, updateOk("commit-2")],
+  });
+  const asked = [];
+  // Fine on the first parent, refused on the second: what landed in between changed the answer.
+  const precondition = async ({ parentSha }) => { asked.push(parentSha); return parentSha === "parent-2" ? "a member accepted meanwhile" : null; };
+  await assert.rejects(
+    commitWithRebase({ fetch: fetchImpl, token: "t", owner: "o", repo: "r", message: "m", changes: [{ path: "x", content: "y" }], baseBackoffMs: 1, precondition }),
+    (err) => err instanceof GittreeError && err.code === "PRECONDITION" && /member accepted/.test(err.message),
+  );
+  assert.deepEqual(asked, ["parent-1", "parent-2"]);
+  assert.equal(calls.filter((c) => c.method === "POST" && c.path.endsWith("/git/commits")).length, 1, "nothing built on the second parent");
+  assert.equal(calls.filter((c) => c.method === "PATCH").length, 1);
+});
+
 test("commitWithRebase: the BARE 'Reference cannot be updated' (a concurrent write) re-reads and retries", async () => {
   // Measured 2026-09-26: a live drill committing to the same control
   // repository at the same moment; the next attempt, from a fresh read, went

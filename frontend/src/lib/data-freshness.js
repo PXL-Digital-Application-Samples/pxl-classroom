@@ -59,20 +59,21 @@ export function sameMoment(a, b) {
  */
 export function scoresRead(summary) {
   if (!summary) return null
-  let oldest = null
-  let latest = null
-  for (const row of summary.students || []) {
-    const t = row?.graded_at ? new Date(row.graded_at).getTime() : NaN
-    if (!Number.isFinite(t)) continue
-    if (!oldest || t < oldest.t) oldest = { t, at: row.graded_at }
-    if (!latest || t > latest.t) latest = { t, at: row.graded_at }
-  }
-  const at = oldest?.at || summary.generated_at || null
+  const reads = (summary.students || [])
+    .map((row) => ({ t: row?.graded_at ? new Date(row.graded_at).getTime() : NaN, at: row?.graded_at }))
+    .filter((r) => Number.isFinite(r.t))
+    .sort((a, b) => a.t - b.t)
+  const at = reads[0]?.at || summary.generated_at || null
   if (!at) return null
-  const base = new Date(at).getTime()
-  const again = (summary.students || []).filter((row) => {
-    const t = row?.graded_at ? new Date(row.graded_at).getTime() : NaN
-    return Number.isFinite(t) && t - base >= 60_000
-  }).length
-  return { at, again, latest: again ? latest.at : null, uniform: again === 0 }
+  // A READ IS CONTINUOUS (review 2026-10-14). Every grader stamps a row when
+  // that student finishes, so one cohort read spans minutes - the CLI's docker
+  // runner, or a large cohort read a few at a time - and "a minute after the
+  // oldest" called most of one read "read again", dropping who read them. A
+  // later read is the rows after a real gap between consecutive reads.
+  const firstGap = reads.findIndex((r, i) => i > 0 && r.t - reads[i - 1].t >= READ_GAP_MS)
+  const again = firstGap === -1 ? 0 : reads.length - firstGap
+  return { at, again, latest: again ? reads[reads.length - 1].at : null, uniform: again === 0 }
 }
+
+/** No two students of one read are this far apart; a later read is. */
+const READ_GAP_MS = 15 * 60_000

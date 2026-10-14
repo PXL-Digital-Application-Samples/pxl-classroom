@@ -77,6 +77,10 @@ test("starter sync refuses a full-history assignment, before it reads or writes 
   assert.match(syncRefusal({ template_full_history: true }), /full history/);
   assert.equal(syncRefusal({}), null);
   assert.equal(syncRefusal({ template_full_history: false }), null);
+  // The copy is per student (review 2026-10-14): switched off after some
+  // accepted, the setting alone re-opened the sync onto them.
+  assert.match(syncRefusal({ template_full_history: false }, [{ repo_id: 1 }, { repo_id: 2, starter_sha: A }]), /some of its students/);
+  assert.equal(syncRefusal({}, [{ repo_id: 1 }, { repo_id: 2 }]), null);
 
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-refuse-"));
   mkdirSync(join(dir, "assignments"));

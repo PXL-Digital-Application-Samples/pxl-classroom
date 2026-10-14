@@ -12,7 +12,7 @@ import { parse as yamlParse } from "yaml";
 import { CONTROL_REPO } from "../../../lib/deployment.mjs";
 import { ROSTER_PATH } from "../../../lib/roster-entries.mjs";
 import {
-  assignmentPath, reportPath, repositoriesDir, teamsDir, acceptancesDir, overridesDir,
+  assignmentPath, gradingSummaryPath, reportPath, repositoriesDir, teamsDir, acceptancesDir, overridesDir,
 } from "../../../lib/control-layout.mjs";
 import { claimPath, claimAttemptsPath } from "../../../lib/claim.mjs";
 
@@ -29,6 +29,23 @@ export async function getAssignment(octokit, { org, assignmentId }) {
     if (e.status === 404) {
       throw new Error(`no assignments/${assignmentId}.yml in ${org}/${CONTROL_REPO} yet - make sure the assignment ID is correct and published/draft exists.`, { cause: e });
     }
+    throw e;
+  }
+}
+
+/**
+ * The grading summary on record and its blob sha, or null when there is none.
+ * A read that fails for any other reason throws: a summary that could not be
+ * read is not "nobody has a score".
+ */
+export async function getGradingSummary(octokit, { org, assignmentId }) {
+  try {
+    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
+      owner: org, repo: CONTROL_REPO, path: gradingSummaryPath(assignmentId),
+    });
+    return { doc: JSON.parse(Buffer.from(res.data.content, "base64").toString("utf8")), sha: res.data.sha };
+  } catch (e) {
+    if (e.status === 404) return null;
     throw e;
   }
 }

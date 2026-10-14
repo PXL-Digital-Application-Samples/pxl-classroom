@@ -21,7 +21,7 @@ import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { CONTROL_REPO, getAssignment, getReport, listOverrides } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, getGradingSummary, getReport, listOverrides } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun, unscoredRun } from "../../../lib/check-run-score.mjs";
 // The shape of grading/<id>/summary.json, shared with the Admin Panel.
@@ -520,12 +520,19 @@ export function registerGradeCommand(program) {
       });
 
       if (!opts.dryRun) {
+        // ONE STUDENT IS MERGED INTO THE SUMMARY ON RECORD (review 2026-10-14).
+        // This wrote a summary of only that student, so `--login X` erased every
+        // other score in the assignment - and on the Grading tab, where every
+        // student is a row, they all turned "Not read yet". Merged against the
+        // version read, and refused if another writer changed it meanwhile.
+        const stored = opts.login ? await getGradingSummary(octokit, { org, assignmentId: opts.assignment }) : null;
+        const notThisRun = (rows) => (rows || []).filter((r) => !queue.some((s) => sameLogin(s.github_login, r.login)));
         const summaryDoc = buildGradingSummary({
           assignmentId: opts.assignment,
           gradedBy,
           runner: runnerName,
-          students: summary.graded,
-          failed: summary.failed,
+          students: [...notThisRun(stored?.doc?.students), ...summary.graded],
+          failed: [...notThisRun(stored?.doc?.failed), ...summary.failed],
         });
         // Validated before it is committed, on BOTH sides. The Admin Panel has
         // checked this document since the schema existed and this side never
@@ -545,13 +552,28 @@ export function registerGradeCommand(program) {
           );
           process.exit(1);
         }
+        const summaryFile = `grading/${opts.assignment}/summary.json`;
         await commitWithRebase(octokit, {
           owner: org, repo: CONTROL_REPO, branch: "main",
           message: `Grade ${opts.assignment}: summary (${summary.graded.length} graded, ${summary.failed.length} failed)`,
           changes: [{
-            path: `grading/${opts.assignment}/summary.json`,
+            path: summaryFile,
             content: JSON.stringify(summaryDoc, null, 2) + "\n",
           }],
+          // Only for one student: a whole-cohort run replaces the file by design.
+          ...(opts.login
+            ? {
+                precondition: async ({ request, parentSha }) => {
+                  let sha = null;
+                  try {
+                    sha = (await request(`GET /repos/{owner}/{repo}/contents/${summaryFile}`, { owner: org, repo: CONTROL_REPO, ref: parentSha })).data?.sha ?? null;
+                  } catch (e) {
+                    if (e?.status !== 404) throw e;
+                  }
+                  return sha === (stored?.sha ?? null) ? null : "the grading summary was changed by someone else while this ran; run it again";
+                },
+              }
+            : {}),
         });
       }
       process.stdout.write(`\n${summary.graded.length} graded, ${summary.failed.length} failed.\n`);

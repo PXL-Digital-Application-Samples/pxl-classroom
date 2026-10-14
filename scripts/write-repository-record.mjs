@@ -70,21 +70,25 @@ if (repoId === null || Number.isNaN(repoId)) {
  */
 function starter() {
   const count = (v) => (/^\d+$/.test(String(v ?? "")) ? Number(v) : null);
-  const given = (values["starter-sha"] || "").trim();
-  if (/^[0-9a-f]{40}$/.test(given)) return { sha: given, count: count(values["starter-commit-count"]) };
+  // ONE ALREADY ON RECORD FIRST. A reuse's provisioning recovers one from an
+  // untouched copy (provision.mjs `onlyAppPushed`), and the copy's own run
+  // recorded the original, which is the one that stands.
   const dir = join(values["data-dir"], "repositories", assignmentId);
-  if (!existsSync(dir)) return { sha: null, count: null };
-  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
-    try {
-      const rec = JSON.parse(readFileSync(join(dir, name), "utf8"));
-      if (rec?.repo_id === repoId && /^[0-9a-f]{40}$/.test(String(rec.starter_sha || ""))) {
-        return { sha: rec.starter_sha, count: Number.isInteger(rec.starter_commit_count) ? rec.starter_commit_count : null };
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
+      try {
+        const rec = JSON.parse(readFileSync(join(dir, name), "utf8"));
+        if (rec?.repo_id === repoId && /^[0-9a-f]{40}$/.test(String(rec.starter_sha || ""))) {
+          return { sha: rec.starter_sha, count: Number.isInteger(rec.starter_commit_count) ? rec.starter_commit_count : null };
+        }
+      } catch {
+        // A record that cannot be read carries nothing over; the report still
+        // asks every record naming the repository (lib/starter-commit.mjs).
       }
-    } catch {
-      // A record that cannot be read carries nothing over; the report still
-      // asks every record naming the repository (lib/starter-commit.mjs).
     }
   }
+  const given = (values["starter-sha"] || "").trim();
+  if (/^[0-9a-f]{40}$/.test(given)) return { sha: given, count: count(values["starter-commit-count"]) };
   return { sha: null, count: null };
 }
 

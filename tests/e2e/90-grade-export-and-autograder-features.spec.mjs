@@ -444,9 +444,10 @@ test.describe('90 - Grade exports and autograder features', () => {
     await expect(card('Students')).toHaveText('4');
     await expect(card('Scored')).toHaveText('3');
     await expect(card('Needs a look')).toHaveText('1');
-    // The deadline has passed, so nothing handed in is red - none here.
+    // None here, so nothing to colour: the card is red only when a student it
+    // counts is past their own deadline (review 2026-10-14, DESIGN.md §4).
     await expect(card('Not handed in')).toHaveText('0');
-    await expect(card('Not handed in')).toHaveClass(/stat-red/);
+    await expect(card('Not handed in')).toHaveClass(/stat-neutral/);
     await expect(page.locator('[data-grading-box]')).toContainText('Over 3 students: average 16 / 20, median 18 / 20, 1 at full marks.');
 
     // The card filters the table, as on Progress.

@@ -62,6 +62,19 @@ test("a moved student's records follow them to the new team's repository", () =>
   assert.equal(acc.accepted_at, "2026-09-10T08:00:00Z", "the acceptance time is theirs, not the move's");
 });
 
+test("what a full-history copy was given belongs to that repository, and does not move with the student", () => {
+  // Review 2026-10-14: carried onto a record naming another repository, the
+  // report read that one as started for ever.
+  const given = { ...record("red", 11), starter_sha: "c".repeat(40), starter_commit_count: 14 };
+  const moved = JSON.parse(plan({ toTeam: team("blue", 22), repoRecord: given, acceptance: acceptance("red") })
+    .find((c) => c.path === "repositories/lab1/ann.json").content);
+  assert.equal("starter_sha" in moved, false);
+  assert.equal("starter_commit_count" in moved, false);
+  const stayed = JSON.parse(plan({ toTeam: team("red", 11), repoRecord: given, acceptance: acceptance("red") })
+    .find((c) => c.path === "repositories/lab1/ann.json")?.content ?? "null");
+  if (stayed) assert.equal(stayed.starter_sha, "c".repeat(40), "the same repository keeps it");
+});
+
 test("a lecturer's move takes the record from a run that is still provisioning", () => {
   // The student's own run writes their repository record only while the
   // acceptance names it as the decider (scripts/record-acceptance.sh). Left at

@@ -33,7 +33,7 @@ const PUSHED = {
 };
 
 /** `oldCommits`: what the team left behind holds when provisioning asks. */
-async function withApi(fn, { oldCommits = [GENERATED_ROOT] } = {}) {
+async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new Date(Date.now() - 3600_000).toISOString() } = {}) {
   const calls = [];
   let created = false;
   const server = createServer((req, res) => {
@@ -59,6 +59,7 @@ async function withApi(fn, { oldCommits = [GENERATED_ROOT] } = {}) {
     // The team left behind.
     if (url === "/repos/Org/grp-typo/collaborators/ann" && req.method === "DELETE") return send(204);
     if (url === "/repos/Org/grp-typo/invitations") return send(200, []);
+    if (url === "/repos/Org/grp-typo" && req.method === "GET") return send(200, { id: 20, full_name: "Org/grp-typo", created_at: oldCreatedAt });
     if (url === "/repos/Org/grp-typo/branches") return send(200, [{ name: "main" }]);
     if (url === "/repos/Org/grp-typo/commits") return send(200, oldCommits);
     if (url === "/repos/Org/grp-typo" && req.method === "DELETE") return send(204);
@@ -132,6 +133,17 @@ test("something was pushed to it since the decision: kept, and the acceptance st
     assert.equal(calls.includes("DELETE /repos/Org/grp-typo"), false);
     assert.match(res.log, /remove-old-repo - kept grp-typo: something was pushed to it since/);
   }, { oldCommits: [PUSHED, GENERATED_ROOT] });
+});
+
+test("a repository minutes old is still removed: the typo team switched away from at once is the case", async () => {
+  // Review 2026-10-14 weighed an age guard and did not take it: the decision
+  // has already removed the manifest, so keeping the repository would leave
+  // one no record names.
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.equal(res.status, 0, res.log);
+    assert.ok(calls.includes("DELETE /repos/Org/grp-typo"), res.log);
+  }, { oldCreatedAt: new Date(Date.now() - 60_000).toISOString() });
 });
 
 test("without the flag nothing is asked and nothing is deleted - only the access is removed, as before", async () => {

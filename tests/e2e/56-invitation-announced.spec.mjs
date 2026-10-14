@@ -364,5 +364,9 @@ test.describe('56 - An announced invitation', () => {
     await expect(invited).toContainText('You are in this team');
     await expect(invited.getByRole('link', { name: 'Accept your invitation on GitHub' }))
       .toHaveAttribute('href', `https://github.com/${ORG}/${MOVED}-systeempiraten/invitations`);
+    // Where the team is first seen is where a wrong one is noticed (review
+    // 2026-10-14): Switch team is offered here too, as on the ready card.
+    await expect(invited.locator('[data-team-switch]')).toContainText('You can change team yourself until');
+    await expect(invited.locator('[data-team-switch]').getByRole('button', { name: 'Switch team' })).toBeEnabled();
   });
 });

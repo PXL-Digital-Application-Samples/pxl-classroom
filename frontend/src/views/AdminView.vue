@@ -1630,6 +1630,7 @@
       :submission-marker="form.submission_marker_value || ''"
       :submission-marker-multiple="form.submission_marker_multiple !== false"
       :submission-marker-max-hand-ins="readMaxHandIns(Number(form.submission_marker_max_hand_ins))"
+      :sync-available="form.template_full_history !== true"
       :template-grades="form.template_grades"
       :template="templateWorkflow"
       @check-template="checkTemplateWorkflow"

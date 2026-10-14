@@ -130,6 +130,35 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
+/**
+ * Scored rows whose result carries no points - a template's own workflow that
+ * passes or fails with no score reporter, stored 0/0. `gradingCounts` counts
+ * them as scored, `scoreStats` cannot average them, so the box says them apart
+ * rather than "Nobody has a score yet" under a Scored card that says 20.
+ */
+export function resultsWithoutPoints(rows) {
+  return rows.filter((r) => r.graded && !(Number(r.graded.total_points) > 0)).length
+}
+
+/**
+ * Why a read of the whole cohort saved nothing: nobody had a score. Said by
+ * kind, the way the box says it - "all checks missing or failed" over a cohort
+ * whose runs were still going sent a lecturer looking for a fault.
+ *
+ * @param {Array<object>} failed  the read's failed rows
+ */
+export function nothingGradedMessage(failed = []) {
+  const n = {}
+  for (const f of failed) n[failedKind(f)] = (n[failedKind(f)] || 0) + 1
+  const parts = [
+    n.running && `${n.running} still being graded`,
+    n['not-handed-in'] && `${n['not-handed-in']} not handed in`,
+    n.late && `${n.late} handed in late`,
+    n['no-result'] && `${n['no-result']} with no result`,
+  ].filter(Boolean)
+  return `Nobody has a score to read yet${parts.length ? ` (${parts.join(', ')})` : ''}. Nothing was saved, so the scores on record stay.`
+}
+
 /** The sentence `scoreStats` makes, as the box under the cards says it. */
 export function scoreStatsSentence(stats) {
   if (!stats) return ''

@@ -80,6 +80,12 @@
       "type": "boolean",
       "description": "True if all members have left or switched away from this team."
     },
+    "renamed_from": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+      "description": "Slugs this team had before a lecturer renamed it (lib/team-rename.mjs, only before anyone accepted). A student page loaded before the rename still names the old slug; acceptance takes that as this team, for a member of it, where no team holds the old slug now."
+    },
     "seeded_from": {
       "type": "object",
       "description": "Provenance when this team was carried over from an earlier group assignment or the roster's team columns, rather than formed by students.",

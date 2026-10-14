@@ -44,7 +44,7 @@ import { encryptTeamCode } from "../../lib/claim.mjs";
 import { formatJoinCode, newJoinCode } from "../../lib/team-join-code.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
-  accounts, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, root, signAcceptance, sleep,
+  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, root, signAcceptance, sleep,
 } from "./live-kit.mjs";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -245,6 +245,7 @@ async function start() {
   const code1 = newJoinCode();
   const code2 = newJoinCode();
   const code3 = newJoinCode();
+  const code4 = newJoinCode();
 
   console.log("\n2. A creates alpha with a fresh code\n");
   let since = Date.now() - 10_000;
@@ -282,6 +283,30 @@ async function start() {
   if (alpha?.join_code === code1) ok("alpha keeps its code");
   else bad(`alpha's code is now ${alpha?.join_code}`);
 
+  // Work in alpha, so that the team everybody leaves below is a team with a
+  // repository worth keeping. Since 2026-10-14 an emptied team whose
+  // repository holds nothing anybody pushed is REMOVED (step 5b proves that).
+  console.log("\n4b. B pushes a commit to alpha\n");
+  for (let waited = 0; waited < 180_000 && !alpha?.repo_name; waited += 10_000) {
+    await sleep(10_000);
+    alpha = await manifest(id, "alpha");
+  }
+  const alphaName = String(alpha?.repo_name || "").split("/").pop();
+  if (!alphaName) bad("alpha never got a repository");
+  else {
+    await acceptInvitation({ student: B, repoName: alphaName }, r);
+    let pushed = null;
+    for (let attempt = 0; attempt < 6 && !pushed?.ok; attempt++) {
+      if (attempt) await sleep(5_000);
+      pushed = await api(`/repos/${ORG}/${alphaName}/contents/work/${normalizeLogin(B.login)}.md`, {
+        token: B.token, method: "PUT",
+        body: { message: "drill: work in alpha", content: Buffer.from(`by ${B.login}\n`).toString("base64") },
+      });
+    }
+    if (pushed?.ok) ok(`${B.login} pushed ${pushed.data.commit.sha.slice(0, 7)} to ${alphaName}`);
+    else bad(`${B.login} could not push to ${alphaName}: HTTP ${pushed?.status}`);
+  }
+
   console.log("\n5. A makes beta, B follows with its code: alpha is left empty\n");
   since = Date.now() - 10_000;
   const a2 = await attempt({ secret, id, broker, student: A, slug: "beta", action: "switch", code: code2 });
@@ -293,13 +318,44 @@ async function start() {
   alpha = await manifest(id, "alpha");
   if (same(members(beta), logins(A, B)) && beta?.join_code === code2) ok(`beta holds both, with code ${formatJoinCode(code2)}`);
   else bad(`beta: ${JSON.stringify(beta)}`);
-  if (alpha?.vacant === true && (alpha?.members || []).length === 0) ok(`alpha is vacant, still holding its repository and ${formatJoinCode(code1)}`);
+  if (alpha?.vacant === true && (alpha?.members || []).length === 0) ok(`alpha is vacant, still holding its repository and ${formatJoinCode(code1)}: it holds work`);
   else bad(`alpha: ${JSON.stringify(alpha)}`);
+
+  // THE TEAM MADE BY MISTAKE (2026-10-08), proven live (2026-10-14): until the
+  // acceptance token could read commits, every such team was kept, quietly.
+  console.log("\n5b. A makes gamma by mistake and switches straight back: gamma goes, with its repository\n");
+  since = Date.now() - 10_000;
+  const a5 = await attempt({ secret, id, broker, student: A, slug: "gamma", action: "switch", code: code3 });
+  await decided(broker, a5, since, A.login);
+  let gamma = await manifest(id, "gamma");
+  for (let waited = 0; waited < 180_000 && !gamma?.repo_name; waited += 10_000) {
+    await sleep(10_000);
+    gamma = await manifest(id, "gamma");
+  }
+  const gammaName = String(gamma?.repo_name || "").split("/").pop();
+  if (gammaName) ok(`gamma has its repository ${gammaName}`);
+  else bad(`gamma: ${JSON.stringify(gamma)}`);
+  since = Date.now() - 10_000;
+  const a6 = await attempt({ secret, id, broker, student: A, slug: "beta", action: "switch", code: code2 });
+  await decided(broker, a6, since, A.login);
+  if (!(await manifest(id, "gamma"))) ok("gamma's team file is gone");
+  else bad(`gamma is still there: ${JSON.stringify(await manifest(id, "gamma"))}`);
+  if (gammaName) {
+    let gone = false;
+    for (let waited = 0; waited < 60_000 && !gone; waited += 10_000) {
+      gone = (await api(`/repos/${ORG}/${gammaName}`, { token: LECTURER.token })).status === 404;
+      if (!gone) await sleep(10_000);
+    }
+    if (gone) ok(`${gammaName} was deleted: nobody had pushed to it`);
+    else bad(`${gammaName} still exists - the switch's run did not remove it (check its provisioning log)`);
+  }
+  if (same(members(await manifest(id, "beta")), logins(A, B))) ok("A is back in beta");
+  else bad(`beta: ${JSON.stringify(await manifest(id, "beta"))}`);
 
   console.log("\n6. alpha is empty but keeps its repository: a new code is refused, the one A kept lets A back in\n");
   const alphaRepo = alpha?.repo_name;
   since = Date.now() - 10_000;
-  const a3 = await attempt({ secret, id, broker, student: A, slug: "alpha", action: "switch", code: code3 });
+  const a3 = await attempt({ secret, id, broker, student: A, slug: "alpha", action: "switch", code: code4 });
   const d3 = await decided(broker, a3, since, A.login);
   alpha = await manifest(id, "alpha");
   if (d3?.refused && (alpha?.members || []).length === 0 && alpha?.join_code === code1) {
@@ -314,7 +370,7 @@ async function start() {
   if (alpha?.join_code === code1 && alpha?.repo_name === alphaRepo) ok(`same code (${formatJoinCode(code1)}), same repository (${alphaRepo})`);
   else bad(`alpha's code is ${alpha?.join_code}, repository ${alpha?.repo_name} (was ${alphaRepo})`);
 
-  await publicAndLogs({ secret, broker, since: startedAt, codes: [code1, code2, code3] });
+  await publicAndLogs({ secret, broker, since: startedAt, codes: [code1, code2, code3, code4] });
   note(`walk the student page as another account: ${PAGES}${ORG}/i/${secret}`);
   note(`clean up after ${deadlineAt} with: node tests/live/drill.mjs cleanup ${id}`);
   finish();

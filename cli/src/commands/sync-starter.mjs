@@ -151,6 +151,12 @@ export function registerSyncStarterCommand(program) {
       };
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
+      // The workflow's own second refusal: a student given the full history.
+      const refusedByRecords = syncRefusal(assignment, records.map((r) => r.doc));
+      if (refusedByRecords) {
+        process.stderr.write(`Not synced: ${refusedByRecords}.\n`);
+        process.exit(1);
+      }
       const byRepo = loginsByRepo(records.map((r) => r.doc));
       if (records.length === 0) {
         process.stdout.write(`No student repository records found for assignment ${opts.assignment}.\n`);

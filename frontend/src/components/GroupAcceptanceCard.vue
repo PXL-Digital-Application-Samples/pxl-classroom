@@ -17,7 +17,7 @@
         Wrong team, or a typo in the name?
         <button type="button" class="btn-link" :disabled="accepting" @click="startSwitchTeam">Switch team</button>
         <br />
-        <span class="text-muted">You can change team yourself until {{ switchUntil }}.</span>
+        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself while the assignment is accepting.' }}</span>
       </p>
 
       <div class="repo-link-card">
@@ -139,6 +139,15 @@
       </div>
       <p v-if="invitedTeammates.length" class="text-secondary text-sm" data-invited-teammates>
         With {{ invitedTeammates.map((m) => `@${m}`).join(', ') }}.
+      </p>
+      <!-- Here too (review 2026-10-14): the invitation is where a student
+           first sees which team they are in, and so where a wrong one is
+           noticed - the same rule as the ready card's line. -->
+      <p v-if="canSwitchTeam && invitedTeam" class="team-switch-line text-sm" data-team-switch>
+        Wrong team, or a typo in the name?
+        <button type="button" class="btn-link" :disabled="accepting" @click="startSwitchTeam">Switch team</button>
+        <br />
+        <span class="text-muted">{{ switchUntil ? `You can change team yourself until ${switchUntil}.` : 'You can change team yourself while the assignment is accepting.' }}</span>
       </p>
       <p class="text-secondary">
         You are in this team. To work in its repository, accept the collaboration invitation GitHub sent you.
@@ -552,6 +561,7 @@ import { claimRequired } from '../../../lib/roster-mode.mjs'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
+import { sameLogin } from '../../../lib/github-login.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -801,7 +811,7 @@ const invitedTeam = computed(() => {
   return { team_slug: slug, team_name: targetTeamName.value || slug, members: [] }
 })
 const invitedTeammates = computed(() =>
-  (invitedTeam.value?.members || []).filter((m) => String(m).toLowerCase() !== String(props.user?.login || '').toLowerCase()),
+  (invitedTeam.value?.members || []).filter((m) => !sameLogin(m, props.user?.login)),
 )
 
 const invitationProven = ref(false)
@@ -1143,9 +1153,16 @@ const effectiveDeadline = computed(() => {
   return props.assignment?.deadline_at ? new Date(props.assignment.deadline_at) : null
 })
 
+// A CLOCK THAT TICKS (review 2026-10-14): `new Date()` inside a computed is
+// read once, so a page left open past the deadline went on offering Switch
+// team, and the hub refused it as past the deadline.
+const nowTick = ref(Date.now())
+const nowTimer = setInterval(() => { nowTick.value = Date.now() }, 30_000)
+onUnmounted(() => clearInterval(nowTimer))
+
 const isPastDeadline = computed(() => {
   if (!effectiveDeadline.value) return false
-  return new Date() > effectiveDeadline.value
+  return nowTick.value > effectiveDeadline.value.getTime()
 })
 
 const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadline.value))
@@ -1156,8 +1173,9 @@ const deadlineCountdown = computed(() => formatDeadlineCountdown(effectiveDeadli
 const canSwitchTeam = computed(() =>
   canChooseAnother.value && !isPastDeadline.value && props.assignment?.state === 'published',
 )
+// Null with no deadline: "until the deadline" named one that does not exist.
 const switchUntil = computed(() =>
-  effectiveDeadline.value ? formatDate(effectiveDeadline.value.toISOString(), props.assignment?.timezone) : 'the deadline',
+  effectiveDeadline.value ? formatDate(effectiveDeadline.value.toISOString(), props.assignment?.timezone) : null,
 )
 
 const teamSubmissionStatus = computed(() => {

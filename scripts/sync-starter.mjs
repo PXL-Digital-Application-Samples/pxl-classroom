@@ -239,6 +239,11 @@ async function main() {
       unreadableRows.push({ github_login: named, repo_name: "unknown", outcome: "failed", error: `repository record unreadable: ${err.message}` });
     }
   }
+  // Asked again with the records, still before anything is written: a student
+  // given the full history makes the whole sync refuse, whatever the setting
+  // says now (lib/starter-sync.mjs `syncRefusal`).
+  const refusedByRecords = syncRefusal(assignment, recs);
+  if (refusedByRecords) throw new Error(`Not synced: ${refusedByRecords}.`);
   // Who shares each repository, for assigning its tracking issue.
   const byRepo = loginsByRepo(recs);
   // ONE REPOSITORY, ONE PLAN - as the CLI already did. A team is a record per

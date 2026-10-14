@@ -47,6 +47,18 @@ test("scores: one read for everybody is uniform, so who read them may be said", 
   assert.equal(r.latest, null);
 });
 
+test("scores: ONE read that took minutes is still one read - students finish one after another", () => {
+  // Review 2026-10-14: every grader stamps a row when that student finishes,
+  // so a docker run or a large cohort spans minutes, and "a minute after the
+  // oldest" called most of one read "read again".
+  const at = (min) => new Date(Date.parse("2026-10-08T07:00:00Z") + min * 60_000).toISOString();
+  const r = scoresRead({ generated_at: at(22), students: [0, 3, 6, 9, 12, 15, 18, 21].map((m) => ({ graded_at: at(m) })) });
+  assert.deepEqual(r, { at: at(0), again: 0, latest: null, uniform: true });
+  // ...and a student read again two hours later is a second read.
+  const later = scoresRead({ generated_at: at(140), students: [0, 3, 6, 140].map((m) => ({ graded_at: at(m) })) });
+  assert.deepEqual(later, { at: at(0), again: 1, latest: at(140), uniform: false });
+});
+
 test("scores: no per-student time falls back to the summary's, and no summary is nothing", () => {
   assert.deepEqual(scoresRead({ generated_at: "2026-10-08T07:27:00Z", students: [] }), { at: "2026-10-08T07:27:00Z", again: 0, latest: null, uniform: true });
   assert.equal(scoresRead(null), null);

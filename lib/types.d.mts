@@ -611,6 +611,7 @@ export type Team = {
   repo_url?: string;
   join_code?: string;
   vacant?: boolean;
+  renamed_from?: string[];
   seeded_from?: {
     source?: "assignment" | "roster";
     assignment_id?: string;

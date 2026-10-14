@@ -239,9 +239,11 @@ runs:
         client-id: ${{ inputs.client-id }}
         private-key: ${{ inputs.app-private-key }}
         owner: ${{ inputs.org }}
-        # Reads only: the student repository and its rulesets, both Metadata
-        # (lib/app-token-scopes.mjs). Every repository, because it usually does
-        # not exist yet.
+        # Reads only: the student repository and its rulesets (Metadata), and
+        # the commits of a team's repository a switch leaves empty (Contents,
+        # lib/untouched-repo.mjs) - lib/app-token-scopes.mjs. Every repository,
+        # because it usually does not exist yet.
+        permission-contents: read
         permission-metadata: read
 
     - name: Set up Node

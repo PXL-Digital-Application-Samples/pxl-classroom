@@ -76,7 +76,8 @@ Done by a lecturer.
 - A student counts as **not handed in** while their default branch is still at the commit they were given, and the **Commits** column counts only the commits they added.
 - **Sync Starter Code** is not offered: those branches are the students' to change.
 - Only the default branch is locked and archived at the deadline, so the exercise has to end with the work on it.
-- With a hand-in message, the template's own commits never count as a hand-in, whatever their message says.
+- With a hand-in message, the template's commits on the default branch the student was given never count as a hand-in, whatever their message says. A template commit the student brings onto it from a prepared branch can, so do not word a template commit like the hand-in message. A template with more than about 1000 commits cannot be read for hand-ins at all.
+- If the template carries a `submit/` tag, it is not copied: it would read as every student's declared submission.
 - A workflow in the template that runs on push runs once per branch in every student's repository when it is copied. Keep the exercise's template free of workflows unless it needs one.
 
 The setting reaches students who accept after you save it; the template still has to be ticked as a **Template repository**.
@@ -158,7 +159,7 @@ Drop `--dry-run` to apply. `--from-roster` uses the roster columns instead; `--y
 
 Under self-service, a carried-over group is a strong default rather than a lock: the student can still use **Choose a different group**. Under pre-assigned, they cannot, and a request naming another team is rejected server-side.
 
-**A student in the wrong team, or with a typo in its name, fixes it themselves.** Under self-service, until their deadline, their assignment page says *Wrong team, or a typo in the name?* right under the team name, with **Switch team**. That opens the team list: they join another team (with its code, where codes are on) or start a new one with the right name. Tell them: *open your assignment page and press Switch team*. When the switch leaves their old team empty and nobody pushed anything to its repository, the team and its repository are removed by themselves, so the name is free again. A team with work in it stays, empty, until you delete it. You only need **Move to…** on the Teams tab after the deadline, under pre-assigned teams, or for a student who will not do it. A student you move gets a GitHub invitation to the new team's repository; until they accept it, their page names the team and its members and links to that invitation (`https://github.com/<org>/<repository>/invitations`), which is also what to send them if they ask.
+**A student in the wrong team, or with a typo in its name, fixes it themselves.** Under self-service, until their deadline, their assignment page says *Wrong team, or a typo in the name?* right under the team name, with **Switch team**. That opens the team list: they join another team (with its code, where codes are on) or start a new one with the right name. Tell them: *open your assignment page and press Switch team*. When the switch leaves their old team empty and nobody pushed anything to its repository, the team and its repository are removed by themselves, so the name is free again. A team with work in it stays, empty, until you delete it. On an assignment with feedback pull requests, or one that gives students the template's full history, the repository always holds more than GitHub's own starting commit, so an emptied team there always stays: delete it on the Teams tab. You only need **Move to…** on the Teams tab after the deadline, under pre-assigned teams, or for a student who will not do it. A student you move gets a GitHub invitation to the new team's repository; until they accept it, their page names the team and its members and links to that invitation (`https://github.com/<org>/<repository>/invitations`), which is also what to send them if they ask.
 
 **Join codes.** With **Joining a team needs a code from someone in it** ticked (on by default for a new group assignment), a team a student creates gets a six-character code such as `K7P-4QX`. The creator sees it on their page at once, while the repository is still being made, and gives it to their teammates; joining that team, or switching into it, asks for it. Without it nobody can join, so strangers stay out of a team.
 
@@ -943,8 +944,10 @@ If `app-permissions match manifest` reports drift, re-approve the App in the org
 Tag format students copy from the template README:
 
 ```bash
-git tag submit/$(date -u +%Y-%m-%dT%H:%M:%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
+git tag submit/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$(git rev-parse --short HEAD) && git push origin --tags
 ```
+
+The time is written with dashes (`T14-05-00Z`): git refuses a colon in a tag name.
 
 The system never requires the tag - untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
 

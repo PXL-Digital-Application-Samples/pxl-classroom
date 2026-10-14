@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stringify } from "yaml";
+import { APP_SLUG } from "../lib/deployment.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "provisioning", "provision.mjs");
@@ -47,6 +48,8 @@ function makeServer() {
   git(["checkout", "-q", "-b", "bugfix"], work);
   commit(work, "app.py", "print('v2')\n", "Fix the bug");
   git(["checkout", "-q", "master"], work);
+  // How a STUDENT declares a submission: never copied (the collector reads one wherever it came from).
+  git(["tag", "submit/2026-01-01T00-00-00Z-abc1234"], work);
   mkdirSync(join(srv, "Org"));
   git(["clone", "-q", "--bare", work, join(srv, "Org", "tpl.git")], srv);
   // What GitHub has and refuses on a push: a pull request's ref.
@@ -62,7 +65,7 @@ const hasRefs = (bare) => existsSync(bare) && refs(bare).length > 0;
  * (our own failed copy, an hour old) or "has-commits" (a repository to reuse).
  * `defaultBranch`: what GitHub reports for the template.
  */
-async function withApi(srv, fn, { target = "absent", defaultBranch = "master" } = {}) {
+async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master" } = {}) {
   const calls = [];
   const repo = join(srv, "Org", "lab-ann.git");
   if (target !== "absent") {
@@ -72,6 +75,10 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master" } 
       git(["clone", "-q", join(srv, "Org", "tpl.git"), w], srv);
       commit(w, "mine.txt", "the student's\n", "Student work");
       git(["push", "-q", repo, "master"], w);
+    }
+    if (target === "copy") {
+      // An earlier run's copy, left with the org's default branch name.
+      git(["push", "-q", "--mirror", repo], join(srv, "Org", "tpl.git"));
     }
   }
   const server = createServer((req, res) => {
@@ -88,9 +95,10 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master" } 
       if (url === "/repos/Org/tpl" && req.method === "GET") return send(200, { id: 7, is_template: true, private: true, default_branch: defaultBranch });
       if (url === "/repos/Org/lab-ann" && req.method === "GET") {
         return existsSync(repo)
-          ? send(200, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", created_at: new Date(Date.now() - 3600_000).toISOString() })
+          ? send(200, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", default_branch: repoDefault, created_at: new Date(Date.now() - 3600_000).toISOString() })
           : send(404, { message: "Not Found" });
       }
+      if (url === "/repos/Org/lab-ann/activity") return activity ? send(200, activity) : send(404, { message: "Not Found" });
       if (url === "/repos/Org/lab-ann" && req.method === "DELETE") {
         rmSync(repo, { recursive: true, force: true });
         return send(204);
@@ -189,7 +197,7 @@ const output = (outputs, name) => {
   const lines = outputs.split("\n").filter((l) => l.startsWith(`${name}=`));
   return lines.length ? lines[lines.length - 1].slice(name.length + 1) : undefined;
 };
-const tplRefs = (srv) => refs(join(srv, "Org", "tpl.git")).filter((l) => !l.startsWith("refs/pull/"));
+const tplRefs = (srv) => refs(join(srv, "Org", "tpl.git")).filter((l) => !l.startsWith("refs/pull/") && !l.startsWith("refs/tags/submit/"));
 
 test("every branch, tag and commit arrives with the same SHAs; GitHub's pull refs do not", async () => {
   const srv = makeServer();
@@ -258,6 +266,45 @@ test("our own empty leftover is removed and copied again; an existing repository
     assert.ok(!calls.some((c) => c.startsWith("POST /orgs/Org/repos") || c.startsWith("DELETE")), "nothing created or removed");
     assert.deepEqual(refs(repo), before, "the student's work is untouched");
   }, { target: "has-commits" });
+});
+
+test("a submit/ tag in the template is not copied: it would be every student's declared submission", async () => {
+  const srv = makeServer();
+  await withApi(srv, async (api, calls, repo) => {
+    const r = await provision(api, srv);
+    assert.equal(r.status, 0, r.log);
+    assert.ok(refs(join(srv, "Org", "tpl.git")).some((l) => l.startsWith("refs/tags/submit/")), "the template has one");
+    assert.ok(!refs(repo).some((l) => l.startsWith("refs/tags/submit/")));
+    assert.ok(refs(repo).some((l) => l.startsWith("refs/tags/v1 ")), "the others travel");
+  });
+});
+
+test("a reused copy only PXL Classroom pushed to: what it was given is recovered, and its default branch set", async () => {
+  // Review 2026-10-14: a run that failed after the copy left a repository whose
+  // retry recorded nothing, and the report counted the template's commits.
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  await withApi(srv, async (api, calls) => {
+    const r = await provision(api, srv, { recreateEmpty: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "reused");
+    assert.equal(output(r.outputs, "starter_sha"), git(["rev-parse", "refs/heads/master"], join(srv, "Org", "tpl.git")));
+    assert.equal(output(r.outputs, "starter_commit_count"), "2");
+    assert.ok(calls.some((c) => c.startsWith("PATCH /repos/Org/lab-ann") && c.includes('"default_branch":"master"')), "the default branch an earlier run left unset");
+    assert.ok(!calls.some((c) => c.startsWith("POST /orgs/Org/repos")), "nothing copied again");
+  }, { target: "copy", activity: [bot, bot, bot], repoDefault: "main" });
+});
+
+test("...but one a person pushed to, or whose push log cannot be read, recovers nothing", async () => {
+  for (const activity of [[{ actor: { login: `${APP_SLUG}[bot]` } }, { actor: { login: "ann" } }], null]) {
+    const srv = makeServer();
+    await withApi(srv, async (api, calls) => {
+      const r = await provision(api, srv, { recreateEmpty: "true" });
+      assert.equal(r.status, 0, r.log);
+      assert.equal(output(r.outputs, "starter_sha"), "");
+      assert.ok(!calls.some((c) => c.startsWith("PATCH")), "and nothing is changed on it");
+    }, { target: "copy", activity, repoDefault: "main" });
+  }
 });
 
 test("a dry run creates and copies nothing", async () => {
