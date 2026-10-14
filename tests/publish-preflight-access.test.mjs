@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "check-publish-preflight.mjs");
 
-async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Java-Essentials" } = {}) {
+async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Java-Essentials", extraYaml = "", branches = ["main"], workflowsStatus = 404, defaultBranch = "main" } = {}) {
   const calls = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
@@ -36,8 +36,12 @@ async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Jav
         ? send(200, { total_count: 3, repository_selection: selection, repositories: [] })
         : send(accessStatus, { message: "boom" });
     }
-    if (url === `/repos/${org}/tpl`) return send(200, { id: 7, private: true, is_template: true, default_branch: "main" });
+    if (url === `/repos/${org}/tpl`) return send(200, { id: 7, private: true, is_template: true, default_branch: defaultBranch });
     if (url === `/repos/${org}/tpl/commits`) return send(200, [{ sha: "a".repeat(40) }]);
+    if (url === `/repos/${org}/tpl/branches`) return send(200, branches.map((name) => ({ name })));
+    if (url === `/repos/${org}/tpl/contents/.github/workflows`) {
+      return workflowsStatus === 200 ? send(200, [{ name: "ci.yml", type: "file" }]) : send(workflowsStatus, { message: "x" });
+    }
     if (url === `/orgs/${org}`) return send(200, { plan: { name: "team" } });
     return send(404, { message: "not stubbed: " + url });
   });
@@ -46,7 +50,7 @@ async function preflight({ selection = "all", accessStatus = 200, org = "PXL-Jav
   const file = join(dir, "lab.yml");
   writeFileSync(
     file,
-    `organization: ${org}\ntemplate:\n  owner: ${org}\n  repository: tpl\nsubmission_ref: refs/heads/main\nstate: published\n`,
+    `organization: ${org}\ntemplate:\n  owner: ${org}\n  repository: tpl\nsubmission_ref: refs/heads/${defaultBranch}\nstate: published\n${extraYaml}`,
   );
   try {
     return await new Promise((resolve, reject) => {
@@ -84,6 +88,32 @@ test("an installation on all repositories publishes as before", async () => {
 test("the hub's own organization is scoped on purpose and is not refused", async () => {
   const res = await preflight({ selection: "selected", org: "PXL-Digital-Application-Samples" });
   assert.equal(res.status, 0, res.out);
+});
+
+// --- A full-history copy (review 2026-10-14, S2 and PG8) --------------------
+
+test("full history: a template branch named like the feedback baseline refuses the publish", async () => {
+  const res = await preflight({ extraYaml: "template_full_history: true\nfeedback_pr: true\n", branches: ["main", "feature-x", "pxl-baseline"] });
+  assert.equal(res.status, 1, res.out);
+  assert.match(res.out, /::error::The template has a branch called pxl-baseline/);
+  // Without feedback PRs the same branch is just a branch.
+  const plain = await preflight({ extraYaml: "template_full_history: true\n", branches: ["main", "pxl-baseline"] });
+  assert.equal(plain.status, 0, plain.out);
+  // And GitHub's own copy brings one branch: nothing is asked.
+  const generated = await preflight({ extraYaml: "feedback_pr: true\n", branches: ["main", "pxl-baseline"] });
+  assert.equal(generated.status, 0, generated.out);
+  assert.ok(!generated.calls.some((c) => c.endsWith("/branches")), "not asked without full history");
+});
+
+test("full history: a default branch provisioning cannot name refuses; workflows in the template warn", async () => {
+  const bad = await preflight({ extraYaml: "template_full_history: true\n", defaultBranch: "main+exam", branches: ["main+exam"] });
+  assert.equal(bad.status, 1, bad.out);
+  assert.match(bad.out, /::error::The template's default branch "main\+exam"/);
+  const wf = await preflight({ extraYaml: "template_full_history: true\n", workflowsStatus: 200 });
+  assert.equal(wf.status, 0, wf.out);
+  assert.match(wf.out, /::warning::The template has workflows/);
+  const unread = await preflight({ extraYaml: "template_full_history: true\n", workflowsStatus: 500 });
+  assert.match(unread.out, /::warning::Could not check whether the template has workflows/);
 });
 
 test("an unreadable answer warns and does not refuse - it is not evidence of a narrowed installation", async () => {

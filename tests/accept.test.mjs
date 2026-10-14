@@ -956,12 +956,16 @@ test("...and self-service: no new team under the old name, with them alone in it
 });
 
 test("...but only for a member, and only while no team holds the old slug", () => {
-  // Somebody else naming the old slug makes a team of that name, as before.
+  // Somebody else may not take the old slug (T5b, review 2026-10-14): a team
+  // there turned the mapping off for every member's page loaded before the
+  // rename. Refused, and nothing is written.
   const stranger = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "102", TEAM_SLUG: "alpha", TEAM_NAME: "Alpha" },
     { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "alpha-squad": { ...RENAMED, members: ["alice"] } } } },
   );
-  assert.equal(stranger.outputs.team_slug, "alpha", stranger.stdout + stranger.stderr);
+  assert.equal(stranger.outputs.outcome, "rejected:team-name-renamed", stranger.stdout + stranger.stderr);
+  assert.match(stranger.outputs.reject_reason, /old name of the team now called "alpha-squad"/);
+  assert.equal(existsSync(join(stranger.dir, "teams", "test-asgn", "alpha.json")), false);
   // A team that took the old name since is that team, member or not.
   const taken = runAccept(
     { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_SLUG: "alpha", TEAM_NAME: "Alpha" },
@@ -1564,6 +1568,44 @@ test("a lecturer's Retry after a failed attempt treats the leftover as ours, and
   assert.equal(acceptRecord(res).reused_existing_repo, undefined, "our own leftover is not a repository the assignment did not make");
 });
 
+test("AC1: under refuse, a lecturer's Retry hands back the repository the attempt it redoes made", () => {
+  // Review 2026-10-14: Retry sets the record aside, so the already-accepted
+  // branch did not run and step 7 refused `repo-exists` over the student's
+  // own repository - the Retry every notice tells the lecturer to press.
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  const aside = join(mkdtempSync(join(tmpdir(), "pxl-prior-")), "prior-acceptance.json");
+  writeFileSync(aside, JSON.stringify({ github_login: "charlie", accepted_at: "2026-09-29T13:00:00.000Z", status: "failed" }));
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(acceptRecord(res).reused_existing_repo, undefined, "its own, not a reuse");
+
+  // Still refused when frozen, whoever made it.
+  probe.setRepos({ "portfolio-charlie": { rulesets: ["pxl-classroom-deadline-test-asgn"] } });
+  const frozen = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(frozen.outputs.outcome, "rejected:repo-frozen");
+
+  // A set-aside record that reused a repository, or a lecturer's, proves nothing.
+  probe.setRepos({ "portfolio-charlie": { rulesets: [] } });
+  writeFileSync(aside, JSON.stringify({ github_login: "charlie", accepted_at: "2026-09-29T13:00:00.000Z", status: "provisioned", reused_existing_repo: true }));
+  const reused = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(reused.outputs.outcome, "rejected:repo-exists");
+  // And no set-aside record at all: an ordinary first acceptance, refused.
+  const first = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", PRIOR_ACCEPTANCE_FILE: aside + ".missing" },
+    { assignmentYaml: `${SOLO_YAML}\nexisting_repo_policy: refuse` },
+  );
+  assert.equal(first.outputs.outcome, "rejected:repo-exists");
+});
+
 test("a ruleset that is not ours does not freeze anything", () => {
   probe.setRepos({ "portfolio-charlie": { rulesets: ["main-protection"] } });
   const res = runAccept(
@@ -1715,6 +1757,39 @@ template:
     !existsSync(join(teamOnlyDir, "repositories", "test-asgn", "alice.json")),
     "--team-only writes no repository record: alice was never granted access",
   );
+});
+
+test("AC1, team: Retry of the only member whose record was lost is handed their team's repository", () => {
+  // The manifest names no repository (the record push was lost), the student
+  // is the only member, so neither teammate rule applies, and refuse is a
+  // team's default: every Retry was refused over the team's own repository.
+  probe.setRepos({ "grp-team-a": { rulesets: [] } });
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: grp-{team_slug}
+group_config:
+  team_formation: self-service
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const aside = join(mkdtempSync(join(tmpdir(), "pxl-prior-")), "prior-acceptance.json");
+  const teams = { "test-asgn": { "team-a": { schema_version: 1, assignment_id: "test-asgn", team_slug: "team-a", team_name: "A", members: ["alice"], max_members: 4 } } };
+  writeFileSync(aside, JSON.stringify({ github_login: "alice", accepted_at: "2026-09-29T13:00:00.000Z", status: "accepted", team_slug: "team-a", team_name: "A" }));
+  const res = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "111", TEAM_SLUG: "team-a", TEAM_ACTION: "join", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: yaml, teams },
+  );
+  assert.equal(res.outputs.outcome, "accepted", res.stdout + res.stderr);
+  assert.equal(res.outputs.target_repo, "grp-team-a");
+
+  // Its record named ANOTHER team: that decision asked about another name.
+  writeFileSync(aside, JSON.stringify({ github_login: "alice", accepted_at: "2026-09-29T13:00:00.000Z", status: "accepted", team_slug: "team-b", team_name: "B" }));
+  const other = runAccept(
+    { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "111", TEAM_SLUG: "team-a", TEAM_ACTION: "join", PRIOR_ACCEPTANCE_FILE: aside },
+    { assignmentYaml: yaml, teams },
+  );
+  assert.equal(other.outputs.outcome, "rejected:repo-exists");
 });
 
 test("a stored acceptance is 'already accepted' only into the team it names", () => {

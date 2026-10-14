@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { generatedFrom, loginFromRepoName, parseUnrecordedLines, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { copiedFrom, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 
 test("a notice line and its reading are one pair: every finding round-trips", () => {
   const findings = [
@@ -95,19 +95,20 @@ test("loginFromRepoName reads the login out of the ordinary pattern, and nothing
 
 // --- the script, against a stub API ------------------------------------------
 
-function controlDir() {
+function controlDir({ fullHistory = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-unrecorded-"));
   mkdirSync(join(dir, "assignments"));
   writeFileSync(
     join(dir, "assignments", "lab.yml"),
-    "state: published\nrepository_name_pattern: lab-{github_login}\ntemplate:\n  owner: Org\n  repository: starter\n",
+    "state: published\nrepository_name_pattern: lab-{github_login}\ntemplate:\n  owner: Org\n  repository: starter\n" +
+      (fullHistory ? "template_full_history: true\n" : ""),
   );
   mkdirSync(join(dir, "repositories", "lab"), { recursive: true });
   writeFileSync(join(dir, "repositories", "lab", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "Org/lab-ann" }));
   return dir;
 }
 
-async function run({ listStatus = 200, repos } = {}) {
+async function run({ listStatus = 200, repos, fullHistory = false } = {}) {
   const list = repos ?? [
     { name: "lab-ann", from: "Org/starter" },
     { name: "lab-TimoHubner444", from: "Org/starter" },
@@ -115,19 +116,29 @@ async function run({ listStatus = 200, repos } = {}) {
     { name: "starter", from: null },
   ];
   const server = createServer((req, res) => {
-    const send = (code, body) => {
-      res.writeHead(code, { "content-type": "application/json" });
+    const send = (code, body, headers = {}) => {
+      res.writeHead(code, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
-    const url = req.url.split("?")[0];
+    const [url, query = ""] = req.url.split("?");
     // 403, not a 5xx: a 5xx is retried with backoff, which only slows the test.
     if (url === "/orgs/Org/repos") return listStatus === 200 ? send(200, list.map((r) => ({ name: r.name }))) : send(listStatus, { message: "no" });
+    // Commits at one per page, as GitHub pages them: the last page is the root.
+    const commits = url.match(/^\/repos\/Org\/([^/]+)\/commits$/);
+    if (commits) {
+      const r = commits[1] === "starter" ? { root: "c0ffee" } : list.find((x) => x.name === commits[1]);
+      if (!r?.root) return send(404, { message: "no" });
+      const page = Number(new URLSearchParams(query).get("page") || 1);
+      return page === 3
+        ? send(200, [{ sha: r.root }])
+        : send(200, [{ sha: "head" }], { link: `<http://x/repos/Org/${commits[1]}/commits?per_page=1&page=3>; rel="last"` });
+    }
     const one = list.find((r) => url === `/repos/Org/${r.name}`);
     if (one) return send(200, { name: one.name, ...(one.from ? { template_repository: { full_name: one.from } } : {}) });
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const dir = controlDir();
+  const dir = controlDir({ fullHistory });
   const out = join(dir, "out.env");
   try {
     return await new Promise((resolve, reject) => {
@@ -156,6 +167,33 @@ test("the script reports the unrecorded student, and not a hand-made repository 
   // Written in the one format the Organization page reads back.
   assert.deepEqual(parseUnrecordedLines(res.outputs.match(/details<<(\w+)\n([\s\S]*?)\n\1/)[2]).map((l) => [l.repo, l.login]), [["lab-TimoHubner444", "TimoHubner444"]]);
   assert.match(res.outputs, /^dedup=unrecorded-[0-9a-f]{16}$/m);
+});
+
+test("S7: a full-history copy no record names is reported by its root commit; a lookalike is not", async () => {
+  // Review 2026-10-14: a pushed copy names no template, so the check could
+  // never see one whose record push was lost.
+  assert.equal(copiedFrom("C0FFEE", "c0ffee"), true);
+  assert.equal(copiedFrom("beef", "c0ffee"), false);
+  assert.equal(copiedFrom(null, "c0ffee"), null, "unread is not evidence");
+  assert.equal(lastPageFromLink('<https://api.github.com/x?per_page=1&page=57>; rel="last"'), 57);
+  assert.equal(lastPageFromLink(""), null);
+
+  const res = await run({
+    fullHistory: true,
+    repos: [
+      { name: "lab-ann", from: null, root: "c0ffee" },
+      { name: "lab-lost", from: null, root: "c0ffee" },
+      { name: "lab-byhand", from: null, root: "beef" },
+    ],
+  });
+  assert.equal(res.status, 0, res.log);
+  assert.match(res.outputs, /^count=1$/m, res.log);
+  assert.match(res.outputs, /`lab-lost` - student `lost`/);
+  assert.doesNotMatch(res.outputs, /lab-byhand/, "another root: not a copy of this template");
+
+  // Without the setting a repository naming no template is still not ours.
+  const plain = await run({ repos: [{ name: "lab-lost", from: null, root: "c0ffee" }] });
+  assert.match(plain.outputs, /^count=0$/m, plain.log);
 });
 
 test("nothing to report writes a zero and no notice text", async () => {

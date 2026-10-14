@@ -525,7 +525,8 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
 import { membersWithRecords, planTeamRename, renameBlocker, renameRefusalAt, teamSlug } from '../../../lib/team-rename.mjs'
-import { changedSinceRead, unseedRefusalAt } from '../../../lib/team-write-guard.mjs'
+import { teamNameProblem } from '../../../lib/public-text.mjs'
+import { changedSinceRead, contentsAt as contentsAtCommit, unseedRefusalAt } from '../../../lib/team-write-guard.mjs'
 import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
@@ -726,6 +727,9 @@ const computedNewSlug = computed(() => teamSlug(newTeamForm.value.name))
 const newSlugProblem = computed(() => {
   const slug = computedNewSlug.value
   if (!slug) return ''
+  // Published on every student page (lib/public-text.mjs).
+  const unpublishable = teamNameProblem(newTeamForm.value.name)
+  if (unpublishable) return unpublishable
   const teams = props.teams || []
   if (teams.some((t) => t.team_slug === slug)) return `A team called ${slug} already exists.`
   const was = teams.find((t) => (t.renamed_from || []).includes(slug))
@@ -916,17 +920,10 @@ function openManageTeamModal(team) {
  * A reader of the control repo AT ONE COMMIT, for a write's precondition
  * (lib/gittree.mjs): the contents API's answer, null for a 404, a throw for
  * anything it could not read - which refuses the write rather than passing it.
+ * lib/team-write-guard.mjs `contentsAt`, which the seed dialog and the CLI use.
  */
 function contentsAt(request, parentSha) {
-  return async (path) => {
-    try {
-      const r = await request(`GET /repos/{owner}/{repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, { owner: props.org, repo: config.controlRepo, ref: parentSha })
-      return r.data
-    } catch (e) {
-      if (e?.status === 404) return null
-      throw e
-    }
-  }
+  return contentsAtCommit(request, parentSha, props.org, config.controlRepo)
 }
 
 // --- Rename (lib/team-rename.mjs decides) ---------------------------------
@@ -1151,7 +1148,7 @@ async function removeSeededTeams() {
 
 async function submitCreateTeam() {
   const slug = computedNewSlug.value
-  if (!slug) return
+  if (!slug || newSlugProblem.value) return
   saving.value = true
   try {
     const token = getToken()

@@ -71,3 +71,22 @@ test("a name another team has, an empty name, or no change is refused", () => {
   assert.match(plan("!!!").reason, /letter or digit/);
   assert.match(plan("3TINA_Krusty_Krabs").reason, /already its name/);
 });
+
+test("a name the public pages may not show is refused (PG1, review 2026-10-14)", () => {
+  // The name is published on every student page; one address in it failed the
+  // Pages deploy for every organization.
+  const r = planTeamRename({ team, newName: "Mail ann.dewit@student.pxl.be", assignmentId: "pe", accepted: nobody });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "a team name is shown on a public page, so it cannot contain an email address");
+  assert.equal(planTeamRename({ team, newName: "Krusty Krabs", assignmentId: "pe", accepted: nobody }).ok, true);
+});
+
+test("both screens that take a typed team name ask the same judge", () => {
+  // The Teams tab's new-team form and the student's create-team form; the
+  // rename goes through planTeamRename above.
+  for (const f of ["frontend/src/components/TeamsTable.vue", "frontend/src/components/GroupAcceptanceCard.vue"]) {
+    const src = readFileSync(join(root, f), "utf8");
+    assert.match(src, /import \{ teamNameProblem \} from '\.\.\/\.\.\/\.\.\/lib\/public-text\.mjs'/, f);
+    assert.match(src, /teamNameProblem\((newTeamForm\.value\.name|newTeamName\.value)\)/, `${f} must judge the typed name`);
+  }
+});

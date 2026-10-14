@@ -2,7 +2,7 @@
 // PXL Classroom - open feedback PRs in bulk.
 //
 // Scans provisioned repositories for an assignment with feedback_pr: true,
-// checks if student has pushed commits to main ahead of the baseline branch,
+// checks if student has pushed commits to the submission branch ahead of the baseline branch,
 // and opens draft feedback PRs if not already opened.
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from "../lib/feedback-pr.mjs";
+import { submissionBranch } from "../lib/submission-marker.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -42,8 +43,11 @@ async function main() {
   }
 
   const baseline = assignment.feedback_pr_baseline_branch || "pxl-baseline";
+  // The submission branch, which is the template's default branch and so the
+  // one the baseline was made from (review 2026-10-14, S1).
+  const head = submissionBranch(assignment);
   const title = feedbackPrTitle(assignment, cfg.assignmentId);
-  const body = feedbackPrBody(baseline);
+  const body = feedbackPrBody(baseline, head);
 
   const reposDir = join(cfg.dataDir, "repositories", cfg.assignmentId);
   let files = [];
@@ -91,13 +95,13 @@ async function main() {
       continue;
     }
 
-    // Check if main has commits ahead of baseline
-    const compRes = await gh("GET", `/repos/${cfg.org}/${repoName}/compare/${baseline}...main`, null, { token: cfg.token });
+    // Has the submission branch commits ahead of the baseline?
+    const compRes = await gh("GET", `/repos/${cfg.org}/${repoName}/compare/${baseline}...${head}`, null, { token: cfg.token });
     if (!compRes.ok) {
       // Labelled `fail`, not `skip`: it is counted as a failure and it makes
       // the run exit non-zero, so calling it a skip in the log is the one line
       // a lecturer would read to decide it was fine.
-      console.log(`[fail] ${login}: could not compare ${baseline}...main (HTTP ${compRes.status})`);
+      console.log(`[fail] ${login}: could not compare ${baseline}...${head} (HTTP ${compRes.status})`);
       failed++;
       continue;
     }
@@ -115,7 +119,7 @@ async function main() {
       {
         title,
         body,
-        head: "main",
+        head,
         base: baseline,
         draft: true,
       },
@@ -134,7 +138,7 @@ async function main() {
       // not block a new one, verified live - and asking for `all` and taking
       // [0] leant on GitHub's default sort to avoid recording a closed pull
       // request as this assignment's feedback thread.
-      const listPrs = await gh("GET", `/repos/${cfg.org}/${repoName}/pulls?head=${cfg.org}:main&base=${baseline}&state=open`, null, { token: cfg.token });
+      const listPrs = await gh("GET", `/repos/${cfg.org}/${repoName}/pulls?head=${cfg.org}:${head}&base=${baseline}&state=open`, null, { token: cfg.token });
       const found = listPrs.ok ? listPrs.data?.[0] : null;
       if (found) {
         adopted++;

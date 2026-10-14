@@ -153,6 +153,68 @@ test("the SPA writes the whole cohort's records in ONE commit, and says when it 
   assert.match(impl, /recordsSaved/, "the commit result must be acted on");
 });
 
+test("S1: the pull request's head is the submission branch, run for real against a fake GitHub", async () => {
+  // Review 2026-10-14: every surface spelled `main`, so a `master` template's
+  // compare was a 404 for every student, and a full-history copy whose default
+  // is `develop` beside a template `main` opened the template's own `main`.
+  const { createServer } = await import("node:http");
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { spawn } = await import("node:child_process");
+  const calls = [];
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      calls.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : null });
+      const send = (status, data) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(data)); };
+      if (req.method === "GET" && req.url.includes("/compare/")) return send(200, { ahead_by: 2 });
+      if (req.method === "POST" && req.url.endsWith("/pulls")) return send(201, { number: 7, html_url: "https://github.com/Org/r-alice/pull/7" });
+      return send(404, { message: "not stubbed" });
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-fbpr-"));
+    mkdirSync(join(dir, "assignments"));
+    mkdirSync(join(dir, "repositories", "a1"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "a1.yml"), "id: a1\ntitle: Lab\nfeedback_pr: true\nsubmission_ref: refs/heads/master\n");
+    writeFileSync(join(dir, "repositories", "a1", "alice.json"), JSON.stringify({ github_login: "alice", repo_name: "Org/r-alice" }));
+    const out = await new Promise((resolve) => {
+      const p = spawn(process.execPath, [join(root, "scripts", "open-feedback-prs.mjs")], {
+        env: { ...process.env, GITHUB_TOKEN: "x", ORG: "Org", ASSIGNMENT_ID: "a1", DATA_DIR: dir, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}` },
+      });
+      let s = "";
+      p.stdout.on("data", (c) => (s += c));
+      p.stderr.on("data", (c) => (s += c));
+      p.on("close", (code) => resolve({ code, s }));
+    });
+    assert.equal(out.code, 0, out.s);
+    assert.ok(calls.some((c) => c.method === "GET" && c.url.endsWith("/compare/pxl-baseline...master")), JSON.stringify(calls));
+    const post = calls.find((c) => c.method === "POST");
+    assert.equal(post.body.head, "master");
+    assert.match(post.body.body, /Head: `master`/);
+  } finally {
+    server.close();
+  }
+});
+
+test("S1: no surface spells `main` as the head any more", () => {
+  const view = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
+  const cli = readFileSync(join(root, "cli", "src", "commands", "feedback.mjs"), "utf8");
+  for (const [name, src] of [["script", code], ["page", stripComments(view)], ["cli", stripComments(cli)]]) {
+    assert.doesNotMatch(src, /head:\s*['"]main['"]|:main&|\.\.\.main\b/, name);
+    assert.match(src, /submissionBranch\(/, `${name} takes the head from the submission branch`);
+  }
+});
+
+test("S10: the page offers a feedback PR only for a started repository, and 'no commits yet' is not a failure", () => {
+  const view = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetailView.vue"), "utf8");
+  assert.match(view, /const hasWorkToReview = \(s\) => s\.submission_status === 'on-time' \|\| s\.submission_status === 'late'/);
+  const fn = view.slice(view.indexOf("async function executeOpenFeedbackPrs"));
+  assert.match(fn.slice(0, fn.indexOf("\n}\n")), /isNoCommitsBetween\(prRes\.status, prRes\.data\)\) \{\s*pending\+\+/);
+});
+
 test("the records are committed even when the run failed", () => {
   // The script now exits non-zero on partial failure, and the records for the
   // pull requests that DID open are already on disk. Abandoning them makes the

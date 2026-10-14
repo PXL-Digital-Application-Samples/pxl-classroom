@@ -280,6 +280,23 @@ test("a request made before the deadline is decided as of the request, until the
   });
   const afterLock = reserve(checkout(locked), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
   assert.equal(afterLock.outputs.outcome, "rejected:past-deadline", afterLock.log);
+
+  // LD1 (review 2026-10-14): the Deadline Sentinel's stop is that lock too,
+  // though it writes no lockdown record. A repository made after it was in no
+  // lock until a finalize happened to see its record. A stop that may have
+  // held counts; a FAILED stop locked nothing, and the grace still applies.
+  const timeline = (stop) => ({
+    schema_version: 1, outcome: "fired", due: true, deadline_at: deadline.toISOString(), stop,
+  });
+  for (const [stop, outcome] of [["done", "rejected:past-deadline"], ["pending", "rejected:past-deadline"], ["failed", "accepted"]]) {
+    const stopped = remoteWith({
+      "students/roster.yml": ROSTER,
+      [`assignments/${ID}.yml`]: yaml,
+      [`lockdowns/${ID}/sentinel-20261014T141400Z.json`]: timeline(stop),
+    });
+    const res = reserve(checkout(stopped), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
+    assert.equal(res.outputs.outcome, outcome, `stop ${stop}: ${res.log}`);
+  }
 });
 
 test("a duplicate of an accepted attempt is stamped as the one that decided", () => {

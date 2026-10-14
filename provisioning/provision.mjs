@@ -22,7 +22,7 @@ import { APP_SLUG } from "../lib/deployment.mjs";
 import { applyStudentPermission } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
-import { resolveTemplatePin } from "../lib/template-source.mjs";
+import { PROVISIONABLE_BRANCH, resolveTemplatePin } from "../lib/template-source.mjs";
 import { emptyFromCommits, mayStillBeFilling } from "../lib/existing-repo.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 // The branch grading reads from. One decision, one implementation - the
@@ -83,7 +83,7 @@ async function fail(category, note) {
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;          // org / repo names
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;        // GitHub login
 const PERMS = ["pull", "triage", "push", "maintain", "admin"];
-const BRANCH = /^[A-Za-z0-9._/-]{1,100}$/;                  // baseline branch name
+const BRANCH = PROVISIONABLE_BRANCH;                         // baseline and copied default branch names
 
 function validate() {
   if (!cfg.token) return "GITHUB_TOKEN is required (App installation token)";
@@ -152,7 +152,13 @@ async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
 }
 
 // opened lazily by `pxl-classroom feedback open` once the student has pushed.
-async function setupFeedbackBaseline(repo) {
+/**
+ * @param {{ default_branch?: string }} repo
+ * @param {{ copiedTemplateBranches?: boolean }} [opts] this run copied every
+ *   branch of the template into the repository (a full-history copy it made):
+ *   a branch with the baseline's name is then the template's, never ours.
+ */
+async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = {}) {
   const branch = cfg.baselineBranch;
   const defaultBranch = repo.default_branch || "main";
 
@@ -177,6 +183,14 @@ async function setupFeedbackBaseline(repo) {
     });
     if (!make.ok) { log("feedback-baseline", { ok: false, note: `create ${branch} HTTP ${make.status}` }); return null; }
     log("feedback-baseline", { ok: true, note: `created ${branch}@${sha.slice(0, 12)}` });
+  } else if (exists.ok && copiedTemplateBranches) {
+    // The template's own branch, which the copy brought: adopted, it was
+    // protected against the exercise that needs it, and every feedback PR
+    // opened on day one with the template's difference as the student's work
+    // (review 2026-10-14, S2). The publish preflight refuses such a template;
+    // this is for one changed since.
+    log("feedback-baseline", { ok: false, note: `the template has its own ${branch} branch, which came with the copy - it is left as it is, and there is no feedback baseline` });
+    return null;
   } else if (exists.ok) {
     log("feedback-baseline", { ok: true, note: `${branch} already exists @${exists.data.object.sha.slice(0, 12)}` });
   }
@@ -488,13 +502,6 @@ async function createWithFullHistory(tpl) {
     // fetches refs/pull/*, which GitHub refuses on push. GitHub's own
     // "duplicating a repository" is exactly these two commands.
     git(["clone", "--bare", "--quiet", gitRepoUrl(cfg.serverUrl, cfg.templateOwner, cfg.templateRepo), bare], work);
-    // A `submit/` tag is how a STUDENT declares a submission, and the collector
-    // reads one wherever it came from (collect/collect.mjs): copied from the
-    // template, every student would start with one, on time (review
-    // 2026-10-14). The template's other tags travel.
-    for (const ref of git(["for-each-ref", "--format=%(refname)", "refs/tags/submit/"], bare).split("\n").filter(Boolean)) {
-      git(["update-ref", "-d", ref], bare);
-    }
     // `--atomic`: every branch or none. A copy cut off halfway would be a
     // repository with SOME of the exercise in it, which a retry reuses as it
     // is; an empty one it removes and copies again (step 3).
@@ -897,7 +904,7 @@ async function main() {
   //    is deferred to `pxl-classroom feedback open` once student commits land.
   let baselineSha = "";
   if (cfg.feedbackPr && !cfg.dryRun && repo) {
-    baselineSha = (await setupFeedbackBaseline(repo)) || "";
+    baselineSha = (await setupFeedbackBaseline(repo, { copiedTemplateBranches: cfg.fullHistory && !alreadyExists })) || "";
   }
 
   // 7. What a repository copied with its history was given: its default

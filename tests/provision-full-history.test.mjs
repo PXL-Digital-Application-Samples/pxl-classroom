@@ -48,7 +48,7 @@ function makeServer() {
   git(["checkout", "-q", "-b", "bugfix"], work);
   commit(work, "app.py", "print('v2')\n", "Fix the bug");
   git(["checkout", "-q", "master"], work);
-  // How a STUDENT declares a submission: never copied (the collector reads one wherever it came from).
+  // A tag named like the removed submit tags: copied like any other now.
   git(["tag", "submit/2026-01-01T00-00-00Z-abc1234"], work);
   mkdirSync(join(srv, "Org"));
   git(["clone", "-q", "--bare", work, join(srv, "Org", "tpl.git")], srv);
@@ -147,6 +147,19 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         // As GitHub answers it: the file, and the commit that added it.
         return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: git(["rev-parse", "HEAD"], w) } });
       }
+      // The feedback baseline (setupFeedbackBaseline): read a ref, make one, protect it.
+      const ref = url.match(/^\/repos\/Org\/lab-ann\/git\/ref\/heads\/(.+)$/);
+      if (ref && req.method === "GET") {
+        const name = decodeURIComponent(ref[1]);
+        const sha = git(["for-each-ref", "--format=%(objectname)", `refs/heads/${name}`], repo);
+        return sha ? send(200, { object: { sha } }) : send(404, { message: "Not Found" });
+      }
+      if (url === "/repos/Org/lab-ann/git/refs" && req.method === "POST") {
+        const { ref: name, sha } = JSON.parse(body);
+        git(["update-ref", name, sha], repo);
+        return send(201, { ref: name, object: { sha } });
+      }
+      if (/^\/repos\/Org\/lab-ann\/branches\/[^/]+\/protection$/.test(url) && req.method === "PUT") return send(200, {});
       if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return send(204);
       if (url === "/repos/Org/tpl/generate") return send(500, { message: "generate must not be called" });
       return send(404, { message: "not stubbed: " + url });
@@ -160,7 +173,7 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
   }
 }
 
-function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null } = {}) {
+function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false", dryRun = false, assignment = null, feedbackPr = "false" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-"));
   // Provisioning reads the assignment from the control checkout for step 5.5.
   if (assignment) {
@@ -184,7 +197,7 @@ function provision(apiBase, srv, { fullHistory = "true", recreateEmpty = "false"
         STUDENT_LOGIN: "ann",
         STUDENT_PERMISSION: "push",
         DRY_RUN: dryRun ? "1" : "0",
-        FEEDBACK_PR: "false",
+        FEEDBACK_PR: feedbackPr,
         RECREATE_EMPTY: recreateEmpty,
         TEMPLATE_FULL_HISTORY: fullHistory,
         PXL_FILL_WAIT_CHECKS: "2",
@@ -207,7 +220,7 @@ const output = (outputs, name) => {
   const lines = outputs.split("\n").filter((l) => l.startsWith(`${name}=`));
   return lines.length ? lines[lines.length - 1].slice(name.length + 1) : undefined;
 };
-const tplRefs = (srv) => refs(join(srv, "Org", "tpl.git")).filter((l) => !l.startsWith("refs/pull/") && !l.startsWith("refs/tags/submit/"));
+const tplRefs = (srv) => refs(join(srv, "Org", "tpl.git")).filter((l) => !l.startsWith("refs/pull/"));
 
 test("every branch, tag and commit arrives with the same SHAs; GitHub's pull refs do not", async () => {
   const srv = makeServer();
@@ -279,14 +292,46 @@ test("our own empty leftover is removed and copied again; an existing repository
   }, { target: "has-commits" });
 });
 
-test("a submit/ tag in the template is not copied: it would be every student's declared submission", async () => {
+test("S2: the feedback baseline is made on the copy, and a template branch with its name is never adopted", async () => {
+  // Review 2026-10-14: the copy brings every template branch, and one named
+  // like the baseline was adopted and protected - blocking the exercise that
+  // needs it, and opening the template's own difference as every student's
+  // feedback PR. The publish preflight refuses such a template; this is the
+  // backstop for one changed after publishing.
+  const srv = makeServer();
+  await withApi(srv, async (api, calls) => {
+    const r = await provision(api, srv, { feedbackPr: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.ok(calls.some((c) => c.startsWith("POST /repos/Org/lab-ann/git/refs")), "made on the copy");
+    assert.ok(calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/branches/pxl-baseline/protection")), "and protected");
+  });
+
+  const tpl = makeServer();
+  const work = mkdtempSync(join(tmpdir(), "pxl-tplbase-"));
+  git(["clone", "-q", join(tpl, "Org", "tpl.git"), work], tpl);
+  git(["checkout", "-q", "-b", "pxl-baseline"], work);
+  commit(work, "notes.md", "the template's own\n", "A branch that happens to be called pxl-baseline");
+  git(["push", "-q", "origin", "pxl-baseline"], work);
+  const theirs = git(["rev-parse", "HEAD"], work);
+  await withApi(tpl, async (api, calls, repo) => {
+    const r = await provision(api, tpl, { feedbackPr: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.match(r.log, /the template has its own pxl-baseline branch/);
+    assert.ok(!calls.some((c) => c.includes("/branches/pxl-baseline/protection")), "not protected");
+    assert.equal(git(["rev-parse", "refs/heads/pxl-baseline"], repo), theirs, "left as the template has it");
+    assert.equal(output(r.outputs, "baseline_sha") || "", "", "no baseline recorded");
+  });
+});
+
+test("every tag of the template travels as it is: nothing reads a tag as a submission", async () => {
+  // Submit tags were removed (2026-10-14), so a `submit/` tag in a template is
+  // just a tag, and the exercise's own tags (`v1`) are part of what it gives.
   const srv = makeServer();
   await withApi(srv, async (api, calls, repo) => {
     const r = await provision(api, srv);
     assert.equal(r.status, 0, r.log);
-    assert.ok(refs(join(srv, "Org", "tpl.git")).some((l) => l.startsWith("refs/tags/submit/")), "the template has one");
-    assert.ok(!refs(repo).some((l) => l.startsWith("refs/tags/submit/")));
-    assert.ok(refs(repo).some((l) => l.startsWith("refs/tags/v1 ")), "the others travel");
+    assert.ok(refs(repo).some((l) => l.startsWith("refs/tags/v1 ")));
+    assert.ok(refs(repo).some((l) => l.startsWith("refs/tags/submit/")), "copied like any other");
   });
 });
 

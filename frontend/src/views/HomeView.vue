@@ -162,12 +162,6 @@
               <span>Deadline:</span> <strong>{{ formatDate(a.deadline_at, a.timezone) }}</strong>
             </p>
 
-            <!-- Tagged Submission Indicator -->
-            <div v-if="a.submitTag" class="submit-tag-row text-xs flex items-center gap-xs">
-              <Icon name="check-circle" :size="12" class="text-green" />
-              <span>Tagged submission: <code>{{ a.submitTag }}</code></span>
-            </div>
-
             <div class="card-actions flex items-center justify-between">
               <!-- No link back to the acceptance page: it is reached by
                    invitation token, which this card does not have, and a
@@ -411,7 +405,6 @@ async function loadStudentAssignments() {
           stateStatus: 'provisioned',
           timeRemainingStr,
           timeRemainingBadgeClass,
-          submitTag: null
         })
         continue
       }
@@ -430,7 +423,6 @@ async function loadStudentAssignments() {
           stateStatus: 'invited',
           timeRemainingStr,
           timeRemainingBadgeClass,
-          submitTag: null
         })
       }
     }
@@ -683,13 +675,6 @@ h1 {
 
 .deadline-row {
   margin-bottom: var(--space-xs);
-}
-
-.submit-tag-row {
-  background: var(--bg-tertiary);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  margin-top: var(--space-xs);
 }
 
 .text-accent {

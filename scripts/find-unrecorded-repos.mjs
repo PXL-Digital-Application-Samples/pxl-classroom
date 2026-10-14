@@ -24,7 +24,20 @@ import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
-import { generatedFrom, loginFromRepoName, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { copiedFrom, generatedFrom, lastPageFromLink, loginFromRepoName, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+
+/**
+ * A repository's root commit on its default branch: the last page of its
+ * commits at one per page. Null when it could not be read.
+ */
+async function rootCommit(owner, repo) {
+  const first = await gh("GET", `/repos/${owner}/${repo}/commits?per_page=1`);
+  if (!first.ok || !Array.isArray(first.data)) return null;
+  const last = lastPageFromLink(first.headers?.get?.("link"));
+  if (last === null) return first.data[0]?.sha ?? null;
+  const page = await gh("GET", `/repos/${owner}/${repo}/commits?per_page=1&page=${last}`);
+  return page.ok && Array.isArray(page.data) ? page.data[0]?.sha ?? null : null;
+}
 
 // One GET per candidate. A candidate is rare, so a cap this size is never the
 // reason something goes unreported in practice - and when it is, it says so.
@@ -94,9 +107,18 @@ async function main() {
   const byId = new Map(assignments.map((a) => [a.id, a]));
   const found = [];
   let unconfirmed = 0;
+  // A template's root commit, read once per template (null: unread).
+  const templateRoots = new Map();
   for (const c of candidates.slice(0, MAX_CONFIRMED)) {
     const a = byId.get(c.assignment_id);
-    const verdict = generatedFrom(await gh("GET", `/repos/${org}/${c.repo}`), a?.template);
+    let verdict = generatedFrom(await gh("GET", `/repos/${org}/${c.repo}`), a?.template);
+    // A full-history copy is pushed, so it names no template: asked by its
+    // root commit instead (lib/unrecorded-repos.mjs `copiedFrom`).
+    if (verdict === false && a?.template_full_history === true && a?.template?.owner && a?.template?.repository) {
+      const key = `${a.template.owner}/${a.template.repository}`;
+      if (!templateRoots.has(key)) templateRoots.set(key, await rootCommit(a.template.owner, a.template.repository));
+      verdict = copiedFrom(await rootCommit(org, c.repo), templateRoots.get(key));
+    }
     if (verdict === true) found.push({ ...c, login: loginFromRepoName(a.repository_name_pattern, c.repo) });
     else if (verdict === null) unconfirmed++;
   }

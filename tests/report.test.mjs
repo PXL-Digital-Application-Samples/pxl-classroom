@@ -806,52 +806,40 @@ test("a late count belongs to the commit it was counted at: a Refresh that saw a
   assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
 });
 
-test("a submit tag is judged by its commit's own time, not by when the collector saw it again after the deadline", async () => {
-  // Review 2026-10-14: every collect writes the tag again with observed_at =
-  // now, and the finalize's collect runs after the deadline - so a tag made
-  // before it read late, and every tagged student got a late notice.
-  const { snapshotObservation, taggedSubmissionObservation } = await import("../lib/observation.mjs");
-  const T = "a".repeat(40);
+test("a tagged-submission observation left in a control repo is ignored, not read as a snapshot", async () => {
+  // Submit tags were removed 2026-10-14. A file the collector wrote before
+  // that stays in observations/ and must change nothing: not the commit, not
+  // the date, not the status, and no tag field on the row.
+  const { snapshotObservation } = await import("../lib/observation.mjs");
   const H = "b".repeat(40);
-  const snap = (sha, observedAt, commitDate) => snapshotObservation({
-    assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
-    commit: { sha, commit: { message: "work", committer: { date: commitDate }, author: { name: "Tom" } } },
-    commitCount: 3, lateCommitCount: 0, observedAt, collectionType: "scheduled",
-  });
-  const tag = (observedAt, commitDate) => taggedSubmissionObservation({
-    assignmentId: "test-asgn", login: "tom", repoId: 7, observedAt,
-    submit: { tag: "submit/2026-09-10T15-30-00Z-aaaaaaa", declared_at: "2026-09-10T15:30:00Z", tagged_sha: T, commit_date: commitDate },
-  });
-  const run = (observations) => runReport({
+  const row = runReport({
     assignmentYaml: BASE_YAML,
     acceptances: [{ github_login: "tom", status: "provisioned" }],
     repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
-    observations: { tom: observations },
+    observations: {
+      tom: [
+        snapshotObservation({
+          assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
+          commit: { sha: H, commit: { message: "work", committer: { date: "2026-09-10T15:50:00Z" }, author: { name: "Tom" } } },
+          commitCount: 3, lateCommitCount: 0, observedAt: "2026-09-11T00:30:00.000Z", collectionType: "scheduled",
+        }),
+        {
+          schema_version: 1, type: "tagged-submission", assignment_id: "test-asgn", github_login: "tom", repo_id: 7,
+          observed_at: "2026-09-12T00:30:01.000Z", tag: "submit/2026-09-12T00-10-00Z-aaaaaaa",
+          declared_at: "2026-09-12T00:10:00Z", tagged_sha: "a".repeat(40), commit_date: "2026-09-12T00:09:00Z",
+        },
+      ],
+    },
   }).students.find((s) => s.github_login === "tom");
-
-  // Tagged at 15:30, a later commit at 15:50, deadline 23:59:59; the nightly
-  // and the finalize both see the tag again after the deadline.
-  const row = run([
-    snap(H, "2026-09-11T00:30:00.000Z", "2026-09-10T15:50:00Z"),
-    tag("2026-09-11T00:30:01.000Z", "2026-09-10T15:29:00Z"),
-    tag("2026-09-12T00:30:01.000Z", "2026-09-10T15:29:00Z"),
-  ]);
+  assert.equal(row.latest_observed_sha, H);
+  assert.equal(row.commit_date, "2026-09-10T15:50:00Z");
   assert.equal(row.submission_status, "on-time");
-  assert.equal(row.tagged_submission_sha, T);
-  assert.equal(row.warnings.includes("late-activity-detected"), false, "and so no late notice either");
-
-  // A tag on a commit made after the deadline is late.
-  const late = run([snap(H, "2026-09-11T00:30:00.000Z", "2026-09-10T15:50:00Z"), tag("2026-09-11T00:30:01.000Z", "2026-09-11T00:10:00Z")]);
-  assert.equal(late.submission_status, "late");
-
-  // An observation from before the field: judged by the FIRST time the tag was seen.
-  const old = run([
-    snap(H, "2026-09-10T20:00:00.000Z", "2026-09-10T15:50:00Z"),
-    { ...tag("2026-09-10T20:00:01.000Z", null), commit_date: undefined },
-    { ...tag("2026-09-12T00:30:01.000Z", null), commit_date: undefined },
-  ]);
-  assert.equal(old.submission_status, "on-time");
+  assert.equal(row.warnings.includes("late-activity-detected"), false, "the tag's late date is not activity");
+  for (const f of ["tagged_submission_tag", "tagged_submission_sha", "tagged_submission_declared_at", "tagged_submission_observed_at"]) {
+    assert.equal(f in row, false, `${f} is not written any more`);
+  }
 });
+
 
 // Under `open` the roster invites nobody, so its students are not this
 // assignment's population (PXL-Automation-II / 2627-pe-1-test-1, 2026-09-26:

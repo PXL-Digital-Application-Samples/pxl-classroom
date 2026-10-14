@@ -236,6 +236,27 @@ test("reseeds over an existing target team that has no members", () => {
   assert.deepEqual(p.teams.map((t) => t.team_slug), ["alpha", "beta"]);
 });
 
+test("S4: never overwrites a team everybody left that kept its repository", () => {
+  // Review 2026-10-14: that repository is somebody's work, and the seed's new
+  // file dropped the fields naming it.
+  const p = plan({ existingTeams: [{ team_slug: "alpha", team_name: "Alpha", members: [], vacant: true, repo_name: "org/linux-networking-2026-alpha", repo_id: 9 }] });
+  assert.deepEqual(p.teams.map((t) => t.team_slug), ["beta"]);
+  assert.equal(p.skipped.some((s) => s.team_slug === "alpha" && s.reason === "already-populated"), true);
+  assert.match(p.warnings.find((w) => w.code === "existing-team-kept").message, /with members or with a repository/);
+});
+
+test("S5: a renamed team's old name stays with it, and the seed says so", () => {
+  // Review 2026-10-14: a file at the old slug turned off acceptance's mapping
+  // of it to the renamed team, for every page loaded before the rename.
+  const p = plan({ existingTeams: [{ team_slug: "alpha-squad", team_name: "Alpha Squad", members: ["alice"], renamed_from: ["alpha"] }] });
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.teams.map((t) => t.team_slug), ["beta"]);
+  assert.equal(p.skipped.some((s) => s.team_slug === "alpha" && s.reason === "renamed-away"), true);
+  const warn = p.warnings.find((w) => w.code === "existing-team-kept");
+  assert.match(warn.message, /alpha \(now alpha-squad\)/);
+  assert.deepEqual(warn.logins, ["bob"], "alice is in the renamed team; bob is not placed, and named");
+});
+
 test("drops a member who already belongs to another team in the target", () => {
   const p = plan({
     existingTeams: [{ team_slug: "gamma", team_name: "Gamma", members: ["bob"] }],

@@ -20,7 +20,9 @@ import {
   listAcceptedLogins,
   CONTROL_REPO,
 } from "../lib/control-repo.mjs";
-import { planSeed, planUnseed, teamsFromRoster, seedCommitMessage } from "../../../lib/seed-teams.mjs";
+import { planSeed, planUnseed, teamsFromRoster, seedCommitMessage, seedSignature } from "../../../lib/seed-teams.mjs";
+import { contentsAt, seedRefusalAt, unseedRefusalAt } from "../../../lib/team-write-guard.mjs";
+import { decodeBase64 } from "../../../lib/grade-dispatch.mjs";
 import { HUB_OWNER, HUB_REPO_NAME } from "../../../lib/deployment.mjs";
 
 const HUB_OWNER_DEFAULT = HUB_OWNER;
@@ -161,14 +163,44 @@ export function registerTeamsCommand(program, context = {}) {
         }
       }
 
-      const result = await commitWithRebase(octokit, {
-        owner: org,
-        repo: CONTROL_REPO,
-        branch: "main",
-        message: seedCommitMessage(plan, { targetId: targetAssignment.id, sourceLabel }),
-        changes: plan.changes,
+      // PLANNED AGAIN NOW, and the write asked again of the commit it lands on
+      // (review 2026-10-14, S4): the plan above can wait at the prompt for as
+      // long as the lecturer takes, and a student who made or joined a team
+      // meanwhile was overwritten, or listed in two teams. The Teams tab's
+      // Copy teams does the same (SeedTeamsModal.vue).
+      const freshPlan = planSeed({
+        sourceTeams,
+        existingTeams: await listTeams(octokit, { org, assignmentId: targetAssignment.id }),
+        targetAssignment,
+        sourceAssignment,
+        roster,
+        now: new Date().toISOString(),
+        actor: "cli",
+        source: opts.fromRoster ? "roster" : "assignment",
       });
-      out(`\nCommitted ${result.commitSha} (${plan.changes.length} file(s)).\n`);
+      if (!freshPlan.ok || seedSignature(freshPlan) !== seedSignature(plan)) {
+        process.stderr.write(`\nThe teams in ${targetAssignment.id} changed while this waited. Nothing was written; run it again to see the new plan.\n`);
+        process.exitCode = 1;
+        return;
+      }
+      let result;
+      try {
+        result = await commitWithRebase(octokit, {
+          owner: org,
+          repo: CONTROL_REPO,
+          branch: "main",
+          message: seedCommitMessage(freshPlan, { targetId: targetAssignment.id, sourceLabel }),
+          changes: freshPlan.changes,
+          precondition: ({ request, parentSha }) => seedRefusalAt({
+            get: contentsAt(request, parentSha, org, CONTROL_REPO), decode: decodeBase64, assignmentId: targetAssignment.id, teams: freshPlan.teams,
+          }),
+        });
+      } catch (e) {
+        process.stderr.write(`\nNothing was written: ${e.message}. Run it again to see the new plan.\n`);
+        process.exitCode = 1;
+        return;
+      }
+      out(`\nCommitted ${result.commitSha} (${freshPlan.changes.length} file(s)).\n`);
 
       if (opts.publish === false) {
         out(`Skipped dashboard regeneration - students will not see these teams until it runs.\n`);
@@ -254,13 +286,28 @@ export function registerTeamsCommand(program, context = {}) {
         }
       }
 
-      const result = await commitWithRebase(octokit, {
-        owner: org,
-        repo: CONTROL_REPO,
-        branch: "main",
-        message: `Remove ${plan.removable.length} seeded team(s) from ${assignmentId}`,
-        changes: plan.changes,
-      });
+      // Asked again of the commit it lands on, as the Teams tab's Undo copy is
+      // (lib/team-write-guard.mjs `unseedRefusalAt`, review 2026-10-14, S3):
+      // a member who accepted while this waited at the prompt kept an
+      // acceptance naming a team file this deleted. It also asks
+      // repositories/, which the plan above did not.
+      let result;
+      try {
+        result = await commitWithRebase(octokit, {
+          owner: org,
+          repo: CONTROL_REPO,
+          branch: "main",
+          message: `Remove ${plan.removable.length} seeded team(s) from ${assignmentId}`,
+          changes: plan.changes,
+          precondition: ({ request, parentSha }) => unseedRefusalAt({
+            get: contentsAt(request, parentSha, org, CONTROL_REPO), decode: decodeBase64, assignmentId, teams: plan.removable,
+          }),
+        });
+      } catch (e) {
+        process.stderr.write(`\nNothing was removed: ${e.message}. Run it again to see what can still be removed.\n`);
+        process.exitCode = 1;
+        return;
+      }
       out(`\nCommitted ${result.commitSha} (${plan.changes.length} file(s) removed).\n`);
 
       if (opts.publish === false) return;

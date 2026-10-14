@@ -607,7 +607,6 @@ Editing an existing assignment is checked for one thing only: repointing its pat
 | Turn the students who actually accepted into a roster | §6.5 |
 | See or undo a claim binding | §6.6, §6.7 |
 | Check an organization's install is healthy | §6.8 |
-| Work with `submit/` tags | §6.9 |
 | Open or review the Feedback PRs | §6.10 |
 | Download every submission in bulk | §6.11 |
 | Set up or read autograding | §6.12 |
@@ -927,15 +926,9 @@ Exit codes: `0` clean, `1` warnings, `2` failures. The check engine lives in `li
 
 If `app-permissions match manifest` reports drift, re-approve the App in the org -> Settings -> GitHub Apps -> PXL Classroom Provisioner -> Configure. The expected permissions are the canonical `EXPECTED_APP_PERMISSIONS` in `lib/audit.mjs`, which `SetupView.vue` also imports - there is only one source of truth.
 
-### 6.9 Tagged submissions
+### 6.9 Tagged submissions (removed)
 
-`collect/` lists `refs/tags/submit/*` on each student repo in addition to the default-branch snapshot. When a matching tag is found, a `tagged-submission` observation is written alongside the snapshot, and `report.mjs` prefers the tagged SHA for classification.
-
-The command students run is in the control repo's README (`control-repo-template/README.md`, *Optional: tagged submissions*), ready to copy into course materials. Its time is written with dashes (`T14-05-00Z`), because git refuses a colon in a tag name.
-
-The system never requires the tag - untagged submissions still land via the snapshot path. The timestamp inside the tag name is `declared_at` (observed-not-authoritative); the `observed_at` written by `collect/` is the time the hub saw the tag and is what classification uses.
-
-The lecturer dashboard's **Submit tag** column on `AssignmentDetailView` shows the latest tag per student, and the student `AssignmentView` shows a "Submission tagged at …" banner once `collect/` has seen the tag.
+There are none. A tag a student pushes is an ordinary git tag: nothing collects it, shows it or grades it. What is collected, locked, archived and graded is the default branch at the deadline. To let a student say which commit is their hand-in, use a hand-in marker (§6.12, **A hand-in limit, and one student who may hand in more**).
 
 ### 6.10 Feedback PRs
 
@@ -944,7 +937,7 @@ Enable `feedback_pr: true` on the assignment (the assignment form's **Grading** 
 Open the actual draft PRs lazily - at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
 
 **Option A: Web UI (1-Click):**
-Navigate to the assignment's `AssignmentDetailView` in the SPA. Click the **Open Feedback PRs** button in the action bar. The web app iterates all student repositories with pushed commits and opens draft pull requests (`main` -> `pxl-baseline`), committing record updates to the control repo and displaying PR links immediately.
+Navigate to the assignment's `AssignmentDetailView` in the SPA. Click the **Open Feedback PRs** button in the action bar. The web app takes every student the report shows as started (On time or Late) and opens draft pull requests (the submission branch, usually `main`, -> `pxl-baseline`), committing record updates to the control repo and displaying PR links immediately. A student with nothing past the baseline yet is counted as not started, not as a failure.
 
 **Option B: CLI Companion:**
 
@@ -960,7 +953,7 @@ The operation is idempotent - re-runs skip students whose record already has `fe
 
 `feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 
-Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing - the PR head tracks `main`. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
+Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing - the PR head tracks the submission branch. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
 
 ### 6.11 Bulk Submission Download & Preservation Status
 

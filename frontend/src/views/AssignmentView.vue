@@ -351,19 +351,6 @@
               </div>
             </div>
 
-            <!-- Tagged-submission indicator. Shown only when a tag exists: tagging is
-                 optional (ARCHITECTURE.md §11.1a) and an untagged repo is not a gap. -->
-            <div v-if="latestSubmitTag" class="submit-tag-banner" role="status">
-              <svg class="submit-tag-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-                <circle cx="7" cy="7" r="1"/>
-              </svg>
-              <div>
-                <strong>Submission tagged</strong>
-                <div class="text-muted submit-tag-name"><code>{{ latestSubmitTag.tag }}</code></div>
-                <div class="text-muted">The tagged commit is graded instead of the tip of your default branch.</div>
-              </div>
-            </div>
           </div>
 
           <!-- Invitation pending -->
@@ -588,7 +575,6 @@ import { assignmentStateLabel } from '../lib/status-labels.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { overridePath } from '../../../lib/control-layout.mjs'
-import { latestSubmitTag as latestSubmitTagOf } from '../../../lib/submit-tag.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
@@ -756,10 +742,6 @@ async function checkRosterStatus() {
     rosterStatus.value = 'enrolled'
   }
 }
-
-// Latest submit/ tag observed on the student's repo. Parsed from the GitHub
-// matching-refs response. null when no tag exists.
-const latestSubmitTag = ref(null)
 
 // Device flow
 
@@ -949,25 +931,6 @@ async function loadAssignment(isRetry = false) {
   }
 }
 
-// Look up the latest refs/tags/submit/* tag on the student's repo, through the
-// collector's own rule (lib/submit-tag.mjs). Silent on failure - the banner
-// just renders the "no tag yet" hint.
-async function refreshSubmitTag(org, repoName) {
-  const token = getToken()
-  if (!token) return
-  try {
-    const res = await ghApi(token, 'GET', `/repos/${org}/${repoName}/git/matching-refs/tags/submit/?per_page=100`)
-    if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) {
-      latestSubmitTag.value = null
-      return
-    }
-    const latest = latestSubmitTagOf(res.data)
-    latestSubmitTag.value = latest ? { tag: latest.tag, declared_at: latest.declared_at } : null
-  } catch (e) {
-    console.error('Failed to fetch submit tag:', e)
-  }
-}
-
 const studentLatestCommit = ref(null)
 const studentOverride = ref(null)
 
@@ -1038,7 +1001,6 @@ async function checkExistingState() {
     repoUrl.value = repo.data.html_url
     repoFullName.value = repo.data.full_name
     acceptState.value = 'provisioned'
-    await refreshSubmitTag(org, expectedName)
     await refreshStudentSubmissionMeta(org, expectedName)
     return
   }
@@ -1366,7 +1328,6 @@ function startPolling() {
       repoUrl.value = repo.data.html_url
       repoFullName.value = repo.data.full_name
       acceptState.value = 'provisioned'
-      await refreshSubmitTag(org, expectedName)
       return
     }
 
@@ -1483,11 +1444,9 @@ function startPolling() {
 async function handleAcceptInvitation() {
   if (!pendingInvitation.value) return
   const token = getToken()
-  const repoName = pendingInvitation.value.repository?.name
   const result = await acceptInvitation(token, pendingInvitation.value.id)
   if (result.ok) {
     acceptState.value = 'provisioned'
-    if (repoName) await refreshSubmitTag(props.org, repoName)
   } else {
     toast.error(
       `Could not accept the invitation (HTTP ${result.status}). ` +
@@ -1720,27 +1679,6 @@ main {
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
-}
-
-.submit-tag-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
-  background: var(--bg-tertiary);
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--accent-green);
-  text-align: left;
-  width: 100%;
-}
-.submit-tag-icon {
-  color: var(--accent-green);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.submit-tag-name code {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
 }
 
 

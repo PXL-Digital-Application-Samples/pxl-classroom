@@ -182,7 +182,9 @@ import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import HelpButton from './HelpButton.vue'
-import { planSeed, teamsFromRoster, seedCommitMessage } from '../../../lib/seed-teams.mjs'
+import { planSeed, teamsFromRoster, seedCommitMessage, seedSignature } from '../../../lib/seed-teams.mjs'
+import { contentsAt, seedRefusalAt } from '../../../lib/team-write-guard.mjs'
+import { decodeBase64 } from '../../../lib/grade-dispatch.mjs'
 import { parse as parseYaml } from 'yaml'
 
 const props = defineProps({
@@ -388,13 +390,6 @@ async function computePlan() {
   }
 }
 
-/** What the plan will actually do, ignoring timestamps. */
-function planSignature(p) {
-  return (p?.teams || [])
-    .map((t) => `${t.team_slug}:${[...t.members].sort().join(',')}`)
-    .join('|')
-}
-
 async function apply() {
   if (!canApply.value) return
   applying.value = true
@@ -408,7 +403,7 @@ async function apply() {
     // either overwrite their team or list them in two teams at once. Re-plan and
     // show the difference rather than guessing which one the lecturer meant.
     const fresh = await computePlan()
-    if (!fresh.ok || fresh.teams.length === 0 || planSignature(fresh) !== planSignature(plan.value)) {
+    if (!fresh.ok || fresh.teams.length === 0 || seedSignature(fresh) !== seedSignature(plan.value)) {
       plan.value = fresh
       toast.warn('The teams changed while you were reviewing. Check the updated plan and apply again.')
       return
@@ -419,10 +414,20 @@ async function apply() {
       props.org,
       config.controlRepo,
       fresh.changes,
-      seedCommitMessage(fresh, { targetId: props.assignment.id, sourceLabel })
+      seedCommitMessage(fresh, { targetId: props.assignment.id, sourceLabel }),
+      // Asked again of the commit it lands on: a student who made or joined a
+      // team between the plan and the write (lib/team-write-guard.mjs).
+      {
+        precondition: ({ request, parentSha }) => seedRefusalAt({
+          get: contentsAt(request, parentSha, props.org, config.controlRepo),
+          decode: decodeBase64,
+          assignmentId: props.assignment.id,
+          teams: fresh.teams,
+        }),
+      },
     )
     if (!res.ok) {
-      toast.error(`Could not write the teams: ${res.error}`)
+      toast.error(`Could not write the teams: ${res.error}. Nothing was written; open Copy teams again for the new plan.`)
       return
     }
 

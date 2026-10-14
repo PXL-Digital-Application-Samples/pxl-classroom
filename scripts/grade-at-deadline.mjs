@@ -35,7 +35,7 @@ import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { gradeCohort } from "../lib/grade-cohort.mjs";
+import { gradeCohort, keepStoredOnFailedReads } from "../lib/grade-cohort.mjs";
 import { buildGradingSummary } from "../lib/grading-summary.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../lib/submission-marker.mjs";
 import { gradesInCi } from "../lib/autograde-source.mjs";
@@ -174,6 +174,9 @@ async function main() {
     return;
   }
 
+  // A student whose read failed keeps the row this job wrote last time
+  // (lib/grade-cohort.mjs `keepStoredOnFailedReads`, review 2026-10-14).
+  const rows = keepStoredOnFailedReads({ stored: existing, graded: res.graded, failed: res.failed, failedReads: res.failedReads });
   const doc = buildGradingSummary({
     assignmentId: cfg.assignmentId,
     // NULL, and the schema says so: "the session had no user on hand". This is
@@ -181,8 +184,8 @@ async function main() {
     // would make the nightly refuse to replace its own work.
     gradedBy: null,
     runner: "github_actions",
-    students: res.graded,
-    failed: res.failed,
+    students: rows.graded,
+    failed: rows.failed,
   });
 
   const { valid, errors } = validateAgainst("grading-summary", doc);
@@ -201,6 +204,7 @@ async function main() {
       (existing ? " (replacing this job's own earlier reading)" : ""),
   );
   for (const f of res.failed.slice(0, 20)) console.log(`       ${f.login}: ${f.reason}`);
+  for (const login of rows.kept) console.log(`       ${login}: could not be read - their earlier result is kept`);
   // Never silent: every hand-in the cap or the deadline left out, by name.
   for (const row of [...res.graded, ...res.failed]) {
     for (const item of row.hand_ins?.ignored || []) {

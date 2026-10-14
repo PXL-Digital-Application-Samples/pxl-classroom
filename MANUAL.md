@@ -151,7 +151,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 
 Normally each student gets the template's default branch as one fresh commit, with no history. Tick **Give students every branch and its full history**, under **Advanced**, for an exercise built on the history itself, such as prepared branches to merge, rebase or repair. While it is on, a line under the template says so.
 
-- Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other. A `submit/` tag is the one thing not copied: it would read as every student's submission.
+- Each student repository gets every branch, tag and commit of the template. The branches share their history, so they merge into each other.
 - Students can read everything ever committed to the template. Do not commit a solution to it, not even one you remove later.
 - A student shows as **No submission** until their default branch moves on from the commit they were given. The commit count leaves out the commits they were given, so a prepared branch they merge in counts its commits too.
 - Choose **Pushing stops** at the deadline. A prepared branch merged in without a merge commit keeps the template's own dates, so without the lock it can read as on time when it was not.

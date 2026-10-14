@@ -21,7 +21,7 @@ import { requireToken } from "../lib/auth.mjs";
 import { runDocker } from "../lib/runner-docker.mjs";
 import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { CONTROL_REPO, getAssignment, getGradingSummary, getReport, listOverrides } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, getGradingSummary, getReport, listOverrides, unchangedSince } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { parseCheckRunScore, pickAutogradeCheckRun, unscoredRun } from "../../../lib/check-run-score.mjs";
 // The shape of grading/<id>/summary.json, shared with the Admin Panel.
@@ -35,7 +35,7 @@ import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mj
 import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
 import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, archiveGradeQueue, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { normalizeLogin, sameLogin } from "../../../lib/github-login.mjs";
@@ -546,10 +546,14 @@ export function registerGradeCommand(program) {
         // other score in the assignment - and on the Grading tab, where every
         // student is a row, they all turned "Not read yet". Merged against the
         // version read, and refused if another writer changed it meanwhile.
-        const stored = opts.login ? await getGradingSummary(octokit, { org, assignmentId: opts.assignment }) : null;
+        // A whole-cohort run reads it too: a student whose read failed keeps
+        // the row on record (lib/grade-cohort.mjs `keepStoredOnFailedReads`,
+        // review 2026-10-14), as the page and the nightly do.
+        const stored = await getGradingSummary(octokit, { org, assignmentId: opts.assignment });
+        const kept = opts.login ? null : keepStoredOnFailedReads({ stored: stored?.doc ?? null, graded: summary.graded, failed: summary.failed, failedReads });
         const merged = opts.login
           ? mergeOneStudentRead({ stored: stored?.doc ?? null, read: summary, logins: queue.map((s) => s.github_login), failedReads })
-          : { students: summary.graded, failed: summary.failed, unchanged: [] };
+          : { students: kept.graded, failed: kept.failed, unchanged: kept.kept };
         for (const login of merged.unchanged) {
           process.stdout.write(`  = ${login}: nothing new was read, so the result on record is unchanged\n`);
         }
@@ -591,19 +595,10 @@ export function registerGradeCommand(program) {
             path: summaryFile,
             content: JSON.stringify(summaryDoc, null, 2) + "\n",
           }],
-          // Only for one student: a whole-cohort run replaces the file by design.
-          ...(opts.login
-            ? {
-                precondition: async ({ request, parentSha }) => {
-                  let sha = null;
-                  try {
-                    sha = (await request(`GET /repos/{owner}/{repo}/contents/${summaryFile}`, { owner: org, repo: CONTROL_REPO, ref: parentSha })).data?.sha ?? null;
-                  } catch (e) {
-                    if (e?.status !== 404) throw e;
-                  }
-                  return sha === (stored?.sha ?? null) ? null : "the grading summary was changed by someone else while this ran; run it again";
-                },
-              }
+          // Every run that kept a row from the version it read: a whole-cohort
+          // run that kept nothing replaces the file by design.
+          ...(opts.login || merged.unchanged.length
+            ? { precondition: unchangedSince(org, summaryFile, stored?.sha ?? null, "the grading summary was changed by someone else while this ran; run it again") }
             : {}),
         });
       }

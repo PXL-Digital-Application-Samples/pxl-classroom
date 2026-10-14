@@ -221,7 +221,7 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
 
     await expect(page.locator('.seed-banner-warn')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.seed-banner-warn')).toContainText('already exist with members');
+    await expect(page.locator('.seed-banner-warn')).toContainText('already exist, with members or with a repository');
     // Only beta is planned; alpha belongs to the students who formed it.
     await expect(page.locator('.seed-preview-row')).toHaveCount(1);
     await expect(page.locator('.seed-preview-row')).toContainText('Beta Team');

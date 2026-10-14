@@ -37,17 +37,51 @@ export async function getAssignment(octokit, { org, assignmentId }) {
  * The grading summary on record and its blob sha, or null when there is none.
  * A read that fails for any other reason throws: a summary that could not be
  * read is not "nobody has a score".
+ *
+ * Read at the branch head's COMMIT, not the branch name: a read by name can be
+ * a moment old, and the write's precondition compares the version read with
+ * the one at the commit it lands on, so a stale read refused "changed by
+ * someone else" when nothing had changed (review 2026-10-14, G13b).
  */
 export async function getGradingSummary(octokit, { org, assignmentId }) {
+  return readJsonAtHead(octokit, { org, path: gradingSummaryPath(assignmentId) });
+}
+
+/**
+ * A JSON document in the control repository as it is at the branch head's
+ * commit, with its blob sha, or null when there is none. For a write decided
+ * from it: read just before, and the write's precondition compares that sha
+ * with the one at the commit it lands on.
+ */
+export async function readJsonAtHead(octokit, { org, path }) {
+  const head = await octokit.request("GET /repos/{owner}/{repo}/git/ref/{ref}", { owner: org, repo: CONTROL_REPO, ref: "heads/main" });
+  const ref = head.data?.object?.sha;
+  if (typeof ref !== "string" || !ref) throw new Error(`could not read the head of ${org}/${CONTROL_REPO}`);
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: gradingSummaryPath(assignmentId),
+      owner: org, repo: CONTROL_REPO, path, ref,
     });
     return { doc: JSON.parse(Buffer.from(res.data.content, "base64").toString("utf8")), sha: res.data.sha };
   } catch (e) {
     if (e.status === 404) return null;
     throw e;
   }
+}
+
+/**
+ * A `commitWithRebase` precondition: the file at the parent commit is still the
+ * version `sha` names (null: still absent). Refuses with `reason` otherwise.
+ */
+export function unchangedSince(org, path, sha, reason) {
+  return async ({ request, parentSha }) => {
+    let at = null;
+    try {
+      at = (await request(`GET /repos/{owner}/{repo}/contents/${path}`, { owner: org, repo: CONTROL_REPO, ref: parentSha })).data?.sha ?? null;
+    } catch (e) {
+      if (e?.status !== 404) throw e;
+    }
+    return at === (sha ?? null) ? null : reason;
+  };
 }
 
 export async function getReport(octokit, { org, assignmentId }) {

@@ -482,11 +482,17 @@
             </span>
           </div>
 
-          <div v-if="slugListed" class="alert-warn" role="alert">
+          <div v-if="newTeamNameProblem" class="alert-warn" role="alert" data-team-name-problem>
+            {{ newTeamNameProblem }}
+          </div>
+          <div v-else-if="slugListed" class="alert-warn" role="alert">
             A team with slug "<strong>{{ computedSlug }}</strong>" already exists. Please pick a different name or join that team.
           </div>
           <div v-else-if="slugTaken" class="alert-warn" role="alert" data-slug-taken>
             A team called <strong>{{ computedSlug }}</strong> exists. Pick another name.
+          </div>
+          <div v-else-if="slugRenamedTo" class="alert-warn" role="alert" data-slug-renamed>
+            <strong>{{ computedSlug }}</strong> was the name of the team now called <strong>{{ slugRenamedTo }}</strong>. Pick another name, or join that team.
           </div>
 
           <p v-if="takenRejoinCode" class="form-hint" data-rejoin-hint>
@@ -499,7 +505,7 @@
           <button
             type="submit"
             class="btn btn-primary btn-lg"
-            :disabled="!computedSlug || slugConflict || accepting || claimBlocked || codesBlocked"
+            :disabled="!computedSlug || slugConflict || !!newTeamNameProblem || accepting || claimBlocked || codesBlocked"
           >
             <span v-if="accepting">Creating…</span>
             <span v-else>Create & Join Team</span>
@@ -544,6 +550,7 @@ import {
 import {
   teamsFromBrokerIssues,
   attemptYields,
+  attemptTeamSlug,
   ownAcceptanceIssue,
   RECENT_ATTEMPT_MS as SHARED_RECENT_ATTEMPT_MS,
 } from '../lib/broker-teams.js'
@@ -563,6 +570,7 @@ import { overridePath } from '../../../lib/control-layout.mjs'
 import { maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
+import { teamNameProblem } from '../../../lib/public-text.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -695,7 +703,22 @@ const slugTaken = computed(() => {
   const slug = computedSlug.value.toLowerCase()
   return !!slug && takenTeams.value.some((t) => t.team_slug === slug) && !takenRejoinCode.value
 })
-const slugConflict = computed(() => slugListed.value || slugTaken.value)
+// Old slug -> the team it is now, from the published file (`renamed_from`).
+const renamedTo = ref(new Map())
+// A NAME A RENAMED TEAM HAD. It stays with that team: its members' pages
+// loaded before the rename still send it, and the hub refuses a new team under
+// it (`rejected:team-name-renamed`, review 2026-10-14). The team it is now.
+const slugRenamedTo = computed(() => {
+  const slug = computedSlug.value.toLowerCase()
+  if (!slug || slugListed.value) return null
+  const now = renamedTo.value.get(slug)
+  return now ? (teams.value.find((t) => t.team_slug.toLowerCase() === now)?.team_name || now) : null
+})
+const slugConflict = computed(() => slugListed.value || slugTaken.value || !!slugRenamedTo.value)
+// The name is published on this page for everyone holding the invitation
+// (lib/public-text.mjs): an address in it failed the site's deploy for every
+// organization (review 2026-10-14).
+const newTeamNameProblem = computed(() => teamNameProblem(newTeamName.value))
 
 const filteredTeams = computed(() => {
   const q = teamSearchQuery.value.toLowerCase().trim()
@@ -1115,17 +1138,24 @@ async function loadTeams() {
         // Move among them (attemptYields).
         const placed = row.members.some((m) => publishedPlaced.has(String(m).toLowerCase()))
         if (attemptYields(row, { generatedAt: publishedAt, placed })) continue
+        // AN ATTEMPT NAMING A RENAMED TEAM'S OLD SLUG is that team (review
+        // 2026-10-14): the hub took it so (acceptance/accept.mjs), and read
+        // literally it moved the student out of the renamed team into a
+        // phantom old-name one - so the page waited on a repository that never
+        // comes, and `followRename` found them in no renamed team to follow.
+        const asked = row.team_slug.toLowerCase().trim()
+        const slug = attemptTeamSlug(asked, renamedTo.value, teamsMap)
         // Their newest attempt is where they are going: out of every other
         // team, the published one included, which trails it.
-        for (const [slug, team] of teamsMap) {
-          if (slug === row.team_slug.toLowerCase().trim()) continue
+        for (const [other, team] of teamsMap) {
+          if (other === slug) continue
           const left = team.members.filter((m) => !row.members.some((x) => x.toLowerCase() === m.toLowerCase()))
           if (left.length === team.members.length) continue
           team.members = left
           team.member_count = left.length
           team.is_full = left.length >= team.max_members
         }
-        upsertTeam(row.team_slug, row.team_name, row.members)
+        upsertTeam(slug, slug === asked ? row.team_name : teamsMap.get(slug)?.team_name, row.members)
       }
     }
   } catch (e) {
@@ -1299,7 +1329,7 @@ async function confirmJoinTeam(team) {
 }
 
 async function submitCreateTeam() {
-  if (!computedSlug.value || slugConflict.value) return
+  if (!computedSlug.value || slugConflict.value || newTeamNameProblem.value) return
   targetTeamName.value = newTeamName.value
   // Made here, so the creator can be shown it at once: nothing a student can
   // read holds it anywhere else (lib/team-join-code.mjs). A former member
@@ -1409,9 +1439,6 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = 
     accepting.value = false
   }
 }
-
-// Old slug -> the team it is now, from the published file (`renamed_from`).
-const renamedTo = ref(new Map())
 
 /**
  * A page loaded before the lecturer renamed the team sent its OLD slug, and

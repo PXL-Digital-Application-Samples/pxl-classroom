@@ -54,6 +54,16 @@ test('the page follows the rename to the repository the hub made, instead of wai
   await expect(join).toBeVisible({ timeout: 15000 });
   // The lecturer renames the team; the published file catches up.
   teams[ID] = [after];
+  // And the student's OWN attempt is on the broker now, under the OLD slug -
+  // the case the first version of this fix missed: read literally, it moved
+  // the student out of the renamed team into a phantom old-name one.
+  await page.route(`**/repos/${ORG}/broker-${ID}/issues?**`, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify([{
+      number: 1, title: `pxl-accept:token team:team-alpha`, user: { login: STUDENT_1.login },
+      created_at: new Date().toISOString(), labels: [{ name: INVITED_LABEL }],
+    }]),
+  }));
   await join.click();
 
   await expect(page.getByRole('heading', { name: 'Your team repository is ready!' })).toBeVisible({ timeout: 45000 });

@@ -17,14 +17,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { isSubmissionLockName, listRulesets } from "../lib/submission-lock.mjs";
-import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, manifestRepoName, normalizeExistingRepoPolicy, ownDecisionMadeTeamRepo, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
+import { existingRepoVerdict, frozenFromRulesets, leftoverOfOwnAttempt, manifestRepoName, normalizeExistingRepoPolicy, ownDecisionMadeTeamRepo, retriedOwnRepo, teamManifestNamesRepo, teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
 import { normalizeRosterMode, rosterGatesAcceptance, claimRequired } from "../lib/roster-mode.mjs";
 import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
-import { lockdownRecordPath } from "../lib/control-layout.mjs";
+import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
+import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
 import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
@@ -922,8 +923,13 @@ async function main() {
         // THE STUDENT WAS ON TIME; GITHUB WAS NOT. A request made before the
         // deadline whose run started after it is decided as of the request,
         // for an hour and only until the deadline's lock has run - after that
-        // a new repository would be one nothing locks or archives.
-        const lockRan = existsSync(join(dataDir, lockdownRecordPath(assignmentId)));
+        // a new repository would be one nothing locks or archives. The
+        // Deadline Sentinel's stop IS that lock, and it writes no lockdown
+        // record: it locked the repositories it knew at the instant, so one
+        // made after it was in no lock until a finalize happened to see its
+        // record (review 2026-10-14). A stop that may have held counts.
+        const lockRan = existsSync(join(dataDir, lockdownRecordPath(assignmentId))) ||
+          sentinelStoppedAt(await sentinelTimelines(join(dataDir, lockdownsDir(assignmentId)))) !== null;
         if (actedInTime({ deadline, now, actedAt, lockRan })) {
           log("window", {
             ok: true,
@@ -1412,6 +1418,19 @@ async function main() {
       if (assignment.group_config?.allow_team_creation === false) {
         await reject("rejected:team-creation-disabled", "creating new teams is disabled for this assignment");
       }
+      // A RENAMED TEAM'S OLD NAME STAYS WITH IT (review 2026-10-14, T5b). Its
+      // members' pages loaded before the rename still send it, and the mapping
+      // above takes it as the renamed team only while no file holds the old
+      // slug: a new team there, made by anyone else, switched those members
+      // into it (self-service) or refused them (pre-assigned). The member case
+      // was mapped above, so a create that reaches here is not a member's.
+      const renamedTo = await renamedTeamHolding(teamsDir, teamSlug);
+      if (renamedTo) {
+        await reject(
+          "rejected:team-name-renamed",
+          `"${teamSlug}" is the old name of the team now called "${renamedTo}"; a new team cannot take it`,
+        );
+      }
       // The code the creator's page made and showed them. Fails closed: a team
       // created without one under require_join_code would be open to anyone,
       // which is what the setting exists to stop - so a stale page, or a
@@ -1537,7 +1556,8 @@ async function main() {
   // repository is ours:
   //
   //   * A student who has accepted before left through the `already-accepted`
-  //     branch above and never reaches this.
+  //     branch above and never reaches this - except on a lecturer's Retry,
+  //     which set their record aside and is answered from that copy below.
   //   * A group repository is one object shared by the team, so it exists for
   //     everyone after the first member - which is the assignment working.
   //
@@ -1586,6 +1606,24 @@ async function main() {
       // authority anyway.
     }
   }
+  // A lecturer's Retry set the student's record aside (reserve.mjs), so the
+  // `already-accepted` branch above did not run: whether a repository at this
+  // name is the one the attempt being redone made is read from that copy
+  // (lib/existing-repo.mjs `retriedOwnRepo`, review 2026-10-14). Still asked of
+  // GitHub, because a frozen one is refused whoever made it.
+  let retriedOwn = false;
+  const setAsideFile = env("PRIOR_ACCEPTANCE_FILE", "");
+  if (!existsSync(acceptFile) && setAsideFile && existsSync(setAsideFile)) {
+    try {
+      retriedOwn = retriedOwnRepo(JSON.parse(await readFile(setAsideFile, "utf-8")), {
+        isGroup,
+        teamSlug,
+        policy: normalizeExistingRepoPolicy(assignment.existing_repo_policy, { assignmentType: assignment.assignment_type }),
+      });
+    } catch {
+      retriedOwn = false;
+    }
+  }
   if (!ownGroupRepo) {
     const probe = await gh("GET", `/repos/${org}/${targetRepo}`);
     // `exists` is deliberately a tri-state: 404 is an answer, 200 is an answer,
@@ -1620,6 +1658,7 @@ async function main() {
       // previous assignment's `team-a` produces the same name, and its members
       // were different people.
       assignmentType: assignment.assignment_type,
+      ours: retriedOwn,
     });
     log("existing-repo", { ok: verdict.reject === null, note: `${targetRepo} ${verdict.note}` });
     if (verdict.reject) await reject(verdict.reject, `${org}/${targetRepo} ${verdict.note}`);
@@ -1752,6 +1791,40 @@ async function main() {
 // True when nobody in this team has an acceptance record yet - i.e. this
 // acceptance is the one that brings the team into existence, and the one
 // provisioning will create the repository for.
+// The team (its slug) whose `renamed_from` holds this slug, or null. An
+// unreadable manifest is skipped: it is not evidence of a rename.
+async function renamedTeamHolding(teamsDir, slug) {
+  const want = String(slug || "").toLowerCase();
+  if (!want) return null;
+  for (const name of (await readdir(teamsDir).catch(() => [])).filter((n) => n.endsWith(".json"))) {
+    try {
+      const doc = JSON.parse(await readFile(join(teamsDir, name), "utf-8"));
+      if (Array.isArray(doc?.renamed_from) && doc.renamed_from.some((s) => String(s).toLowerCase() === want)) {
+        return doc.team_slug || name.slice(0, -5);
+      }
+    } catch {
+      // Unreadable: skipped.
+    }
+  }
+  return null;
+}
+
+// The Deadline Sentinel's timelines for this assignment (`sentinel-*.json`
+// beside the lockdown record), for `sentinelStoppedAt`. An unreadable one is
+// left out, as lockdown leaves it out.
+async function sentinelTimelines(dir) {
+  const names = await readdir(dir).catch(() => []);
+  const docs = [];
+  for (const name of names.filter((n) => /^sentinel-.*\.json$/.test(n))) {
+    try {
+      docs.push(JSON.parse(await readFile(join(dir, name), "utf-8")));
+    } catch {
+      // Unreadable: not evidence of a stop.
+    }
+  }
+  return docs;
+}
+
 async function isFirstAcceptanceInTeam(dataDir, assignmentId, members, login) {
   const acceptDir = join(dataDir, "acceptances", assignmentId);
   if (!existsSync(acceptDir)) return true;

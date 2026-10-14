@@ -20,7 +20,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
-import { findPublicTextViolation, publicTextMessage, PUBLIC_TEXT_RULES } from "../lib/public-text.mjs";
+import { findPublicTextViolation, publicTextMessage, PUBLIC_TEXT_RULES, publishedTeamName, teamNameProblem } from "../lib/public-text.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -202,4 +202,20 @@ test("a clean assignment still generates", () => {
   });
   const out = JSON.parse(readFileSync(join(dir, "public", "assignments.json"), "utf8"));
   assert.ok(out.assignments["linux-2026"], "the assignment must be published");
+});
+
+// --- Team names (review 2026-10-14, PG1) -----------------------------------
+
+test("a team name with an address is refused, an ordinary one is not", () => {
+  assert.equal(teamNameProblem("ann.dewit@student.pxl.be"), "A team name is shown on a public page, so it cannot contain an email address.");
+  assert.equal(teamNameProblem("The Code Crusaders"), null);
+  assert.equal(teamNameProblem(""), null, "empty is the form's own question");
+  assert.equal(teamNameProblem(undefined), null);
+});
+
+test("a team whose name may not be published is published as its slug, which every rule passes", () => {
+  const team = { team_slug: "ann-dewit-student-pxl-be", team_name: "ann.dewit@student.pxl.be" };
+  assert.equal(publishedTeamName(team), "ann-dewit-student-pxl-be");
+  assert.equal(findPublicTextViolation(publishedTeamName(team)), null);
+  assert.equal(publishedTeamName({ team_slug: "plain", team_name: "Plain Team" }), "Plain Team");
 });

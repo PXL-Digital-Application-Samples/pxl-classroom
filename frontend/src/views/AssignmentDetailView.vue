@@ -519,9 +519,6 @@
                 <th v-if="feedbackPrEnabled" @click="sortBy('feedback_pr')" @keydown.enter="sortBy('feedback_pr')" @keydown.space.prevent="sortBy('feedback_pr')" tabindex="0" class="sortable col-feedback-pr" :aria-sort="ariaSort('feedback_pr')">
                   <span class="th-label">Feedback PR<SortIcon :dir="sortDir('feedback_pr')" /></span>
                 </th>
-                <th v-if="hasSubmitTags" @click="sortBy('tagged_submission_observed_at')" @keydown.enter="sortBy('tagged_submission_observed_at')" @keydown.space.prevent="sortBy('tagged_submission_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('tagged_submission_observed_at')">
-                  <span class="th-label">Submit tag<SortIcon :dir="sortDir('tagged_submission_observed_at')" /></span>
-                </th>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -759,27 +756,6 @@
                   </template>
                   <span v-else class="text-muted" title="Run `pxl-classroom feedback open` once the student has pushed commits.">- pending</span>
                 </td>
-                <td v-if="hasSubmitTags" class="col-submit-tag">
-                  <template v-if="s.tagged_submission_tag">
-                    <span class="tag-row">
-                      <Icon name="tag" :size="13" class="tag-icon" />
-                      <a v-if="s.repo_url && s.tagged_submission_sha"
-                         :href="`${s.repo_url}/tree/${encodeURIComponent(s.tagged_submission_tag)}`"
-                         target="_blank"
-                         class="mono tag-link"
-                         :title="`Tag observed ${fmt(s.tagged_submission_observed_at)} · declared ${fmt(s.tagged_submission_declared_at)}`">
-                        {{ shortTag(s.tagged_submission_tag) }}
-                      </a>
-                      <span v-else class="mono tag-link" :title="fmt(s.tagged_submission_observed_at)">
-                        {{ shortTag(s.tagged_submission_tag) }}
-                      </span>
-                    </span>
-                    <div class="tag-time text-muted" :title="fmt(s.tagged_submission_observed_at)">
-                      {{ formatRelative(s.tagged_submission_observed_at) }}
-                    </div>
-                  </template>
-                  <span v-else class="text-muted untagged" title="No submit/ tag found">-</span>
-                </td>
                 <td class="col-actions">
                   <!-- No actions for a student the report does not hold: every
                        one of them acts on a username and a repository. -->
@@ -850,18 +826,11 @@
               <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ acceptanceLabel(s.acceptance_state) }}</span>
               <span :class="['badge', statusBadge(s.submission_status)]">{{ submissionLabel(s.submission_status) }}</span>
               <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
-              <span v-if="s.tagged_submission_tag" class="badge badge-info badge-with-icon" :title="`Tagged ${fmt(s.tagged_submission_observed_at)}`">
-                <Icon name="tag" :size="11" />
-                tagged
-              </span>
               <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${fmt(extensionFor(s.github_login).value)} (${extensionFor(s.github_login).reason})`">
                 extended
               </span>
             </div>
             <!-- Touch devices can't reach title tooltips - repeat the detail as text. -->
-            <div v-if="s.tagged_submission_tag" class="student-card-detail text-muted">
-              Tag observed {{ fmt(s.tagged_submission_observed_at) }}
-            </div>
             <div v-if="extensionFor(s.github_login)" class="student-card-detail text-muted">
               Extended to {{ fmt(extensionFor(s.github_login).value) }} ({{ extensionFor(s.github_login).reason }})
             </div>
@@ -1554,7 +1523,7 @@ import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { addCollaborator, getRepo, getRepoContent, listRepoDir, ghApi, commitFile, commitFiles, triggerWorkflow, explainDispatchFailure, totalFromLinkHeader, getWorkflowRuns, listClaims } from '../lib/api.js'
 import { writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
-import { isAlreadyExists, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
+import { isAlreadyExists, isNoCommitsBetween, feedbackPrTitle, feedbackPrBody } from '../lib/feedback-pr.js'
 import { validateAgainst } from '../lib/validate.js'
 // `parseCheckRunScore`, `pickAutogradeCheckRun`, `fetchCheckRunAnnotations` and
 // `findMarkedCommit` were imported here to drive the score reading inline. That
@@ -1562,7 +1531,7 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { FAILED_READ_VERDICTS, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { FAILED_READ_VERDICTS, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
@@ -2187,9 +2156,16 @@ async function retryPreservation() {
 }
 
 const showFeedbackPrModal = ref(false)
+// A student with something to review: the report says they started (it has
+// already left out what provisioning gave them, lib/starter-commit.mjs). Any
+// observed commit counted every untouched repository, a full-history copy's
+// template included, and each one then "failed" with no commits to show
+// (review 2026-10-14, S10). Named positively, so a row the report could not
+// classify is not offered either.
+const hasWorkToReview = (s) => s.submission_status === 'on-time' || s.submission_status === 'late'
 const feedbackPrCandidates = computed(() =>
   (report.value?.students || []).filter(
-    (s) => s.repo_name && (s.commit_count > 0 || s.latest_observed_sha) && !s.feedback_pr_number
+    (s) => s.repo_name && hasWorkToReview(s) && !s.feedback_pr_number
   )
 )
 const feedbackPrEligibleCount = computed(() => feedbackPrCandidates.value.length)
@@ -2198,7 +2174,7 @@ const feedbackPrAlreadyOpenedCount = computed(() =>
 )
 const feedbackPrSkippedNoCommitsCount = computed(() =>
   (report.value?.students || []).filter(
-    (s) => s.repo_name && !s.feedback_pr_number && !(s.commit_count > 0 || s.latest_observed_sha)
+    (s) => s.repo_name && !s.feedback_pr_number && !hasWorkToReview(s)
   ).length
 )
 
@@ -2312,12 +2288,19 @@ async function executeOpenFeedbackPrs() {
 
   openingFeedbackPrs.value = true
   const baseline = assignment.value?.feedback_pr_baseline_branch || 'pxl-baseline'
+  // The submission branch, which the baseline was made from (review
+  // 2026-10-14, S1): a spelled `main` failed every student of a `master`
+  // template.
+  const head = submissionBranch(assignment.value)
   const title = feedbackPrTitle(assignment.value, props.assignmentId)
-  const body = feedbackPrBody(baseline)
+  const body = feedbackPrBody(baseline, head)
 
   let created = 0
   let adopted = 0
   let failed = 0
+  // Nothing pushed past the baseline yet: where every student starts, not a
+  // failure (lib/feedback-pr.mjs `isNoCommitsBetween`, as the CLI counts it).
+  let pending = 0
   // Collected and committed in ONE commit at the end. This used to write each
   // record with its own commitFile(), which on a 200-student cohort is 200
   // commits against a ~80 writes/min secondary limit - the same arithmetic
@@ -2342,7 +2325,7 @@ async function executeOpenFeedbackPrs() {
       const prRes = await ghApi(token, 'POST', `/repos/${props.org}/${repoName}/pulls`, {
         title,
         body,
-        head: 'main',
+        head,
         base: baseline,
         draft: true,
       })
@@ -2350,6 +2333,8 @@ async function executeOpenFeedbackPrs() {
       if (prRes.ok && prRes.data) {
         created++
         await record(prRes.data)
+      } else if (isNoCommitsBetween(prRes.status, prRes.data)) {
+        pending++
       } else if (isAlreadyExists(prRes.status, prRes.data)) {
         // Adopt the pull request that is already open. There was no adopt path
         // here at all: a student whose record had lost its PR number - which is
@@ -2358,7 +2343,7 @@ async function executeOpenFeedbackPrs() {
         // `state=open`, because a closed PR does not produce this 422.
         const list = await ghApi(
           token, 'GET',
-          `/repos/${props.org}/${repoName}/pulls?head=${props.org}:main&base=${baseline}&state=open`,
+          `/repos/${props.org}/${repoName}/pulls?head=${props.org}:${head}&base=${baseline}&state=open`,
         )
         const found = list.ok ? list.data?.[0] : null
         if (found) {
@@ -2402,8 +2387,11 @@ async function executeOpenFeedbackPrs() {
       'Run this again - it will adopt them rather than open duplicates.',
     )
   }
+  if (pending > 0) {
+    toast.info(`${pending} student${pending === 1 ? ' has' : 's have'} nothing past the starting point yet, so no feedback PR was opened for ${pending === 1 ? 'them' : 'those'}.`)
+  }
   if (failed > 0) {
-    toast.warning(`${failed} PR creation(s) skipped or failed.`)
+    toast.warning(`${failed} feedback PR${failed === 1 ? '' : 's'} could not be opened.`)
   }
 }
 
@@ -2795,10 +2783,7 @@ function studentTooltip(s) {
 }
 
 // Base columns: login, acceptance, status, repo, last commit,
-// commits, actions - plus the three conditional columns (CI, Feedback PR, Submit tag).
-
-const hasSubmitTags = computed(() =>
-  (report.value?.students || []).some(s => !!s.tagged_submission_tag))
+// commits, actions - plus the conditional columns (CI, Feedback PR).
 
 // Only where a claim was actually collected. `roster_mode: open` without
 // `require_claim` records nothing, and an empty column is a column that teaches
@@ -3023,8 +3008,7 @@ const tableColumnCount = computed(() =>
   (isGroupAssignment.value ? 1 : 0) +
   (hasClaimedEmails.value ? 1 : 0) +
   (hasGrades.value ? 1 : 0) +
-  (feedbackPrEnabled.value ? 1 : 0) +
-  (hasSubmitTags.value ? 1 : 0))
+  (feedbackPrEnabled.value ? 1 : 0))
 
 // One rule, shared with the backend (lib/effective-deadline.mjs): the last
 // grant in the append-only history is the one in force. A local
@@ -3797,13 +3781,6 @@ function shortRepo(name) {
   return name.includes('/') ? name.split('/')[1] : name
 }
 
-// `submit/2026-10-05T20-34-11Z-a1b2c3d` -> `a1b2c3d` (short SHA suffix) so the
-// column stays narrow. Full tag name is on hover via title.
-function shortTag(tag) {
-  if (!tag) return ''
-  const dash = tag.lastIndexOf('-')
-  return dash >= 0 ? tag.slice(dash + 1) : tag
-}
 
 function latestSha(s) {
   return s.latest_observed_sha || s.last_on_time_sha || null
@@ -4392,7 +4369,7 @@ async function refreshOne(token, s) {
         }
       }
 
-      const isUnstarted = unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount }) && !s.tagged_submission_tag
+      const isUnstarted = unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount })
       if (isUnstarted) {
         s.submission_status = 'no-submission'
       } else if (deadline) {
@@ -4947,29 +4924,24 @@ async function syncGradesFromGitHub() {
       return
     }
 
-    const summaryDoc = buildGradingSummary({
-      assignmentId: props.assignmentId,
-      gradedBy: user.value?.login,
-      runner: 'github_actions',
-      students: res.graded,
-      failed: res.failed,
-    })
-
-    // Validated before it is committed, not after somebody notices. Two
-    // surfaces write this file and neither checked it until the schema existed.
-    const { valid, errors } = await validateAgainst('grading-summary', summaryDoc)
-    if (!valid) {
-      console.error('grading summary failed schema', errors)
-      const valErr = 'The grade summary came out malformed and was not saved. Nothing was overwritten.'
-      regradePanel.value.status = 'error'
-      regradePanel.value.error = valErr
-      toast.error(valErr)
-      return
-    }
-
-    const saved = await saveGradingSummary(token, summaryDoc, `Sync grades for ${props.assignmentId}`)
+    // Built against the summary ON RECORD (validated in saveSummaryMerging,
+    // before it is committed): a student whose read failed keeps the row it
+    // holds for them, rather than "no result" over their score (lib/grade-cohort.mjs
+    // `keepStoredOnFailedReads`, review 2026-10-14).
+    let kept = []
+    const saved = await saveSummaryMerging(token, (base) => {
+      const rows = keepStoredOnFailedReads({ stored: base, graded: res.graded, failed: res.failed, failedReads: res.failedReads })
+      kept = rows.kept
+      return buildGradingSummary({
+        assignmentId: props.assignmentId,
+        gradedBy: user.value?.login,
+        runner: 'github_actions',
+        students: rows.graded,
+        failed: rows.failed,
+      })
+    }, null, `Sync grades for ${props.assignmentId}`)
     if (!saved.ok) {
-      const saveErr = `Save failed: ${saved.data?.message || 'Could not commit to control repository'}`
+      const saveErr = saved.message || 'Save failed: could not commit to the control repository.'
       regradePanel.value.status = 'error'
       regradePanel.value.error = saveErr
       toast.error(saveErr)
@@ -4979,7 +4951,10 @@ async function syncGradesFromGitHub() {
     // saved. Not "N could not be read" - most students without a score have
     // simply not handed in, and the cards say which is which.
     regradePanel.value.status = 'idle'
-    toast.success(`Read ${res.graded.length} score${res.graded.length === 1 ? '' : 's'} from GitHub Actions.`)
+    toast.success(
+      `Read ${res.graded.length} score${res.graded.length === 1 ? '' : 's'} from GitHub Actions.` +
+      (kept.length ? ` ${kept.length} student${kept.length === 1 ? '' : 's'} could not be read, so ${kept.length === 1 ? 'their' : 'each'} earlier result is kept: ${kept.slice(0, 3).join(', ')}${kept.length > 3 ? ', …' : ''}.` : ''),
+    )
   } catch (e) {
     console.error('Failed to sync grades', e)
     regradePanel.value.status = 'error'
@@ -4988,19 +4963,6 @@ async function syncGradesFromGitHub() {
   } finally {
     syncingGrades.value = false
   }
-}
-
-/** Commit grading/<id>/summary.json and put it on screen. One writer. */
-async function saveGradingSummary(token, summaryDoc, message) {
-  const path = `grading/${props.assignmentId}/summary.json`
-  const res = await commitFile(
-    token, props.org, config.controlRepo, path, JSON.stringify(summaryDoc, null, 2) + '\n', message,
-  )
-  if (res.ok) {
-    autogradeSummary.value = summaryDoc
-    mergeGradesIntoReport()
-  }
-  return res
 }
 
 /**
@@ -5992,12 +5954,6 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 }
 .col-last-commit { white-space: nowrap; }
 .col-last-commit .sha { display: inline-block; }
-.col-submit-tag { white-space: nowrap; min-width: 150px; }
-.col-submit-tag .tag-row { display: inline-flex; align-items: center; gap: 4px; }
-.col-submit-tag .tag-icon { color: var(--accent-green); flex-shrink: 0; }
-.col-submit-tag .tag-link { font-size: 0.8rem; }
-.col-submit-tag .tag-time { font-size: 0.75rem; margin-top: 2px; }
-.col-submit-tag .untagged { font-size: 0.85rem; }
 .col-feedback-pr { font-size: 0.85rem; }
 .fb-pr-meta {
   display: inline-flex;

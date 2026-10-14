@@ -19,7 +19,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { hasStudentCard, studentCard } from "../lib/student-card.mjs";
 import { inviteFileFor } from "../lib/invite-token.mjs";
 import { linkSecretFrom } from "../lib/invite-token-format.mjs";
-import { findPublicTextViolation, publicTextMessage } from "../lib/public-text.mjs";
+import { findPublicTextViolation, publicTextMessage, publishedTeamName } from "../lib/public-text.mjs";
 // The display timezone reaches every student's assignment card from here, so it
 // is the deployment's value and not a literal. This was the fourth copy of
 // `Europe/Brussels` beside a `TIMEZONE` export nothing read.
@@ -287,7 +287,7 @@ async function main() {
           try {
             const tdata = JSON.parse(await readFile(join(teamsDir, tf), "utf-8"));
             if (tdata.vacant && tdata.repo_name && teamNeedsJoinCode(def.group_config, tdata)) {
-              takenNames.push({ team_slug: tdata.team_slug, team_name: tdata.team_name });
+              takenNames.push({ team_slug: tdata.team_slug, team_name: publishedTeamName(tdata) });
             }
             if (!tdata.vacant) {
               // The assignment's maximum as it is NOW. A manifest's
@@ -297,7 +297,7 @@ async function main() {
               const maxMem = maxTeamSize(def.group_config);
               publicTeams.push({
                 team_slug: tdata.team_slug,
-                team_name: tdata.team_name,
+                team_name: publishedTeamName(tdata),
                 members: tdata.members || [],
                 member_count: (tdata.members || []).length,
                 max_members: maxMem,

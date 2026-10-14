@@ -64,8 +64,6 @@ async function withStubApi(fn, { commitCount = 3, brokenRepos = [] } = {}) {
       );
     }
 
-    // No submit/* tags, and no user lookup needed.
-    if (url.includes("/git/matching-refs/")) return send(200, []);
     if (url.startsWith("/users/")) return send(200, { name: "Alice", email: "alice@example.test" });
 
     return send(404, { message: `unstubbed ${url}` });

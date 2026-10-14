@@ -264,6 +264,10 @@ async function checkHistoryCopy(student, record, tpl) {
   const given = want[`refs/heads/${tpl.default_branch}`];
   if (record.starter_sha === given && record.starter_commit_count === HISTORY_COMMITS) ok(`${student.login}: the record says it was given ${given.slice(0, 7)}, ${HISTORY_COMMITS} commits`);
   else bad(`${student.login}: the record says starter_sha ${record.starter_sha}, starter_commit_count ${record.starter_commit_count}; expected ${given}, ${HISTORY_COMMITS}`);
+  // Which kind of start, as provisioning said it (its `full-history` output):
+  // only this flag refuses starter sync and drops the author.
+  if (record.full_history === true) ok(`${student.login}: the record says it is a full-history copy`);
+  else bad(`${student.login}: the record carries full_history ${JSON.stringify(record.full_history)}, expected true`);
 
   // What GitHub's copy cannot do, and the reason for the setting: the prepared
   // branches share history with the default branch.

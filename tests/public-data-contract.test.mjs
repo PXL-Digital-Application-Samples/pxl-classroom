@@ -365,6 +365,31 @@ test("a renamed team publishes the slugs it had, so a page loaded before the ren
   assert.equal("renamed_from" in teams.find((t) => t.team_slug === "plain"), false, "absent where there was no rename");
 });
 
+test("a team named with an email address publishes its slug, and the scan passes", () => {
+  // Review 2026-10-14 (PG1): one such name failed the scan, and the deploy that
+  // scans every organization's data at once failed for all of them. A name the
+  // screens now refuse can still be on disk, from before or from a crafted
+  // acceptance, so the generator publishes the slug in its place.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-gen-teammail-"));
+  mkdirSync(join(dir, "assignments"));
+  const token = mintToken("PXLAutomation", "test-valid");
+  const base = readFileSync(fix("valid-assignment.yml"), "utf8")
+    .replace("repository_name_pattern: test-valid-{github_login}", "repository_name_pattern: test-valid-{team_slug}");
+  writeFileSync(join(dir, "assignments", "test-valid.yml"), `${base}assignment_type: group\ninvite_token: ${token}\ninvite_nonce: 0badc0de\n`);
+  mkdirSync(join(dir, "teams", "test-valid"), { recursive: true });
+  const manifest = (slug, name) => JSON.stringify({ schema_version: 1, assignment_id: "test-valid", team_slug: slug, team_name: name, members: ["a1"], max_members: 3 });
+  writeFileSync(join(dir, "teams", "test-valid", "ann-dewit-student-pxl-be.json"), manifest("ann-dewit-student-pxl-be", "ann.dewit@student.pxl.be"));
+  writeFileSync(join(dir, "teams", "test-valid", "plain.json"), manifest("plain", "Plain Team"));
+  const outDir = join(dir, "public");
+  const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
+  assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+  const teams = JSON.parse(readFileSync(join(outDir, "i", `${inviteFileFor(token)}.teams.json`), "utf8")).teams;
+  assert.equal(teams.find((t) => t.team_slug === "ann-dewit-student-pxl-be").team_name, "ann-dewit-student-pxl-be");
+  assert.equal(teams.find((t) => t.team_slug === "plain").team_name, "Plain Team", "an ordinary name is published as it is");
+  const scan = spawnSync("node", [join(here, "..", "pages", "scan.mjs"), outDir], { encoding: "utf8" });
+  assert.equal(scan.status, 0, `the scan refused the output: ${scan.stdout}${scan.stderr}`);
+});
+
 test("a team's join code is never published - only whether joining needs one", () => {
   // The teams file is public to anyone holding the invitation; the code is
   // what keeps a stranger out of a team (lib/team-join-code.mjs).

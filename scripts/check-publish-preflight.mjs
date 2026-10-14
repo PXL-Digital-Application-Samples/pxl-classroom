@@ -51,6 +51,7 @@ import {
   templatePinMessage,
   submissionBranchProvisioned,
   templateHasCommits,
+  fullHistoryFindings,
 } from "../lib/template-source.mjs";
 import { assignmentFreezePlanFinding, checkRepositoryAccess, FREE_PLAN } from "../lib/audit.mjs";
 import { HUB_OWNER } from "../lib/deployment.mjs";
@@ -75,6 +76,21 @@ async function gh(token, path) {
       "X-GitHub-Api-Version": GITHUB_API_VERSION,
     },
   });
+}
+
+/** Every branch name of a repository, walked; null when a page could not be read. */
+async function listBranchNames(token, owner, repo) {
+  const names = [];
+  for (let page = 1; page <= 20; page++) {
+    const res = await gh(token, `/repos/${owner}/${repo}/branches?per_page=100&page=${page}`);
+    if (!res.ok) return null;
+    const batch = await res.json();
+    if (!Array.isArray(batch)) return null;
+    names.push(...batch.map((b) => b?.name).filter((n) => typeof n === "string"));
+    if (batch.length < 100) return names;
+  }
+  // Two thousand branches and still going: not the whole list, so not an answer.
+  return null;
 }
 
 async function main() {
@@ -179,6 +195,24 @@ async function main() {
   if (!branch.ok) {
     fail(templateSourceMessage(branch, { templateOwner: owner, templateRepo: repo, org }));
   }
+  // Copied with every branch and its history: what the copy carries
+  // (lib/template-source.mjs `fullHistoryFindings`, review 2026-10-14). Asked
+  // with this token, which is the one the copy clones with.
+  if (doc.template_full_history === true) {
+    const branches = await listBranchNames(token, owner, repo);
+    const wf = await gh(token, `/repos/${owner}/${repo}/contents/.github/workflows?ref=${encodeURIComponent(data.default_branch || "")}`);
+    const hasWorkflows = wf.ok ? Array.isArray(await wf.json()) : wf.status === 404 ? false : null;
+    const found = fullHistoryFindings({
+      defaultBranch: data?.default_branch,
+      branches,
+      feedbackPr: doc.feedback_pr === true,
+      baseline: doc.feedback_pr_baseline_branch || "pxl-baseline",
+      hasWorkflows,
+    });
+    for (const w of found.warn) warn(w);
+    if (found.refuse.length) fail(found.refuse.join(" "));
+  }
+
   console.log(
     `[template] ok - ${full} private=${data.private} is_template=${data.is_template} ` +
       `id=${data.id}${pin.pinned ? " (pinned)" : " (not pinned)"} default_branch=${data.default_branch}`,

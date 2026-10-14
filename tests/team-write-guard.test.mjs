@@ -8,7 +8,8 @@
 // for the contents API at one commit.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changedSinceRead, unseedRefusalAt } from "../lib/team-write-guard.mjs";
+import { readFileSync } from "node:fs";
+import { changedSinceRead, seedRefusalAt, unseedRefusalAt } from "../lib/team-write-guard.mjs";
 import { membersWithRecords, planTeamRename, renameRefusalAt } from "../lib/team-rename.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
 
@@ -53,6 +54,35 @@ test("unseedRefusalAt: every team still the seeded team the page saw, and nobody
   assert.match(await unseedRefusalAt({ get: at({}), decode, assignmentId: "pe", teams: [a] }), /no longer there/);
   // Members compared as GitHub does: case-blind.
   assert.equal(await unseedRefusalAt({ get: at({ "teams/pe/alpha.json": file({ ...a, members: ["ANN", "Bob"] }) }), decode, assignmentId: "pe", teams: [a] }), null);
+});
+
+test("S4: seedRefusalAt - every file it writes still free, and no seeded student in another team since", async () => {
+  const a = seeded("alpha", ["ann", "bob"]);
+  const other = { team_slug: "gamma", team_name: "Gamma", members: ["Bob"] };
+  // Nothing there yet: the write goes ahead.
+  assert.equal(await seedRefusalAt({ get: at({ "teams/pe": dir() }), decode, assignmentId: "pe", teams: [a] }), null);
+  // A team nobody is in (the kind planSeed overwrites) is still free.
+  assert.equal(await seedRefusalAt({ get: at({ "teams/pe/alpha.json": file({ ...a, members: [] }) }), decode, assignmentId: "pe", teams: [a] }), null);
+  // A student made it, or it kept a repository, while the plan waited.
+  assert.match(await seedRefusalAt({ get: at({ "teams/pe/alpha.json": file({ ...a, members: ["zed"] }) }), decode, assignmentId: "pe", teams: [a] }), /ALPHA was made or joined since/);
+  assert.match(await seedRefusalAt({ get: at({ "teams/pe/alpha.json": file({ ...a, members: [], vacant: true, repo_name: "Org/grp-alpha" }) }), decode, assignmentId: "pe", teams: [a] }), /was made or joined since/);
+  // Bob joined another team meanwhile: he would be listed in two.
+  assert.match(
+    await seedRefusalAt({ get: at({ "teams/pe": dir("gamma.json"), "teams/pe/gamma.json": file(other) }), decode, assignmentId: "pe", teams: [a] }),
+    /Bob joined Gamma since the plan was made/,
+  );
+  // An unreadable file refuses rather than passing.
+  assert.match(await seedRefusalAt({ get: at({ "teams/pe/alpha.json": { content: b64("{not json") } }), decode, assignmentId: "pe", teams: [a] }), /could not be read/);
+});
+
+test("S3/S4: the CLI's seed and unseed ask the same guards as the Teams tab, after planning again", () => {
+  const cli = readFileSync(new URL("../cli/src/commands/teams.mjs", import.meta.url), "utf8");
+  assert.match(cli, /precondition: \(\{ request, parentSha \}\) => seedRefusalAt\(/);
+  assert.match(cli, /precondition: \(\{ request, parentSha \}\) => unseedRefusalAt\(/);
+  assert.match(cli, /seedSignature\(freshPlan\) !== seedSignature\(plan\)/, "planned again after the prompt");
+  const modal = readFileSync(new URL("../frontend/src/components/SeedTeamsModal.vue", import.meta.url), "utf8");
+  assert.match(modal, /seedRefusalAt\(\{/);
+  assert.doesNotMatch(modal, /function planSignature/, "one signature, in lib/seed-teams.mjs");
 });
 
 test("renameRefusalAt: the file as read, no team at the new name, no member with a record", async () => {

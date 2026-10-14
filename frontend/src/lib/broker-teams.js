@@ -119,6 +119,24 @@ export function teamsFromBrokerIssues(issues, { now = Date.now(), maxAgeMs = REC
 }
 
 /**
+ * The team an attempt's slug names NOW: a renamed team's old slug is that
+ * team, as the hub takes it (acceptance/accept.mjs, `renamed_from`). Read
+ * literally, a stale page's own attempt moved its student out of the renamed
+ * team into a phantom old-name one, so the page waited on a repository that
+ * never comes (review 2026-10-14). Only to a team that is listed: a rename the
+ * page knows of but whose team it does not list is no team to move them into.
+ *
+ * @param {string} slug  the attempt's
+ * @param {Map<string, string>} renamedTo  old slug -> current, from the published file
+ * @param {{ has: (slug: string) => boolean }} listed
+ */
+export function attemptTeamSlug(slug, renamedTo, listed) {
+  const asked = String(slug || '').toLowerCase().trim()
+  const now = renamedTo?.get(asked)
+  return now && listed.has(now) ? now : asked
+}
+
+/**
  * Does a published placement outrank this attempt?
  *
  * Only when the published file is NEWER than the attempt AND already places

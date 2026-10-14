@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FAILED_READ_VERDICTS, mergeOneStudentRead, oneReadReplaces, rowFromOutcome } from "../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, gradeCohort, keepStoredOnFailedReads, mergeOneStudentRead, oneReadReplaces, rowFromOutcome } from "../lib/grade-cohort.mjs";
 
 const score = (login, earned = 18) => ({ login, earned_points: earned, total_points: 20 });
 const reason = (login, kind, text = "x") => ({ login, kind, reason: text });
@@ -63,6 +63,52 @@ test("--login with no summary on record and nothing new: nothing to write", () =
     stored: null, read: { graded: [], failed: [reason("alice", "no-result", "no CI run")] }, logins: ["alice"], failedReads: new Set(),
   });
   assert.deepEqual(merged, { students: [], failed: [], unchanged: ["alice"] });
+});
+
+// --- The whole cohort (review 2026-10-14, G4b) ------------------------------
+
+test("a cohort read keeps the stored row of every student whose read failed", () => {
+  const stored = { students: [score("Alice"), score("bob", 12)], failed: [reason("carol", "late")] };
+  const out = keepStoredOnFailedReads({
+    stored,
+    graded: [score("bob", 15)],
+    failed: [reason("alice", "no-result", "could not read the push log"), reason("carol", "no-result", "could not read"), reason("dan", "no-result", "could not read")],
+    failedReads: new Set(["alice", "carol", "dan"]),
+  });
+  assert.deepEqual(out.graded, [score("bob", 15), score("Alice")], "the new score for bob, the stored one for alice");
+  assert.deepEqual(out.failed, [reason("carol", "late"), reason("dan", "no-result", "could not read")], "carol as stored; dan had nothing stored, so the reason stands");
+  assert.deepEqual(out.kept, ["alice", "carol"]);
+  // Nothing stored, or nothing failed: the read as it is.
+  const read = { graded: [score("bob")], failed: [reason("dan", "no-result")] };
+  assert.deepEqual(keepStoredOnFailedReads({ stored: null, ...read, failedReads: new Set(["dan"]) }), { ...read, kept: [] });
+  assert.deepEqual(keepStoredOnFailedReads({ stored, ...read, failedReads: new Set() }), { ...read, kept: [] });
+});
+
+test("gradeCohort names the students whose read failed but whose row it still wrote", async () => {
+  // `unreadable`: the run is there, its annotations could not be read.
+  const sha = "a".repeat(40);
+  const request = async (method, path) => {
+    if (/\/commits\/[0-9a-f]{40}\/check-runs/.test(path)) {
+      return { ok: true, status: 200, data: { total_count: 1, check_runs: [{ id: 1, name: "run-autograding-tests", status: "completed", conclusion: "success", output: { annotations_count: 1 } }] } };
+    }
+    if (/\/check-runs\/1\/annotations/.test(path)) return { ok: false, status: 500, data: {} };
+    return { ok: false, status: 404, data: {} };
+  };
+  const res = await gradeCohort(request, {
+    students: [{ github_login: "alice", repo_name: "Org/r-alice", latest_observed_sha: sha, submission_status: "on-time" }],
+  });
+  assert.ok(res.failed.some((f) => f.login === "alice"), JSON.stringify(res));
+  assert.deepEqual([...res.failedReads], ["alice"], JSON.stringify(res));
+});
+
+test("every cohort writer keeps stored rows on a failed read: the page, the nightly and the CLI", () => {
+  const page = readFileSync(new URL("../frontend/src/views/AssignmentDetailView.vue", import.meta.url), "utf8");
+  const nightly = readFileSync(new URL("../scripts/grade-at-deadline.mjs", import.meta.url), "utf8");
+  const cli = readFileSync(new URL("../cli/src/commands/grade.mjs", import.meta.url), "utf8");
+  for (const [name, src] of [["page", page], ["nightly", nightly], ["cli", cli]]) {
+    assert.match(src, /keepStoredOnFailedReads\(\{/, name);
+  }
+  assert.doesNotMatch(page, /saveGradingSummary\(/, "the cohort read no longer overwrites the summary blind");
 });
 
 test("both surfaces ask the shared rule: the page's Read score again and the CLI's --login", () => {

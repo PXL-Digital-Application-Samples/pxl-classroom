@@ -2864,3 +2864,9 @@ Mocks agree with the code that was written against them; a reviewer reading the 
 - **The emptied-team cleanup**, narrowed by the first review to the repository the record names, had stopped covering its own main case: the record names it only after the invitation, and Switch team is offered from the invitation.
 
 The first review asked what the new code assumed; this one asked what each fix left on the other side of the line it moved. Ask both, in that order.
+
+### Submit tags were removed: a feature two reviews kept repairing had never added anything.
+
+2026-10-14, the same day. Both reviews found submit-tag defects: the documented name could not be created (git refuses a colon in a ref), three of its four readers kept the old pattern after the fix, every tag read late after any post-deadline collect, a tag could be pushed after the lock on a backdated commit, and a template's tag would be every student's. By the end of the second round the rule was "a tag decides nothing; it is shown". Asked what it added, the answer was nothing: a hand-in marker already says which commit is the submission, and it is graded, counted and dated by the push. So it went, whole: the collector lists no tags, the observation schema takes snapshots only, the report skips any other observation type (an old `tagged-submission` file still sits in some control repos), the column, the badge and the student banner are gone, and a template's tags copy like any other. The report schema keeps the four `tagged_submission_*` fields so a report written before stays valid. Nobody had ever used a tag: none could be created until the day it was fixed.
+
+When the fixes for a feature have reduced it to "shown, decides nothing", ask whether anyone needs it shown before fixing it again.

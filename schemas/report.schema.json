@@ -455,14 +455,14 @@
               "string",
               "null"
             ],
-            "description": "Full tag name of the latest observed submit/ tag."
+            "description": "Retired 2026-10-14 with submit tags, which were removed. Written by no version since; a report from before carries null here, and is still valid."
           },
           "tagged_submission_sha": {
             "type": [
               "string",
               "null"
             ],
-            "description": "SHA of the commit pointed to by the latest submit/ tag."
+            "description": "Retired 2026-10-14 with submit tags; see tagged_submission_tag."
           },
           "tagged_submission_observed_at": {
             "type": [
@@ -470,7 +470,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "Timestamp when the submit/ tag was observed."
+            "description": "Retired 2026-10-14 with submit tags; see tagged_submission_tag."
           },
           "tagged_submission_declared_at": {
             "type": [
@@ -478,7 +478,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "Declared student timestamp parsed from the submit/ tag name."
+            "description": "Retired 2026-10-14 with submit tags; see tagged_submission_tag."
           },
           "lock_down_at": {
             "type": [

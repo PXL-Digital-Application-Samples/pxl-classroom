@@ -313,6 +313,7 @@ export type LockdownRecord = {
     permission_after?: string;
     verified?: boolean;
     unfreezable_reason?: "org-owner" | null;
+    snapshot_unread?: string;
     deferred_until?: string;
     deferred_reason?: string;
     uncertainty_seconds?: number;
@@ -323,7 +324,7 @@ export type LockdownRecord = {
 /** One element of `LockdownRecord.results`. */
 export type LockdownRecordResult = NonNullable<LockdownRecord["results"]>[number];
 
-/** A point-in-time observation of a student repository's state, stored in observations/<assignment-id>/<login>/<timestamp>.json (schemas/observation.schema.json) */
+/** A point-in-time observation of a student repository's state, stored in observations/<assignment-id>/<login>/<timestamp>.json: a snapshot of the submission branch (schemas/observation.schema.json) */
 export type Observation = {
   schema_version?: 1;
   type?: "snapshot";
@@ -341,18 +342,6 @@ export type Observation = {
   author_email?: string;
   observer_run?: string;
   collection_type?: "scheduled" | "manual" | "deadline" | "lockdown" | "preservation";
-} | {
-  schema_version?: 1;
-  type?: "tagged-submission";
-  assignment_id?: string;
-  github_login?: string;
-  repo_id?: number;
-  observed_at?: string;
-  tag?: string;
-  declared_at?: string;
-  tagged_sha?: string;
-  commit_date?: string;
-  observer_run?: string;
 };
 
 /** Lecturer overrides for a student on an assignment, stored in overrides/<assignment-id>/<login>.json. (schemas/override.schema.json) */

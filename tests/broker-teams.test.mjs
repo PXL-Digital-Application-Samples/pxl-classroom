@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import {
   teamsFromBrokerIssues,
   attemptYields,
+  attemptTeamSlug,
   ownAcceptanceIssue,
   recentAttempt,
   RECENT_ATTEMPT_MS,
@@ -314,4 +315,19 @@ test("a published placement newer than the attempt wins - but only for a student
     body: JSON.stringify({ team_slug: "alpha", team_action: "join" }),
   };
   assert.equal(teamsFromBrokerIssues([issue], { now: at + 1000 })[0].at, at);
+});
+
+test("attemptTeamSlug: an attempt naming a renamed team's old slug is that team, as the hub takes it", () => {
+  // Review 2026-10-14: read literally, a stale page's own attempt moved its
+  // student out of the renamed team into a phantom old-name one.
+  const renamedTo = new Map([["team-alpha", "team-beta"]]);
+  const listed = new Map([["team-beta", {}], ["gamma", {}]]);
+  assert.equal(attemptTeamSlug("Team-Alpha ", renamedTo, listed), "team-beta");
+  assert.equal(attemptTeamSlug("gamma", renamedTo, listed), "gamma", "an ordinary slug is itself");
+  // The renamed team is not listed: no team to move them into, so the slug stands.
+  assert.equal(attemptTeamSlug("team-alpha", renamedTo, new Map([["gamma", {}]])), "team-alpha");
+  assert.equal(attemptTeamSlug("team-alpha", undefined, listed), "team-alpha");
+  // The card asks it, rather than spelling the mapping.
+  const card = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "frontend", "src", "components", "GroupAcceptanceCard.vue"), "utf8");
+  assert.match(card, /attemptTeamSlug\(asked, renamedTo\.value, teamsMap\)/);
 });

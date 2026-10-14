@@ -1,7 +1,7 @@
 // PXL Classroom CLI - `feedback` subcommand group.
 //
 // open  - for each provisioned student on an assignment, open a draft PR with
-//         head = main, base = <baseline> (default "pxl-baseline"). Idempotent:
+//         head = the submission branch, base = <baseline> (default "pxl-baseline"). Idempotent:
 //         skips when a PR already exists on the record or on GitHub. Updates
 //         the repository record with feedback_pr_number + feedback_pr_url.
 // list  - print PR URLs + open review-comment counts for the assignment.
@@ -21,8 +21,9 @@ import {
 } from "../../../lib/feedback-pr.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { resolveOrg } from "../lib/org.mjs";
-import { CONTROL_REPO, getAssignment, listRepoRecords } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listRepoRecords, readJsonAtHead, unchangedSince } from "../lib/control-repo.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
+import { submissionBranch } from "../../../lib/submission-marker.mjs";
 const DEFAULT_BASELINE = "pxl-baseline";
 
 
@@ -74,7 +75,7 @@ async function countOpenReviewComments(octokit, { org, repo, number }) {
 
 export function registerFeedbackCommand(program) {
   const feedback = new Command("feedback").description(
-    "Manage Feedback PRs on student repos (head=main, base=<baseline>).",
+    "Manage Feedback PRs on student repos (head=the submission branch, base=<baseline>).",
   );
 
   feedback
@@ -94,8 +95,11 @@ export function registerFeedbackCommand(program) {
         process.exit(1);
       }
       const baseline = assignment.feedback_pr_baseline_branch || DEFAULT_BASELINE;
+      // The submission branch: the template's default, which the baseline was
+      // made from - never a spelled `main` (review 2026-10-14, S1).
+      const head = submissionBranch(assignment);
       const title = feedbackPrTitle(assignment, opts.assignment);
-      const body = feedbackPrBody(baseline);
+      const body = feedbackPrBody(baseline, head);
 
       const records = await listRepoRecords(octokit, { org, assignmentId: opts.assignment });
       // `sameLogin`: --login is typed by a lecturer, and a casing difference showed
@@ -117,13 +121,13 @@ export function registerFeedbackCommand(program) {
         // updates - just report what a real run would attempt.
         if (opts.dryRun) {
           opened++;
-          process.stdout.write(`  + ${login}: would open draft PR on ${org}/${repo} (main -> ${baseline})\n`);
+          process.stdout.write(`  + ${login}: would open draft PR on ${org}/${repo} (${head} -> ${baseline})\n`);
           continue;
         }
 
         let outcome;
         try {
-          outcome = await openDraftPr(octokit, { org, repo, head: "main", base: baseline, title, body });
+          outcome = await openDraftPr(octokit, { org, repo, head, base: baseline, title, body });
         } catch (err) {
           process.stderr.write(`  ! ${login}: ${err.message}\n`);
           failed++;
@@ -131,7 +135,7 @@ export function registerFeedbackCommand(program) {
         }
         if (!outcome) {
           pending++;
-          process.stdout.write(`  · ${login}: skipped (no commits between main and ${baseline} yet)\n`);
+          process.stdout.write(`  · ${login}: skipped (no commits between ${head} and ${baseline} yet)\n`);
           continue;
         }
         if (outcome.created) {
@@ -142,12 +146,31 @@ export function registerFeedbackCommand(program) {
           process.stdout.write(`  · ${login}: adopted pre-existing PR #${outcome.number} ${outcome.url}\n`);
         }
 
-        const updated = { ...rec.doc, feedback_pr_number: outcome.number, feedback_pr_url: outcome.url };
-        await commitWithRebase(octokit, {
-          owner: org, repo: CONTROL_REPO, branch: "main",
-          message: `Record feedback PR #${outcome.number} for ${login} on ${opts.assignment}`,
-          changes: [{ path: rec.path, content: JSON.stringify(updated, null, 2) + "\n" }],
-        });
+        // READ AGAIN NOW, and written only onto that version (review
+        // 2026-10-14, S9): every record was read when the command started,
+        // minutes ago on a large cohort, and writing that copy back reverted
+        // whatever changed it since - a Teams-tab move, a permission change, a
+        // recovered starting commit. A record that now names another
+        // repository is not this pull request's.
+        try {
+          const fresh = await readJsonAtHead(octokit, { org, path: rec.path });
+          if (!fresh || fresh.doc?.repo_name !== repo_name) {
+            process.stderr.write(`  ! ${login}: their repository record changed while this ran (PR #${outcome.number} is open; run it again to record it)\n`);
+            failed++;
+            continue;
+          }
+          const updated = { ...fresh.doc, feedback_pr_number: outcome.number, feedback_pr_url: outcome.url };
+          await commitWithRebase(octokit, {
+            owner: org, repo: CONTROL_REPO, branch: "main",
+            message: `Record feedback PR #${outcome.number} for ${login} on ${opts.assignment}`,
+            changes: [{ path: rec.path, content: JSON.stringify(updated, null, 2) + "\n" }],
+            precondition: unchangedSince(org, rec.path, fresh.sha, "the repository record was changed by someone else while this ran; run it again"),
+          });
+        } catch (err) {
+          process.stderr.write(`  ! ${login}: PR #${outcome.number} is open, but it was not recorded: ${err.message}\n`);
+          failed++;
+          continue;
+        }
       }
 
       if (opts.dryRun) {

@@ -11,8 +11,7 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { commitAuthor, snapshotObservation, taggedSubmissionObservation } from "../lib/observation.mjs";
-import { latestSubmitTag } from "../lib/submit-tag.mjs";
+import { commitAuthor, snapshotObservation } from "../lib/observation.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -67,45 +66,6 @@ async function readAssignment(assignmentId) {
     const raw = await readFile(join(cfg.dataDir, "assignments", `${assignmentId}.json`), "utf8");
     return JSON.parse(raw);
   } catch { return null; }
-}
-
-// --- Submit-tag discovery ----------------------------------------------------
-// Lists refs/tags/submit/* on a repo, parses the declared timestamp out of the
-// tag name, and returns the tag with the latest declared time
-// (latestSubmitTag). Returns null when no submit/ tags are
-// present or the latest one is malformed. We intentionally do NOT trust the
-// student-supplied timestamp for classification - the tag itself is the
-// observation (lecturer-side declared_at is observed-not-authoritative).
-// The tag's name and declared time: lib/submit-tag.mjs (dashes in the time,
-// because git refuses a colon in a ref name).
-async function findLatestSubmitTag(org, repoName) {
-  // List up to 100 matching refs (GitHub's max per page). A student spamming
-  // more than 100 submit tags is degenerate; we take the latest by name sort
-  // among whatever we got.
-  const res = await gh("GET", `/repos/${org}/${repoName}/git/matching-refs/tags/submit/?per_page=100`);
-  if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) return null;
-
-  const latest = latestSubmitTag(res.data);
-  if (!latest) return null;
-
-  // Resolve the tagged SHA. If the tag is annotated, object.sha points at the
-  // tag object, not the commit - we need to follow it through /git/tags.
-  let taggedSha = latest.object?.sha;
-  if (latest.object?.type === "tag" && taggedSha) {
-    const tagObj = await gh("GET", `/repos/${org}/${repoName}/git/tags/${taggedSha}`);
-    if (tagObj.ok && tagObj.data?.object?.sha) taggedSha = tagObj.data.object.sha;
-  }
-  if (!taggedSha || !/^[0-9a-f]{40}$/.test(taggedSha)) return null;
-
-  // The tagged commit's own time, which the report judges the tag by (a
-  // snapshot is judged by its commit; the collector's clock is after the
-  // deadline at the finalize). Null when it cannot be read.
-  const commitRes = await gh("GET", `/repos/${org}/${repoName}/commits/${taggedSha}`);
-  const commitDate = commitRes.ok
-    ? commitRes.data?.commit?.committer?.date || commitRes.data?.commit?.author?.date || null
-    : null;
-
-  return { tag: latest.tag, declared_at: latest.declared_at, tagged_sha: taggedSha, commit_date: commitDate };
 }
 
 // --- Read repository records -------------------------------------------------
@@ -345,30 +305,6 @@ async function main() {
         log(`snapshot ${login}`, { ok: true, note: `${branch}@${sha.slice(0, 12)} (${commitCount} commits)` });
         totalCollected++;
 
-        // Also look for submit/ tags. Failures here are non-fatal - the
-        // default-branch snapshot is the floor.
-        let tagNote = "";
-        try {
-          const submit = await findLatestSubmitTag(cfg.org, repoName);
-          if (submit) {
-            const tagObservation = taggedSubmissionObservation({
-              assignmentId, login, repoId: repoRes.data.id, submit, observedAt: now, observerRun: cfg.runUrl,
-            });
-            const tagCheck = validateAgainst("observation", tagObservation);
-            if (!tagCheck.valid) {
-              throw new Error(
-                "tag observation does not match observation.schema.json: " +
-                  tagCheck.errors.slice(0, 3).map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")
-              );
-            }
-            const tagPath = join(obsDir, `${safeTs}-tag.json`);
-            await writeFile(tagPath, JSON.stringify(tagObservation, null, 2) + "\n");
-            tagNote = ` · tag ${submit.tag}`;
-            log(`tag ${login}`, { ok: true, note: `${submit.tag} -> ${submit.tagged_sha.slice(0, 12)}` });
-          }
-        } catch (e) {
-          log(`tag ${login}`, { ok: false, note: e.message });
-        }
         // `sha`, not `commitRes.data.sha`. The endpoint moved from
         // `/commits/{ref}` (an object) to `/commits?sha=…&per_page=1` (a LIST)
         // on 2026-08-18 to get the commit count out of the Link header, and
@@ -382,7 +318,7 @@ async function main() {
         // student, in every org, every night since. The data was always
         // correct; what was broken was the report on it, which meant a real
         // collect failure was indistinguishable from the noise.
-        allRows.push(`| ${login} | \`${sha.slice(0, 12)}\`${tagNote} | [OK] |`);
+        allRows.push(`| ${login} | \`${sha.slice(0, 12)}\` | [OK] |`);
       } catch (e) {
         log(`snapshot ${login}`, { ok: false, note: e.message });
         totalErrors++;

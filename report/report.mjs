@@ -38,7 +38,6 @@ import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, CONTROL_REPO } from "../lib/deploy
 import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaimDomains } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
 import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
-import { latestSubmitTag } from "../lib/submit-tag.mjs";
 import { preservationStatus } from "../lib/preservation-status.mjs";
 
 async function setOutput(name, value) {
@@ -360,16 +359,15 @@ async function main() {
     let latestAuthorEmail = null;
     let uncertaintySeconds = null;
 
-    // Tagged-submission observations are tracked separately so the UI can
-    // surface them and so a tag - when present and on-time - wins over the
-    // default-branch tip. See ARCHITECTURE.md §11.1a.
-    let latestTagObservation = null;
-    const tagObservations = [];
-
     for (const obs of observations) {
       // The preservation record is excluded at load, by filename. The guard
       // that used to sit here read a `collection_type` preserve.mjs has never
       // written - see PRESERVATION_FILE above.
+
+      // Only snapshots are observations. A `tagged-submission` file from the
+      // submit tags removed on 2026-10-14 is read as nothing, never as a
+      // snapshot (it has no `sha`, and its dates are not the branch's).
+      if (obs.type && obs.type !== "snapshot") continue;
 
       if (obs.commit_count != null) {
         latestCommitCount = obs.commit_count;
@@ -396,11 +394,6 @@ async function main() {
       }
       if (obs.author_email) {
         latestAuthorEmail = obs.author_email;
-      }
-
-      if (obs.type === "tagged-submission") {
-        tagObservations.push(obs);
-        continue;
       }
 
       // An observation with no `observed_at` cannot be placed on the timeline,
@@ -467,42 +460,6 @@ async function main() {
       }
     }
 
-    // If a submit/ tag was seen, prefer it as the authoritative submission:
-    // the student's LATEST tag (lib/submit-tag.mjs `latestSubmitTag`, by its
-    // declared time), however many times the collector saw it.
-    //
-    // JUDGED BY THE TAGGED COMMIT'S OWN TIME, the rule every snapshot above
-    // follows - never by when the collector looked (review 2026-10-14). Every
-    // collect writes the tag again with `observed_at = now`, and the finalize's
-    // collect runs after the deadline, so a tag made at 15:30 for a 16:00
-    // deadline read late the moment the deadline passed, and every tagged
-    // student got a late notice. A tag observation from before the commit's
-    // date was recorded falls back to the FIRST time the tag was seen.
-    const latestTag = latestSubmitTag(tagObservations.map((o) => ({ ...o, ref: `refs/tags/${o.tag}` })));
-    if (latestTag) {
-      const same = tagObservations.filter((o) => o.tag === latestTag.tag && o.tagged_sha === latestTag.tagged_sha);
-      const firstSeen = same.map((o) => o.observed_at).filter(Boolean).sort()[0] ?? latestTag.observed_at;
-      const commitDate = same.map((o) => o.commit_date).find((d) => typeof d === "string" && !Number.isNaN(Date.parse(d)));
-      latestTagObservation = { ...latestTag, observed_at: same.map((o) => o.observed_at).filter(Boolean).sort().at(-1) ?? latestTag.observed_at };
-      const decidingTime = new Date(commitDate || firstSeen);
-      const onTime = effectiveDeadline ? decidingTime <= effectiveDeadline : true;
-      if (onTime) {
-        lastOnTimeSha = latestTag.tagged_sha;
-        lastOnTimeObservedAt = firstSeen;
-        // A late snapshot observed after the tag does not invalidate an
-        // on-time tagged submission.
-        firstLateSha = null;
-        firstLateObservedAt = null;
-      } else if (!firstLateSha) {
-        firstLateSha = latestTag.tagged_sha;
-        firstLateObservedAt = firstSeen;
-      }
-      // The submission is the tagged commit. When the repository was last READ
-      // stays the snapshot's time and kind: the collector reads both at once,
-      // and a tag observation carries no kind.
-      latestObservedSha = latestTag.tagged_sha;
-    }
-
     // How stale our last pre-deadline evidence was: the gap between the final
     // on-time observation and the student's own deadline.
     //
@@ -523,12 +480,12 @@ async function main() {
 
     // Determine status using the effective (post-override) deadline.
     // A repo with 0 commits or only the single automatic "Initial commit" (commit_count <= 1)
-    // without a submit/ tag represents an unstarted repository where the student submitted no work.
-    // One copied with the template's full history has many commits from the
-    // start, and is unstarted while it is still at the commit it was given
+    // represents an unstarted repository where the student submitted no work.
+    // One provisioning added to has more commits from the start, and is
+    // unstarted while it is still at the commit it was given
     // (lib/starter-commit.mjs).
     const given = starterFor(repo, repos);
-    const isUnstarted = !latestTagObservation && unstartedRepo({
+    const isUnstarted = unstartedRepo({
       starterSha: given.sha,
       latestSha: latestObservedSha,
       commitCount: latestCommitCount,
@@ -760,10 +717,6 @@ async function main() {
       ...(given.sha && given.fullHistory ? { full_history: true } : {}),
       late_commit_count: latestLateCommitCount ?? null,
       uncertainty_interval_seconds: uncertaintySeconds,
-      tagged_submission_tag: latestTagObservation?.tag ?? null,
-      tagged_submission_sha: latestTagObservation?.tagged_sha ?? null,
-      tagged_submission_observed_at: latestTagObservation?.observed_at ?? null,
-      tagged_submission_declared_at: latestTagObservation?.declared_at ?? null,
       // The record first: it is when writes actually stopped. The observation's
       // timestamp is only when the nightly looked, and falls back to it for a
       // control repo whose record predates this field.
