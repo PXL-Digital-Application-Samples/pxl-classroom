@@ -162,6 +162,9 @@ test("find-armable prints the armed list and names what it dropped", () => {
  *   `reposFor`       `repositories/<id>/`: logins with a provisioned repository
  *   `listStatus`     an HTTP status for the `assignments/` listing, to make the
  *                    read fail rather than come back empty
+ *   `repoDirStatus`  the same for `repositories/<id>/`; an empty one is a 404,
+ *                    as GitHub answers for a directory with nothing in it
+ *   `missingBlobs`   logins whose record's blob answers 404
  *
  * Each of those is handed the count of `assignments/` listings served so far,
  * which is one per poll. "Published while the sentinel waits" is therefore
@@ -174,6 +177,8 @@ async function withStubApi(fn, {
   stateFor = () => "published",
   reposFor = (id) => (id === "exam" ? ["alice"] : []),
   listStatus = () => null,
+  repoDirStatus = () => null,
+  missingBlobs = () => [],
   pushedAt = () => "2026-09-10T21:12:00Z",
   repos,
 } = {}) {
@@ -218,12 +223,17 @@ async function withStubApi(fn, {
 
     const repoDir = path.match(/\/contents\/repositories\/([^/]+)$/);
     if (repoDir) {
+      const status = repoDirStatus(repoDir[1], polls);
+      if (status) return send(status, { message: "listing refused" });
       const logins = reposFor(repoDir[1], polls);
       if (!logins.length) return send(404, { message: "Not Found" });
+      const gone = missingBlobs(repoDir[1], polls);
       return send(200, logins.map((login) => ({
         type: "file",
         name: `${login}.json`,
-        sha: blobFor(JSON.stringify({ github_login: login, repo_name: `TestOrg/${repoDir[1]}-${login}` })),
+        sha: gone.includes(login)
+          ? "0".repeat(40)
+          : blobFor(JSON.stringify({ github_login: login, repo_name: `TestOrg/${repoDir[1]}-${login}` })),
       })));
     }
 
@@ -809,9 +819,51 @@ test("a repository no record names any more is no longer asked for, and an unrea
       deadlineFor: () => deadline,
       // carol's team repository is removed after the first poll; on the third
       // the directory cannot be read at all.
-      reposFor: (_id, poll) => (poll === 1 ? ["alice", "carol"] : poll === 3 ? [] : ["alice"]),
+      reposFor: (_id, poll) => (poll === 1 ? ["alice", "carol"] : ["alice"]),
+      repoDirStatus: (_id, poll) => (poll === 3 ? 502 : null),
       repos: page,
     },
+  );
+});
+
+test("TL-8: a records directory that is gone is no records, while a record that cannot be read keeps what was sampled", async () => {
+  // GitHub answers 404 for a directory with nothing in it: before the first
+  // acceptance, and after every record is removed. Read as unreadable, the
+  // last set was sampled for the rest of the watch.
+  const deadline = new Date(Date.now() + 1_500).toISOString();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(mkdtempSync(join(tmpdir(), "pxl-sentinel-")), api, { deadlineAt: deadline, pollMs: 150 });
+      assert.equal(res.status, 0, res.stderr);
+      const samples = res.timeline.samples;
+      assert.ok(samples.length >= 1, JSON.stringify(samples));
+      assert.ok(res.timeline.polls > samples.length, `polls after the records went took no sample: ${JSON.stringify(res.timeline)}`);
+    },
+    { deadlineFor: () => deadline, reposFor: (_id, poll) => (poll === 1 ? ["alice"] : []) },
+  );
+  // ...but a 404 while the whole control repository is unreadable (the
+  // assignments listing failed too) says nothing, and keeps the set.
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(mkdtempSync(join(tmpdir(), "pxl-sentinel-")), api, { deadlineAt: deadline, pollMs: 150 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.timeline.samples.length, res.timeline.polls, "every poll sampled alice");
+    },
+    {
+      deadlineFor: () => deadline,
+      reposFor: (_id, poll) => (poll === 1 ? ["alice"] : []),
+      listStatus: (poll) => (poll > 1 ? 502 : null),
+    },
+  );
+  // A record whose blob answers 404: that assignment keeps what it sampled.
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(mkdtempSync(join(tmpdir(), "pxl-sentinel-")), api, { deadlineAt: deadline, pollMs: 150 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.timeline.samples.length, res.timeline.polls);
+      assert.ok(res.timeline.samples.every((s) => s.pushed_at["exam-alice"]), JSON.stringify(res.timeline.samples));
+    },
+    { deadlineFor: () => deadline, missingBlobs: (_id, poll) => (poll > 1 ? ["alice"] : []) },
   );
 });
 

@@ -207,7 +207,8 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
     listRuns("status=pending"),
   ]);
   // A list that reached GitHub's cap is not the whole list (RUN_LIST_CAP).
-  const capped = [["waiting", waitingAll], ["running", inProgressAll], ["finished", completedAll]]
+  // Every list a decision below reads, pending and queued included (TL-13).
+  const capped = [["waiting", waitingAll], ["running", inProgressAll], ["finished", completedAll], ["queued", queuedAll], ["pending", pendingAll]]
     .filter(([, runs]) => runs.length >= RUN_LIST_CAP)
     .map(([name]) => name);
 
@@ -346,7 +347,9 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
       pagesRedeploy = pagesRedeployDue({
         completed: completedAll.filter(watchedRun),
         deploys,
-        active: [...waitingAll, ...inProgressAll, ...queuedAll].filter(watchedRun),
+        // Pending too (TL-13): deploy-frontend.yml keeps the newest deploy
+        // waiting behind a running one, so a pending deploy is on its way.
+        active: [...waitingAll, ...inProgressAll, ...queuedAll, ...pendingAll].filter(watchedRun),
         now,
       });
     }

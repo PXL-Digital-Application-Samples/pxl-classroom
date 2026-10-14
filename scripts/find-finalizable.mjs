@@ -79,8 +79,11 @@ function isPreserved(controlDir, assignmentId, login) {
  * failure there was recorded nowhere, so no pass ever tried again and the key
  * stayed. scripts/close-acceptance.mjs writes `broker-closed.json` beside the
  * lock record; a pass is queued while it says not done, up to the same ceiling,
- * or while it is missing from a record written since it exists (older finished
- * assignments were closed before the file did, and are not re-run for it).
+ * or while it is missing from a record written since it exists. An older
+ * finished assignment is not re-run for it: every finalize since 2026-09-03
+ * closed its broker (the nightly logs, read 2026-10-14: 93 closed, one broker
+ * already deleted); the few finalized before the close step existed were
+ * checked by hand with tests/live/broker-hygiene.mjs (REVIEW-TRACKER P2-41).
  */
 const BROKER_CLOSE_RECORDED_SINCE = '2026-10-15T00:00:00Z';
 function brokerOwed(controlDir, id, record) {

@@ -98,6 +98,19 @@ test("the happy path closes the door, then removes both halves of the credential
   assert.equal(logged.filter((l) => l.includes("::warning::")).length, 0, "a clean run warns about nothing");
 });
 
+test("TL-10: an assignment archived or sent back to draft is closed all the same - its state is not the broker's", async () => {
+  // P2-25 finalizes one archived before its deadline with students in it; the
+  // broker it published is as open as any other's.
+  for (const state of ["archived", "draft", "closed"]) {
+    calls = [];
+    rmSync(dataDir, { recursive: true, force: true });
+    dataDir = controlDir(`id: ${ID}\ntitle: Exam\nstate: ${state}\n`);
+    stubFetch({ [VAR]: { status: 204 }, [KEY]: { status: 204 }, [CID]: { status: 204 } });
+    await run();
+    assert.deepEqual(calls, [VAR, KEY, CID], state);
+  }
+});
+
 test("THE SECOND NIGHT: already closed and already stripped is silent, not a failure", async () => {
   // find-finalizable should not return an assignment twice, but a retry, a
   // re-run or a manual sweep all land here again - and a step that shouts on

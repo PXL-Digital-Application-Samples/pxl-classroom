@@ -461,6 +461,16 @@ async function demote(t) {
   return { locked: allLocked, permissionAfter: permAfter };
 }
 
+/** "1 by org-ruleset, 1 gone, 1 NOT locked": what phase 1 did, per repository. */
+function stopTally(byRepo) {
+  const counts = new Map();
+  for (const s of byRepo.values()) {
+    const key = s.gone ? "gone" : s.locked ? `by ${s.method}` : s.method === "none" ? "not locked (nothing stops it)" : "NOT locked";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts].map(([k, n]) => `${n} ${k}`).join(", ") || "no repositories";
+}
+
 /**
  * Stop writes to the submission ref for every target. This is the only
  * time-critical phase, and the only one that must happen *at* the deadline.
@@ -543,6 +553,11 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
         // GitHub said no longer exists stays gone on that path too.
         for (const t of orgTargets) if ((res.dropped ?? []).includes(t.rec.repo_id)) orgGone.add(t);
         log("org-lock", { ok: false, note: `${res.reason} - falling back to repository rulesets` });
+        // Named here as on the success path: a gone repository takes no step
+        // below, so this is the only line that says what became of it.
+        for (const t of orgGone) {
+          log(`org-lock ${t.displayKey}`, { ok: false, note: "repository no longer exists - nothing to lock" });
+        }
       }
     }
   }
@@ -554,7 +569,8 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // A row whose snapshot could not be read was LOCKED all the same, at its
     // own time (review 2026-10-14, P2-31): the pass that reads it again kept
     // its own clock, which overstated how long the student could push.
-    const lockedBefore = Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread);
+    // ...and so was one a pass found had nothing handed in (TL-4).
+    const lockedBefore = Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread || (priorRec?.no_submission && priorRec?.verified));
     let lockdownAt = lockedBefore ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
@@ -639,9 +655,12 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     }
   }
 
+  // What HAPPENED, by the lock that holds each repository: the planned method
+  // over every target read as success after the organization ruleset had
+  // failed and fallen back (review 2026-10-14, TL-2).
   log("phase 1 - stop", {
-    ok: true,
-    note: `${method} applied to ${targets.length} repository/repositories at ${lockedAt}`,
+    ok: ![...byRepo.values()].some((s) => !s.locked && !s.gone && s.method !== "none"),
+    note: `${method} planned at ${lockedAt}: ${stopTally(byRepo)}`,
   });
   return { method, lockedAt, byRepo, orgRulesetId };
 }
@@ -789,7 +808,15 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
             byRepo.set(t, { ok: false, gone: false, reason, repoId: repoRes.data.id, pushedAt });
             continue;
           }
-          snapshotSha = commitRes.data.sha;
+          // STILL AT ITS STARTING POINT IS NO SUBMISSION on this path too
+          // (review 2026-10-14, TL-4): the rebuilt path above says so, and a
+          // student who never pushed was archived here as their own work with
+          // the starter in it. One rule for both, so a push after the deadline
+          // is not what decides whether nothing was handed in.
+          const atStart = (t.starterSha && commitRes.data.sha === t.starterSha) || generatedFromTemplate(commitRes.data);
+          snapshotSha = atStart ? null : commitRes.data.sha;
+          noSubmission = Boolean(atStart);
+          if (atStart) log(`record ${t.login}`, { ok: true, note: `${branch} holds only what the repository was given - no submission` });
         }
       }
 
@@ -1035,6 +1062,7 @@ async function main() {
       const s = lock.byRepo.get(t);
       return s && !s.locked && !s.gone && lock.method !== "none";
     });
+    const gone = targets.filter((t) => lock.byRepo.get(t)?.gone).length;
     let unstoppable = missed;
     if (missed.length) {
       const { owners } = await fetchOrgOwners(gh, cfg.org);
@@ -1049,6 +1077,7 @@ async function main() {
     await summary(
       `### Deadline stop: \`${lock.method}\` at ${lock.lockedAt}\n\n` +
       `**${stopped}/${targets.length}** repositories stopped` +
+      (gone ? `, **${gone}** no longer exist${gone === 1 ? "s" : ""}` : "") +
       (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
       `. No record written - the finalize run does phases 2-4.\n`
     );
@@ -1059,7 +1088,7 @@ async function main() {
       });
       process.exit(1);
     }
-    log("stop-only", { ok: true, note: `${stopped}/${targets.length} stopped; no lockdown record written` });
+    log("stop-only", { ok: true, note: `${stopped}/${targets.length} stopped${gone ? `, ${gone} no longer exist${gone === 1 ? "s" : ""}` : ""}; no lockdown record written` });
     process.exit(0);
   }
 

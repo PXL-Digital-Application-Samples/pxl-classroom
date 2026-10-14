@@ -44,10 +44,30 @@ test.describe('114 - the stuck-run banner, on a working course', () => {
     await expect(banner.getByRole('button', { name: /Cancel Run/ })).toBeVisible();
   });
 
+  test('TL-13: a run held behind its concurrency group past its limit is shown; a sentinel inside its own is not', async ({ page }) => {
+    await open(page, {
+      runs: {
+        pending: { status: 200, body: { total_count: 2, workflow_runs: [
+          { id: 601, name: 'Accept assignment', path: '.github/workflows/acceptance-handler.yml', status: 'pending', created_at: ago(60) },
+          { id: 602, name: 'Deadline Sentinel', path: '.github/workflows/deadline-sentinel.yml', status: 'pending', created_at: ago(200) },
+        ] } },
+      },
+    });
+    const banner = page.locator('.pipeline-stuck-banner[role="alert"]');
+    await expect(banner).toContainText('Accept assignment', { timeout: 15000 });
+    await expect(banner).toContainText('pending');
+    await expect(banner).not.toContainText('Deadline Sentinel');
+  });
+
   test('a page of runs that cannot be read is said, never "nothing stuck" by silence', async ({ page }) => {
     await open(page, { runs: { in_progress: { status: 502, body: { message: 'Bad Gateway' } } } });
     await expect(page.locator('[data-hub-runs-unread]')).toContainText('Not every run of the hub could be read', { timeout: 15000 });
     await expect(page.locator('.pipeline-stuck-banner[role="alert"]')).toHaveCount(0);
+    // TL-14: Diagnostics says the same, as a warning, with nothing to cancel.
+    await page.locator('[data-hub-runs-unread]').getByRole('button', { name: 'Diagnostics' }).click();
+    await expect(page.getByText('Central Hub Pipeline Health')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(/Not every running or waiting workflow run could be read, so whether one is stuck is not known/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Cancel Stuck Run/ })).toHaveCount(0);
   });
 
   test('an account that cannot write to the hub sees neither', async ({ page }) => {

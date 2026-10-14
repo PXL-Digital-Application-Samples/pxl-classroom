@@ -53,6 +53,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout control repo
+        id: control
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.org }}/pxl-classroom-control
@@ -84,7 +85,7 @@ jobs:
       # the adopt path - the same reason daily-activity commits its lockdown
       # record after a failed leg.
       - name: Commit updated repository records
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         working-directory: control
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}

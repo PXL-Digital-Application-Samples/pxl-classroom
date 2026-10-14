@@ -55,6 +55,9 @@ function createMockRequest(customHandlers = {}) {
       return customHandlers[path](method, path);
     }
     if (path === "/user") return { status: 200, ok: true, data: { login: "lecturer" } };
+    // A working hub answers its run lists; unanswered, System Health says it
+    // could not tell whether a run is stuck (TL-13).
+    if (path.includes("/actions/runs?status=")) return { status: 200, ok: true, data: { total_count: 0, workflow_runs: [] } };
     // Without this the 404 fallback now reports "no such App" - the branch
     // WS6 filled in, which used to add no check at all.
     if (path === `/apps/${APP_SLUG}`) {

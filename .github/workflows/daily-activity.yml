@@ -87,7 +87,11 @@ jobs:
           # need: ./collect and ./notify mint their own (lib/app-token-scopes.mjs).
           repositories: pxl-classroom-control
           permission-contents: write
+      # `id: control`: the steps below that run past an earlier failure
+      # (`always()`) read this checkout, so they run only when it happened -
+      # without it they failed again over a missing directory, burying why.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: control
         with:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
@@ -122,11 +126,11 @@ jobs:
       # control repo checked out, is serialised per org, and already commits -
       # so it costs no Actions minutes of its own.
       - name: Link verified claims into the roster
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         run: node scripts/link-claims.mjs --data-dir control
 
       - name: Commit + push to control repo
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"
@@ -163,7 +167,7 @@ jobs:
 
       - name: Find student repositories with no record
         id: unrecorded
-        if: always() && steps.unrecorded_token.outputs.token != ''
+        if: always() && steps.control.outcome == 'success' && steps.unrecorded_token.outputs.token != ''
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.unrecorded_token.outputs.token }}
@@ -202,7 +206,7 @@ jobs:
 
       - name: Find acceptance attempts that got no answer
         id: unanswered
-        if: always() && steps.unanswered_token.outputs.token != ''
+        if: always() && steps.control.outcome == 'success' && steps.unanswered_token.outputs.token != ''
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.unanswered_token.outputs.token }}
@@ -418,7 +422,11 @@ jobs:
           permission-contents: write
           permission-metadata: read
           permission-secrets: write
+      # `id: control`, read by every step below that runs past an earlier
+      # failure: with no checkout there is nothing to lock, archive or commit,
+      # and each failed again over a missing directory, burying why.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: control
         with:
           repository: ${{ matrix.assignment.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
@@ -443,7 +451,7 @@ jobs:
       # cascade. `!cancelled()` rather than always(): a run somebody cancels by
       # hand must not go on to lock a cohort.
       - name: 2. Lockdown
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.control.outcome == 'success' }}
         uses: ./lockdown
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -466,7 +474,7 @@ jobs:
       # preserve.mjs already skips a student with no verified snapshot, so this
       # archives what was frozen and nothing else.
       - name: 3. Preserve
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         id: preserve_step
         uses: ./preserve
         with:
@@ -477,7 +485,7 @@ jobs:
           data-dir: control
 
       - name: 4. Report
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         uses: ./report
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -501,7 +509,7 @@ jobs:
       # already demoted permissions through the API by this point, so the
       # assignment is finished whether or not a later step failed.
       - name: 5. Close acceptance on the broker
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
@@ -558,7 +566,7 @@ jobs:
       # (HTTP 403), reports that as a permission and writes nothing: never a
       # hand-in taken from the branch alone.
       - name: 6. Read autograding scores
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.gradetoken.outputs.token || steps.token.outputs.token }}
@@ -601,7 +609,7 @@ jobs:
       # mkdir -p first. `grading/` is not scaffolded (nothing creates it until
       # something grades), which makes its mkdir load-bearing.
       - name: Commit + push
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         env:
           ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
         run: |

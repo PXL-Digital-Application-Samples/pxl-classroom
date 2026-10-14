@@ -163,6 +163,51 @@ test("G13d and LD9: a stuck RE-RUN is alerted on its own; a waiting Deadline Sen
   }
 });
 
+test("TL-11: a run held behind its concurrency group is alerted past its own limit and never cancelled; nor is a long sentinel", async () => {
+  // R1-11 and LD9: pending runs were read by nothing. A second sentinel pends
+  // behind the first by design, an acceptance waits its turn: alerted once
+  // they outlast the run ahead of them, never cancelled, because each is
+  // somebody's work. The running sentinel past its limit is alerted too.
+  const calls = [];
+  const ago = (m) => new Date(Date.now() - m * 60 * 1000).toISOString();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    const method = opts?.method || "GET";
+    calls.push({ method, url: u, body: opts?.body ? JSON.parse(opts.body) : null });
+    const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+    if (u.includes("/actions/runs?status=pending")) {
+      return json({ workflow_runs: [
+        { id: 601, name: "Deadline Sentinel", path: ".github/workflows/deadline-sentinel.yml", status: "pending", event: "workflow_dispatch", created_at: ago(400), html_url: "a" },
+        { id: 602, name: "Accept assignment", path: ".github/workflows/acceptance-handler.yml", status: "pending", event: "repository_dispatch", created_at: ago(60), html_url: "b" },
+        // Under its limit: neither alerted nor cancelled.
+        { id: 603, name: "Deadline Sentinel", path: ".github/workflows/deadline-sentinel.yml", status: "pending", event: "workflow_dispatch", created_at: ago(200), html_url: "c" },
+      ] });
+    }
+    if (u.includes("/actions/runs?status=in_progress")) {
+      return json({ workflow_runs: [
+        { id: 604, name: "Deadline Sentinel", path: ".github/workflows/deadline-sentinel.yml", status: "in_progress", event: "workflow_dispatch", created_at: ago(320), run_started_at: ago(320), html_url: "d" },
+      ] });
+    }
+    if (/status=(waiting|completed|queued)/.test(u)) return json({ workflow_runs: [] });
+    if (u.includes("/cancel")) return json({}, 202);
+    if (u.includes("/issues?labels=pxl-tracking")) return json([{ number: 42, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }]);
+    if (u.includes("/issues/42/comments")) return method === "GET" ? json([]) : json({ id: 1 }, 201);
+    return json({});
+  };
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.deepEqual(calls.filter((c) => c.url.includes("/cancel")), [], "nothing is cancelled");
+    assert.deepEqual(res.cancelledRuns, []);
+    assert.deepEqual(res.stuckRuns.map((r) => [r.id, r.reason]).sort(), [[601, "pending_timeout"], [602, "pending_timeout"], [604, "in_progress_timeout"]]);
+    const posted = calls.filter((c) => c.method === "POST" && c.url.includes("/issues/42/comments")).map((c) => c.body.body).join("\n");
+    for (const id of [601, 602, 604]) assert.match(posted, new RegExp(`pxl-watchdog-dedup:stuck-${id}`), `run ${id} is alerted`);
+    assert.doesNotMatch(posted, /stuck-603/, "a sentinel pending under its limit is not");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runWatchdog - deduplicates alerts when marker is already present", async () => {
   const calls = [];
   const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -561,6 +606,47 @@ test("runWatchdog - a redeploy GitHub refuses is alerted, and every other alert 
     const posted = gh.calls.filter((c) => c.method === "POST" && /issues\/7\/comments/.test(c.url)).map((c) => c.body.body);
     assert.ok(posted.some((b) => /pxl-watchdog-dedup:failed-50-->/.test(b)), "the failed run's alert still went out");
     assert.ok(posted.some((b) => /Student pages are behind, and the deploy could not be started/.test(b)), "and the refused redeploy is said");
+  } finally {
+    gh.restore();
+  }
+});
+
+test("TL-13: a deploy held behind the running one is on its way - no second deploy is dispatched", async () => {
+  // deploy-frontend.yml keeps the newest deploy pending behind a running one;
+  // the watchdog read only waiting, running and queued deploys, so it would
+  // dispatch another over the one already coming.
+  const gh = stubRuns([
+    [/status=completed&created/, { body: { workflow_runs: [
+      { id: 50, name: "Regenerate Dashboard", path: ".github/workflows/regenerate-dashboard.yml", status: "completed", conclusion: "success", event: "workflow_dispatch", created_at: at(32), updated_at: at(30), html_url: "https://x/50" },
+    ] } }],
+    [/status=pending/, { body: { workflow_runs: [
+      { id: 51, name: "Deploy frontend to Pages", path: ".github/workflows/deploy-frontend.yml", status: "pending", event: "workflow_dispatch", created_at: at(3), html_url: "https://x/51" },
+    ] } }],
+    [/actions\/workflows\/deploy-frontend\.yml\/runs/, { body: { workflow_runs: [deployRun(9, "success", 120)] } }],
+    [/actions\/runs\/9\/jobs/, { body: cleanJobs }],
+    [/deploy-frontend\.yml\/dispatches/, { method: "POST", status: 204 }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.deepEqual(res.pagesRedeploy, { due: false, reason: "a deploy is on its way" });
+    assert.ok(!gh.calls.some((c) => /dispatches/.test(c.url)), "nothing dispatched");
+  } finally {
+    gh.restore();
+  }
+});
+
+test("TL-13: a pending list at GitHub's cap is not the whole list either", async () => {
+  const many = Array.from({ length: RUN_LIST_CAP }, (_, i) => ({ id: 8000 + i, path: ".github/workflows/acceptance-handler.yml", status: "pending", event: "repository_dispatch", created_at: at(1) }));
+  const gh = stubRuns([
+    [/status=pending/, { body: { total_count: many.length, workflow_runs: many } }],
+    [/issues\?labels=pxl-tracking/, { body: [{ number: 7, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }] }],
+    [/issues\/7\/comments/, { method: "GET", body: [] }],
+    [/issues\/7\/comments/, { method: "POST", status: 201, body: { id: 1 } }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: false, notifyLogins: [] });
+    assert.ok(res.capped.includes("pending"), JSON.stringify(res.capped));
+    assert.equal(res.outcome, "incomplete");
   } finally {
     gh.restore();
   }

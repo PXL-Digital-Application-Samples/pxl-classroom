@@ -24,6 +24,8 @@ function createMockRequest(overrides = {}) {
       return overrides[path](method, path, body);
     }
     if (path === "/user") return { status: 200, ok: true, data: { login: "lecturer-bob" } };
+    // A working hub answers its run lists (TL-13).
+    if (path.includes("/actions/runs?status=")) return { status: 200, ok: true, data: { total_count: 0, workflow_runs: [] } };
     // The App's own declaration. Unmocked it fell through to the 404 below,
     // which used to mean "add no check at all" - the branch WS6 filled in,
     // because "no such App" is the one thing every tier below is downstream

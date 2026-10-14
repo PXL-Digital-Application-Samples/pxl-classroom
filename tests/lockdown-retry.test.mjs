@@ -214,6 +214,54 @@ test("a snapshot that could not be read is recorded as unread - locked, a row, r
   });
 });
 
+test("TL-4: a row with nothing handed in keeps its first lock time on a later pass", async () => {
+  // The branch is still at the start the App recorded, so the row is no
+  // submission with no snapshot - and a later pass (somebody else's extension
+  // running out) stamped it with its own clock, as P2-31 was for unread ones.
+  const dir = makeControlDir();
+  writeFileSync(
+    join(dir, "repositories", "exam", "alice.json"),
+    JSON.stringify({ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, starter_sha: ON_TIME_SHA, starter_commit_count: 1 }),
+  );
+  let first;
+  await withStubApi(ON_TIME_SHA, async (api) => {
+    const res = await runLockdown(dir, api);
+    first = res.record.results.find((r) => r.github_login === "alice");
+    assert.equal(first.no_submission, true);
+    assert.equal(first.snapshot_sha, null);
+  });
+  await new Promise((r) => setTimeout(r, 1100));
+  await withStubApi(ON_TIME_SHA, async (api) => {
+    const again = (await runLockdown(dir, api)).record.results.find((r) => r.github_login === "alice");
+    assert.equal(again.no_submission, true);
+    assert.equal(again.lockdown_at, first.lockdown_at, "locked at the first pass, not this one");
+  });
+});
+
+test("TL-9: a pass made only because an extension ran out spends no attempt", async () => {
+  // Alice was preserved on the first pass; bob was deferred and his
+  // extension has run out since. The pass that locks him is new work, not a
+  // retry of failed work, and the ceiling of three is for the second kind.
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const dir = makeControlDir({
+    schema_version: 1, assignment_id: "exam", finalize_attempts: 1,
+    results: [
+      { github_login: "alice", repo_name: "TestOrg/exam-alice", snapshot_sha: ON_TIME_SHA, lockdown_at: past },
+      { github_login: "bob", repo_name: "TestOrg/exam-bob", snapshot_sha: null, deferred_until: past },
+    ],
+  });
+  writeFileSync(join(dir, "repositories", "exam", "bob.json"), JSON.stringify({ github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 43 }));
+  mkdirSync(join(dir, "observations", "exam", "alice"), { recursive: true });
+  writeFileSync(join(dir, "observations", "exam", "alice", "preservation.json"), JSON.stringify({ verified: true, source_sha: ON_TIME_SHA }));
+  await withStubApi(LATE_SHA, async (api) => {
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.record.finalize_attempts, 1, "not a retry");
+    assert.equal(res.record.results.find((r) => r.github_login === "bob").snapshot_sha, LATE_SHA, "bob is locked now");
+    assert.equal(res.record.results.find((r) => r.github_login === "alice").snapshot_sha, ON_TIME_SHA, "alice stays frozen");
+  });
+});
+
 test("the attempt counter counts retries of owed work, not passes", async () => {
   // Review 2026-10-14: every pass counted - expired extensions, a lecturer's
   // lock, a Try again - so the ceiling of three was spent before a failure

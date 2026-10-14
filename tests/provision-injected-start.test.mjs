@@ -34,7 +34,7 @@ const STUDENT_COMMIT = { sha: ROOT, parents: [{ sha: "f".repeat(40) }], committe
  * copy whose first run failed before the workflow was added), and the commit
  * under the one this run adds is `GENERATED_ROOT` or a student's.
  */
-async function withApi(fn, { templateGrades = false, existing = null } = {}) {
+async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204 } = {}) {
   const calls = [];
   let generated = Boolean(existing);
   const server = createServer((req, res) => {
@@ -58,7 +58,8 @@ async function withApi(fn, { templateGrades = false, existing = null } = {}) {
     }
     if (url === `/repos/Org/lab-ann/commits/${INJECTED}`) return send(200, { sha: INJECTED, parents: [{ sha: ROOT }] });
     if (url === `/repos/Org/lab-ann/commits/${ROOT}`) return send(200, existing === "student" ? STUDENT_COMMIT : GENERATED_ROOT);
-    if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") return send(200, [{ name: "README.md", type: "file" }]);
+    // `contentsEmpty`: GitHub never finishes copying the template in.
+    if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") return contentsEmpty ? send(404, { message: "This repository is empty." }) : send(200, [{ name: "README.md", type: "file" }]);
     if (/^\/repos\/Org\/lab-ann\/contents\/\.github\/workflows\/(autograding|classroom)\.yml$/.test(url) && req.method === "GET") {
       return templateGrades && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
     }
@@ -69,7 +70,7 @@ async function withApi(fn, { templateGrades = false, existing = null } = {}) {
       // GitHub's one commit plus the workflow: the `last` page is 2.
       return send(200, [{ sha: INJECTED }], { link: `<http://x/repos/Org/lab-ann/commits?sha=${INJECTED}&per_page=1&page=2>; rel="last"` });
     }
-    if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return send(204);
+    if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return grantStatus === 204 ? send(204) : send(grantStatus, { message: "Forbidden" });
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -80,7 +81,7 @@ async function withApi(fn, { templateGrades = false, existing = null } = {}) {
   }
 }
 
-function provision(apiBase) {
+function provision(apiBase, { dryRun = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-inject-"));
   mkdirSync(join(dir, "control", "assignments"), { recursive: true });
   writeFileSync(join(dir, "control", "assignments", "lab.yml"), stringify({
@@ -92,7 +93,7 @@ function provision(apiBase) {
       env: {
         ...process.env, GITHUB_TOKEN: "stub-token", GITHUB_API_URL: apiBase, ORG: "Org", TEMPLATE_OWNER: "Org", TEMPLATE_REPO: "tpl",
         TEMPLATE_REPOSITORY_ID: "", TARGET_REPO: "lab-ann", ASSIGNMENT_ID: "lab", STUDENT_LOGIN: "ann", STUDENT_PERMISSION: "push",
-        DRY_RUN: "0", RECREATE_EMPTY: "false", FEEDBACK_PR: "false", TEMPLATE_FULL_HISTORY: "false", PXL_FILL_WAIT_CHECKS: "2",
+        DRY_RUN: dryRun ? "1" : "0", RECREATE_EMPTY: "false", FEEDBACK_PR: "false", TEMPLATE_FULL_HISTORY: "false", PXL_FILL_WAIT_CHECKS: "2",
         GITHUB_OUTPUT: join(dir, "out.env"), GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
       },
     });
@@ -146,4 +147,29 @@ test("...and one provisioning added nothing to records none: one commit is the s
     assert.equal(r.status, 0, r.log);
     assert.equal(output(r.outputs, "starter_sha"), "");
   }, { templateGrades: true });
+});
+
+test("TL-7: `granted` is said the moment the student holds the repository, so a later failure still leaves them on a record lockdown reads", async () => {
+  // The grant held, then GitHub never filled the repository in: the run fails
+  // AFTER the student has access, and the workflow writes their record from
+  // `granted` (LD5). ~30s: the population wait is not shortened for the test.
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.notEqual(r.status, 0, "the run fails");
+    assert.equal(output(r.outputs, "outcome"), "fail:template-not-populated", r.log);
+    assert.equal(output(r.outputs, "granted"), "true");
+    assert.equal(output(r.outputs, "repo_name"), "Org/lab-ann");
+  }, { contentsEmpty: true });
+  // A grant GitHub refused: nobody holds it, so no `granted`.
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.equal(output(r.outputs, "outcome"), "fail:grant", r.log);
+    assert.equal(output(r.outputs, "granted"), undefined);
+  }, { grantStatus: 403 });
+  // A dry run grants nothing and says nothing.
+  await withApi(async (api, calls) => {
+    const r = await provision(api, { dryRun: true });
+    assert.equal(output(r.outputs, "granted"), undefined, r.log);
+    assert.ok(!calls.some((c) => c.startsWith("PUT ")), "nothing written");
+  });
 });

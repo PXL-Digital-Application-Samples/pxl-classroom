@@ -196,6 +196,40 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     expect(dispatchedRetry).toBe(true);
   });
 
+  test('TL-14 (A11): a student owed no copy is not counted, and a cohort that handed in nothing says so with nothing to retry', async ({ page }) => {
+    const assignmentId = 'lab-nothing-owed';
+    const assignment = {
+      id: assignmentId, title: 'Nothing Owed Lab', organization: ORG, assignment_type: 'individual', roster_mode: 'open',
+      state: 'closed', deadline_at: new Date(Date.now() - 3600 * 1000 * 12).toISOString(),
+      template: { owner: ORG, repository: 'retry-template' }, repository_name_pattern: `${assignmentId}-{github_login}`,
+    };
+    const row = (login, extra) => ({
+      github_login: login, name: login, repo_name: `${ORG}/${assignmentId}-${login}`, repo_url: `https://github.com/${ORG}/${assignmentId}-${login}`,
+      submission_status: 'no-submission', commit_count: 1, lock_down_outcome: 'locked', ...extra,
+    });
+    const report = (students) => ({ schema_version: 1, assignment_id: assignmentId, assignment_title: 'Nothing Owed Lab', org: ORG, generated_at: new Date().toISOString(), students });
+    const open = async (students) => {
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, { assignments: { [assignmentId]: assignment }, reports: { [assignmentId]: report(students) }, currentUser: LECTURER });
+      await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+      await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
+    };
+
+    // One with nothing to archive, one whose copy failed: one to try again.
+    await open([row('student-none', { preservation_status: 'not-required' }), row('student-failed', { submission_status: 'on-time', commit_count: 3, preservation_status: 'failed' })]);
+    await page.getByRole('button', { name: /Manage/i }).click();
+    await expect(page.locator('button', { hasText: 'Try again for 1 student' })).toBeVisible();
+
+    // Nobody owed a copy: said in words, and nothing offered to retry.
+    await open([row('student-none', { preservation_status: 'not-required' }), row('student-none2', { preservation_status: 'not-required' })]);
+    await expect(page.locator('.preservation-strip-title')).toContainText('Nothing was handed in before the deadline, so there is nothing to archive');
+    const manage = page.getByRole('button', { name: /Manage/i });
+    if (await manage.count()) {
+      await manage.click();
+      await expect(page.locator('button', { hasText: /Try again for/ })).toHaveCount(0);
+    }
+  });
+
   test('Scenario 3 (Preservation Status Badges in Individual & Group Tables): Renders Preserved links to archive and Locked badges', async ({ page }) => {
     const assignmentId = 'lab-status-preserved';
     const assignment = {

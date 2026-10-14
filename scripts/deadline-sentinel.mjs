@@ -238,16 +238,18 @@ async function readAssignments() {
  * team left empty by a switch has its repository removed, no listing of the
  * org can find it again, and while it was still asked for every sample read as
  * a capped walk (review 2026-10-14). An assignment whose records could not all
- * be read keeps what it sampled last time (`previous`) - `repositories/<id>/`
- * does not exist until the first acceptance, and a failed read is not a
- * deletion.
+ * be read keeps what it sampled last time (`previous`): a failed read is not a
+ * deletion. A 404 IS an answer, while the control repository itself answers
+ * (`controlReadable`, this poll's assignments listing): `repositories/<id>/`
+ * does not exist before the first acceptance, nor once every record is gone,
+ * and read as unreadable it kept the last set sampled for ever (TL-8).
  */
-async function refreshWatched(watched, members, previous) {
+async function refreshWatched(watched, members, previous, { controlReadable = false } = {}) {
   const current = new Map();
   for (const id of members) {
     const listing = await listControlDir(repositoriesDir(id));
     const names = [];
-    let whole = listing.ok;
+    let whole = listing.ok || (listing.status === 404 && controlReadable);
     for (const file of listing.files) {
       if (!file.name.endsWith(".json")) continue;
       const text = await readBlob(file.sha);
@@ -554,7 +556,7 @@ async function main() {
       latestByAssignment = live.byId;
       moved = live.earliest;
     }
-    sampling = await refreshWatched(watched, members, sampling);
+    sampling = await refreshWatched(watched, members, sampling, { controlReadable: assignments !== null });
 
     if (sampling.size) {
       const sample = await samplePushedAt(sampling);

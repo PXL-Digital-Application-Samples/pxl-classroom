@@ -58,6 +58,15 @@ async function withStubApi(fn, opts = {}) {
     installationSelection = "all",
     // When GitHub says the student repository was created.
     repoCreatedAt = "2026-09-01T08:00:00Z",
+    // An org ruleset create WITHOUT a gone id (the retry after the 422)
+    // answers this status instead of succeeding.
+    orgRetryStatus = null,
+    // A status other than 200 for the repository object itself, and for the
+    // `?until=` commit listing.
+    repoStatus = 200,
+    untilStatus = 200,
+    // What GET /commits/main answers: the branch head.
+    headRow = { sha: HEAD_SHA },
   } = opts;
   const calls = [];
   const rulesetsByRepo = new Map();
@@ -104,6 +113,7 @@ async function withStubApi(fn, opts = {}) {
           if (ids.some((id) => goneIds.includes(id))) {
             return send(422, { message: "Invalid parameter repository_ids: repository selected does not exist or is not in this organization" });
           }
+          if (orgRetryStatus) return send(orgRetryStatus, { message: "Server Error" });
           const created = { id: nextRulesetId++, source_type: "Organization", ...body };
           orgRulesets.push(created);
           return send(201, created);
@@ -138,9 +148,12 @@ async function withStubApi(fn, opts = {}) {
       if (byId) {
         return goneIds.includes(Number(byId[1])) ? send(404, { message: "Not Found" }) : send(200, { id: Number(byId[1]), owner: { login: "TestOrg" } });
       }
-      if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return send(200, untilCommits);
-      if (/\/commits\/main$/.test(path)) return send(200, { sha: HEAD_SHA });
-      if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt, created_at: repoCreatedAt });
+      if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return untilStatus === 200 ? send(200, untilCommits) : send(untilStatus, { message: "Bad Gateway" });
+      if (/\/commits\/main$/.test(path)) return send(200, headRow);
+      if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) {
+        if (repoStatus !== 200) return send(repoStatus, { message: "Bad Gateway" });
+        return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt, created_at: repoCreatedAt });
+      }
       const presence = path.match(/^\/repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)$/);
       if (presence && req.method === "GET") {
         if (noAccess.includes(presence[1])) return send(404, { message: "Not Found" });
@@ -456,6 +469,118 @@ test("P2-26: on the repository-ruleset and demotion paths a deleted repository i
   }
 });
 
+test("TL-2: the organization ruleset failing on its retry without a deleted repository still stops everyone else, and the deleted one is not a missed stop", async () => {
+  // The create carrying the deleted id is refused 422, the retry without it
+  // fails too: lockdown falls back to repository rulesets for the cohort, and
+  // the repository the retry dropped is gone, not a stop that failed.
+  await withStubApi(
+    async (api, calls, rulesetsByRepo) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, logins: ["alice"] });
+      writeFileSync(
+        join(dir, "repositories", "exam", "bob.json"),
+        JSON.stringify({ github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 77 }),
+      );
+      const res = await runLockdown(dir, api, { STOP_ONLY: "1" });
+      assert.equal(res.status, 0, res.stdout + res.stderr);
+      assert.match(res.outputs, /error_count=0/);
+      assert.match(res.outputs, /locked_count=1/, "alice is stopped");
+      assert.equal(calls.filter((c) => c.line === "POST /orgs/TestOrg/rulesets").length, 2, "the create, then the retry without the deleted id");
+      assert.equal((rulesetsByRepo.get("exam-alice") ?? []).length, 1, "alice's own repository ruleset is the fallback");
+      // Said, by name, and the closing line says what happened rather than
+      // "org-ruleset applied to 2".
+      assert.match(res.stdout, /org-lock bob - repository no longer exists - nothing to lock/);
+      assert.match(res.stdout, /phase 1 - stop - org-ruleset planned at \S+: 1 by ruleset, 1 gone/);
+      assert.match(res.stdout, /1\/2 stopped, 1 no longer exists/);
+    },
+    { goneIds: [77], goneNames: ["exam-bob"], orgRetryStatus: 500 },
+  );
+});
+
+test("TL-3: a repository or ?until read that fails leaves a locked row saying what was not read, never HEAD and never no row", async () => {
+  for (const [label, stub, reason] of [
+    ["the repository object", { repoStatus: 502 }, /repo HTTP 502/],
+    ["the commits as of the deadline", { untilStatus: 502 }, /commits\?until HTTP 502/],
+  ]) {
+    await withStubApi(
+      async (api) => {
+        const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+        const res = await runLockdown(dir, api);
+        const alice = rowFor(res.record, "alice");
+        assert.ok(alice, `${label}: the student keeps a row`);
+        assert.equal(alice.snapshot_sha, null, `${label}: not HEAD`);
+        assert.match(alice.snapshot_unread ?? "", reason, label);
+        assert.ok(alice.lockdown_at, `${label}: locked all the same`);
+      },
+      stub,
+    );
+  }
+});
+
+test("TL-4: a team repository still at its start is no submission for every member, from whichever record holds the start, read off HEAD or rebuilt", async () => {
+  // Two member records name one repository; only bob's carries the start the
+  // App recorded (alice accepted before it was read). Both rows are read
+  // against it: the start is one answer for one repository.
+  const team = (dir, record = {}) => {
+    for (const [login, extra] of [["alice", {}], ["bob", { starter_sha: ON_TIME_SHA, starter_commit_count: 1 }]]) {
+      writeFileSync(
+        join(dir, "repositories", "exam", `${login}.json`),
+        JSON.stringify({ github_login: login, team_slug: "team-a", repo_name: "TestOrg/exam-team-a", repo_id: 42, ...extra, ...record }),
+      );
+    }
+  };
+  // Rebuilt: a push after the deadline, and by the deadline only the start.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false, logins: [] });
+      team(dir);
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      for (const login of ["alice", "bob"]) {
+        const row = rowFor(res.record, login);
+        assert.equal(row.snapshot_sha, null, `${login}: the start is not their work`);
+        assert.equal(row.no_submission, true, login);
+      }
+    },
+    { untilCommits: [{ sha: ON_TIME_SHA }] },
+  );
+  // Read off HEAD: nobody pushed after the deadline, and HEAD is the start.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false, logins: [] });
+      team(dir);
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      for (const login of ["alice", "bob"]) {
+        assert.equal(rowFor(res.record, login).snapshot_sha, null, `${login}: HEAD at the start is no submission either`);
+        assert.equal(rowFor(res.record, login).no_submission, true, login);
+      }
+      assert.match(res.stdout, /holds only what the repository was given - no submission/);
+    },
+    { pushedAt: PUSHED_EARLY, headRow: { sha: ON_TIME_SHA } },
+  );
+  // GitHub's own generated first commit, no start recorded: the same answer.
+  const generated = { sha: ON_TIME_SHA, parents: [], committer: { login: "web-flow" }, author: { login: "pxl-classroom[bot]" }, commit: { verification: { verified: true } } };
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+      const res = await runLockdown(dir, api);
+      assert.equal(rowFor(res.record, "alice").no_submission, true);
+    },
+    { pushedAt: PUSHED_EARLY, headRow: generated },
+  );
+  // A head that is the student's own commit is still their submission.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false, logins: [] });
+      team(dir);
+      const res = await runLockdown(dir, api);
+      assert.equal(rowFor(res.record, "alice").snapshot_sha, HEAD_SHA);
+      assert.equal(rowFor(res.record, "alice").no_submission, undefined);
+    },
+    { pushedAt: PUSHED_EARLY },
+  );
+});
+
 test("LD8: the demotion never re-invites a student whose access was removed", async () => {
   // Review 2026-10-14: a PUT on somebody with no access SENDS an invitation -
   // an email, and access a lecturer took away (or a team switch removed) back.
@@ -517,6 +642,50 @@ test("an extension widens the reconstruction window to the student's own deadlin
       new RegExp(`until=${granted}`),
       "the window must be the extension, not the assignment deadline",
     );
+  });
+});
+
+test("TL-1: the sentinel's stop proves nothing for a student whose extension ran past it, and a stop not yet confirmed proves nothing at all", async () => {
+  // The stop at the assignment deadline covered students due then. Alice's
+  // extension ran on after it, so her HEAD is not her deadline state: rebuilt
+  // at her own deadline, never read off HEAD because some stop happened.
+  const granted = new Date(Date.now() - 2 * 3600_000).toISOString();
+  const extension = (dir) => {
+    mkdirSync(join(dir, "overrides", "exam"), { recursive: true });
+    writeFileSync(
+      join(dir, "overrides", "exam", "alice.json"),
+      JSON.stringify({
+        schema_version: 1, assignment_id: "exam", github_login: "alice",
+        overrides: [{ type: "deadline_extension", value: granted, reason: "medical", overridden_by: "admin-panel", overridden_at: new Date().toISOString() }],
+      }),
+    );
+  };
+  const timeline = (dir, stop) => {
+    mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-x.json"), JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop }));
+  };
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+    extension(dir);
+    timeline(dir, "done");
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    const q = calls.find((c) => c.line === "GET /repos/TestOrg/exam-alice/commits");
+    assert.ok(q, "rebuilt, not read off HEAD");
+    assert.match(decodeURIComponent(q.query), new RegExp(`until=${granted}`), "at her own deadline");
+    const alice = rowFor(res.record, "alice");
+    assert.equal(alice.snapshot_sha, ON_TIME_SHA);
+    assert.equal(alice.reconstructed, true);
+  });
+  // A stop still `pending` (the sentinel has not said it held) credits nothing:
+  // a student due at the deadline is rebuilt as if no sentinel ran.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+    timeline(dir, "pending");
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(calls.some((c) => c.line === "GET /repos/TestOrg/exam-alice/commits" && /until=/.test(c.query)), "rebuilt");
+    assert.equal(rowFor(res.record, "alice").snapshot_sha, ON_TIME_SHA);
   });
 });
 

@@ -11,4 +11,5 @@ export {
   unlockability,
   unlockRecord,
   applyUnlock,
+  unlockLogins,
 } from '../../../lib/repo-unlock.mjs'

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from "../lib/repo-unlock.mjs";
+import { lockdownRowFor, unlockability, unlockRecord, applyUnlock, unlockLogins } from "../lib/repo-unlock.mjs";
 import { releaseSubmissionLock, SUBMISSION_LOCK_NAME } from "../lib/submission-lock.mjs";
 import { unlockRecordPath } from "../lib/control-layout.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
@@ -504,6 +504,27 @@ test("EVERY method this system can lock with produces a valid record", () => {
     const res = validateAgainst("unlock-record", doc);
     assert.equal(res.valid, true, `${method}: ${JSON.stringify(res.errors)}`);
   }
+});
+
+test("TL-6: a team Reopen restores the members locked on that repository, never one the lock found with no access", () => {
+  const record = {
+    results: [
+      { github_login: "Alice", repo_name: "Org/grp-a", permission_after: "read" },
+      { github_login: "bob", repo_name: "Org/grp-a", permission_after: "read" },
+      // Removed from the repository before the deadline: the lock skipped him.
+      { github_login: "cy", repo_name: "Org/grp-a", permission_after: "none" },
+      // Switched teams before the lock: a row on ANOTHER repository.
+      { github_login: "dee", repo_name: "Org/grp-b", permission_after: "read" },
+    ],
+  };
+  const members = ["alice", "bob", "cy", "dee", "eve"];
+  assert.deepEqual(unlockLogins({ record, login: "alice", members }), ["alice", "bob"], "eve has no lock row at all");
+  // The student clicked is restored whatever their row says: that is the act.
+  assert.deepEqual(unlockLogins({ record, login: "cy", members: ["cy", "alice"] }), ["cy", "alice"]);
+  // An individual: just them.
+  assert.deepEqual(unlockLogins({ record, login: "bob", members: ["bob"] }), ["bob"]);
+  // Logins are compared as GitHub does.
+  assert.equal(lockdownRowFor(record, "ALICE")?.repo_name, "Org/grp-a");
 });
 
 test("the path is one file per student, beside the lockdown record", () => {

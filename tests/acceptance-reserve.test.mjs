@@ -297,6 +297,22 @@ test("a request made before the deadline is decided as of the request, until the
     const res = reserve(checkout(stopped), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
     assert.equal(res.outputs.outcome, outcome, `stop ${stop}: ${res.log}`);
   }
+
+  // TL-12: a sentinel that never reached its instant (`gave-up:runtime`), or
+  // fired for its group while this assignment was not due (`due: false`, a
+  // deadline moved later), stopped nothing here: the grace still applies.
+  for (const [label, doc] of [
+    ["gave up", { schema_version: 1, outcome: "gave-up:runtime", due: true, deadline_at: deadline.toISOString() }],
+    ["not due", { schema_version: 1, outcome: "fired", due: false, deadline_at: deadline.toISOString(), stop: "done" }],
+  ]) {
+    const quiet = remoteWith({
+      "students/roster.yml": ROSTER,
+      [`assignments/${ID}.yml`]: yaml,
+      [`lockdowns/${ID}/sentinel-20261014T141400Z.json`]: doc,
+    });
+    const res = reserve(checkout(quiet), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
+    assert.equal(res.outputs.outcome, "accepted", `${label}: ${res.log}`);
+  }
 });
 
 test("a duplicate of an accepted attempt is stamped as the one that decided", () => {

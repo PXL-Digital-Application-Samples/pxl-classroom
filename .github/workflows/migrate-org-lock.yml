@@ -90,6 +90,7 @@ jobs:
           permission-organization-administration: write
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: control
         with:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
@@ -114,7 +115,7 @@ jobs:
       # A dry run writes nothing, so `diff --cached --quiet` exits 0 for it and
       # this step is a no-op rather than a special case.
       - name: Commit + push to control repo
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         run: |
           set -e
           git -C control config user.name "pxl-classroom[bot]"

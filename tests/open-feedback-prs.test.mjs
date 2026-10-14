@@ -223,5 +223,6 @@ test("the records are committed even when the run failed", () => {
   const steps = workflow.jobs["open-prs"].steps;
   const commit = steps.find((s) => /Commit updated repository records/.test(s.name || ""));
   assert.ok(commit, "the commit step must exist");
-  assert.equal(commit.if, "always()", "the commit step must run even after a failure");
+  // ...as long as there is a checkout to commit from (TL-13 follow-up).
+  assert.equal(commit.if, "always() && steps.control.outcome == 'success'", "the commit step must run even after a failure");
 });

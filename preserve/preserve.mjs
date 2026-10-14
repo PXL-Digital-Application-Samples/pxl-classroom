@@ -115,7 +115,9 @@ function git(args, opts = {}) {
     env: { ...gitEnv(), GIT_TERMINAL_PROMPT: "0", ...(opts.env || {}) },
   }).trim();
 }
-const GIT_STEP_MS = 3 * 60 * 1000;
+// `PXL_GIT_STEP_MS` is for the tests, which stall a git server to prove the
+// limit holds; no workflow sets it.
+const GIT_STEP_MS = Number(process.env.PXL_GIT_STEP_MS) > 0 ? Number(process.env.PXL_GIT_STEP_MS) : 3 * 60 * 1000;
 
 // The same URL as before for github.com; built by lib/git-auth.mjs so a test
 // can point it at a directory of bare repositories (`file:///...`), as

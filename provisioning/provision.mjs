@@ -134,7 +134,8 @@ const FILL_WAIT_CHECKS = Number(process.env.PXL_FILL_WAIT_CHECKS) > 0 ? Number(p
 // The longest one git command of a full-history copy may take (clone, then
 // push): four minutes each, so both together end inside the ten minutes
 // `mayStillBeFilling` keeps a new repository from being removed by a retry.
-const GIT_STEP_MS = 4 * 60 * 1000;
+// `PXL_GIT_STEP_MS` is for the tests, which stall a git server; no workflow sets it.
+const GIT_STEP_MS = Number(process.env.PXL_GIT_STEP_MS) > 0 ? Number(process.env.PXL_GIT_STEP_MS) : 4 * 60 * 1000;
 
 /**
  * How many 2-second checks a kept empty repository gets to fill. Another run's

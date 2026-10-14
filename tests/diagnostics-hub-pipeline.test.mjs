@@ -164,22 +164,23 @@ test("checkHubPipelineHealth - reports healthy when no stuck runs", async () => 
   assert.equal(c.id, "hub-pipeline-health");
 });
 
-test("checkHubPipelineHealth - handles 404/API error gracefully without adding false alarms", async () => {
-  const checks = [];
-  const addCheck = (tierIdx, c) => checks.push({ tierIdx, ...c });
-
-  const req = async () => ({ ok: false, status: 404 });
-
-  await checkHubPipelineHealth({
-    req,
-    addCheck,
-    tierIdx: 5,
-    tierId: "tier-5-pages",
-    hubOwner: "hub-owner",
-    hubRepo: "hub-repo",
-  });
-
-  assert.equal(checks.length, 0);
+test("checkHubPipelineHealth - TL-13: no list readable is said as not known: no false alarm, and no silence either", async () => {
+  // It added no check at all, so a hub GitHub would not answer for looked the
+  // same as a check that was never run.
+  for (const req of [async () => ({ ok: false, status: 404 }), async () => { throw new Error("network"); }]) {
+    const checks = [];
+    await checkHubPipelineHealth({
+      req,
+      addCheck: (tierIdx, c) => checks.push({ tierIdx, ...c }),
+      tierIdx: 5,
+      tierId: "tier-5-pages",
+      hubOwner: "hub-owner",
+      hubRepo: "hub-repo",
+    });
+    assert.deepEqual(checks.map((c) => [c.id, c.severity]), [["hub-pipeline-health", "warn"]]);
+    assert.match(checks[0].message, /not known/);
+    assert.equal(checks[0].fixAction ?? null, null, "nothing to cancel");
+  }
 });
 
 test("checkHubPipelineHealth - 'no stuck runs' only from lists read whole: a partial page or one list unread is not ok", async () => {
@@ -212,4 +213,8 @@ test("checkHubPipelineHealth - 'no stuck runs' only from lists read whole: a par
 
   const oneUnread = await run({ waiting: { ok: false, status: 502 }, progress: empty });
   assert.deepEqual(oneUnread.checks.map((c) => c.severity), ["warn"]);
+
+  // TL-13: the pending list alone failing is not "ok" either.
+  const pendingUnread = await run({ waiting: empty, progress: empty, pending: { ok: false, status: 502 } });
+  assert.deepEqual(pendingUnread.checks.map((c) => c.severity), ["warn"]);
 });

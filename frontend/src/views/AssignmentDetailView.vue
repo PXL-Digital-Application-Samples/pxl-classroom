@@ -1498,7 +1498,7 @@ import {
 import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.mjs'
 import { addedCommits, unstartedRepo } from '../../../lib/starter-commit.mjs'
 import { syncRefusal } from '../lib/starter-sync.js'
-import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
+import { lockdownRowFor, unlockability, unlockRecord, applyUnlock, unlockLogins } from '../lib/repo-unlock.js'
 import { changedSinceRead, contentsAt } from '../../../lib/team-write-guard.mjs'
 import { studentPresence } from '../../../lib/permission-change.mjs'
 import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
@@ -5438,11 +5438,12 @@ async function unlockRepositoryFor(student, { reason }) {
       assignmentId: props.assignmentId,
       login: student.github_login,
       // A team's repository is one object: everyone the lock demoted on it is
-      // restored, not only the member clicked (lib/repo-unlock.mjs, LD6). Only
-      // members with a lock row on THIS repository - they held it at the lock.
-      logins: teamMembersOf(student)
-        .filter((s) => s.github_login && lockdownRowFor(actionLockdown.value, s.github_login)?.repo_name === lockdownRow?.repo_name)
-        .map((s) => s.github_login),
+      // restored, not only the member clicked (lib/repo-unlock.mjs, LD6).
+      logins: unlockLogins({
+        record: actionLockdown.value,
+        login: student.github_login,
+        members: teamMembersOf(student).map((s) => s.github_login),
+      }),
       // ...and a teammate with no access any more is not re-invited (P2-29).
       presence: (login) => studentPresence((method, path, body) => ghApi(token, method, path, body), { repo: `${owner}/${name}`, login }),
       method: verdict.method,

@@ -130,7 +130,11 @@ function runWithLockdown(students, { attempts = 1, id = "exam", unread = false }
   }
 
   const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
-  return { finalizable: JSON.parse(res.stdout.trim()), stderr: res.stderr };
+  return {
+    finalizable: JSON.parse(res.stdout.trim()),
+    stderr: res.stderr,
+    active: JSON.parse(readFileSync(join(dir, "active-TestOrg.json"), "utf8")).active,
+  };
 }
 
 test("all submissions preserved -> finalize is complete, not re-queued", () => {
@@ -178,6 +182,10 @@ test("retry ceiling stops the loop", () => {
   assert.equal(exhausted.finalizable.length, 0, "must stop at the ceiling");
   assert.match(exhausted.stderr, /not retrying/);
   assert.match(exhausted.stderr, /reset finalize_attempts/, "must say how to force a retry");
+  // TL-9: and it no longer keeps the nightly on - the night after the ceiling
+  // it can switch itself off, where owed work under it kept it running.
+  assert.equal(exhausted.active, 0, "nothing more is owed that a pass would do");
+  assert.equal(runWithLockdown(pending, { attempts: 2 }).active, 1, "under the ceiling, owed work keeps it on");
 });
 
 test("record without finalize_attempts (pre-upgrade) counts as attempt 1", () => {

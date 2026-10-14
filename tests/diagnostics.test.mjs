@@ -43,6 +43,8 @@ function createMockRequest({
   controlPublicJson = JSON.stringify({ assignments: { hw1: { id: "hw1", state: "published" } } }),
 }) {
   return async (method, path) => {
+    // A working hub answers its run lists (TL-13).
+    if (path.includes("/actions/runs?status=")) return { status: 200, ok: true, data: { total_count: 0, workflow_runs: [] } };
     // Tier 0
     if (path === "/user") {
       return { status: userStatus, ok: userStatus === 200, data: { login: "testlecturer" } };

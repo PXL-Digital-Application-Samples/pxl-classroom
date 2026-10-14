@@ -103,6 +103,100 @@ test("a second pass leaves a submission already in the archive alone: no fetch, 
   });
 });
 
+/** Two students, each with their own repository and a frozen snapshot. */
+function world2() {
+  const w = world();
+  const bobSrc = join(w.srv, "TestOrg", "exam-bob.git");
+  git(["init", "-q", "--bare", bobSrc], w.srv);
+  git(["config", "uploadpack.allowReachableSHA1InWant", "true"], bobSrc);
+  const work = join(w.srv, "work-bob");
+  git(["init", "-q", "-b", "main", work], w.srv);
+  git(["commit", "-q", "--allow-empty", "-m", "bob"], work);
+  git(["push", "-q", bobSrc, "main"], work);
+  const bobSha = git(["rev-parse", "HEAD"], work);
+  writeFileSync(join(w.data, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
+    schema_version: 1, assignment_id: "exam",
+    results: [
+      { github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 5, snapshot_sha: w.sha },
+      { github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 6, snapshot_sha: bobSha },
+    ],
+  }));
+  return { ...w, bobSha };
+}
+const presOf = (w, login) => {
+  const f = join(w.data, "observations", "exam", login, "preservation.json");
+  return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null;
+};
+
+test("TL-5: the archive holding another commit at a student's ref fails that student, never overwrites it, and the others are preserved", async () => {
+  const w = world2();
+  // Something else sits at alice's archive ref already: not ours to replace.
+  const other = join(w.srv, "work-other");
+  git(["init", "-q", "-b", "main", other], w.srv);
+  git(["commit", "-q", "--allow-empty", "-m", "unrelated"], other);
+  const arc = join(w.srv, "TestOrg", `${ARCHIVE}.git`);
+  git(["push", "-q", arc, "main:refs/heads/preserved/exam/alice"], other);
+  const unrelated = git(["rev-parse", "HEAD"], other);
+  await withApi(async (api) => {
+    const res = await run(api, w);
+    assert.match(res.out, /preserved_count=1/, res.log);
+    assert.match(res.out, /error_count=1/);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/alice"], arc), unrelated, "not overwritten");
+    assert.equal(presOf(w, "alice"), null, "no record claims alice is preserved");
+    assert.equal(presOf(w, "bob")?.verified, true);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/bob"], arc), w.bobSha);
+  });
+});
+
+test("TL-5: an archive that cannot be reached fails each student on their own, and the run finishes", async () => {
+  const w = world2();
+  rmSync(join(w.srv, "TestOrg", `${ARCHIVE}.git`), { recursive: true, force: true });
+  await withApi(async (api) => {
+    const res = await run(api, w);
+    assert.match(res.out, /error_count=2/, res.log);
+    assert.match(res.log, /preserve alice/);
+    assert.match(res.log, /preserve bob/);
+    assert.equal(presOf(w, "alice"), null);
+    assert.equal(presOf(w, "bob"), null);
+  });
+});
+
+test("TL-5: a git server that never answers fails each student inside the step limit, not the job's", async () => {
+  // A listener that accepts and says nothing: every git step stalls until
+  // killed. With the limit at 1.5s the two students fail in seconds.
+  const w = world2();
+  const sockets = new Set();
+  const stall = createServer(() => { /* never answers */ });
+  stall.on("connection", (s) => sockets.add(s));
+  await new Promise((r) => stall.listen(0, "127.0.0.1", r));
+  const started = Date.now();
+  try {
+    await withApi(async (api) => {
+      const res = await new Promise((resolve, reject) => {
+        const child = spawn("node", [script], {
+          env: {
+            ...process.env, GITHUB_TOKEN: "stub", GITHUB_API_URL: api, GITHUB_SERVER_URL: `http://127.0.0.1:${stall.address().port}`,
+            ORG: "TestOrg", ASSIGNMENT_ID: "exam", DATA_DIR: w.data, PXL_GIT_STEP_MS: "1500",
+            GITHUB_OUTPUT: join(w.data, "out.env"), GITHUB_STEP_SUMMARY: join(w.data, "summary.md"),
+          },
+        });
+        let log = "";
+        child.stdout.on("data", (d) => (log += d));
+        child.stderr.on("data", (d) => (log += d));
+        child.on("error", reject);
+        child.on("close", (status) => resolve({ status, log, out: existsSync(join(w.data, "out.env")) ? readFileSync(join(w.data, "out.env"), "utf8") : "" }));
+      });
+      assert.match(res.out, /error_count=2/, res.log);
+      // Killed by the limit, not refused at once for some other reason.
+      assert.equal((res.log.match(/ETIMEDOUT/g) || []).length, 2, res.log);
+      assert.ok(Date.now() - started < 30_000, "both inside the step limit, not hung");
+    });
+  } finally {
+    for (const s of sockets) s.destroy();
+    await new Promise((r) => stall.close(r));
+  }
+});
+
 test("a record lost while the archive kept the commit is written again, from the archive's ref", async () => {
   const w = world();
   await withApi(async (api) => {

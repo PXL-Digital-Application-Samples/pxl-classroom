@@ -46,7 +46,7 @@ test("unseedRefusalAt: every team still the seeded team the page saw, and nobody
   assert.equal(await unseedRefusalAt({ get: at(base), decode, assignmentId: "pe", teams: [a, b] }), null);
 
   // Bob accepted since the page loaded: his acceptance names alpha.
-  assert.match(await unseedRefusalAt({ get: at({ ...base, "acceptances/pe": dir("Bob.json") }), decode, assignmentId: "pe", teams: [a, b] }), /bob accepted since this page loaded/);
+  assert.match(await unseedRefusalAt({ get: at({ ...base, "acceptances/pe": dir("Bob.json") }), decode, assignmentId: "pe", teams: [a, b] }), /bob accepted since the teams were read/);
   assert.match(await unseedRefusalAt({ get: at({ ...base, "repositories/pe": dir("cleo.json") }), decode, assignmentId: "pe", teams: [a, b] }), /cleo accepted/);
   // The team changed: a member joined, a repository recorded, or it is gone.
   assert.match(await unseedRefusalAt({ get: at({ ...base, "teams/pe/alpha.json": file({ ...a, members: ["ann", "bob", "dan"] }) }), decode, assignmentId: "pe", teams: [a] }), /ALPHA changed since/);
@@ -75,11 +75,10 @@ test("S4: seedRefusalAt - every file it writes still free, and no seeded student
   assert.match(await seedRefusalAt({ get: at({ "teams/pe/alpha.json": { content: b64("{not json") } }), decode, assignmentId: "pe", teams: [a] }), /could not be read/);
 });
 
-test("S3/S4: the CLI's seed and unseed ask the same guards as the Teams tab, after planning again", () => {
-  const cli = readFileSync(new URL("../cli/src/commands/teams.mjs", import.meta.url), "utf8");
-  assert.match(cli, /precondition: \(\{ request, parentSha \}\) => seedRefusalAt\(/);
-  assert.match(cli, /precondition: \(\{ request, parentSha \}\) => unseedRefusalAt\(/);
-  assert.match(cli, /seedSignature\(freshPlan\) !== seedSignature\(plan\)/, "planned again after the prompt");
+// The CLI's `teams seed` / `unseed` are RUN against a changing repository in
+// cli/tests/teams.test.mjs (TA-2); this grepped them. What stays here is the
+// fork guard: the Teams tab's dialog asks the one guard and the one signature.
+test("S3/S4: the Copy teams dialog asks the shared guard, with the one plan signature", () => {
   const modal = readFileSync(new URL("../frontend/src/components/SeedTeamsModal.vue", import.meta.url), "utf8");
   assert.match(modal, /seedRefusalAt\(\{/);
   assert.doesNotMatch(modal, /function planSignature/, "one signature, in lib/seed-teams.mjs");

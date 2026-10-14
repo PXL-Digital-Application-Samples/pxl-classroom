@@ -46,6 +46,7 @@ jobs:
           permission-contents: write
           permission-issues: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: control
         with:
           repository: ${{ matrix.org }}/pxl-classroom-control
           token: ${{ steps.token.outputs.token }}
@@ -73,8 +74,11 @@ jobs:
       # remaining assignments are all draft or archived reconciled nothing and
       # kept a deleted assignment's card indefinitely. Reads one directory and
       # rewrites one file; the commit step below carries it.
+      # ...but only over a control repository that was checked out: a token
+      # GitHub would not mint left none, and the steps below then failed a
+      # second time over a missing directory, burying the real cause.
       - name: Prune dashboard entries with no assignment
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         run: |
           node scripts/prune-dashboard.mjs control
 
@@ -84,7 +88,7 @@ jobs:
       # yesterday's numbers for every assignment rather than only the failed
       # ones. Same pairing open-feedback-prs.yml uses for the same reason.
       - name: Commit public data and reports
-        if: always()
+        if: always() && steps.control.outcome == 'success'
         shell: bash
         run: |
           set -e

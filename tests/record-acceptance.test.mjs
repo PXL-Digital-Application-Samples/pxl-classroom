@@ -173,6 +173,27 @@ test("LD5: a run that failed AFTER the grant still writes the student's record, 
   assert.equal(remoteJson(before, `teams/${ID}/fullhouse.json`).repo_name, "TestOrg/grp-fullhouse");
 });
 
+test("TL-7: an INDIVIDUAL student granted their repository before a failure still gets a record; one never granted gets none", () => {
+  // No team, so no manifest to carry the repository: the student's own record
+  // is the only thing lockdown reads.
+  const solo = { ...acceptance("Fars", "424242") };
+  delete solo.team_slug;
+  delete solo.team_name;
+  const env = { TEAM_SLUG: "", TARGET_REPO: "lab-fars", REPO_URL: "https://github.com/TestOrg/lab-fars" };
+  const remote = remoteWith({ [`acceptances/${ID}/Fars.json`]: solo });
+  const res = record(checkout(remote), { ...env, OUTCOME: "fail:template-not-populated", GRANTED: "true" });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const rec = remoteJson(remote, `repositories/${ID}/Fars.json`);
+  assert.equal(rec?.repo_id, 1401466704);
+  assert.equal(rec?.team_slug, undefined);
+  assert.equal(remoteJson(remote, `acceptances/${ID}/Fars.json`).status, "failed");
+
+  const never = remoteWith({ [`acceptances/${ID}/Fars.json`]: solo });
+  const early = record(checkout(never), { ...env, OUTCOME: "fail:grant", GRANTED: "" });
+  assert.equal(early.status, 0, early.stdout + early.stderr);
+  assert.equal(remoteJson(never, `repositories/${ID}/Fars.json`), null);
+});
+
 test("a remote that stops answering is a failed step, never 'Nothing to record.'", () => {
   // Review 2026-10-06: the push failed, the fetch after it failed too, and the
   // loop wrote the record again on top of its own unpushed commit - found

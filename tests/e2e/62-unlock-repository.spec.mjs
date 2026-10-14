@@ -381,6 +381,45 @@ test.describe('a demoted repository', () => {
   });
 });
 
+test.describe('a team repository (LD6, TL-6)', () => {
+  // One repository, one lock: reopening it for the member clicked reopens it
+  // for the team, so every member the lock demoted is restored - and a member
+  // the lock found with no access is not re-invited, whatever the live
+  // presence check says.
+  const members = [
+    { github_login: STUDENT, permission_after: 'pull' },
+    { github_login: 'student-mate', permission_after: 'pull' },
+    { github_login: 'student-removed', permission_after: 'none' },
+  ];
+  const teamDoc = () => assignment({
+    assignment_type: 'group',
+    group_config: { max_team_size: 4, formation_mode: 'self-service', allow_team_creation: true },
+    repository_name_pattern: `${ID}-{team_slug}`,
+    student_permission: 'push',
+  });
+  const teamReport = () => ({
+    ...reportWith(),
+    students: members.map((m) => ({ ...reportWith().students[0], github_login: m.github_login, team_slug: 'team-a' })),
+  });
+  const teamRecord = () => ({
+    ...lockdownRecord(),
+    lock_method: 'demotion',
+    results: members.map((m) => ({ ...lockdownRecord().results[0], github_login: m.github_login, team_slug: 'team-a', lock_method: 'demotion', ...m })),
+  });
+
+  test('restores every member locked on it, not the one removed, and writes one record', async ({ page }) => {
+    const { apiCalls, contentWrites } = await openTracking(page, { record: teamRecord(), report: teamReport(), doc: teamDoc() });
+    await openActions(page);
+    await unlockSection(page).locator('textarea').fill('Appeal upheld');
+    await unlockSection(page).getByRole('button', { name: /Reopen repository/ }).click();
+    await expect.poll(() => unlockWrite(contentWrites), { timeout: 10000 }).toBeTruthy();
+    const puts = apiCalls.filter((c) => c.method === 'PUT' && c.url.includes('/collaborators/')).map((c) => decodeURIComponent(c.url.split('/collaborators/')[1]));
+    expect(puts.sort()).toEqual([STUDENT, 'student-mate'].sort());
+    expect(apiCalls.filter((c) => c.method === 'PUT').every((c) => c.body?.permission === 'push')).toBe(true);
+    expect(contentWrites.filter((w) => w.path.startsWith(`lockdowns/${ID}/unlocked/`)).map((w) => w.path)).toEqual([`lockdowns/${ID}/unlocked/${STUDENT}.json`]);
+  });
+});
+
 test.describe('a ruleset repository that was ALSO made read-only', () => {
   // `late_policy: block` + `lock_down_enabled: true`: the ruleset held the
   // branch and phase 4 demoted on top of it, recorded as `demoted: true` beside

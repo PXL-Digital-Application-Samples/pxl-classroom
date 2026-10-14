@@ -89,11 +89,9 @@ test("R1-11: a pending run waits as long as the run ahead of it may run; a pendi
   const deploy = { id: 8, path: ".github/workflows/deploy-frontend.yml", status: "pending", created_at: ago(30) };
   assert.equal(stuckRuns([deploy], now).length, 0);
   assert.equal(stuckRuns([{ ...deploy, created_at: ago(50) }], now).length, 1);
-  // Every surface reads pending runs.
-  const here = dirname(fileURLToPath(import.meta.url));
-  for (const f of ["../scripts/pipeline-watchdog.mjs", "../lib/diagnostics.mjs", "../frontend/src/views/DashboardView.vue"]) {
-    assert.match(readFileSync(join(here, f), "utf8"), /status=pending|'pending'/, f);
-  }
+  // That every surface READS pending runs is shown by running each one, not by
+  // a grep (TL-11, TL-13): tests/pipeline-watchdog.test.mjs,
+  // tests/diagnostics-hub-pipeline.test.mjs and tests/e2e/114.
 });
 
 test("G8b: every page is read, so the oldest run (the stuck one) on page 2 is found", async () => {
