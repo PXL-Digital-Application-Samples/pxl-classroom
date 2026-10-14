@@ -69,7 +69,7 @@ async function readOrgAdmin(request, org) {
   }
 }
 
-async function readHubWritable(request, hubOwner, hubRepo) {
+export async function readHubWritable(request, hubOwner, hubRepo) {
   try {
     const res = await request('GET', `/repos/${hubOwner}/${hubRepo}`)
     return Boolean(res?.ok && res.data?.permissions?.push)

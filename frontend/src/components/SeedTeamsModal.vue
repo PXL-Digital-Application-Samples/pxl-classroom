@@ -198,7 +198,7 @@ import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import HelpButton from './HelpButton.vue'
-import { planSeed, teamsFromRoster, seedCommitMessage, seedSignature } from '../../../lib/seed-teams.mjs'
+import { planSeed, teamsFromRoster, seedCommitMessage, seedSignature, SEED_SKIP_REASONS } from '../../../lib/seed-teams.mjs'
 import { contentsAt, seedRefusalAt } from '../../../lib/team-write-guard.mjs'
 import { decodeBase64 } from '../../../lib/grade-dispatch.mjs'
 import { parse as parseYaml } from 'yaml'
@@ -304,16 +304,9 @@ const applyLabel = computed(() => {
   return 'Copy teams'
 })
 
-// "3 skipped" on its own is a number nobody can act on.
-const SKIP_REASONS = {
-  vacant: 'already empty in the source',
-  'no-members': 'had no members',
-  'invalid-slug': 'had an unusable slug',
-  // With members, or with a repository a team everybody left still has
-  // (lib/seed-teams.mjs `planSeed`).
-  'already-populated': 'already exist here, with members or a repository',
-  'all-members-already-teamed': 'every member is already in another team here',
-}
+// "3 skipped" on its own is a number nobody can act on. The words live beside
+// the planner that writes the reasons (lib/seed-teams.mjs `SEED_SKIP_REASONS`).
+const SKIP_REASONS = SEED_SKIP_REASONS
 
 const skippedSummary = computed(() => {
   const skipped = plan.value?.skipped || []

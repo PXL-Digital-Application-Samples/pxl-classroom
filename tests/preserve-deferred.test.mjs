@@ -32,22 +32,38 @@ const preserveScript = join(here, "..", "preserve", "preserve.mjs");
 const ARCHIVE_PATH = `/repos/TestOrg/${archiveRepoName("exam")}`;
 
 /** Stub GitHub API: enough for the auth ping and the archive-repo probe. */
-async function withStubApi(fn, { actionsStatus = 204 } = {}) {
+/**
+ * `archiveExists: false`: the first pass, which creates the archive. `seen`
+ * carries what each Actions switch asked for, as `seen.actionsBodies`.
+ */
+async function withStubApi(fn, { actionsStatus = 204, archiveExists = true } = {}) {
   const seen = [];
+  seen.actionsBodies = [];
+  let created = false;
   const server = createServer((req, res) => {
-    const send = (code, body) => {
-      res.writeHead(code, { "content-type": "application/json" });
-      res.end(JSON.stringify(body));
-    };
-    const url = req.url.split("?")[0];
-    seen.push(`${req.method} ${url}`);
-    if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
-    if (url === ARCHIVE_PATH) return send(200, { id: 7 });
-    if (url === `${ARCHIVE_PATH}/actions/permissions` && req.method === "PUT") {
-      res.writeHead(actionsStatus);
-      return res.end();
-    }
-    return send(404, { message: "not stubbed: " + url });
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const send = (code, body) => {
+        res.writeHead(code, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      const url = req.url.split("?")[0];
+      seen.push(`${req.method} ${url}`);
+      if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
+      if (url === ARCHIVE_PATH && req.method === "GET") return archiveExists || created ? send(200, { id: 7 }) : send(404, { message: "Not Found" });
+      if (/^\/orgs\/[^/]+\/repos$/.test(url) && req.method === "POST") {
+        created = true;
+        return send(201, { id: 8 });
+      }
+      if (url.startsWith(`${ARCHIVE_PATH}/contents/`)) return req.method === "GET" ? send(404, { message: "Not Found" }) : send(201, {});
+      if (url === `${ARCHIVE_PATH}/actions/permissions` && req.method === "PUT") {
+        seen.actionsBodies.push(JSON.parse(Buffer.concat(chunks).toString() || "null"));
+        res.writeHead(actionsStatus);
+        return res.end();
+      }
+      return send(404, { message: "not stubbed: " + url });
+    });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
@@ -261,8 +277,19 @@ test("A6: Actions are turned off in the archive on every pass, and a refusal doe
     const res = await runPreserve(makeControlDir([deferred]), api);
     assert.equal(res.status, 0, res.stderr);
     assert.ok(seen.includes(`PUT ${ARCHIVE_PATH}/actions/permissions`), seen.join(", "));
+    // What it asks for, not only that it asked (P2-36).
+    assert.deepEqual(seen.actionsBodies, [{ enabled: false }]);
     assert.match(res.stdout, /Actions are off in the archive/);
   });
+  // And on the pass that CREATES the archive, after the create.
+  await withStubApi(async (api, seen) => {
+    const res = await runPreserve(makeControlDir([deferred]), api);
+    assert.equal(res.status, 0, res.stderr);
+    const create = seen.findIndex((s) => /^POST \/orgs\/[^/]+\/repos$/.test(s));
+    const off = seen.indexOf(`PUT ${ARCHIVE_PATH}/actions/permissions`);
+    assert.ok(create >= 0 && off > create, `created, then switched off: ${seen.join(", ")}`);
+    assert.deepEqual(seen.actionsBodies, [{ enabled: false }]);
+  }, { archiveExists: false });
   await withStubApi(
     async (api) => {
       const res = await runPreserve(makeControlDir([deferred]), api);

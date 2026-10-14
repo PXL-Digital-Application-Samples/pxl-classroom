@@ -1,0 +1,71 @@
+// Which assignments a signed-in student has, for the student home (HomeView):
+// a repository of theirs, or a pending invitation to one, per published
+// assignment. Its own module so the test runs the page's own matching - the
+// test it had asserted a copy, which PG5 had already left behind (review
+// 2026-10-14, P2-22).
+
+import { invitationEvidence } from './invitation-evidence.js'
+import { repositoryNameFor } from '../../../lib/repo-name.mjs'
+import { collidingRepoNames } from '../../../lib/assignment-collision.mjs'
+
+/**
+ * The time-left badge for a deadline.
+ *
+ * @returns {{ text: string, badgeClass: string }}
+ */
+export function timeRemaining(deadlineAt, now = new Date()) {
+  if (!deadlineAt) return { text: '', badgeClass: 'badge-neutral' }
+  const diffMs = new Date(deadlineAt) - now
+  if (diffMs <= 0) return { text: 'Closed', badgeClass: 'badge-error' }
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  const text = diffDays > 0 ? `${diffDays}d left` : diffHours > 0 ? `${diffHours}h left` : `${diffMins}m left`
+  return { text, badgeClass: diffHours < 24 ? 'badge-warning' : 'badge-success' }
+}
+
+/**
+ * The assignments this student has, in the order given.
+ *
+ * @param {Array<object>} allOrgAssignments  published assignments, each with `org`
+ * @param {{ login: string, repos: Array<object>, invites: Array<object>, now?: Date }} who
+ *   `repos`: the student's own repositories; `invites`: their pending repository
+ *   invitations (only ever used to ADD a row - lib/invitation-evidence.js)
+ */
+export function matchStudentAssignments(allOrgAssignments, { login, repos, invites, now = new Date() }) {
+  const userLogin = String(login || '').toLowerCase()
+  const matched = []
+  for (const a of allOrgAssignments) {
+    const expectedName = repositoryNameFor(a.repository_name_pattern, { login: userLogin }).toLowerCase()
+    // A TEAM'S REPOSITORY IS NAMED AFTER THE TEAM, which this page does not
+    // know. Asked for the one name a login makes (`grp-<login>`), a team
+    // assignment never showed, and a student with only team work was told
+    // they had accepted nothing (review 2026-10-14, PG5). So any name the
+    // pattern makes, unless a more specific assignment in the org explains
+    // it (lib/assignment-collision.mjs `collidingRepoNames`).
+    const isTeam = String(a.repository_name_pattern || '').includes('{team_slug}')
+    const rivals = isTeam ? allOrgAssignments.filter((o) => o.org === a.org && o.id !== a.id) : []
+    const ours = (name) => isTeam
+      ? collidingRepoNames(a.repository_name_pattern, [String(name || '')], rivals).length > 0
+      : String(name || '').toLowerCase() === expectedName
+    const inOrg = (owner) => String(owner || '').toLowerCase() === String(a.org || '').toLowerCase()
+    const left = timeRemaining(a.deadline_at, now)
+    const extra = { timeRemainingStr: left.text, timeRemainingBadgeClass: left.badgeClass }
+
+    const existingRepo = (repos || []).find((r) => inOrg(r.owner?.login) && ours(r.name))
+    if (existingRepo) {
+      matched.push({ ...a, repoUrl: existingRepo.html_url, repoFullName: existingRepo.full_name, stateStatus: 'provisioned', ...extra })
+      continue
+    }
+
+    // A pending invitation, through the one judge every surface uses.
+    const invitedName = isTeam
+      ? ((invites || []).find((inv) => inOrg(inv?.repository?.owner?.login) && ours(inv?.repository?.name))?.repository?.name || '')
+      : expectedName
+    const { invitation } = invitationEvidence({ ok: true, data: invites || [] }, { org: a.org, repo: invitedName })
+    if (invitation) {
+      matched.push({ ...a, repoUrl: invitation.repository?.html_url, repoFullName: invitation.repository?.full_name, stateStatus: 'invited', ...extra })
+    }
+  }
+  return matched
+}

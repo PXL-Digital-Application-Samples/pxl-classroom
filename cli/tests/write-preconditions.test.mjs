@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { unchangedSince } from "../src/lib/control-repo.mjs";
+import { readFileAtHead, unchangedSince } from "../src/lib/control-repo.mjs";
 import { ROSTER_PATH } from "../../lib/roster-entries.mjs";
 
 const at = (sha) => async () => (sha === 404 ? Promise.reject(Object.assign(new Error("Not Found"), { status: 404 })) : { data: { sha } });
@@ -32,4 +32,23 @@ test("S12: every whole-roster write goes through the one guarded writer", () => 
   for (const sha of ["readSha", "claimReadSha", "promoteReadSha"]) {
     assert.match(src, new RegExp(`sha: ${sha} \\} = await fetchExistingRoster`), `${sha} is the version planned from`);
   }
+});
+
+test("P2-8: a file is read at the branch head's COMMIT, as the write's check reads it - never by branch name", async () => {
+  const asked = [];
+  const octokit = {
+    request: async (route, params) => {
+      asked.push({ route, ...params });
+      if (route.startsWith("GET /repos/{owner}/{repo}/git/ref/")) return { data: { object: { sha: "headsha" } } };
+      return { data: { sha: "blobsha", content: Buffer.from("students: []\n").toString("base64") } };
+    },
+  };
+  const file = await readFileAtHead(octokit, { org: "Org", path: ROSTER_PATH });
+  assert.deepEqual(file, { text: "students: []\n", sha: "blobsha" });
+  assert.equal(asked[1].ref, "headsha", "the contents read names the commit");
+  // Absent is null; any other failure throws rather than reading as absent.
+  const missing = { request: async (route) => { if (route.includes("git/ref")) return { data: { object: { sha: "h" } } }; throw Object.assign(new Error("nf"), { status: 404 }); } };
+  assert.equal(await readFileAtHead(missing, { org: "Org", path: ROSTER_PATH }), null);
+  const broken = { request: async (route) => { if (route.includes("git/ref")) return { data: { object: { sha: "h" } } }; throw Object.assign(new Error("boom"), { status: 502 }); } };
+  await assert.rejects(readFileAtHead(broken, { org: "Org", path: ROSTER_PATH }), /boom/);
 });

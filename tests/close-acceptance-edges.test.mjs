@@ -13,7 +13,7 @@
 
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -109,17 +109,34 @@ test("THE SECOND NIGHT: already closed and already stripped is silent, not a fai
   assert.ok(logged.some((l) => l.includes("acceptance closed")));
 });
 
-test("a broker that is gone warns and does NOT go on to delete secrets", async () => {
-  // Deleting from a repository that answered 404 for its own variable is a
-  // request nobody can act on, and two warnings for one cause is noise.
-  stubFetch({ [VAR]: { status: 404, body: { message: "Not Found" } } });
+test("no variable to set (or no broker) is closed: the key still comes off, and the record says done", async () => {
+  // P2-34: a 404 stopped here with a warning, which left the key on a broker
+  // that exists without the variable - and the broker's own `if:` reads an
+  // absent variable as not `true`, so acceptance there is already closed.
+  stubFetch({ [VAR]: { status: 404, body: { message: "Not Found" } }, [KEY]: { status: 204 }, [CID]: { status: 404 } });
   await run();
 
-  assert.deepEqual(calls, [VAR], "it must stop after the failed close");
-  const warn = logged.find((l) => l.includes("::warning::"));
-  assert.ok(warn, "the failure has to be visible");
-  assert.match(warn, /Could not close acceptance/);
-  assert.match(warn, /Not Found/, "GitHub's own message travels with the status");
+  assert.deepEqual(calls, [VAR, KEY, CID], "the credential is still taken off");
+  assert.equal(logged.filter((l) => l.includes("::warning::")).length, 0);
+  assert.ok(logged.some((l) => /has no INVITE_ENABLED to set - acceptance is closed/.test(l)));
+  const rec = JSON.parse(readFileSync(join(dataDir, "lockdowns", ID, "broker-closed.json"), "utf8"));
+  assert.deepEqual([rec.closed, rec.key_removed, rec.attempts], [true, true, 0]);
+});
+
+test("P2-34: what each pass did is recorded beside the lock record, and a pass that did not finish is counted", async () => {
+  const record = () => JSON.parse(readFileSync(join(dataDir, "lockdowns", ID, "broker-closed.json"), "utf8"));
+  stubFetch({ [VAR]: { status: 403, body: { message: "Resource not accessible by integration" } } });
+  await run();
+  assert.deepEqual([record().closed, record().key_removed, record().attempts], [false, false, 1]);
+  assert.ok(logged.some((l) => l.includes("::warning::")), "still a warning in the log");
+  // The door closed but the key would not come off: not done, the second try.
+  stubFetch({ [VAR]: { status: 204 }, [KEY]: { status: 403, body: { message: "nope" } }, [CID]: { status: 204 } });
+  await run();
+  assert.deepEqual([record().closed, record().key_removed, record().attempts], [true, false, 2]);
+  // Done: the count stays where it was, and nothing is owed.
+  stubFetch({ [VAR]: { status: 204 }, [KEY]: { status: 404 }, [CID]: { status: 404 } });
+  await run();
+  assert.deepEqual([record().closed, record().key_removed, record().attempts], [true, true, 2]);
 });
 
 test("a key that will not come off still lets the other one be tried", async () => {

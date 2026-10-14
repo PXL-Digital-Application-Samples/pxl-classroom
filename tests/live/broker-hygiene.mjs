@@ -74,6 +74,8 @@ async function assignments(org) {
 let open = 0;
 let checked = 0;
 let unreadable = 0;
+// Brokers this token could not read the state of: neither closed nor open.
+let unreadBrokers = 0;
 
 async function checkOrg(org) {
   const { ok, status, list } = await assignments(org);
@@ -107,17 +109,24 @@ async function checkOrg(org) {
     const enabled = v.ok ? String(v.data?.value).toLowerCase() !== "false" : null;
     const secrets = s.ok ? (s.data?.secrets || []).map((x) => x.name).filter((n) => n.startsWith("PXL_BROKER_")) : null;
 
+    // What was SEEN open, apart from what could not be read: an unreadable
+    // broker was reported "OPEN" and counted as one, a guess said as a finding
+    // (review 2026-10-14).
     const faults = [];
-    if (enabled === null) faults.push(`INVITE_ENABLED unreadable (HTTP ${v.status})`);
-    else if (enabled) faults.push("INVITE_ENABLED is still true");
-    if (secrets === null) faults.push(`secrets unreadable (HTTP ${s.status})`);
-    else if (secrets.length) faults.push(`still holds ${secrets.join(", ")}`);
+    if (enabled) faults.push("INVITE_ENABLED is still true");
+    if (secrets?.length) faults.push(`still holds ${secrets.join(", ")}`);
+    const unread = [];
+    if (enabled === null) unread.push(`INVITE_ENABLED HTTP ${v.status}`);
+    if (secrets === null) unread.push(`secrets HTTP ${s.status}`);
 
-    if (faults.length === 0) {
-      console.log(`  ${org}/${broker}: closed, no credential  (deadline ${a.deadline_at})`);
-    } else {
+    if (faults.length) {
       open++;
-      console.log(`  ${org}/${broker}: OPEN - ${faults.join("; ")}  (deadline ${a.deadline_at})`);
+      console.log(`  ${org}/${broker}: OPEN - ${faults.join("; ")}${unread.length ? ` (unread: ${unread.join(", ")})` : ""}  (deadline ${a.deadline_at})`);
+    } else if (unread.length) {
+      unreadBrokers++;
+      console.log(`  ${org}/${broker}: NOT checked - this token cannot read ${unread.join(", ")}  (deadline ${a.deadline_at})`);
+    } else {
+      console.log(`  ${org}/${broker}: closed, no credential  (deadline ${a.deadline_at})`);
     }
   }
 }
@@ -142,9 +151,10 @@ for (const org of orgs) await checkOrg(org);
 
 console.log(
   `\n${checked} finished assignment(s) checked, ${open} still open` +
+    (unreadBrokers ? `, ${unreadBrokers} broker(s) NOT checked` : "") +
     (unreadable ? `, ${unreadable} organization(s) NOT checked` : ""),
 );
 
 // A door left open is a finding. An org that could not be read is not a pass
 // and not a failure - it is a gap, and it exits non-zero so a runner notices.
-process.exit(open > 0 || unreadable > 0 ? 1 : 0);
+process.exit(open > 0 || unreadable > 0 || unreadBrokers > 0 ? 1 : 0);

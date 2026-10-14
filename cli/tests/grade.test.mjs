@@ -10,6 +10,18 @@ import { registerGradeCommand } from "../src/commands/grade.mjs";
 // tests/check-run-score.test.mjs. What belongs HERE is the wiring: that the
 // command fetches annotations and hands them over.
 
+// THE RUNNER'S OWN REPORTS TRAVEL ON STDOUT, as binary frames: node:test runs
+// each file in a child and reads its results from there. A capture that
+// swallowed every write swallowed three of this file's four results with it,
+// so a failure showed no name and no diff (review 2026-10-14, P2-11). Text is
+// the command's output; anything else goes through.
+function capturing(onText, original) {
+  return function (chunk, ...rest) {
+    if (typeof chunk === "string") { onText(chunk); return true; }
+    return original.call(this, chunk, ...rest);
+  };
+}
+
 function runGitSync(args, cwd) {
   const res = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (res.status !== 0) throw new Error(res.stderr);
@@ -121,8 +133,8 @@ autograde:
     let stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk) => { stdout += chunk; return true; };
-    process.stderr.write = (chunk) => { stderr += chunk; return true; };
+    process.stdout.write = capturing((chunk) => { stdout += chunk; }, originalStdoutWrite);
+    process.stderr.write = capturing((chunk) => { stderr += chunk; }, originalStderrWrite);
 
     const originalExit = process.exit;
     let exitCode = 0;
@@ -214,8 +226,8 @@ autograde:
     let stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk) => { _stdout += chunk; return true; };
-    process.stderr.write = (chunk) => { stderr += chunk; return true; };
+    process.stdout.write = capturing((chunk) => { _stdout += chunk; }, originalStdoutWrite);
+    process.stderr.write = capturing((chunk) => { stderr += chunk; }, originalStderrWrite);
 
     const originalExit = process.exit;
     let exitCode = 0;
@@ -349,8 +361,8 @@ autograde:
     let _stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk) => { stdout += chunk; return true; };
-    process.stderr.write = (chunk) => { _stderr += chunk; return true; };
+    process.stdout.write = capturing((chunk) => { stdout += chunk; }, originalStdoutWrite);
+    process.stderr.write = capturing((chunk) => { _stderr += chunk; }, originalStderrWrite);
 
     try {
       await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "cloud-pe-1"]);
@@ -375,6 +387,189 @@ autograde:
     globalThis.fetch = originalFetch;
     Object.defineProperty(process, 'platform', originalPlatform);
   }
+});
+
+test("P2-3: a row carried over from the summary read makes the write depend on that version: changed meanwhile, nothing is written", async () => {
+  // Review 2026-10-14: bo is outside the queue (nothing preserved), so their
+  // row is carried from the summary on record - and the write replaced the
+  // file whole with no check that it was still that version.
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux" });
+  const tmp = mkdtempSync(join(tmpdir(), "pxl-grade-carry-"));
+  const homeDir = join(tmp, "home");
+  mkdirSync(join(homeDir, "pxl-classroom"), { recursive: true });
+  writeFileSync(join(homeDir, "pxl-classroom", "token"), JSON.stringify({ access_token: "fake" }));
+  const aliceSha = "a".repeat(40);
+  const assignmentYaml = "id: carry\nautograde:\n  enabled: true\n  execution_environment: github_actions\n  tests:\n    - id: t\n      points: 20\n";
+  const reportJson = {
+    students: [
+      { github_login: "alice", preservation_status: "preserved", preserved_sha: aliceSha, repo_name: "TestOrg/carry-alice", submission_status: "on-time" },
+      { github_login: "bo", preservation_status: "pending", repo_name: "TestOrg/carry-bo", submission_status: "on-time" },
+    ],
+  };
+  const stored = {
+    schema_version: 1, assignment_id: "carry", generated_at: "2026-10-14T10:00:00Z", graded_by: "x", runner: "github_actions",
+    students: [{ login: "bo", earned_points: 15, total_points: 20, graded_at: "2026-10-14T10:00:00Z" }], failed: [],
+  };
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const writes = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const u = url.toString();
+    if (u === "https://api.github.com/user") return json({ login: "teacher1" });
+    if (u.endsWith("contents/assignments%2Fcarry.yml")) return json({ content: Buffer.from(assignmentYaml).toString("base64") });
+    if (u.endsWith("contents/reports%2Fcarry.json")) return json({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") });
+    // The read the CLI decides from (its path escaped), and the check at the
+    // commit it would land on (its path as written): another writer since.
+    if (u.includes("contents/grading%2Fcarry%2Fsummary.json")) return json({ sha: "s1", content: Buffer.from(JSON.stringify(stored)).toString("base64") });
+    if (u.includes("contents/grading/carry/summary.json")) return json({ sha: "s2", content: Buffer.from("{}").toString("base64") });
+    if (u.includes(`/commits/${aliceSha}/check-runs`)) {
+      return json({ check_runs: [{ name: "Autograding Tests", conclusion: "success", status: "completed", output: { title: "Autograding", summary: "Points 18/20" } }] });
+    }
+    if (u.includes("/git/ref/heads")) return json({ object: { sha: "headsha" } });
+    if (u.endsWith("/git/commits/headsha")) return json({ tree: { sha: "treesha" } });
+    if (u.endsWith("/git/blobs")) {
+      const b = JSON.parse(options.body);
+      writes.push(b.encoding === "base64" ? Buffer.from(b.content, "base64").toString("utf8") : b.content);
+      return json({ sha: "blobsha" }, 201);
+    }
+    if (u.endsWith("/git/trees")) { writes.push("tree"); return json({ sha: "newtreesha" }, 201); }
+    if (u.endsWith("/git/commits")) { writes.push("commit"); return json({ sha: "newcommitsha" }, 201); }
+    if (u.includes("/git/refs/heads")) { writes.push("ref"); return json({}); }
+    return new Response("Not Found", { status: 404 });
+  };
+  let stdout = "";
+  let stderr = "";
+  const originalStdoutWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
+  try {
+    Object.assign(process.env, { HOME: homeDir, USERPROFILE: homeDir, APPDATA: homeDir, XDG_CONFIG_HOME: homeDir });
+    const program = new Command();
+    program.exitOverride();
+    registerGradeCommand(program);
+    process.stdout.write = capturing((c) => { stdout += c; }, originalStdoutWrite);
+    process.stderr.write = capturing((c) => { stderr += c; }, originalStderrWrite);
+    let refused = null;
+    await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "carry"]).catch((e) => { refused = e; });
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    assert.match(String(refused?.message), /changed by someone else/, `refused: ${stdout}${stderr}`);
+    // alice's own record is its own commit, before the summary; the summary
+    // with bo's carried row is never written.
+    const summaries = writes.filter((w) => w.includes('"failed"') && w.includes('"students"'));
+    assert.deepEqual(summaries, [], "no summary was written over the newer one");
+    assert.equal(writes.filter((w) => w === "ref").length, 1, "only alice's record moved the branch");
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, "platform", originalPlatform);
+  }
+});
+
+test("P2-1: a student with nothing handed in gets no score, on the Actions path and the local runner, though their starter passes", async () => {
+  // Review 2026-10-14: the shared grader refuses "no submission" before it
+  // reads anything (lib/grade-cohort.mjs `gradeStudent`); the CLI read the
+  // preserved commit regardless, and an untouched student's preserved commit
+  // is the starter - with a passing grading run, or passing tests.
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux" });
+  const tmp = mkdtempSync(join(tmpdir(), "pxl-grade-nosub-"));
+  const homeDir = join(tmp, "home");
+  mkdirSync(join(homeDir, "pxl-classroom"), { recursive: true });
+  writeFileSync(join(homeDir, "pxl-classroom", "token"), JSON.stringify({ access_token: "fake" }));
+  const sha = "c".repeat(40);
+  for (const local of [false, true]) {
+  const assignmentYaml = local
+    ? `
+id: nosub
+autograde:
+  enabled: true
+  tests:
+    - id: t
+      points: 10
+      timeout_s: 5
+      command: "node -v"
+`
+    : `
+id: nosub
+autograde:
+  enabled: true
+  execution_environment: github_actions
+  tests:
+    - id: t
+      points: 10
+`;
+  const reportJson = {
+    students: [
+      { github_login: "cy", preservation_status: "preserved", preserved_sha: sha, repo_name: "TestOrg/nosub-cy", submission_status: "no-submission" },
+    ],
+  };
+  const committedBlobs = [];
+  const asked = [];
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const u = url.toString();
+    asked.push(u);
+    if (u === "https://api.github.com/user") return json({ login: "teacher1" });
+    if (u.endsWith("contents/assignments%2Fnosub.yml")) return json({ content: Buffer.from(assignmentYaml).toString("base64") });
+    if (u.endsWith("contents/reports%2Fnosub.json")) return json({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") });
+    // The starter's grading run passes: what the old path recorded.
+    if (u.includes("/check-runs")) {
+      return json({ check_runs: [{ name: "Autograding Tests", conclusion: "success", status: "completed", output: { title: "Autograding", summary: "Points 10/10" } }] });
+    }
+    if (u.includes("/git/ref/heads")) return json({ object: { sha: "headsha" } });
+    if (u.endsWith("/git/commits/headsha")) return json({ tree: { sha: "treesha" } });
+    if (u.endsWith("/git/blobs")) { committedBlobs.push(JSON.parse(options.body)); return json({ sha: "blobsha" }, 201); }
+    if (u.endsWith("/git/trees")) return json({ sha: "newtreesha" }, 201);
+    if (u.endsWith("/git/commits")) return json({ sha: "newcommitsha" }, 201);
+    if (u.includes("/git/refs/heads")) return json({});
+    return new Response("Not Found", { status: 404 });
+  };
+  try {
+    Object.assign(process.env, { HOME: homeDir, USERPROFILE: homeDir, APPDATA: homeDir, XDG_CONFIG_HOME: homeDir });
+    const program = new Command();
+    program.exitOverride();
+    registerGradeCommand(program);
+    let stdout = "";
+    let stderr = "";
+    const originalStdoutWrite = process.stdout.write;
+    const originalStderrWrite = process.stderr.write;
+    process.stdout.write = capturing((c) => { stdout += c; }, originalStdoutWrite);
+    process.stderr.write = capturing((c) => { stderr += c; }, originalStderrWrite);
+    // A student without a score exits 1, as any failed row does; caught here,
+    // or it ends the test process.
+    const originalExit = process.exit;
+    let exitCode = null;
+    process.exit = (code) => { exitCode = code; throw new Error(`exit ${code}`); };
+    try {
+      const argv = ["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "nosub", ...(local ? ["--runner", "host", "--force-host"] : [])];
+      await program.parseAsync(argv).catch((e) => {
+        if (!/^exit /.test(e.message)) throw e;
+      });
+    } finally {
+      process.exit = originalExit;
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
+    }
+    const path = local ? "local runner" : "Actions";
+    assert.equal(exitCode, 1, `${path}: no score for them is a row without a score`);
+    assert.ok(!asked.some((u) => u.includes("/check-runs")), `${path}: no score is read for them: ${stdout}${stderr}`);
+    // The local runner would have checked out the archive, which this test
+    // does not serve, and said so (a no-result row, not not-handed-in).
+    assert.doesNotMatch(stderr, /archive fetch failed/, `${path}: nothing is checked out`);
+    assert.doesNotMatch(stdout, /cy: 10\/10/);
+    const decode = (b) => (b.encoding === "base64" ? Buffer.from(b.content, "base64").toString("utf8") : b.content);
+    const summary = committedBlobs.map((b) => JSON.parse(decode(b))).find((d) => Array.isArray(d.students) && Array.isArray(d.failed));
+    assert.ok(summary, `${path}: the summary was committed: ${stdout}${stderr}`);
+    assert.deepEqual(summary.students, []);
+    assert.deepEqual(summary.failed.map((f) => [f.login, f.kind]), [["cy", "not-handed-in"]], path);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  }
+  Object.defineProperty(process, "platform", originalPlatform);
 });
 
 // The shape measured live on 2026-09-04 in PXL-2TIN-CloudEssentials-2627: a
@@ -518,8 +713,8 @@ autograde:
     let _stderr = "";
     const originalStdoutWrite = process.stdout.write;
     const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk) => { stdout += chunk; return true; };
-    process.stderr.write = (chunk) => { _stderr += chunk; return true; };
+    process.stdout.write = capturing((chunk) => { stdout += chunk; }, originalStdoutWrite);
+    process.stderr.write = capturing((chunk) => { _stderr += chunk; }, originalStderrWrite);
     try {
       await program.parseAsync(["node", "pxl", "grade", "--org", "TestOrg", "--assignment", "proef-pe1"]);
     } finally {

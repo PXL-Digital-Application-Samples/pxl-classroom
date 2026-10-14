@@ -4,8 +4,7 @@
 // answers `{ status, data }` and never throws, because a failed page has to be
 // distinguishable from an empty one. Octokit does the opposite - it throws on
 // any non-2xx - so something has to translate, and this is the one place that
-// does it. `check-run-annotations.mjs` held the only copy until a second walk
-// needed the same three lines.
+// does it.
 
 /**
  * @param {{ request: (route: string) => Promise<{status: number, data: any}> }} octokit
@@ -20,8 +19,11 @@ export function toRequest(octokit) {
       return { status: r.status, data: r.data, headers: r.headers ?? {} };
     } catch (err) {
       // The status, not a throw: the caller reports "could not read", never
-      // "there was nothing there".
-      return { status: err?.status ?? 0, data: null };
+      // "there was nothing there". With GitHub's answer and its headers: a
+      // rate limit is a 403 too, told apart only by its message or
+      // `x-ratelimit-remaining` (lib/grade-dispatch.mjs `isRateLimited`), and
+      // dropping both made every one read as a missing permission (P2-5).
+      return { status: err?.status ?? 0, data: err?.response?.data ?? null, headers: err?.response?.headers ?? {} };
     }
   };
 }

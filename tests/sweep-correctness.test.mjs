@@ -124,6 +124,13 @@ test("preserve.mjs and provision.mjs never build a credential into a URL", () =>
   }
 });
 
+const CREDENTIAL_IN_URL = [
+  // A user part holding an interpolation: `https://${x}@`, `https://user:$X@`.
+  /https?:\/\/[^\s"'`/@]*(\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*)[^\s"'`/@]*@/,
+  // A credential concatenated between `https://` and an `@`.
+  /https?:\/\/[^"'`\s/@]*["'`]\s*\+\s*[\w.$]+\s*\+\s*["'`][^"'`\s/]*@/,
+];
+
 test("NO source file builds a credential into a git URL - every one, not a list of two", () => {
   // Review 2026-10-14: the test above named preserve.mjs and provision.mjs,
   // and the CLI's `grade` and `download` both put the token in a remote URL -
@@ -134,9 +141,22 @@ test("NO source file builds a credential into a git URL - every one, not a list 
   const testsDir = join(root, "tests");
   for (const file of repoFiles({ exts: [".mjs", ".js", ".vue", ".sh"] }).filter((f) => !f.startsWith(testsDir))) {
     const src = readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, "");
-    if (/x-access-token:\$\{[^}]+\}@|x-access-token:\S*\$[A-Z_]+@/.test(src)) offenders.push(file.slice(root.length + 1));
+    // Any credential in a URL's user part, not only `x-access-token:` (review
+    // 2026-10-14, P2-13): `https://${token}@`, `oauth2:$TOKEN@`, or a string
+    // concatenated in front of an `@`.
+    if (CREDENTIAL_IN_URL.some((re) => re.test(src))) offenders.push(file.slice(root.length + 1));
   }
   assert.deepEqual(offenders, []);
+  // The patterns find what they are for.
+  for (const bad of [
+    "`https://x-access-token:${token}@github.com/o/r.git`",
+    "`https://${token}@github.com/o/r.git`",
+    "\"https://oauth2:$GH_TOKEN@github.com/o/r\"",
+    "\"https://\" + token + \"@github.com/o/r\"",
+  ]) assert.ok(CREDENTIAL_IN_URL.some((re) => re.test(bad)), bad);
+  for (const fine of ["`https://github.com/${owner}/${repo}.git`", "\"mailto:ann@example.com\"", "`${base}/repos/${owner}`"]) {
+    assert.ok(!CREDENTIAL_IN_URL.some((re) => re.test(fine)), fine);
+  }
   for (const file of [join("cli", "src", "commands", "grade.mjs"), join("cli", "src", "commands", "download.mjs")]) {
     assert.match(readFileSync(join(root, file), "utf8"), /gitAuthEnv\(/, `${file} authenticates through lib/git-auth.mjs`);
   }

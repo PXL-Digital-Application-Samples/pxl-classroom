@@ -68,7 +68,12 @@ test("download fetches each preserved submission; a full-history one with its wh
   const write = process.stdout.write;
   try {
     Object.assign(process.env, { HOME: home, USERPROFILE: home, APPDATA: home, XDG_CONFIG_HOME: home, GIT_TERMINAL_PROMPT: "0" });
-    process.stdout.write = (c) => { out += c; return true; };
+    // Text is the command's; the runner's binary frames go through, or this
+    // file's result is swallowed with it (cli/tests/grade.test.mjs `capturing`).
+    process.stdout.write = function (c, ...rest) {
+      if (typeof c === "string") { out += c; return true; }
+      return write.call(this, c, ...rest);
+    };
     const program = new Command();
     program.exitOverride();
     registerDownloadCommand(program);
@@ -83,6 +88,41 @@ test("download fetches each preserved submission; a full-history one with its wh
     assert.equal(git(["rev-list", "--count", "HEAD"], join(dir, "bo")), "3");
     // And no credential in any working directory's config.
     for (const l of ["ann", "bo"]) assert.doesNotMatch(readFileSync(join(dir, l, ".git", "config"), "utf8"), /fake|AUTHORIZATION/i);
+
+    const again = async (args) => {
+      out = "";
+      const p = new Command();
+      p.exitOverride();
+      registerDownloadCommand(p);
+      process.stdout.write = function (c, ...rest) {
+        if (typeof c === "string") { out += c; return true; }
+        return write.call(this, c, ...rest);
+      };
+      const exit = process.exit;
+      let code = null;
+      process.exit = (c) => { code = c; throw new Error(`exit ${c}`); };
+      try {
+        await p.parseAsync(["node", "pxl", "download", "--org", "TestOrg", "--assignment", "a1", "--dir", dir, "--concurrency", "1", ...args]).catch((e) => {
+          if (!/^exit /.test(e.message)) throw e;
+        });
+      } finally {
+        process.exit = exit;
+        process.stdout.write = write;
+      }
+      return code;
+    };
+    // P2-6: --history into the same directory deepens the one-commit copy,
+    // where "cached" kept it at one commit for good.
+    assert.equal(await again(["--history"]), null, out);
+    assert.doesNotMatch(out, /ann: cached/);
+    assert.equal(git(["rev-list", "--count", "HEAD"], join(dir, "ann")), "3");
+    // A copy that already has it all is cached.
+    await again(["--history"]);
+    assert.match(out, /ann: cached/);
+    // The archive's branch at another commit than the one preserved: said, never passed off as it.
+    report.students[0].preserved_sha = "0".repeat(40);
+    assert.equal(await again([]), 1);
+    assert.match(out, /! ann: the archive's preserved\/a1\/ann is at [0-9a-f]{12}, not the preserved 000000000000/);
   } finally {
     process.stdout.write = write;
     globalThis.fetch = originalFetch;

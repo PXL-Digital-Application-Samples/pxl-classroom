@@ -25,6 +25,7 @@ import { parse, stringify as stringifyYaml } from "yaml";
 import { PROVISIONABLE_BRANCH, resolveTemplatePin } from "../lib/template-source.mjs";
 import { emptyFromCommits, mayStillBeFilling } from "../lib/existing-repo.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
+import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
 import { submissionBranch } from "../lib/submission-marker.mjs";
@@ -177,6 +178,21 @@ async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
  *   branch of the template into the repository (a full-history copy it made):
  *   a branch with the baseline's name is then the template's, never ours.
  */
+/**
+ * Whether a branch named like the feedback baseline in a copy this system
+ * PUSHED (a full-history copy: GitHub's own copy names its template and takes
+ * the default branch only) is the template's: the template has a branch of
+ * that name at that commit. One an earlier run of ours made is not, and is
+ * adopted. A template that cannot be read adopts nothing (P2-21).
+ */
+async function templateOwnsBranch(repo, branch, sha) {
+  if (repo?.template_repository) return false;
+  const tplRef = await gh("GET", `/repos/${cfg.templateOwner}/${cfg.templateRepo}/git/ref/heads/${branch}`);
+  if (tplRef.status === 404) return false;
+  if (!tplRef.ok) return true;
+  return tplRef.data?.object?.sha === sha;
+}
+
 async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = {}) {
   const branch = cfg.baselineBranch;
   const defaultBranch = repo.default_branch || "main";
@@ -202,12 +218,13 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = 
     });
     if (!make.ok) { log("feedback-baseline", { ok: false, note: `create ${branch} HTTP ${make.status}` }); return null; }
     log("feedback-baseline", { ok: true, note: `created ${branch}@${sha.slice(0, 12)}` });
-  } else if (exists.ok && copiedTemplateBranches) {
+  } else if (exists.ok && (copiedTemplateBranches || (await templateOwnsBranch(repo, branch, exists.data?.object?.sha)))) {
     // The template's own branch, which the copy brought: adopted, it was
     // protected against the exercise that needs it, and every feedback PR
     // opened on day one with the template's difference as the student's work
     // (review 2026-10-14, S2). The publish preflight refuses such a template;
-    // this is for one changed since.
+    // this is for one changed since. On a REUSED copy too (P2-21): a retry is
+    // not this run's copy, but the branch still came from the template.
     log("feedback-baseline", { ok: false, note: `the template has its own ${branch} branch, which came with the copy - it is left as it is, and there is no feedback baseline` });
     return null;
   } else if (exists.ok) {
@@ -999,6 +1016,23 @@ async function main() {
     log("starter", starterCount
       ? { ok: true, note: `starts at ${starterSha.slice(0, 12)} (${starterCount} commits, the grading workflow included)` }
       : { ok: false, note: `starts at ${starterSha.slice(0, 12)}; its commit count could not be read` });
+  } else if (alreadyExists && injectedSha && repo?.template_repository) {
+    // GITHUB'S COPY WHOSE FIRST RUN FAILED BEFORE THE WORKFLOW WAS ADDED
+    // (review 2026-10-14, P2-20). This retry added it, and only a first run's
+    // start was recorded, so the student read two commits, "On time", with
+    // nothing done. Its start too - but only where the commit under it is the
+    // one GitHub generated: on top of a student's push it is not what they
+    // were given, and nothing is recorded rather than a guess.
+    const at = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits/${injectedSha}`);
+    const parentSha = at.ok && Array.isArray(at.data?.parents) && at.data.parents.length === 1 ? at.data.parents[0].sha : null;
+    const parent = parentSha ? await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits/${parentSha}`) : null;
+    if (parent?.ok && generatedFromTemplate(parent.data)) {
+      starterSha = injectedSha;
+      starterCount = await commitCountAt(injectedSha);
+      log("starter", { ok: true, note: `the grading workflow was added on this retry, over GitHub's copy: starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ""}` });
+    } else {
+      log("starter", { ok: true, note: "the grading workflow was added over commits that are not GitHub's copy alone, so no start is recorded" });
+    }
   } else if (recoverHistoryCopy) {
     // A copy an earlier run made and nobody but the App has pushed to since:
     // what it was given is its head, after every write above - the App's own

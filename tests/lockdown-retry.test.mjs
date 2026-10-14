@@ -191,13 +191,17 @@ test("a snapshot that could not be read is recorded as unread - locked, a row, r
   // Review 2026-10-14: a 502 on the commit read became `snapshot_sha: null`
   // with ok, and that student was never preserved and never retried.
   const dir = makeControlDir();
+  let firstLockedAt = null;
   await withStubApi(null, async (api) => {
     const res = await runLockdown(dir, api);
     const alice = res.record.results.find((r) => r.github_login === "alice");
     assert.ok(alice, "the student keeps a row");
     assert.equal(alice.snapshot_sha, null);
     assert.match(alice.snapshot_unread, /commit HTTP 5\d\d/);
+    firstLockedAt = alice.lockdown_at;
+    assert.ok(firstLockedAt, "locked all the same");
   });
+  await new Promise((r) => setTimeout(r, 1100));
   // The next pass reads it again.
   await withStubApi(ON_TIME_SHA, async (api) => {
     const res = await runLockdown(dir, api);
@@ -205,6 +209,8 @@ test("a snapshot that could not be read is recorded as unread - locked, a row, r
     assert.equal(alice.snapshot_sha, ON_TIME_SHA);
     assert.equal(alice.snapshot_unread, undefined);
     assert.equal(res.record.finalize_attempts, 2, "a retry of owed work counts");
+    // P2-31: when it was LOCKED is the first pass's, not this one's.
+    assert.equal(alice.lockdown_at, firstLockedAt);
   });
 });
 

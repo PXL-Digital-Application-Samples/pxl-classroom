@@ -72,3 +72,65 @@ test('the page follows the rename to the repository the hub made, instead of wai
   // Never "tell your lecturer" on the way.
   await expect(page.locator('.timeout-state')).toHaveCount(0);
 });
+
+test('P2-14: when the hub answers before the rebuilt teams file is live, the page keeps following until it is', async ({ page }) => {
+  // Review 2026-10-14: followed once, at the hub's answer. The site rebuilds a
+  // minute or two after a rename and the hub answers in about one, so the page
+  // read the old file, found no rename, and settled on the old repository.
+  const before = { team_slug: 'team-alpha', team_name: 'Team Alpha', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false };
+  const after = { ...before, team_slug: 'team-beta', team_name: 'Team Beta', renamed_from: ['team-alpha'] };
+  await injectAuth(page, STUDENT_1);
+  await setupStandardMockRoutes(page, {
+    currentUser: STUDENT_1,
+    assignments: {
+      [ID]: {
+        id: ID, title: 'Renamed Team Lab', organization: ORG, state: 'published', assignment_type: 'group',
+        group_config: { max_team_size: 3, formation_mode: 'self-service', allow_team_creation: true },
+        repository_name_pattern: `${ID}-{team_slug}`, broker_repo: `broker-${ID}`,
+        opens_at: new Date(Date.now() - 3600_000).toISOString(),
+        deadline_at: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      },
+    },
+    teams: { [ID]: [before] },
+    brokerIssueLabels: [INVITED_LABEL],
+  });
+  await page.route(`**/api.github.com/repos/${ORG}/${OLD}`, (route) => route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+  await page.route(`**/api.github.com/repos/${ORG}/${NEW}`, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ name: NEW, full_name: `${ORG}/${NEW}`, html_url: `https://github.com/${ORG}/${NEW}` }),
+  }));
+  await page.route('**/api.github.com/user/repository_invitations*', (route) => route.fulfill({ status: 200, body: JSON.stringify([]) }));
+
+  await page.goto(inviteUrl(ORG, ID));
+  const join = page.getByRole('button', { name: /Accept & Join Team/i });
+  await expect(join).toBeVisible({ timeout: 15000 });
+
+  // After the click: the old file, made before the attempt, for the next few
+  // reads - then the rebuilt one.
+  let reads = 0;
+  const clickedAt = Date.now();
+  await page.route('**/data/*/i/*.teams.json*', (route) => {
+    reads++;
+    const rebuilt = reads > 3;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 1, assignment_id: ID,
+        generated_at: new Date(rebuilt ? Date.now() : clickedAt - 600_000).toISOString(),
+        teams: [rebuilt ? after : before],
+      }),
+    });
+  });
+  await page.route(`**/repos/${ORG}/broker-${ID}/issues?**`, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify([{
+      number: 1, title: `pxl-accept:token team:team-alpha`, user: { login: STUDENT_1.login },
+      created_at: new Date(clickedAt).toISOString(), labels: [{ name: INVITED_LABEL }],
+    }]),
+  }));
+  await join.click();
+
+  await expect(page.getByRole('heading', { name: 'Your team repository is ready!' })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('.team-badge-banner')).toContainText('team-beta');
+  expect(reads, 'it read the file again after the first answer').toBeGreaterThan(3);
+});

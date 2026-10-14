@@ -1600,7 +1600,7 @@
       :archive-repo-name="archiveRepoName(form.id)"
       :broker-repo-name="brokerRepoName({ assignment: form })"
       :busy="deleting"
-      :unarchived="deleteUnarchived"
+      :archive="deleteArchive"
       @close="showDeleteModal = false"
       @confirm="deleteAssignment"
     />
@@ -3742,28 +3742,45 @@ async function cancelEdit() {
 // summary and the resulting configuration (ARCHITECTURE §11.6).
 const showAutogradeModal = ref(false)
 const showDeleteModal = ref(false)
-// Whether students hold repositories the deadline's lock and archive never
-// reached: true, false, or null when that could not be read (review
-// 2026-10-14, A16). The dialog said "the archive is kept... each submission as
-// preserved at the deadline" over an assignment nothing had archived, and a
-// deleted assignment is never finalized.
-const deleteUnarchived = ref(null)
+// What the archive holds, for the delete dialog (DeleteAssignmentModal's
+// `archive`), read each time it opens. The dialog said "the archive is kept...
+// each submission as preserved at the deadline" over an assignment nothing had
+// archived (A16), and then while this read was unknown or still going, and
+// after some preservations failed (review 2026-10-14, P2-17, P2-30). A deleted
+// assignment is never finalized again.
+const deleteArchive = ref({ state: 'checking' })
 
 async function openDeleteModal() {
-  deleteUnarchived.value = null
+  deleteArchive.value = { state: 'checking' }
   showDeleteModal.value = true
   const id = form.value.id
-  if (!id) return
+  if (!id) {
+    deleteArchive.value = { state: 'none' }
+    return
+  }
+  // Only for the assignment the dialog is still about.
+  const set = (v) => { if (form.value.id === id) deleteArchive.value = v }
   const token = getToken()
   const lock = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(id)}`)
   if (lock.status === 200) {
-    deleteUnarchived.value = false
-    return
+    // Locked: whether everyone owed a copy has one is the report's to say
+    // (`preservation_status`, lib/preservation-status.mjs).
+    let rows = null
+    try {
+      const text = await getRepoContent(token, props.org, config.controlRepo, reportPath(id))
+      rows = text ? JSON.parse(text)?.students : []
+    } catch { rows = null }
+    if (!Array.isArray(rows)) return set({ state: 'unknown' })
+    const missing = rows.filter((r) => r?.preservation_status === 'pending' || r?.preservation_status === 'failed').length
+    return set(missing ? { state: 'partial', missing } : { state: 'kept' })
   }
-  if (lock.status !== 404) return
+  if (lock.status !== 404) return set({ state: 'unknown' })
   const repos = await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${repositoriesDir(id)}`)
-  if (repos.status === 404) deleteUnarchived.value = false
-  else if (repos.ok && Array.isArray(repos.data)) deleteUnarchived.value = repos.data.some((f) => String(f?.name || '').endsWith('.json'))
+  if (repos.status === 404) return set({ state: 'none' })
+  if (repos.ok && Array.isArray(repos.data)) {
+    return set(repos.data.some((f) => String(f?.name || '').endsWith('.json')) ? { state: 'unarchived' } : { state: 'none' })
+  }
+  set({ state: 'unknown' })
 }
 
 // The same condition the Edit/Set up button and the Remove button already used
@@ -5559,9 +5576,11 @@ async function setState(newState) {
     },
     archived: {
       title: `Archive "${name}"?`,
-      // Finalized all the same (scripts/find-finalizable.mjs): archived before
-      // the nightly, an exam was never locked or archived (review 2026-10-14).
-      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Students who accepted are still locked and their work archived at the deadline.'],
+      // Finalized all the same (scripts/find-finalizable.mjs `mayHaveStudents`):
+      // archived before the nightly, an exam was never locked or archived
+      // (review 2026-10-14). By the nightly, not at the instant: the sentinel
+      // watches published and closed assignments only (P2-25).
+      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Students who accepted are still locked and their work archived after the deadline, by the nightly check rather than at the instant itself.'],
       confirmLabel: 'Archive',
       destructive: true,
     },

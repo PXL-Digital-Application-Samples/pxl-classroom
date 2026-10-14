@@ -12,7 +12,7 @@
 // for as long as it was.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { failedKind, gradeCohort, gradeStudent, gradingCommitFor, rowFromOutcome } from "../lib/grade-cohort.mjs";
+import { failedKind, gradeCohort, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, rowFromOutcome } from "../lib/grade-cohort.mjs";
 
 const REPO = "Org/lab-1-ada";
 
@@ -149,7 +149,13 @@ test("GR8: a deleted repository is a named student, never an API error that refu
   });
   assert.equal(res.ok, true, res.refusal);
   assert.equal(res.graded.length, 1);
-  assert.match(res.failed.find((f) => f.login === "ada").reason, /no longer exists/);
+  assert.match(res.failed.find((f) => f.login === "ada").reason, /does not exist \(deleted, or out of PXL Classroom's reach\)/);
+  // P2-2: a FAILED READ, so a score on record stays - GitHub answers the same
+  // 404 for a repository outside what the token may see.
+  assert.ok(res.failedReads.has("ada"), "ada's read failed");
+  const stored = { students: [{ login: "ada", earned_points: 18, total_points: 20 }], failed: [] };
+  const kept = keepStoredOnFailedReads({ stored, graded: res.graded, failed: res.failed, failedReads: res.failedReads });
+  assert.deepEqual(kept.graded.find((s) => s.login === "ada"), stored.students[0], "18/20 stays");
   // A 404 on a repository that IS there stays a failed read.
   const there = transport({
     [`/repos/${REPO}/commits/`]: { ok: false, status: 404, data: {} },
@@ -251,6 +257,19 @@ test("GR9: a rate-limited hand-in read is 'try again', not a missing permission"
   // A plain 403 is still the permission.
   const denied = transport({ [`/repos/${REPO}/commits?`]: { ok: false, status: 403, data: { message: "Resource not accessible by integration" } } });
   assert.equal((await gradeCohort(denied.request, { students: [row()], marker: MARKER })).refusal, "permission");
+});
+
+test("P2-5: a rate-limited CHECK-RUNS read is 'try again', never the Checks permission - and a plain 403 still is", async () => {
+  // Review 2026-10-14: GR9 reached the hand-in reads only; the check runs
+  // themselves said "approve Checks" over the rate limit.
+  const limited = transport({
+    [`/repos/${REPO}/commits/`]: { ok: false, status: 403, data: { message: "API rate limit exceeded for installation" }, headers: { "x-ratelimit-remaining": "0" } },
+  });
+  const res = await gradeCohort(limited.request, { students: [row()] });
+  assert.equal(res.refusal, "api-errors");
+  assert.match(res.unreadable[0].reason, /rate limit stopped the read - try again/);
+  const denied = transport({ [`/repos/${REPO}/commits/`]: { ok: false, status: 403, data: { message: "Resource not accessible by integration" } } });
+  assert.equal((await gradeCohort(denied.request, { students: [row()] })).refusal, "permission");
 });
 
 test("a commit lookup that FAILED is not 'there is no hand-in'", async () => {

@@ -147,6 +147,12 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         // As GitHub answers it: the file, and the commit that added it.
         return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: git(["rev-parse", "HEAD"], w) } });
       }
+      // The template's own branch of a name (provision.mjs `templateOwnsBranch`).
+      const tplRef = url.match(/^\/repos\/Org\/tpl\/git\/ref\/heads\/(.+)$/);
+      if (tplRef && req.method === "GET") {
+        const sha = git(["for-each-ref", "--format=%(objectname)", `refs/heads/${decodeURIComponent(tplRef[1])}`], join(srv, "Org", "tpl.git"));
+        return sha ? send(200, { object: { sha } }) : send(404, { message: "Not Found" });
+      }
       // The feedback baseline (setupFeedbackBaseline): read a ref, make one, protect it.
       const ref = url.match(/^\/repos\/Org\/lab-ann\/git\/ref\/heads\/(.+)$/);
       if (ref && req.method === "GET") {
@@ -413,6 +419,34 @@ test("S2: the feedback baseline is made on the copy, and a template branch with 
   });
 });
 
+test("P2-21: on a REUSED copy the template's own pxl-baseline is not adopted either; one an earlier run made is", async () => {
+  // Review 2026-10-14: the check asked "did this run copy the branches", so a
+  // retry over an earlier run's copy adopted and protected the template's branch.
+  const tpl = makeServer();
+  const work = mkdtempSync(join(tmpdir(), "pxl-tplbase-reuse-"));
+  git(["clone", "-q", join(tpl, "Org", "tpl.git"), work], tpl);
+  git(["checkout", "-q", "-b", "pxl-baseline"], work);
+  commit(work, "notes.md", "the template's own\n", "A branch that happens to be called pxl-baseline");
+  git(["push", "-q", "origin", "pxl-baseline"], work);
+  await withApi(tpl, async (api, calls) => {
+    const r = await provision(api, tpl, { feedbackPr: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "reused");
+    assert.match(r.log, /the template has its own pxl-baseline branch/);
+    assert.ok(!calls.some((c) => c.includes("/branches/pxl-baseline/protection")), "not protected");
+  }, { target: "copy", repoDefault: "master" });
+
+  // The template has none: the pxl-baseline in the copy is ours, from the earlier run.
+  const srv = makeServer();
+  await withApi(srv, async (api, calls, repo) => {
+    git(["update-ref", "refs/heads/pxl-baseline", git(["rev-parse", "refs/heads/master"], repo)], repo);
+    const r = await provision(api, srv, { feedbackPr: "true" });
+    assert.equal(r.status, 0, r.log);
+    assert.match(r.log, /pxl-baseline already exists/);
+    assert.ok(calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/branches/pxl-baseline/protection")), "adopted and protected");
+  }, { target: "copy", repoDefault: "master" });
+});
+
 test("every tag of the template travels as it is: nothing reads a tag as a submission", async () => {
   // Submit tags were removed (2026-10-14), so a `submit/` tag in a template is
   // just a tag, and the exercise's own tags (`v1`) are part of what it gives.
@@ -584,12 +618,17 @@ test("AC7: a teammate waits for a full-history copy as long as that copy may tak
   }
 });
 
-test("without the setting, GitHub's template copy is used and nothing is recorded as given", async () => {
+test("without the setting, GitHub's template copy is asked for, never an empty repository and a push", async () => {
+  // Which route only: this stub refuses `generate`. That GitHub's copy then
+  // records no start is tests/provision-injected-start.test.mjs, against a
+  // generate that works (review 2026-10-14, P2-24: the title claimed it here).
   const srv = makeServer();
   await withApi(srv, async (api, calls) => {
     const r = await provision(api, srv, { fullHistory: "false" });
     assert.ok(calls.some((c) => c.startsWith("POST /repos/Org/tpl/generate")));
     assert.ok(!calls.some((c) => c.startsWith("POST /orgs/Org/repos")));
     assert.notEqual(r.status, 0, "the stub refuses generate");
+    assert.ok(!output(r.outputs, "starter_sha"), "and no start is said");
+    assert.notEqual(output(r.outputs, "full_history"), "true");
   });
 });

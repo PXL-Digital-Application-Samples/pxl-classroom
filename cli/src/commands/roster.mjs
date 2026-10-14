@@ -39,7 +39,7 @@ import {
   claimPromoteCommitMessage,
   claimPromotionChangesAnything,
 } from "../../../lib/promote-roster.mjs";
-import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim, resetClaimAttempts, unchangedSince } from "../lib/control-repo.mjs";
+import { CONTROL_REPO, getAssignment, listAcceptances, listClaims, deleteClaim, readFileAtHead, resetClaimAttempts, unchangedSince } from "../lib/control-repo.mjs";
 // The one join between a claim and a roster entry. Four surfaces read it; see
 // lib/claim-bindings.mjs for why it is not written out per surface.
 import {
@@ -77,16 +77,10 @@ function formatAjvErrors(errors) {
 }
 
 async function fetchExistingRoster(octokit, { org }) {
-  try {
-    const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-      owner: org, repo: CONTROL_REPO, path: ROSTER_PATH,
-    });
-    const content = Buffer.from(res.data.content, "base64").toString("utf8");
-    return { roster: yamlParse(content) || { schema_version: 2, students: [] }, sha: res.data.sha };
-  } catch (err) {
-    if (err.status === 404) return { roster: null, sha: null };
-    throw err;
-  }
+  // At the head commit, as the write's check reads it (P2-8).
+  const file = await readFileAtHead(octokit, { org, path: ROSTER_PATH });
+  if (!file) return { roster: null, sha: null };
+  return { roster: yamlParse(file.text) || { schema_version: 2, students: [] }, sha: file.sha };
 }
 
 /**

@@ -1499,6 +1499,8 @@ import { snapshotObservation, isBotAuthorName } from '../../../lib/observation.m
 import { addedCommits, unstartedRepo } from '../../../lib/starter-commit.mjs'
 import { syncRefusal } from '../lib/starter-sync.js'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock } from '../lib/repo-unlock.js'
+import { changedSinceRead, contentsAt } from '../../../lib/team-write-guard.mjs'
+import { studentPresence } from '../../../lib/permission-change.mjs'
 import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
@@ -1511,7 +1513,7 @@ import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 import StudentActionsModal from '../components/StudentActionsModal.vue'
 import RegradeCommitModal from '../components/RegradeCommitModal.vue'
-import { withoutDispatchedRuns } from '../../../lib/grade-dispatch.mjs'
+import { decodeBase64, withoutDispatchedRuns } from '../../../lib/grade-dispatch.mjs'
 import { MANUAL_SCORE, decisionEntry, decisionProblem, gradeDecisionFor } from '../../../lib/grade-override.mjs'
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
@@ -2322,12 +2324,17 @@ async function executeOpenFeedbackPrs() {
   // commits against a ~80 writes/min secondary limit - the same arithmetic
   // that made team seeding use gittree.
   const changes = []
+  // Each record as it was read, so the write is refused if one changed while
+  // the press ran (a move, a permission change): it wrote the whole record
+  // back, as the CLI did before S9 (review 2026-10-14, P2-4).
+  const readRecords = []
+  // Shown in the column only once the records are saved (P2-7): set first, a
+  // failed save left "#12" on screen beside a message saying "Not opened".
+  const recorded = []
 
   for (const s of targets) {
     const repoName = s.repo_name?.split('/')[1] || s.repo_name
     const record = async (pr) => {
-      s.feedback_pr_number = pr.number
-      s.feedback_pr_url = pr.html_url
       const recPath = repositoryPath(props.assignmentId, s.github_login)
       const existingContent = await getRepoContent(token, props.org, config.controlRepo, recPath)
       if (!existingContent) return
@@ -2335,6 +2342,8 @@ async function executeOpenFeedbackPrs() {
       recDoc.feedback_pr_number = pr.number
       recDoc.feedback_pr_url = pr.html_url
       changes.push({ path: recPath, content: JSON.stringify(recDoc, null, 2) + '\n' })
+      readRecords.push({ path: recPath, text: existingContent })
+      recorded.push({ s, pr })
     }
 
     try {
@@ -2381,12 +2390,30 @@ async function executeOpenFeedbackPrs() {
   // silently losing the records leaves the dashboard permanently disagreeing
   // with the repositories.
   let recordsSaved = true
+  let recordsError = ''
   if (changes.length > 0) {
     const res = await commitFiles(
       token, props.org, config.controlRepo, changes,
       `Record ${changes.length} feedback PR(s) for ${props.assignmentId}`,
+      {
+        precondition: async ({ request, parentSha }) => {
+          const changed = await changedSinceRead({
+            get: contentsAt(request, parentSha, props.org, config.controlRepo),
+            decode: decodeBase64,
+            files: readRecords,
+          })
+          return changed ? `${changed} changed while the pull requests were being opened` : null
+        },
+      },
     )
     recordsSaved = res.ok
+    recordsError = res.ok ? '' : (res.error || '')
+  }
+  if (recordsSaved) {
+    for (const { s, pr } of recorded) {
+      s.feedback_pr_number = pr.number
+      s.feedback_pr_url = pr.html_url
+    }
   }
 
   openingFeedbackPrs.value = false
@@ -2399,7 +2426,7 @@ async function executeOpenFeedbackPrs() {
   }
   if (!recordsSaved) {
     toast.error(
-      'The pull requests were opened, but recording them in the control repository failed, so the Feedback PR column shows them as not opened. ' +
+      `The pull requests were opened, but recording them in the control repository failed${recordsError ? ` (${recordsError})` : ''}, so the Feedback PR column shows them as not opened. ` +
       'Open feedback PRs again: it finds the ones already open instead of making new ones.',
     )
   }
@@ -4951,7 +4978,7 @@ async function syncGradesFromGitHub() {
         // Said by kind, as the box says it (review 2026-10-14): "all checks
         // missing or failed" over a cohort whose runs were simply still going
         // sent a lecturer looking for a fault.
-        'nothing-graded': nothingGradedMessage(res.failed),
+        'nothing-graded': nothingGradedMessage(res.failed, { failedReads: res.failedReads }),
       }[res.refusal] || 'Grading sync failed.'
 
       regradePanel.value.status = 'error'
@@ -5416,6 +5443,8 @@ async function unlockRepositoryFor(student, { reason }) {
       logins: teamMembersOf(student)
         .filter((s) => s.github_login && lockdownRowFor(actionLockdown.value, s.github_login)?.repo_name === lockdownRow?.repo_name)
         .map((s) => s.github_login),
+      // ...and a teammate with no access any more is not re-invited (P2-29).
+      presence: (login) => studentPresence((method, path, body) => ghApi(token, method, path, body), { repo: `${owner}/${name}`, login }),
       method: verdict.method,
       permission: verdict.permission,
     })

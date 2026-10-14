@@ -53,6 +53,11 @@ async function withStubApi(fn, opts = {}) {
     goneNames = [],
     // Logins that are neither a collaborator nor invited any more.
     noAccess = [],
+    // The installation's "repository access": "all", or "selected", where a
+    // repository outside the selection answers 404 like a deleted one.
+    installationSelection = "all",
+    // When GitHub says the student repository was created.
+    repoCreatedAt = "2026-09-01T08:00:00Z",
   } = opts;
   const calls = [];
   const rulesetsByRepo = new Map();
@@ -72,6 +77,7 @@ async function withStubApi(fn, opts = {}) {
       calls.push({ line: `${req.method} ${path}`, query: query ?? "", body });
 
       if (path === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
+      if (path === "/installation/repositories") return send(200, { total_count: 1, repository_selection: installationSelection, repositories: [] });
       if (goneNames.some((n) => path === `/repos/TestOrg/${n}` || path.startsWith(`/repos/TestOrg/${n}/`))) {
         return send(404, { message: "Not Found" });
       }
@@ -134,7 +140,7 @@ async function withStubApi(fn, opts = {}) {
       }
       if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return send(200, untilCommits);
       if (/\/commits\/main$/.test(path)) return send(200, { sha: HEAD_SHA });
-      if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt });
+      if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt, created_at: repoCreatedAt });
       const presence = path.match(/^\/repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)$/);
       if (presence && req.method === "GET") {
         if (noAccess.includes(presence[1])) return send(404, { message: "Not Found" });
@@ -371,6 +377,29 @@ test("LD4: after the sentinel's confirmed stop at the deadline, HEAD is the dead
   });
 });
 
+test("P2-27: a repository made after the sentinel's stop is not its deadline state: rebuilt, and locked by this run, not at the stop", async () => {
+  // Review 2026-10-14: a lecturer's Retry after the stop provisions a
+  // repository nothing stopped, so its HEAD can hold pushes from after the
+  // deadline; HEAD was read as the deadline state, and the row said it was
+  // locked at the stop's instant.
+  const after = new Date(new Date(DEADLINE).getTime() + 10 * 60_000).toISOString();
+  await withStubApi(
+    async (api, calls) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, orgScopedLock: false });
+      mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+      writeFileSync(join(dir, "lockdowns", "exam", "sentinel-x.json"), JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop: "done" }));
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      const alice = rowFor(res.record, "alice");
+      assert.equal(alice.snapshot_sha, ON_TIME_SHA, "rebuilt as of the deadline");
+      assert.equal(alice.reconstructed, true);
+      assert.ok(calls.some((c) => c.line === "GET /repos/TestOrg/exam-alice/commits" && /until=/.test(c.query)), "with ?until=");
+      assert.notEqual(alice.lockdown_at, DEADLINE, "not locked at the stop it did not exist for");
+    },
+    { repoCreatedAt: after },
+  );
+});
+
 test("LD5: a record naming a deleted repository does not fail the sentinel's stop", async () => {
   // Review 2026-10-14: the dead id was retried as a repository ruleset and a
   // demotion, both 404, counted as a missed stop - and the stop-only run's
@@ -390,6 +419,41 @@ test("LD5: a record naming a deleted repository does not fail the sentinel's sto
     },
     { goneIds: [77], goneNames: ["exam-bob"] },
   );
+});
+
+test("P2-26: on the repository-ruleset and demotion paths a deleted repository is not a missed stop either - but one the App may not see stays one", async () => {
+  // Review 2026-10-14: only the organization ruleset's own answer marked a
+  // deleted repository, so on the other paths it failed both and failed the
+  // sentinel's stop for every assignment at that instant.
+  const setups = [
+    ["repository ruleset", { latePolicy: "block", lockDownEnabled: false, orgScopedLock: false }, {}],
+    ["report, then read-only", { latePolicy: "report", lockDownEnabled: true }, {}],
+    ["rulesets refused, so a demotion", { latePolicy: "block", lockDownEnabled: false, orgScopedLock: false }, { denyRulesets: true }],
+  ];
+  for (const [label, control, stub] of setups) {
+    for (const selection of ["all", "selected"]) {
+      await withStubApi(
+        async (api) => {
+          const dir = makeControlDir({ ...control, logins: ["alice"] });
+          writeFileSync(
+            join(dir, "repositories", "exam", "bob.json"),
+            JSON.stringify({ github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 77 }),
+          );
+          const res = await runLockdown(dir, api, { STOP_ONLY: "1" });
+          if (selection === "all") {
+            assert.equal(res.status, 0, `${label}: ${res.stdout}${res.stderr}`);
+            assert.match(res.outputs, /error_count=0/, label);
+            assert.match(res.stdout, /no longer exists - nothing to lock/, label);
+          } else {
+            // Under "Only select repositories" a 404 is also a repository the
+            // App was not given: excusing it would be silent. Still missed.
+            assert.match(res.outputs, /error_count=1/, `${label}, selected: ${res.stdout}`);
+          }
+        },
+        { goneIds: [77], goneNames: ["exam-bob"], installationSelection: selection, ...stub },
+      );
+    }
+  }
 });
 
 test("LD8: the demotion never re-invites a student whose access was removed", async () => {

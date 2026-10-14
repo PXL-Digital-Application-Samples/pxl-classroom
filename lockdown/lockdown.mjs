@@ -391,6 +391,26 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
 
 // --- Phase 1: STOP -----------------------------------------------------------
 /** Phase 4, and the fallback for a ruleset that could not be applied. */
+/**
+ * Whether GitHub says this repository no longer exists, asked after a lock on
+ * it failed. A 404 is that only where the App sees every repository of the
+ * organization: under "Only select repositories" one outside the selection
+ * answers 404 as well, and calling it gone would excuse it from the deadline
+ * in silence, so there it stays a missed stop (review 2026-10-14, P2-26). By
+ * id, which a rename keeps.
+ */
+let installationSeesAll = null;
+async function confirmedGone(t) {
+  const id = t.rec?.repo_id;
+  const res = await gh("GET", id ? `/repositories/${id}` : `/repos/${cfg.org}/${t.repoName}`);
+  if (res.status !== 404) return false;
+  if (installationSeesAll === null) {
+    const inst = await gh("GET", "/installation/repositories?per_page=1");
+    installationSeesAll = inst.ok && inst.data?.repository_selection === "all";
+  }
+  return installationSeesAll;
+}
+
 async function demote(t) {
   let allLocked = true;
   // "read" is the value that MEANS LOCKED, so it cannot be the starting
@@ -531,7 +551,11 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // Frozen on retry: lockdown_at is a historical fact about when this student
     // stopped being able to push, not about when this run happened.
     const priorRec = priorByLogin.get(normalizeLogin(t.login));
-    let lockdownAt = priorRec?.snapshot_sha ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+    // A row whose snapshot could not be read was LOCKED all the same, at its
+    // own time (review 2026-10-14, P2-31): the pass that reads it again kept
+    // its own clock, which overstated how long the student could push.
+    const lockedBefore = Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread);
+    let lockdownAt = lockedBefore ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
     // before this run. Crediting it is what keeps `uncertainty_seconds` honest.
@@ -573,6 +597,12 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
       continue;
     }
 
+    // GONE on the other paths too (review 2026-10-14, P2-26): only the
+    // organization ruleset's own answer marked a deleted repository, so on the
+    // repository-ruleset and demotion paths it failed both, counted as missed,
+    // and failed the sentinel's stop for every assignment at that instant.
+    // Asked only once the lock has failed, so a healthy cohort costs nothing.
+    const goneRow = { locked: false, gone: true, permissionAfter: null, lockdownAt: null, method: "none" };
     try {
       if (method === "ruleset" || method === "org-ruleset") {
         const res = await ensureSubmissionLock(gh, {
@@ -592,8 +622,18 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
       }
 
       const out = await demote(t);
+      if (!out.locked && (await confirmedGone(t))) {
+        log(`stop ${t.displayKey}`, { ok: true, note: "the repository no longer exists - nothing to lock" });
+        byRepo.set(t, goneRow);
+        continue;
+      }
       byRepo.set(t, { ...out, lockdownAt, method: "demotion" });
     } catch (e) {
+      if (await confirmedGone(t).catch(() => false)) {
+        log(`stop ${t.displayKey}`, { ok: true, note: "the repository no longer exists - nothing to lock" });
+        byRepo.set(t, goneRow);
+        continue;
+      }
       log(`stop ${t.displayKey}`, { ok: false, note: e.message });
       byRepo.set(t, { locked: false, permissionAfter: "exception", lockdownAt, method });
     }
@@ -675,6 +715,12 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       const priorRec = priorByLogin.get(normalizeLogin(t.login));
       const frozen = !!priorRec?.snapshot_sha;
       const pushedAt = repoRes.data.pushed_at ?? null;
+      // WHETHER THE SENTINEL'S STOP COVERED THIS REPOSITORY AT ALL (review
+      // 2026-10-14, P2-27): one a lecturer's Retry provisioned after the stop
+      // was locked by nothing until this run, so its HEAD can hold later
+      // pushes, and the stop's instant is not when it was locked.
+      const createdAt = repoRes.data.created_at ?? null;
+      const existedAtStop = !createdAt || !sentinelStoppedAt || new Date(createdAt) <= new Date(sentinelStoppedAt);
       let snapshotSha;
       let reconstructed = false;
       let noSubmission = false;
@@ -699,7 +745,8 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         // from committer dates then dropped an on-time commit whose clock ran
         // fast, although the lock proves it was pushed in time. The same
         // per-student test that credits the stop (applySubmissionLock).
-        const stoppedAtDeadline = Boolean(sentinelStoppedAt) && (!deadline || new Date(deadline) <= new Date(sentinelStoppedAt));
+        // ...and only for a repository that EXISTED at the stop (P2-27, above).
+        const stoppedAtDeadline = Boolean(sentinelStoppedAt) && existedAtStop && (!deadline || new Date(deadline) <= new Date(sentinelStoppedAt));
         const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline) && !stoppedAtDeadline;
 
         if (pushedLate) {
@@ -798,6 +845,7 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         reconstructed,
         noSubmission,
         pushedAt,
+        existedAtStop,
       });
     } catch (e) {
       log(`record ${t.login || t.rec.team_slug}`, { ok: false, note: e.message });
@@ -1202,7 +1250,11 @@ async function main() {
       continue;
     }
 
-    const lockdownAt = stop.lockdownAt;
+    // Not the stop's instant for a repository made after it (P2-27): that
+    // repository was locked by this run.
+    const lockdownAt = state.existedAtStop === false && sentinelStoppedAt && stop.lockdownAt === sentinelStoppedAt
+      ? lock.lockedAt
+      : stop.lockdownAt;
     // How long after THIS STUDENT'S deadline they could still push - not after
     // the assignment's. Measured against `deadline_at`, a student locked at the
     // nightly after a seven-day extension expired was reported with seven days

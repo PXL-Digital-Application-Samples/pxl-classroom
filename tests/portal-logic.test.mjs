@@ -5,45 +5,11 @@ import assert from "node:assert/strict";
 // against logic the view no longer had.
 import { parseInvitationLink } from "../frontend/src/lib/invite.js";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
+// The student home's own matching, not a copy (review 2026-10-14, P2-22): a
+// copy here kept the login-only rule after PG5 taught the page team names.
+import { matchStudentAssignments as match, timeRemaining } from "../frontend/src/lib/student-assignments.js";
 
-function matchStudentAssignments(allOrgAssignments, userLogin, userRepos, userInvites) {
-  const normalizedLogin = (userLogin || "").toLowerCase();
-  const matched = [];
-
-  for (const a of allOrgAssignments) {
-    const pattern = a.repository_name_pattern || `${a.id}-{github_login}`;
-    const expectedName = pattern.replace("{github_login}", normalizedLogin).toLowerCase();
-
-    // Check provisioned repo
-    const existingRepo = userRepos.find(
-      (r) => r.owner?.login?.toLowerCase() === a.org.toLowerCase() && r.name?.toLowerCase() === expectedName
-    );
-    if (existingRepo) {
-      matched.push({
-        ...a,
-        repoUrl: existingRepo.html_url,
-        repoFullName: existingRepo.full_name,
-        stateStatus: "provisioned"
-      });
-      continue;
-    }
-
-    // Check pending invitation
-    const existingInvite = userInvites.find(
-      (inv) => inv.repository?.owner?.login?.toLowerCase() === a.org.toLowerCase() && inv.repository?.name?.toLowerCase() === expectedName
-    );
-    if (existingInvite) {
-      matched.push({
-        ...a,
-        repoUrl: existingInvite.repository?.html_url,
-        repoFullName: existingInvite.repository?.full_name,
-        stateStatus: "invited"
-      });
-    }
-  }
-
-  return matched;
-}
+const matchStudentAssignments = (all, login, repos, invites) => match(all, { login, repos, invites });
 
 // -----------------------------------------------------------------------------
 // Direct Link Parser Tests
@@ -182,4 +148,41 @@ test("matchStudentAssignments returns empty list when student has not joined any
 
   const matched = matchStudentAssignments(publishedAssignments, "Eve", userRepos, userInvites);
   assert.equal(matched.length, 0, "Unaccepted assignments must NEVER be returned to the student");
+});
+
+test("PG5: a team assignment is found by any name its pattern makes, a pending team invitation too - and not in another org", () => {
+  const all = [
+    { org: "PXL-Org", id: "grp-lab", title: "Group Lab", repository_name_pattern: "grp-lab-{team_slug}" },
+    { org: "PXL-Org", id: "grp-exam", title: "Group Exam", repository_name_pattern: "grp-exam-{team_slug}" },
+  ];
+  const repos = [{ owner: { login: "PXL-Org" }, name: "grp-lab-krusty-krabs", html_url: "u1", full_name: "PXL-Org/grp-lab-krusty-krabs" }];
+  const invites = [{ repository: { owner: { login: "PXL-Org" }, name: "grp-exam-rockets", html_url: "u2", full_name: "PXL-Org/grp-exam-rockets" } }];
+  const matched = matchStudentAssignments(all, "Ann", repos, invites);
+  assert.deepEqual(matched.map((m) => [m.id, m.stateStatus, m.repoFullName]), [
+    ["grp-lab", "provisioned", "PXL-Org/grp-lab-krusty-krabs"],
+    ["grp-exam", "invited", "PXL-Org/grp-exam-rockets"],
+  ]);
+  // The same name in another organization is not this assignment's.
+  const elsewhere = [{ owner: { login: "Other-Org" }, name: "grp-lab-krusty-krabs", html_url: "x", full_name: "Other-Org/grp-lab-krusty-krabs" }];
+  assert.deepEqual(matchStudentAssignments(all, "Ann", elsewhere, []), []);
+});
+
+test("PG5: a more specific assignment in the org explains a name before a team pattern claims it", () => {
+  // `grp-{team_slug}` also makes `grp-lab-x`; the assignment whose pattern is
+  // `grp-lab-{team_slug}` is the one it belongs to (lib/assignment-collision.mjs).
+  const all = [
+    { org: "PXL-Org", id: "grp", repository_name_pattern: "grp-{team_slug}" },
+    { org: "PXL-Org", id: "grp-lab", repository_name_pattern: "grp-lab-{team_slug}" },
+  ];
+  const repos = [{ owner: { login: "PXL-Org" }, name: "grp-lab-x", html_url: "u", full_name: "PXL-Org/grp-lab-x" }];
+  assert.deepEqual(matchStudentAssignments(all, "Ann", repos, []).map((m) => m.id), ["grp-lab"]);
+});
+
+test("the time-left badge", () => {
+  const now = new Date("2026-10-14T12:00:00Z");
+  assert.deepEqual(timeRemaining(null, now), { text: "", badgeClass: "badge-neutral" });
+  assert.deepEqual(timeRemaining("2026-10-14T11:00:00Z", now), { text: "Closed", badgeClass: "badge-error" });
+  assert.deepEqual(timeRemaining("2026-10-14T12:30:00Z", now), { text: "30m left", badgeClass: "badge-warning" });
+  assert.deepEqual(timeRemaining("2026-10-14T17:00:00Z", now), { text: "5h left", badgeClass: "badge-warning" });
+  assert.deepEqual(timeRemaining("2026-10-17T12:00:00Z", now), { text: "3d left", badgeClass: "badge-success" });
 });

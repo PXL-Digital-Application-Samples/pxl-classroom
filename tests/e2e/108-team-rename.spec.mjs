@@ -154,6 +154,43 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await expect.poll(() => gitCommits.length, { timeout: 15000 }).toBe(1);
   });
 
+  // Review 2026-10-14 (P2-16): under open enrolment the report has no rows
+  // until somebody accepts, and "no rows" counted as everybody accepted - so
+  // every rename said "@stud1 has accepted" while nobody had.
+  for (const [label, acceptances, renamed] of [
+    ['published, open, nobody accepted yet: offered, and renamed', [], true],
+    ['published, open, a member has a record: offered, and stopped at the click by that record', [{
+      schema_version: 1, assignment_id: ID, github_login: 'stud1', github_id: 11,
+      accepted_at: '2026-08-02T08:59:00Z', status: 'provisioned', team_slug: 'krusty-krab', team_name: 'Krusty Krab',
+    }], false],
+  ]) {
+    test(`P2-16: ${label}`, async ({ page }) => {
+      const gitCommits = [];
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, {
+        currentUser: LECTURER,
+        assignments: { [ID]: { ...assignment(), roster_mode: 'open' } },
+        reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: [] } },
+        controlTeams: { [ID]: [team('krusty-krab', 'Krusty Krab', ['stud1'])] },
+        ...(acceptances.length ? { controlAcceptances: { [ID]: acceptances } } : {}),
+        roster,
+        gitCommits,
+      });
+      await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+      const modal = await manage(page, 'Krusty Krab');
+      await expect(modal.locator('[data-team-rename]')).not.toContainText('has accepted');
+      await modal.getByRole('button', { name: 'Rename team' }).click();
+      await modal.locator('#team-rename-input').fill('Krusty Krabs');
+      await modal.locator('#team-rename-input').press('Enter');
+      if (renamed) {
+        await expect.poll(() => gitCommits.length, { timeout: 15000 }).toBe(1);
+      } else {
+        await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('@stud1 has accepted');
+        expect(gitCommits).toEqual([]);
+      }
+    });
+  }
+
   test('a repository created after the page loaded stops it at the click', async ({ page }) => {
     const commits = await open(page);
     const modal = await manage(page, 'Krusty Krab');
@@ -193,7 +230,7 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await modal.getByRole('button', { name: 'Rename team' }).click();
     await modal.locator('#team-rename-input').fill('Krusty Krabs');
     await modal.locator('#team-rename-input').press('Enter');
-    await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('this assignment already has a team called krusty-krabs, which may be one everybody left. Nothing was changed.');
+    await expect(modal.locator('[data-team-rename] [role="alert"]')).toContainText('this assignment already has a team called krusty-krabs, which may be one everybody left. Nothing was changed.', { timeout: 15000 });
     expect(commits).toEqual([]);
   });
 
@@ -249,6 +286,73 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
     await page.locator('#create-team-name').fill('Krusty Krab');
     await expect(page.locator('[data-new-slug-problem]')).toContainText('"Krusty Krabs" was called krusty-krab until it was renamed');
     await expect(page.locator('.modal-foot').getByRole('button', { name: 'Create Team' })).toBeDisabled();
+  });
+
+  // Review 2026-10-14 (P2-18): Create Team wrote from the page's copy of the
+  // teams - over a file made since, or under a name another tab had renamed away.
+  test('P2-18: Create Team reads the teams again at the click: a name renamed away since is refused', async ({ page }) => {
+    let renamedSince = false;
+    const gitCommits = [];
+    const writes = [];
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: students() } },
+      controlTeams: { [ID]: [team('krusty-krab', 'Krusty Krab', ['stud1'])] },
+      roster,
+      gitCommits,
+    });
+    // Made and renamed in another tab after this page read the teams: this
+    // page has never seen "Gamma", which was called beta.
+    const renamed = { ...team('gamma', 'Gamma', ['stud2']), renamed_from: ['beta'] };
+    await page.route(new RegExp(`/contents/teams/${ID}(\\?|$)`), (route) => {
+      if (!renamedSince) return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { name: 'krusty-krab.json', path: `teams/${ID}/krusty-krab.json`, type: 'file' },
+        { name: 'gamma.json', path: `teams/${ID}/gamma.json`, type: 'file' },
+      ]) });
+    });
+    await page.route(new RegExp(`/contents/teams/${ID}/gamma\\.json`), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: Buffer.from(JSON.stringify(renamed)).toString('base64'), encoding: 'base64' }) }));
+    await page.route(new RegExp(`/contents/teams/${ID}/beta\\.json`), (route) => {
+      if (route.request().method() === 'PUT') writes.push(route.request().url());
+      return route.fallback();
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    await expect(page.locator('tr', { hasText: 'Krusty Krab' })).toBeVisible({ timeout: 15000 });
+    renamedSince = true;
+    await page.getByRole('button', { name: /Create Team/i }).first().click();
+    await page.locator('#create-team-name').fill('Beta');
+    await page.locator('.modal-foot').getByRole('button', { name: 'Create Team' }).click();
+    await expect(page.locator('.toast', { hasText: /"Gamma" was called beta until it was renamed/ })).toBeVisible({ timeout: 10000 });
+    expect(writes).toEqual([]);
+  });
+
+  test('P2-18: a team file made at the name since is not overwritten', async ({ page }) => {
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [ID]: assignment() },
+      reports: { [ID]: { schema_version: 1, assignment_id: ID, generated_at: new Date().toISOString(), teams: [], students: students() } },
+      controlTeams: { [ID]: [team('pod-pirates', 'Pod Pirates', ['stud3'])] },
+      roster,
+    });
+    const bodies = [];
+    // GitHub's answer to a create (no sha) over a file that now exists.
+    await page.route(new RegExp(`/contents/teams/${ID}/rockets\\.json`), (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ message: 'Invalid request.\n\n"sha" wasn\'t supplied.' }) });
+    });
+    await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+    await expect(page.locator('tr', { hasText: 'Pod Pirates' })).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: /Create Team/i }).first().click();
+    await page.locator('#create-team-name').fill('Rockets');
+    await page.locator('.modal-foot').getByRole('button', { name: 'Create Team' }).click({ force: true });
+    await expect(page.locator('.toast', { hasText: /A team called rockets was made meanwhile/ })).toBeVisible({ timeout: 10000 });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].sha, 'written as new, never against a sha fetched afresh').toBeUndefined();
   });
 
   test('whether students see the new name is read from the page they are served, and read again on Check again (PG12)', async ({ page }) => {

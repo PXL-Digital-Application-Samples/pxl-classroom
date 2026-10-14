@@ -450,6 +450,51 @@ test("archived or back to draft AFTER students accepted is still finalized at th
   }
 });
 
+test("P2-34: a broker the finalize left open is owed a pass, up to the ceiling; one closed, or finished before the record existed, is not", () => {
+  const past = new Date(Date.now() - 3600_000).toISOString();
+  const run = (lockedAt, closed) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-broker-"));
+    mkdirSync(join(dir, "assignments"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "exam.yml"), `state: closed\ndeadline_at: "${past}"`);
+    mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({ locked_at: lockedAt, results: [] }));
+    if (closed) writeFileSync(join(dir, "lockdowns", "exam", "broker-closed.json"), JSON.stringify(closed));
+    const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
+    return { queued: JSON.parse(res.stdout.trim()).map((f) => f.assignment_id), stderr: res.stderr };
+  };
+  const now = new Date().toISOString();
+  const open = run(now, { closed: false, key_removed: false, attempts: 1 });
+  assert.deepEqual(open.queued, ["exam"], `left open: tried again (${open.stderr})`);
+  assert.match(run(now, { closed: true, key_removed: false, attempts: 2 }).stderr, /broker-not-closed \(attempt 3\)/, "the key still on it counts too");
+  assert.deepEqual(run(now, { closed: true, key_removed: true, attempts: 2 }).queued, [], "done");
+  const atCeiling = run(now, { closed: false, key_removed: false, attempts: 3 });
+  assert.deepEqual(atCeiling.queued, [], "not for ever");
+  assert.match(atCeiling.stderr, /still not closed after 3 attempts/);
+  assert.deepEqual(run("2026-10-16T09:00:00Z", null).queued, ["exam"], "locked since the record exists, and none written: owed");
+  assert.deepEqual(run("2026-09-01T00:00:00Z", null).queued, [], "finished before the record existed: not re-run for it");
+});
+
+test("P2-25: archived or back to draft BEFORE its deadline with students in it keeps the nightly on; with nobody in it, it does not", () => {
+  // Review 2026-10-14: the finalize queue asked "published, closed, or has
+  // repositories", the active count only "published or closed" - so an exam
+  // archived before its deadline was not active, the nightly could switch
+  // itself off, and the deadline it would have locked never came.
+  const future = new Date(Date.now() + 2 * 3600_000).toISOString();
+  for (const state of ["archived", "draft"]) {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-archived-early-"));
+    mkdirSync(join(dir, "assignments"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "exam.yml"), `state: ${state}\ndeadline_at: "${future}"`);
+    const active = () => {
+      spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
+      return JSON.parse(readFileSync(join(dir, "active-TestOrg.json"), "utf8")).active;
+    };
+    assert.equal(active(), 0, `${state}, nobody accepted: nothing keeps the nightly on`);
+    mkdirSync(join(dir, "repositories", "exam"), { recursive: true });
+    writeFileSync(join(dir, "repositories", "exam", "alice.json"), "{}");
+    assert.equal(active(), 1, `${state} with a student's repository: active until its deadline`);
+  }
+});
+
 // --- activeCount is what switches the nightly off -----------------------------
 //
 // daily-activity.yml disables itself when `active` reaches 0, and that cron is

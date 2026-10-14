@@ -24,9 +24,19 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "provisioning", "provision.mjs");
 const INJECTED = "d".repeat(40);
 
-async function withApi(fn, { templateGrades = false } = {}) {
+const ROOT = "e".repeat(40);
+// GitHub's generated first commit, as GET /commits/{sha} answers it.
+const GENERATED_ROOT = { sha: ROOT, parents: [], committer: { login: "web-flow" }, author: { login: "pxl-classroom[bot]" }, commit: { verification: { verified: true } } };
+const STUDENT_COMMIT = { sha: ROOT, parents: [{ sha: "f".repeat(40) }], committer: { login: "ann" }, author: { login: "ann" }, commit: { verification: { verified: false } } };
+
+/**
+ * `existing`: the repository is there before the run (a retry of GitHub's
+ * copy whose first run failed before the workflow was added), and the commit
+ * under the one this run adds is `GENERATED_ROOT` or a student's.
+ */
+async function withApi(fn, { templateGrades = false, existing = null } = {}) {
   const calls = [];
-  let generated = false;
+  let generated = Boolean(existing);
   const server = createServer((req, res) => {
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
@@ -41,7 +51,13 @@ async function withApi(fn, { templateGrades = false } = {}) {
       generated = true;
       return send(201, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann", default_branch: "main" });
     }
-    if (url === "/repos/Org/lab-ann" && req.method === "GET") return generated ? send(200, { id: 10, full_name: "Org/lab-ann", default_branch: "main" }) : send(404, { message: "Not Found" });
+    if (url === "/repos/Org/lab-ann" && req.method === "GET") {
+      return generated
+        ? send(200, { id: 10, full_name: "Org/lab-ann", default_branch: "main", template_repository: { full_name: "Org/tpl" }, created_at: "2026-10-14T08:00:00Z" })
+        : send(404, { message: "Not Found" });
+    }
+    if (url === `/repos/Org/lab-ann/commits/${INJECTED}`) return send(200, { sha: INJECTED, parents: [{ sha: ROOT }] });
+    if (url === `/repos/Org/lab-ann/commits/${ROOT}`) return send(200, existing === "student" ? STUDENT_COMMIT : GENERATED_ROOT);
     if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") return send(200, [{ name: "README.md", type: "file" }]);
     if (/^\/repos\/Org\/lab-ann\/contents\/\.github\/workflows\/(autograding|classroom)\.yml$/.test(url) && req.method === "GET") {
       return templateGrades && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
@@ -102,6 +118,26 @@ test("GitHub's copy that provisioning committed the grading workflow to records 
     assert.equal(output(r.outputs, "starter_commit_count"), "2");
     assert.equal(output(r.outputs, "full_history"), "false", "not a copy of the template's history");
   });
+});
+
+test("P2-20: a retry that adds the workflow its first run never did records that commit as the start - over GitHub's copy only", async () => {
+  // Review 2026-10-14: only a first run's start was recorded, so the student
+  // read two commits, "On time", with nothing done.
+  await withApi(async (api, calls) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "outcome"), "reused");
+    assert.ok(calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml")), "the retry adds it");
+    assert.equal(output(r.outputs, "starter_sha"), INJECTED);
+    assert.equal(output(r.outputs, "starter_commit_count"), "2");
+  }, { existing: "generated" });
+  // Over a commit that is not GitHub's copy: not what they were given.
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "starter_sha"), "", "nothing recorded rather than a guess");
+    assert.match(r.log, /not GitHub's copy alone, so no start is recorded/);
+  }, { existing: "student" });
 });
 
 test("...and one provisioning added nothing to records none: one commit is the start, as ever", async () => {

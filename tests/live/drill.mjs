@@ -706,6 +706,11 @@ async function verify() {
       if (expectDemoted) {
         if (row.demoted === true) ok(`${login}: demoted as well`);
         else bad(`${login}: not demoted although lock_down_enabled (permission after: ${row.permission_after})`);
+        // What GitHub says, not what the row says (P2-35): `demoted` is also
+        // true of a student the presence check took for gone, never touched.
+        const perm = await api(`/repos/${ORG}/${bareRepo(row.repo_name)}/collaborators/${encodeURIComponent(student.login)}/permission`, { token: LECTURER.token });
+        if (perm.ok && perm.data?.permission === "read") ok(`${login}: GitHub says their permission is read`);
+        else bad(`${login}: GitHub says their permission is ${perm.ok ? perm.data?.permission : `unreadable (HTTP ${perm.status})`}, expected read`);
       }
 
       const lag = (new Date(row.lockdown_at) - deadline) / 1000;
@@ -749,6 +754,18 @@ async function verify() {
     if (ref.ok && ref.data?.object?.sha === row.preserved_sha) ok(`${login}: ${archive}@${branch} holds ${row.preserved_sha.slice(0, 7)}`);
     else bad(`${login}: ${archive}@${branch} is HTTP ${ref.status}${ref.ok ? ` at ${ref.data?.object?.sha}` : ""}, not the preserved sha`);
   }
+  // NOTHING RUNS IN THE ARCHIVE (A6, P2-36), asked of GitHub every drill.
+  const archives = [...new Set((report?.students || []).filter((r) => r.preservation_status === "preserved")
+    .map((r) => resolveArchiveRepo({ org: ORG, recorded: r.archive_repo })))];
+  for (const archive of archives) {
+    const perms = await api(`/repos/${archive}/actions/permissions`, { token: LECTURER.token });
+    if (perms.ok && perms.data?.enabled === false) ok(`${archive}: Actions are off`);
+    else bad(`${archive}: Actions ${perms.ok ? "are on" : `unreadable (HTTP ${perms.status})`} - a workflow on a preserved branch may run`);
+  }
+  // And what the finalize did to the broker, as it recorded it (P2-34).
+  const closedRec = await readControlJson(`lockdowns/${id}/broker-closed.json`);
+  if (closedRec?.closed === true && closedRec?.key_removed === true) ok("the finalize recorded the broker closed and its key removed");
+  else bad(`lockdowns/${id}/broker-closed.json says ${closedRec ? JSON.stringify({ closed: closedRec.closed, key_removed: closedRec.key_removed }) : "nothing (absent)"}`);
 
   console.log("\n8. The broker is closed\n");
   const broker = brokerRepoName({ assignment: doc, assignmentId: id });
@@ -777,8 +794,12 @@ async function verify() {
       let log = "";
       for (const job of jobs) log += (await api(`/repos/${HUB}/actions/jobs/${job.id}/logs`, { token: LECTURER.token })).data?.raw ?? "";
       if (/exists and is frozen by/.test(log)) ok(`${frozenStudent.login}: refused, the repository is frozen (${run.html_url})`);
-      else if (/exists and is not frozen/.test(log)) bad(`${frozenStudent.login}: handed back a LOCKED repository as not frozen - the rulesets read failed (${run.html_url})`);
-      else bad(`${frozenStudent.login}: the retry log says nothing about the existing repository (${run.html_url})`);
+      // Both read the frozen check as "not frozen", the rulesets read having
+      // failed silently: since AC1 the retried student's own repository says
+      // the second line, which the drill used to report as nothing said (P2-23).
+      else if (/exists and is not frozen|exists, made by the earlier attempt this Retry is redoing/.test(log)) {
+        bad(`${frozenStudent.login}: handed back a LOCKED repository as not frozen - the rulesets read failed (${run.html_url})`);
+      } else bad(`${frozenStudent.login}: the retry log says nothing about the existing repository (${run.html_url})`);
     }
   }
 

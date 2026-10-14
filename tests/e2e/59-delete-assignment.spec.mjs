@@ -112,9 +112,18 @@ async function openClosedAssignment(
 
 const dialog = (page) => page.locator('[aria-label="Delete assignment"]');
 
+/** The lockdown record's read answers `status` (after `delayMs`). */
+const lockRecord = (status, { delayMs = 0 } = {}) => async (p) => {
+  await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, async (route) => {
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    return route.fulfill({ status, contentType: 'application/json', body: status === 200 ? JSON.stringify({ content: '' }) : '{"message":"x"}' });
+  });
+};
+
 test.describe('59 - the dialog says what it costs before it can be used', () => {
   test('it leads with what is NOT deleted, and refuses until the id is typed', async ({ page }) => {
-    await openClosedAssignment(page);
+    // Locked and archived: "The archive is kept" is then what the reads say.
+    await openClosedAssignment(page, { extraRoutes: lockRecord(200) });
     await chooseState(page, 'Delete assignment');
 
     // The fear the word creates, answered first.
@@ -146,6 +155,48 @@ test.describe('59 - the dialog says what it costs before it can be used', () => 
     await chooseState(page, 'Delete assignment');
     await expect(dialog(page).locator('[data-delete-unarchived]')).toContainText('Nothing has been archived yet');
     await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
+  // Review 2026-10-14 (P2-17, P2-30): it said "The archive is kept" while the
+  // read was unknown or still going, and after some preservations had failed.
+  test('P2-30: locked, but some students are not in the archive: says how many, not "kept"', async ({ page }) => {
+    await openClosedAssignment(page, {
+      extraRoutes: lockRecord(200),
+      reportStudents: [
+        { github_login: 'alice', acceptance_state: 'provisioned', submission_status: 'on-time', preservation_status: 'preserved' },
+        { github_login: 'bob', acceptance_state: 'provisioned', submission_status: 'on-time', preservation_status: 'failed' },
+      ],
+    });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-archive-state="partial"]')).toContainText("1 student's work is not in the archive yet");
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
+  test('P2-17: a lock record that cannot be read says so, and never "kept"', async ({ page }) => {
+    await openClosedAssignment(page, { extraRoutes: lockRecord(500) });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-archive-state="unknown"]')).toContainText('could not be read');
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
+  test('P2-17: while it is being read, it says it is checking, and never "kept"', async ({ page }) => {
+    await openClosedAssignment(page, { extraRoutes: lockRecord(200, { delayMs: 3000 }) });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-archive-state="checking"]')).toBeVisible();
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+    await expect(dialog(page).locator('[data-archive-state="kept"]')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('nobody has a repository: nothing to archive, said as that', async ({ page }) => {
+    await openClosedAssignment(page, {
+      extraRoutes: async (p) => {
+        await lockRecord(404)(p);
+        await p.route(`**/repos/${ORG}/pxl-classroom-control/contents/repositories/${ID}`, (route) =>
+          route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' }));
+      },
+    });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-archive-state="none"]')).toContainText('Nobody has a repository');
   });
 
   test('A16: once the deadline was locked and archived, the archive is kept', async ({ page }) => {

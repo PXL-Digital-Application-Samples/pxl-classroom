@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-import { planSeed, planUnseed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE } from "../lib/seed-teams.mjs";
+import { planSeed, planUnseed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE, SEED_SKIP_REASONS } from "../lib/seed-teams.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
 const NOW = "2026-09-01T10:00:00.000Z";
@@ -692,6 +692,16 @@ test("unseed accepts a Set of accepted logins and matches case-insensitively", (
     acceptedLogins: new Set(["alice"]),
   });
   assert.deepEqual(p.removable, []);
+});
+
+test("P2-19: every skip reason the planner writes has words, and the dialog takes them from here", () => {
+  // Derived from the planner's own source, never listed again here.
+  const src = readFileSync(new URL("../lib/seed-teams.mjs", import.meta.url), "utf8");
+  const written = [...new Set([...src.matchAll(/skipped\.push\(\{[^}]*reason: "([^"]+)"/g)].map((m) => m[1]))];
+  assert.ok(written.length >= 6, `the planner's reasons were found: ${written.join(", ")}`);
+  for (const r of written) assert.ok(SEED_SKIP_REASONS[r], `"${r}" has words`);
+  const modal = readFileSync(new URL("../frontend/src/components/SeedTeamsModal.vue", import.meta.url), "utf8");
+  assert.match(modal, /SKIP_REASONS = SEED_SKIP_REASONS/, "no second map to fall behind");
 });
 
 test("unseed output is deterministic", () => {

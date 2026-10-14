@@ -42,6 +42,16 @@ test("so Reopen is refused for every case where a snapshot is owed and not archi
   assert.equal(unlockability({ row: row(unread), lockdownRow: unread }).can, false, "failed");
 });
 
+test("P2-28: reopened with nothing frozen owes nothing - not 'failed', which offered Try again", () => {
+  // The row lockdown writes for a reopened student carries `reopened_at` and
+  // whatever was frozen, and not `no_submission` (lockdown/lockdown.mjs).
+  assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null, reopened_at: "2026-10-14T12:00:00Z" } }), "not-required");
+  // A reopened student with a snapshot still owes it.
+  assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: SHA, reopened_at: "2026-10-14T12:00:00Z" } }), "pending");
+  // And an unread snapshot that was never reopened is still a failure.
+  assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null } }), "failed");
+});
+
 test("the report asks this function, and spells no status of its own", () => {
   const src = readFileSync(new URL("../report/report.mjs", import.meta.url), "utf8");
   assert.match(src, /preservation_status: preservationStatus\(\{ preservation, lockdownRow \}\)/);

@@ -224,8 +224,11 @@ test("the dispatched-run reader and the CLI say the same words", async () => {
       : { ok: false, status: 404 }
   ), { repoFullName: "Org/r", runId: 77, sha: "f61d20cabc" });
   assert.equal(stillGoing.kind, "running");
+  // The CLI reads a commit's score through the hub's own reader (the one the
+  // test above runs), so it has no wording of its own to drift (P2-5).
   const cli = readFileSync(join(root, "cli", "src", "commands", "grade.mjs"), "utf8");
-  assert.match(cli, /unscoredRun\(/, "the CLI words an unscored run through the shared helper");
+  assert.match(cli, /readScoreAtCommit as readScoreShared[^}]*\} from "\.\.\/\.\.\/\.\.\/lib\/grade-cohort\.mjs"/, "the CLI reads a score through the shared reader");
+  assert.doesNotMatch(cli, /parseCheckRunScore\(|unscoredRun\(/, "the CLI does not parse or word a run itself");
   assert.doesNotMatch(cli, /never completed/);
 });
 
@@ -261,4 +264,17 @@ test("a cohort read that saved nothing says why, by kind - never 'all checks mis
   assert.match(message, /Nothing was saved/);
   assert.doesNotMatch(message, /missing or failed/);
   assert.match(nothingGradedMessage([]), /^Nobody has a score to read yet\. Nothing was saved/);
+});
+
+test("P2-10: students whose read FAILED are said apart, with what to do - not 'nobody has a score yet'", () => {
+  const failed = [
+    { login: "A", kind: "no-result", reason: "GitHub's rate limit stopped the read of this repository's hand-ins" },
+    { login: "b", kind: "no-result", reason: "GitHub's rate limit stopped the read" },
+    { login: "c", kind: "running", reason: "x" },
+  ];
+  const message = nothingGradedMessage(failed, { failedReads: new Set(["a", "b"]) });
+  assert.match(message, /^2 students could not be read \(and 1 still being graded\): read the scores again in a few minutes\./);
+  assert.doesNotMatch(message, /Nobody has a score/);
+  // Without failed reads, as before.
+  assert.match(nothingGradedMessage(failed, { failedReads: new Set() }), /^Nobody has a score to read yet \(1 still being graded, 2 with no result\)/);
 });

@@ -1056,6 +1056,7 @@ async function loadTeams() {
       }
       renamedTo.value = renamed
       publishedAt = Date.parse(data.generated_at || '')
+      teamsFileAt = publishedAt
       takenTeams.value = (data.taken || [])
         .map((t) => ({ team_slug: String(t?.team_slug || '').toLowerCase(), team_name: t?.team_name || t?.team_slug }))
         .filter((t) => t.team_slug)
@@ -1460,6 +1461,24 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = 
  * would otherwise end: read the teams again and follow the rename, once, where
  * the student is a member of the team it names.
  */
+// When the published teams file the page last read was made (NaN: unknown).
+let teamsFileAt = NaN
+// How long a page waits for a teams file that may not know the rename yet.
+const FOLLOW_WAIT_MS = 3 * 60_000
+
+/**
+ * Whether the rename may still be followed: the hub has answered, the teams
+ * file read is older than this student's attempt, so it may not know a rename
+ * that came before it, and the wait is bounded (review 2026-10-14, P2-14).
+ * The site rebuilds a minute or two after a rename; followed once, the page
+ * settled on the old repository whenever it asked before that.
+ */
+function mayStillFollow(answeredAt) {
+  const attemptAt = Date.parse(acceptanceIssueCreatedAt.value || '') || pollStartedAt
+  const fileKnowsAttempt = Number.isFinite(teamsFileAt) && teamsFileAt >= attemptAt
+  return !fileKnowsAttempt && Date.now() - answeredAt < FOLLOW_WAIT_MS
+}
+
 async function followRename(slug) {
   await loadTeams()
   const to = renamedTo.value.get(String(slug || '').toLowerCase())
@@ -1478,6 +1497,8 @@ function startPolling(teamSlug) {
   const expectedName = teamRepoName(teamSlug)
   const generation = ++pollGeneration
   const stale = () => generation !== pollGeneration
+  // When the hub first answered this attempt (P2-14), for `mayStillFollow`.
+  let answeredAt = null
 
   const tick = async () => {
     if (stale()) return
@@ -1522,20 +1543,30 @@ function startPolling(teamSlug) {
       }
       if (announcesInvitation(said)) {
         // Invited - but to the repository it waits for, or to a renamed team's?
+        answeredAt ??= Date.now()
         if (await followRename(teamSlug)) return
         if (stale()) return
-        acceptState.value = 'invited'
-        return
-      }
-      // No repository, no invitation, no answer: how far did it get? A final
-      // step ends the wait with "send it again".
-      const at = await readAttemptProgress()
-      if (stale()) return
-      if (at.final) {
-        if (await followRename(teamSlug)) return
+        if (!mayStillFollow(answeredAt)) {
+          acceptState.value = 'invited'
+          return
+        }
+      } else {
+        // No repository, no invitation, no answer: how far did it get? A final
+        // step ends the wait with "send it again".
+        const at = await readAttemptProgress()
         if (stale()) return
-        acceptState.value = 'not-processed'
-        return
+        if (at.final) {
+          // Only a run that SUCCEEDED can have put the student in a renamed
+          // team; a stopped or undelivered one did nothing to wait for, and the
+          // student is told at once.
+          answeredAt ??= Date.now()
+          if (await followRename(teamSlug)) return
+          if (stale()) return
+          if (at.step !== 'no-answer' || !mayStillFollow(answeredAt)) {
+            acceptState.value = 'not-processed'
+            return
+          }
+        }
       }
     }
 
@@ -1546,7 +1577,9 @@ function startPolling(teamSlug) {
     // run GitHub never starts still ends somewhere. See AssignmentView.
     const stillComing = ['starting', 'not-started', 'queued', 'running', 'finishing'].includes(progress.value.step)
     const sentAt = Date.parse(acceptanceIssueCreatedAt.value || '') || pollStartedAt
-    if (pollCount.value > 30 && !(stillComing && Date.now() - sentAt < GIVE_UP_MS)) {
+    // ...nor while it waits for a teams file that may not know a rename yet.
+    const following = answeredAt !== null && mayStillFollow(answeredAt)
+    if (pollCount.value > 30 && !following && !(stillComing && Date.now() - sentAt < GIVE_UP_MS)) {
       acceptState.value = 'timeout'
       return
     }

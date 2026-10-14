@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadYaml } from '../lib/yaml.mjs';
 import { latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
+import { brokerClosedPath } from '../lib/control-layout.mjs';
 
 // A finalize is only done when every locked-down student's submission is also
 // preserved. Lockdown alone used to be the idempotency key, so a run that
@@ -45,6 +46,18 @@ function hasRepositories(controlDir, assignmentId) {
   }
 }
 
+/**
+ * Whether students can be in this assignment: published or closed, or any
+ * other state while repository records exist (archived, or back to draft,
+ * after students accepted). ONE answer for the finalize queue and the active
+ * count below (review 2026-10-14, P2-25): the queue asked it and the count did
+ * not, so an exam archived before its deadline was not active, the nightly
+ * could switch itself off, and the deadline it would have locked never came.
+ */
+function mayHaveStudents(assignment, controlDir, assignmentId) {
+  return assignment?.state === 'published' || assignment?.state === 'closed' || hasRepositories(controlDir, assignmentId);
+}
+
 /** True when this student's submission is archived and hash-verified. */
 function isPreserved(controlDir, assignmentId, login) {
   const p = path.join(controlDir, 'observations', assignmentId, login, 'preservation.json');
@@ -59,6 +72,38 @@ function isPreserved(controlDir, assignmentId, login) {
  * Why this past-deadline assignment still needs a finalize run, or null when
  * it is complete / exhausted.
  */
+/**
+ * A BROKER LEFT OPEN IS OWED WORK (review 2026-10-14, P2-34). Closing
+ * acceptance and taking the broker App's key off the public broker is step 5 of
+ * the finalize, under continue-on-error so it never undoes a lock - and a
+ * failure there was recorded nowhere, so no pass ever tried again and the key
+ * stayed. scripts/close-acceptance.mjs writes `broker-closed.json` beside the
+ * lock record; a pass is queued while it says not done, up to the same ceiling,
+ * or while it is missing from a record written since it exists (older finished
+ * assignments were closed before the file did, and are not re-run for it).
+ */
+const BROKER_CLOSE_RECORDED_SINCE = '2026-10-15T00:00:00Z';
+function brokerOwed(controlDir, id, record) {
+  let closed = null;
+  try {
+    closed = JSON.parse(fs.readFileSync(path.join(controlDir, brokerClosedPath(id)), 'utf8'));
+  } catch {
+    closed = null;
+  }
+  if (closed?.closed === true && closed?.key_removed === true) return null;
+  if (!closed) {
+    const lockedAt = Date.parse(record?.locked_at || '');
+    if (!Number.isFinite(lockedAt) || lockedAt < Date.parse(BROKER_CLOSE_RECORDED_SINCE)) return null;
+    return 'broker-not-closed (no record of closing it)';
+  }
+  const attempts = Number(closed.attempts) || 1;
+  if (attempts >= MAX_FINALIZE_ATTEMPTS) {
+    console.error(`${id}: the broker is still not closed after ${attempts} attempts - not retrying. Close it by hand, then remove lockdowns/${id}/broker-closed.json.`);
+    return null;
+  }
+  return `broker-not-closed (attempt ${attempts + 1})`;
+}
+
 function finalizeReason(controlDir, lockdownsDir, id) {
   const lockdownFile = path.join(lockdownsDir, id, 'lockdown-record.json');
   if (!fs.existsSync(lockdownFile)) return 'not-finalized';
@@ -98,7 +143,7 @@ function finalizeReason(controlDir, lockdownsDir, id) {
     (r) => r.github_login && !r.reopened_at &&
       ((r.snapshot_sha && !isPreserved(controlDir, id, r.github_login)) || (!r.snapshot_sha && r.snapshot_unread))
   );
-  if (pending.length === 0) return null;
+  if (pending.length === 0) return brokerOwed(controlDir, id, record);
 
   const attempts = record.finalize_attempts ?? 1;
   if (attempts >= MAX_FINALIZE_ATTEMPTS) {
@@ -140,7 +185,7 @@ async function main() {
           // kept the App's private key on a public repository for good. The
           // evidence is the repository records: a published or closed one
           // queues as before, any other only when students have repositories.
-          if (assignment.state !== 'published' && assignment.state !== 'closed' && !hasRepositories(controlDir, id)) continue;
+          if (!mayHaveStudents(assignment, controlDir, id)) continue;
 
           const deadline = new Date(assignment.deadline_at).getTime();
           const now = Date.now();
@@ -173,7 +218,7 @@ async function main() {
         const id = file.replace(/\.(yml|yaml|json)$/, '');
         try {
           const assignment = await loadYaml(path.join(assignmentsDir, file));
-          if (assignment && (assignment.state === 'published' || assignment.state === 'closed')) {
+          if (assignment && mayHaveStudents(assignment, controlDir, id)) {
             const latest = latestEffectiveDeadline(assignment, readOverrides(controlDir, id));
             if (!latest || latest.getTime() > Date.now()) {
               activeCount++;

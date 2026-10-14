@@ -200,11 +200,9 @@ import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
 import { getInstallations, getInvitations, getUserRepos } from '../lib/api.js'
-import { invitationEvidence } from '../lib/invitation-evidence.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
-import { repositoryNameFor } from '../../../lib/repo-name.mjs'
-import { collidingRepoNames } from '../../../lib/assignment-collision.mjs'
+import { matchStudentAssignments } from '../lib/student-assignments.js'
 
 const router = useRouter()
 
@@ -363,85 +361,10 @@ async function loadStudentAssignments() {
     // a row, never to conclude that an assignment has no invitation.
     const userInvites = (invitesRes.ok && Array.isArray(invitesRes.data)) ? invitesRes.data : []
 
-    const userLogin = user.value.login.toLowerCase()
-    const now = new Date()
-
-    // 4. Match student repos with assignments
-    const matched = []
-    for (const a of allOrgAssignments) {
-      const expectedName = repositoryNameFor(a.repository_name_pattern, { login: userLogin }).toLowerCase()
-      // A TEAM'S REPOSITORY IS NAMED AFTER THE TEAM, which this page does not
-      // know. Asked for the one name a login makes (`grp-<login>`), a team
-      // assignment never showed, and a student with only team work was told
-      // they had accepted nothing (review 2026-10-14, PG5). So any name the
-      // pattern makes, unless a more specific assignment in the org explains
-      // it (lib/assignment-collision.mjs `collidingRepoNames`).
-      const isTeam = String(a.repository_name_pattern || '').includes('{team_slug}')
-      const rivals = isTeam ? allOrgAssignments.filter((o) => o.org === a.org && o.id !== a.id) : []
-      const ours = (name) => isTeam
-        ? collidingRepoNames(a.repository_name_pattern, [String(name || '')], rivals).length > 0
-        : String(name || '').toLowerCase() === expectedName
-      const inOrg = (owner) => String(owner || '').toLowerCase() === a.org.toLowerCase()
-
-      // Calculate time remaining
-      let timeRemainingStr = ''
-      let timeRemainingBadgeClass = 'badge-neutral'
-      if (a.deadline_at) {
-        const diffMs = new Date(a.deadline_at) - now
-        if (diffMs <= 0) {
-          timeRemainingStr = 'Closed'
-          timeRemainingBadgeClass = 'badge-error'
-        } else {
-          const diffMins = Math.floor(diffMs / 60000)
-          const diffHours = Math.floor(diffMins / 60)
-          const diffDays = Math.floor(diffHours / 24)
-          if (diffDays > 0) {
-            timeRemainingStr = `${diffDays}d left`
-          } else if (diffHours > 0) {
-            timeRemainingStr = `${diffHours}h left`
-          } else {
-            timeRemainingStr = `${diffMins}m left`
-          }
-          timeRemainingBadgeClass = diffHours < 24 ? 'badge-warning' : 'badge-success'
-        }
-      }
-
-      // Check provisioned repo
-      const existingRepo = userRepos.find((r) => inOrg(r.owner?.login) && ours(r.name))
-      if (existingRepo) {
-        matched.push({
-          ...a,
-          repoUrl: existingRepo.html_url,
-          repoFullName: existingRepo.full_name,
-          stateStatus: 'provisioned',
-          timeRemainingStr,
-          timeRemainingBadgeClass,
-        })
-        continue
-      }
-
-      // Check pending invitation. Fourth copy of this match in the SPA until
-      // it went through the one judge the other three now use.
-      const invitedName = isTeam
-        ? (userInvites.find((inv) => inOrg(inv?.repository?.owner?.login) && ours(inv?.repository?.name))?.repository?.name || '')
-        : expectedName
-      const { invitation: existingInvite } = invitationEvidence(
-        { ok: true, data: userInvites },
-        { org: a.org, repo: invitedName },
-      )
-      if (existingInvite) {
-        matched.push({
-          ...a,
-          repoUrl: existingInvite.repository?.html_url,
-          repoFullName: existingInvite.repository?.full_name,
-          stateStatus: 'invited',
-          timeRemainingStr,
-          timeRemainingBadgeClass,
-        })
-      }
-    }
-
-    acceptedAssignments.value = matched
+    // 4. Match student repos with assignments (lib/student-assignments.js).
+    acceptedAssignments.value = matchStudentAssignments(allOrgAssignments, {
+      login: user.value.login, repos: userRepos, invites: userInvites,
+    })
   } catch (e) {
     console.error('Failed to load student assignments:', e)
     assignmentsError.value = 'Failed to load your accepted assignments.'

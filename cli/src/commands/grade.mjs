@@ -23,7 +23,6 @@ import { runHost } from "../lib/runner-host.mjs";
 import { resolveOrg } from "../lib/org.mjs";
 import { CONTROL_REPO, getAssignment, getGradingSummary, getReport, listOverrides, unchangedSince } from "../lib/control-repo.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
-import { parseCheckRunScore, pickAutogradeCheckRun, unscoredRun } from "../../../lib/check-run-score.mjs";
 // The shape of grading/<id>/summary.json, shared with the Admin Panel.
 import {
   gradedRowFromCheckRun,
@@ -32,10 +31,9 @@ import {
   buildGradingSummary,
 } from "../../../lib/grading-summary.mjs";
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
-import { readRunScore, withoutDispatchedRuns } from "../../../lib/grade-dispatch.mjs";
-import { fetchCheckRunAnnotations } from "../lib/check-run-annotations.mjs";
+import { readRunScore } from "../../../lib/grade-dispatch.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
 import { normalizeLogin, sameLogin } from "../../../lib/github-login.mjs";
@@ -254,56 +252,13 @@ export function registerGradeCommand(program) {
         return { ...res, ok: res.status >= 200 && res.status < 300 };
       };
 
-      // ONE commit's worth of reading, so it can be done twice - at the
-      // preserved commit, and again at the hand-in commit when the first says
-      // the workflow never ran there. Returns a verdict, never a guessed score.
-      const readScoreAtCommit = async (s, sha) => {
-        const short = String(sha).slice(0, 7);
-        // s.repo_name is already the full org/repo name.
-        const checksReq = await octokit.request(`GET /repos/${s.repo_name}/commits/${sha}/check-runs`);
-        // Never a dispatched run's result (lib/grade-dispatch.mjs).
-        const own = await withoutDispatchedRuns(readRequest, { repoFullName: s.repo_name, sha, checkRuns: checksReq.data.check_runs });
-        if (!own.ok) {
-          return { verdict: "api-failed", reason: `could not read which runs at commit ${short} a lecturer started - HTTP ${own.status}` };
-        }
-        const checkRuns = own.checkRuns;
-        if (checkRuns.length === 0) {
-          return { verdict: "no-run", reason: `no CI run at commit ${short}` };
-        }
-        const run = pickAutogradeCheckRun(checkRuns);
-        // No autograding run is not a zero and not a pass. The picker used
-        // to fall back to the first check run of any kind, so a student who
-        // replaced the autograding workflow with a green one of their own
-        // was awarded the full total off `conclusion: success`.
-        if (!run) {
-          return {
-            verdict: "no-run",
-            reason: `no autograding run at commit ${short} (${checkRuns.length} other check run(s) present)`,
-          };
-        }
-        // The score is in the annotations, not in `output.summary` - see
-        // lib/check-run-score.mjs. Skipped when the run declares none, so
-        // the ordinary case costs no extra request.
-        const { annotations, complete } = run?.output?.annotations_count
-          ? await fetchCheckRunAnnotations(octokit, { repoFullName: s.repo_name, checkRunId: run.id })
-          : { annotations: [], complete: true };
-        const parsed = parseCheckRunScore(run, annotations, totalFallback);
-        // A guess made from the conclusion because the annotations could not be
-        // read is a failed read, not a grade. The SPA has always said so; this
-        // path used to record the guess.
-        if (!parsed.matched && !complete) {
-          return { verdict: "unreadable", reason: `could not read the score annotations on the CI run at ${short}` };
-        }
-        // Skipped, cancelled, or still going: no score in it. `skipped` is what
-        // a job gated on a hand-in commit leaves at every other commit, and the
-        // 0 this used to record was a grade nobody measured.
-        if (!parsed.graded) {
-          // Still running, or ended without a score - the same words as the
-          // page and the nightly (lib/check-run-score.mjs `unscoredRun`).
-          return unscoredRun({ short, status: run.status ?? null, conclusion: parsed.conclusion ?? null, marker });
-        }
-        return { verdict: "graded", run, parsed, sha };
-      };
+      // ONE commit's worth of reading, through the shared reader the page and
+      // the nightly use (lib/grade-cohort.mjs `readScoreAtCommit`). The CLI
+      // had its own copy, which answered a gone commit (422) and a deleted or
+      // unreachable repository (404) with a thrown error where the shared one
+      // names the student (review 2026-10-14, P2-9). Never a guessed score.
+      const readScoreAtCommit = (s, sha) =>
+        readScoreShared(readRequest, { repoFullName: s.repo_name, sha, marker, fallbackTotal: totalFallback });
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         let result;
         // The check run this grade was read from, on the Actions path only.
@@ -328,6 +283,17 @@ export function registerGradeCommand(program) {
           const reason = `@${decision.by} chose commit ${decision.sha.slice(0, 7)}, and the local runner only grades the preserved submission - read that commit's result on the assignment page instead`;
           process.stderr.write(`  ! ${s.github_login}: ${reason}\n`);
           summary.failed.push({ login: s.github_login, reason, kind: "no-result" });
+          return;
+        }
+        // NOTHING HANDED IN IS NOT A SCORE, asked where the shared grader asks
+        // it (lib/grade-cohort.mjs `gradeStudent`): after a decision, and after
+        // a hand-in marker, which decides by itself on the Actions path. The
+        // CLI read the preserved commit regardless, and an untouched student's
+        // preserved commit is the starter - whose grading run, or whose tests
+        // on the local runner, gave them a score (review 2026-10-14, P2-1).
+        if (!decision && s.submission_status === "no-submission" && !(isGitHubActions && marker)) {
+          process.stdout.write(`  - ${s.github_login}: ${NO_SUBMISSION_REASON}\n`);
+          summary.failed.push({ login: s.github_login, reason: NO_SUBMISSION_REASON, kind: "not-handed-in" });
           return;
         }
         if (s.team_slug && !decision && teamResultsCache.has(s.team_slug)) {
@@ -565,6 +531,9 @@ export function registerGradeCommand(program) {
         // they were left out, and the page showed "Not read yet" beside a
         // student nothing would ever read. The row on record stays; without
         // one, a row saying why.
+        // Whether a row was carried over from the summary read: then the write
+        // depends on that version, as a kept row does (review 2026-10-14, P2-3).
+        let carried = false;
         if (!opts.login) {
           const named = (rows, l) => (rows || []).some((r) => sameLogin(r?.login, l));
           for (const s of report.students || []) {
@@ -575,6 +544,7 @@ export function registerGradeCommand(program) {
             if (storedGraded.length || storedFailed.length) {
               merged.students.push(...storedGraded);
               merged.failed.push(...storedFailed);
+              carried = true;
               continue;
             }
             const nothing = s.submission_status === "no-submission";
@@ -623,9 +593,9 @@ export function registerGradeCommand(program) {
             path: summaryFile,
             content: JSON.stringify(summaryDoc, null, 2) + "\n",
           }],
-          // Every run that kept a row from the version it read: a whole-cohort
-          // run that kept nothing replaces the file by design.
-          ...(opts.login || merged.unchanged.length
+          // Every run that kept or carried a row from the version it read: a
+          // whole-cohort run that kept nothing replaces the file by design.
+          ...(opts.login || merged.unchanged.length || carried
             ? { precondition: unchangedSince(org, summaryFile, stored?.sha ?? null, "the grading summary was changed by someone else while this ran; run it again") }
             : {}),
         });

@@ -30,13 +30,13 @@
 //
 // Env: ORG, ASSIGNMENT_ID, DATA_DIR (default "."), GITHUB_TOKEN
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
 import { gh } from "../lib/gh.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
-import { assignmentPath } from "../lib/control-layout.mjs";
+import { assignmentPath, brokerClosedPath } from "../lib/control-layout.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -74,20 +74,24 @@ async function main() {
 
   // PATCH updates an existing variable; a broker that somehow has none is not
   // a broker this should be creating variables on, so an absent one is
-  // reported rather than invented.
+  // reported rather than invented. A 404 (no broker, or no variable) is closed:
+  // the broker's `if:` reads an absent variable as not `true`.
   const res = await gh("PATCH", `/repos/${org}/${broker}/actions/variables/${VARIABLE}`, {
     name: VARIABLE,
     value: "false",
   });
-  if (!res.ok) {
+  if (!res.ok && res.status !== 404) {
     const why = res.data?.message ? `: ${res.data.message}` : "";
     console.log(
       `::warning::Could not close acceptance on ${org}/${broker} (HTTP ${res.status}${why}) - ` +
         `the assignment is finalized, but its broker still boots a runner for acceptance attempts.`,
     );
+    await recordClose({ dataDir, assignmentId, broker, closed: false, keyRemoved: false });
     return;
   }
-  console.log(`[ok] acceptance closed on ${org}/${broker} (${VARIABLE}=false)`);
+  console.log(res.ok
+    ? `[ok] acceptance closed on ${org}/${broker} (${VARIABLE}=false)`
+    : `[ok] ${org}/${broker} has no ${VARIABLE} to set - acceptance is closed`);
 
   // And take the credential off the public repository, now that nothing on it
   // will ever use one again.
@@ -110,17 +114,50 @@ async function main() {
   // assignment restores them without anyone knowing this ran. There is
   // precedent in that same file: it already sweeps the LEGACY provisioning
   // keys off brokers this way.
+  let keyRemoved = true;
   for (const secret of BROKER_SECRETS) {
     const del = await gh("DELETE", `/repos/${org}/${broker}/actions/secrets/${secret}`);
     // 404 is the ordinary case on the second night, and on a broker that never
     // had one. It is not a failure.
     if (del.ok || del.status === 404) continue;
+    keyRemoved = false;
     const why = del.data?.message ? `: ${del.data.message}` : "";
     console.log(
       `::warning::Could not remove ${secret} from ${org}/${broker} (HTTP ${del.status}${why}) - ` +
         `acceptance is closed, but the broker App key is still on this public repository.`,
     );
   }
+  await recordClose({ dataDir, assignmentId, broker, closed: true, keyRemoved });
+}
+
+/**
+ * What this pass did to the broker, beside the lock record, so the nightly can
+ * ask again while it is not done (scripts/find-finalizable.mjs `brokerOwed`,
+ * review 2026-10-14, P2-34): a failure here was only a warning in a log, and
+ * no pass ever came back to it. `attempts` counts the passes that did not
+ * finish it; the finalize's own commit carries the file (`lockdowns/`).
+ */
+async function recordClose({ dataDir, assignmentId, broker, closed, keyRemoved }) {
+  const file = join(dataDir, brokerClosedPath(assignmentId));
+  const dir = dirname(file);
+  let attempts = 0;
+  try {
+    attempts = Number(JSON.parse(await readFile(file, "utf8")).attempts) || 0;
+  } catch { /* the first pass */ }
+  const done = closed && keyRemoved;
+  await mkdir(dir, { recursive: true });
+  await writeFile(file, JSON.stringify({
+    schema_version: 1,
+    assignment_id: assignmentId,
+    broker,
+    closed,
+    key_removed: keyRemoved,
+    attempts: done ? attempts : attempts + 1,
+    at: new Date().toISOString(),
+    observer_run: process.env.GITHUB_RUN_ID
+      ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : null,
+  }, null, 2) + "\n");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

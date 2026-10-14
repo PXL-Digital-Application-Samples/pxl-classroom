@@ -62,10 +62,15 @@ async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archi
   const url = gitRepoUrl("https://github.com", ...repo.split("/"));
   const authed = { cwd: target, env: { ...process.env, ...gitAuthEnv(token), GIT_TERMINAL_PROMPT: "0" } };
 
+  let shallow = false;
   if (existsSync(join(target, ".git"))) {
     try {
       const cur = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
-      if (cur === expectedSha) {
+      // A copy an earlier run took at one commit is not the whole history
+      // `--history` asks for (review 2026-10-14, P2-6): "cached" kept it
+      // shallow for good. Deepened below instead.
+      shallow = (await runGit(["rev-parse", "--is-shallow-repository"], { cwd: target })).stdout.trim() === "true";
+      if (cur === expectedSha && !(fullHistory && shallow)) {
         return { login, sha: cur, branch, repo, status: "cached" };
       }
     } catch { /* re-clone */ }
@@ -81,9 +86,17 @@ async function fetchOne({ org, assignmentId, login, teamSlug, archiveRepo, archi
   // One commit is the submission's files; a git exercise is graded on its
   // HISTORY - a merge, a rebase, a repaired log - so a full-history copy, or
   // `--history`, fetches all of it (review 2026-10-14, S8).
-  await runGit(fullHistory ? ["fetch", "origin", branch] : ["fetch", "--depth=1", "origin", branch], authed);
+  const fetchArgs = !fullHistory
+    ? ["fetch", "--depth=1", "origin", branch]
+    : shallow ? ["fetch", "--unshallow", "origin", branch] : ["fetch", "origin", branch];
+  await runGit(fetchArgs, authed);
   await runGit(["checkout", "-q", "-B", branch, "FETCH_HEAD"], { cwd: target });
   const sha = (await runGit(["rev-parse", "HEAD"], { cwd: target })).stdout.trim();
+  // The archive's branch is what was preserved at the deadline, and a copy at
+  // any other commit is not that submission: said, never passed off as it.
+  if (expectedSha && sha !== expectedSha) {
+    throw new Error(`the archive's ${branch} is at ${sha.slice(0, 12)}, not the preserved ${String(expectedSha).slice(0, 12)}`);
+  }
   return { login, sha, branch, repo, status: "downloaded" };
 }
 

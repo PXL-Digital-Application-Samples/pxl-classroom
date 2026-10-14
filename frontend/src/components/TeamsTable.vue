@@ -545,7 +545,7 @@ import { changedSinceRead, contentsAt as contentsAtCommit, unseedRefusalAt } fro
 import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
-import { teamPath, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
+import { teamPath, teamsDir, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatJoinCode, teamNeedsJoinCode } from '../../../lib/team-join-code.mjs'
@@ -667,6 +667,18 @@ function hasAccepted(login) {
   if (props.assignment?.state === 'draft') return false
   // No student data at all (an older report) is not evidence of non-acceptance.
   if (!(props.students || []).length) return true
+  return acceptedLogins.value.has(String(login).toLowerCase())
+}
+
+// WHAT THE REPORT ITSELF SAYS, for Rename (review 2026-10-14, P2-16). With no
+// student rows, hasAccepted above answers yes for everyone - the cautious
+// answer before a move or a delete - and so refused every rename as "has
+// accepted" while nobody had: under open enrolment the report has no rows
+// until somebody accepts, which is when a misnamed team is fixed. Rename reads
+// the acceptance records again at the click (`membersWithRecords`), and those
+// are the evidence; here only a row that says so blocks it.
+function reportSaysAccepted(login) {
+  if (props.assignment?.state === 'draft') return false
   return acceptedLogins.value.has(String(login).toLowerCase())
 }
 
@@ -951,7 +963,7 @@ const renameButton = ref(null)
 
 /** Why the open team cannot be renamed, from what the page shows; asked again at the click. */
 const renameBlocked = computed(() =>
-  managingTeam.value ? renameBlocker(managingTeam.value, (m) => hasAccepted(m), memberLabel) : null,
+  managingTeam.value ? renameBlocker(managingTeam.value, (m) => reportSaysAccepted(m), memberLabel) : null,
 )
 
 // Adds or removes made in Manage and not saved yet. A move and a rename both
@@ -1036,7 +1048,7 @@ async function saveRename() {
       assignmentId: id,
       otherSlugs: others.map((t) => t.team_slug),
       reservedSlugs: others.flatMap((t) => t.renamed_from || []),
-      accepted: (m) => hasAccepted(m) || recorded.includes(m),
+      accepted: (m) => reportSaysAccepted(m) || recorded.includes(m),
       label: memberLabel,
     })
     if (!plan.ok) {
@@ -1232,19 +1244,43 @@ async function submitCreateTeam() {
       return
     }
 
-    const path = teamPath(props.assignment.id, slug)
+    // ASKED AGAIN AT THE CLICK (review 2026-10-14, P2-18): the page's teams
+    // are as old as the page. A name another tab renamed away since is still
+    // that team's, and a file made at this name since is not overwritten -
+    // written as new (`expectedSha: null`), so GitHub refuses it if it exists.
+    const id = props.assignment.id
+    let files = []
+    try {
+      files = (await listRepoDir(token, props.org, config.controlRepo, teamsDir(id))).filter((f) => f.name.endsWith('.json'))
+    } catch (e) {
+      if (e?.status !== 404) throw e
+    }
+    for (const f of files) {
+      const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+      const doc = text ? JSON.parse(text) : null
+      if (doc?.team_slug !== slug && (doc?.renamed_from || []).includes(slug)) {
+        toast.error(`"${doc.team_name || doc.team_slug}" was called ${slug} until it was renamed, so the name stays with it. Nothing was created.`)
+        emit('refresh')
+        return
+      }
+    }
+    const path = teamPath(id, slug)
     const res = await commitFile(
       token,
       props.org,
       config.controlRepo,
       path,
       JSON.stringify(teamDoc, null, 2) + '\n',
-      `Create team ${slug} for ${props.assignment.id}`
+      `Create team ${slug} for ${id}`,
+      { expectedSha: null },
     )
     if (res.ok) {
       await republishTeams(token)
       toast.success(`Team "${newTeamForm.value.name}" created successfully.`)
       showCreateModal.value = false
+      emit('refresh')
+    } else if (res.conflict) {
+      toast.error(`A team called ${slug} was made meanwhile. Nothing was created; the teams are read again.`)
       emit('refresh')
     } else {
       toast.error(`Could not create team: HTTP ${res.status}`)

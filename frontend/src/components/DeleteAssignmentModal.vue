@@ -28,7 +28,12 @@
             <div><strong>Student repositories are untouched.</strong> Nobody's work is deleted.</div>
           </div>
 
-          <div v-if="unarchived === true" class="flex gap-sm items-start" data-delete-unarchived>
+          <!-- What the archive holds, worked out from the lock record and the
+               report each time the dialog opens (DESIGN.md §1.5). It said
+               "The archive is kept" while the read was unknown, still
+               loading, or after some preservations had failed (review
+               2026-10-14, P2-17, P2-30). -->
+          <div v-if="archive.state === 'unarchived'" class="flex gap-sm items-start" data-delete-unarchived data-archive-state="unarchived">
             <Icon name="alert-triangle" :size="16" class="stat-red consequence-icon" />
             <div>
               <strong>Nothing has been archived yet.</strong> Students' work is locked and copied to the archive by the nightly check
@@ -36,7 +41,30 @@
               To keep one, delete it after that check has run.
             </div>
           </div>
-          <div v-else class="flex gap-sm items-start">
+          <div v-else-if="archive.state === 'partial'" class="flex gap-sm items-start" data-delete-unarchived data-archive-state="partial">
+            <Icon name="alert-triangle" :size="16" class="stat-red consequence-icon" />
+            <div>
+              <strong>{{ archive.missing }} student{{ archive.missing === 1 ? "'s" : "s'" }} work is not in the archive yet.</strong>
+              Their copy at the deadline is still waiting or failed, and a deleted assignment is never tried again, so it will not exist.
+              <code>{{ archiveRepoName }}</code> keeps everyone else's.
+            </div>
+          </div>
+          <div v-else-if="archive.state === 'checking'" class="flex gap-sm items-start" data-archive-state="checking">
+            <span class="spinner-sm consequence-icon"></span>
+            <div class="text-muted">Checking what the archive holds…</div>
+          </div>
+          <div v-else-if="archive.state === 'unknown'" class="flex gap-sm items-start" data-archive-state="unknown">
+            <Icon name="alert-triangle" :size="16" class="stat-yellow consequence-icon" />
+            <div>
+              <strong>What the archive holds could not be read.</strong> If the deadline has passed and the nightly check has not
+              archived the students' work yet, deleting now means no copy of what they had at the deadline will exist.
+            </div>
+          </div>
+          <div v-else-if="archive.state === 'none'" class="flex gap-sm items-start" data-archive-state="none">
+            <Icon name="archive" :size="16" class="stat-green consequence-icon" />
+            <div><strong>Nobody has a repository</strong>, so there is nothing to archive.</div>
+          </div>
+          <div v-else class="flex gap-sm items-start" data-archive-state="kept">
             <Icon name="archive" :size="16" class="stat-green consequence-icon" />
             <div>
               <!-- The space before <code> is written, not implied: Vue's
@@ -126,12 +154,13 @@ const props = defineProps({
   brokerRepoName: { type: String, default: '' },
   busy: { type: Boolean, default: false },
   /**
-   * Students hold repositories the deadline's lock and archive never reached
-   * (true), nothing is owed (false), or it could not be read (null). A deleted
-   * assignment is never finalized, so "the archive holds each submission" was
-   * untrue there (review 2026-10-14, A16).
+   * What the archive holds, from the parent's reads: `checking`, `unknown` (a
+   * read failed), `none` (nobody has a repository), `unarchived` (students do
+   * and the deadline's lock never ran), `partial` (it ran and `missing` of
+   * them are not in the archive), or `kept`. A deleted assignment is never
+   * finalized again (review 2026-10-14, A16, P2-17, P2-30).
    */
-  unarchived: { type: Boolean, default: null },
+  archive: { type: Object, default: () => ({ state: 'checking' }) },
 })
 
 const emit = defineEmits(['close', 'confirm'])

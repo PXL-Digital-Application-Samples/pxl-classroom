@@ -291,6 +291,29 @@ test("LD6: a team's repository restores every member the lock demoted, and names
   assert.deepEqual(both, ["ann", "bo"]);
 });
 
+test("P2-29: a teammate with no access any more is not re-invited; the student clicked is restored whatever", async () => {
+  // Review 2026-10-14: a PUT on somebody with no access SENDS an invitation -
+  // access a lecturer removed, or a team switch took away, handed back.
+  const seen = [];
+  const asked = [];
+  const res = await applyUnlock({
+    setPermission: async (a) => { seen.push(a.login); return { ok: true }; },
+    presence: async (l) => { asked.push(l); return l === "bo" || l === "Ann" ? "gone" : "collaborator"; },
+    org: ORG, repo: REPO, login: "ann", logins: ["Ann", "bo", "cy"], method: "demotion", permission: "push",
+  });
+  assert.equal(res.ok, true, res.reason);
+  assert.deepEqual(seen, ["Ann", "cy"], "bo is not invited back; ann is the one clicked, in any spelling");
+  assert.ok(!asked.includes("Ann"), "the student clicked is not even asked");
+  // An unreadable answer restores, as before: only a definite gone skips.
+  const again = [];
+  await applyUnlock({
+    setPermission: async (a) => { again.push(a.login); return { ok: true }; },
+    presence: async () => "unreadable",
+    org: ORG, repo: REPO, login: "ann", logins: ["ann", "bo"], method: "demotion", permission: "push",
+  });
+  assert.deepEqual(again, ["ann", "bo"]);
+});
+
 test("a demotion unlock with no permission to restore refuses", async () => {
   const res = await applyUnlock({
     setPermission: async () => ({ ok: true }), org: ORG, repo: REPO, method: "demotion", permission: null,

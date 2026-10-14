@@ -54,6 +54,18 @@ export async function getGradingSummary(octokit, { org, assignmentId }) {
  * with the one at the commit it lands on.
  */
 export async function readJsonAtHead(octokit, { org, path }) {
+  const file = await readFileAtHead(octokit, { org, path });
+  return file ? { doc: JSON.parse(file.text), sha: file.sha } : null;
+}
+
+/**
+ * Any file in the control repository as it is at the branch head's commit:
+ * its text and blob sha, or null when there is none. By commit, because a
+ * read by branch name can be a minute old, and a write's precondition then
+ * refuses over a change that was already in what it read (review 2026-10-14,
+ * P2-8: the roster commands).
+ */
+export async function readFileAtHead(octokit, { org, path }) {
   const head = await octokit.request("GET /repos/{owner}/{repo}/git/ref/{ref}", { owner: org, repo: CONTROL_REPO, ref: "heads/main" });
   const ref = head.data?.object?.sha;
   if (typeof ref !== "string" || !ref) throw new Error(`could not read the head of ${org}/${CONTROL_REPO}`);
@@ -61,7 +73,7 @@ export async function readJsonAtHead(octokit, { org, path }) {
     const res = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
       owner: org, repo: CONTROL_REPO, path, ref,
     });
-    return { doc: JSON.parse(Buffer.from(res.data.content, "base64").toString("utf8")), sha: res.data.sha };
+    return { text: Buffer.from(res.data.content, "base64").toString("utf8"), sha: res.data.sha };
   } catch (e) {
     if (e.status === 404) return null;
     throw e;

@@ -801,6 +801,9 @@ test("a repository no record names any more is no longer asked for, and an unrea
         later.every((s) => s.pushed_at["exam-alice"] === "2026-09-10T21:12:00Z"),
         "and alice is still sampled through the poll whose listing failed",
       );
+      // An empty set takes no sample at all, so the line above passes over a
+      // poll that sampled nothing (P2-37): every poll took one, that one too.
+      assert.equal(samples.length, res.timeline.polls, "a sample for every poll");
     },
     {
       deadlineFor: () => deadline,

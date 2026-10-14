@@ -25,6 +25,18 @@
         </div>
       </div>
 
+      <!-- Some page of the hub's runs was not read: no banner above would be
+           "nothing stuck" said over a read that did not happen (P2-33). -->
+      <div v-else-if="user && hubWritable && hubRunsUnread" class="pipeline-stuck-banner card flex items-center justify-between gap-md" role="status" data-hub-runs-unread>
+        <div class="flex items-center gap-sm">
+          <Icon name="alert-triangle" :size="16" class="text-warning" />
+          <div class="text-sm">Not every run of the hub could be read, so a stuck run would not show here.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" type="button" @click="showHealthModal = true">
+          <span>Diagnostics</span>
+        </button>
+      </div>
+
       <!-- GitHub's installation page has no route back here, so returning
            lecturers were left guessing. This stays until an org appears. -->
       <div v-if="connectPending && user" class="connect-pending card flex items-center justify-between gap-md">
@@ -512,7 +524,7 @@ import { APP_INSTALL_URL } from '../../../lib/audit.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { gradingSummaryPath } from '../../../lib/control-layout.mjs'
 import { countGraded } from '../../../lib/grading-summary.mjs'
-import { classifyUnreadableControlRepo, readOrgRegistration } from '../lib/control-repo-access.js'
+import { classifyUnreadableControlRepo, readHubWritable, readOrgRegistration } from '../lib/control-repo-access.js'
 import { formatDate, formatRelative, isPast } from '../lib/format.js'
 import { listRunsInStatus, stuckRuns } from '../lib/stuck-runs.js'
 
@@ -558,12 +570,17 @@ const hubWritable = ref(false)
 const hubStuckRun = ref(null)
 const cancellingRun = ref(false)
 
+// Whether some page of the hub's runs could not be read, so a stuck run may be
+// missing from the banner (review 2026-10-14, P2-33): "no banner" read as
+// "nothing is stuck" over a failed read.
+const hubRunsUnread = ref(false)
+
 /** The hub's runs in one status, every page (lib/stuck-runs.mjs `listRunsInStatus`). */
 async function everyRun(token, status) {
-  const { runs } = await listRunsInStatus((method, path) => ghApi(token, method, path), {
+  const { runs, whole } = await listRunsInStatus((method, path) => ghApi(token, method, path), {
     owner: config.hubOwner, repo: config.hubRepo, status,
   })
-  return runs
+  return { runs, whole }
 }
 
 async function checkHubPipelines() {
@@ -578,16 +595,17 @@ async function checkHubPipelines() {
     // 30 dropped exactly them during an acceptance burst (review 2026-10-14,
     // G8b), as the watchdog and System Health learned before this did.
     // `pending` too (R1-11): a run held behind its concurrency group.
-    const [waiting, running, pending] = await Promise.all([
+    const lists = await Promise.all([
       everyRun(token, 'waiting'),
       everyRun(token, 'in_progress'),
       everyRun(token, 'pending'),
     ])
     // A workflow built to run long (the Deadline Sentinel waits for hours) is
     // stuck only past its own limit - frontend/src/lib/stuck-runs.js.
-    hubStuckRun.value = stuckRuns([...waiting, ...running, ...pending])[0] || null
+    hubStuckRun.value = stuckRuns(lists.flatMap((l) => l.runs))[0] || null
+    hubRunsUnread.value = lists.some((l) => !l.whole)
   } catch {
-    // Non-blocking
+    hubRunsUnread.value = true
   }
 }
 
@@ -1012,6 +1030,12 @@ async function loadDashboard(orgArg) {
       if (superseded()) return
       dashState.value = assignments.value.length === 0 ? (draftCount.value > 0 ? 'no-dashboard' : 'empty') : ''
       setOrgStatus(org, hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
+      // HUB STAFF SEE THE STUCK-RUN BANNER HERE TOO (review 2026-10-14,
+      // P2-38): hub write was read only when this organization's control
+      // repository could not be, so the banner the stuck-run fixes were made
+      // for never showed over a working course. One read, after the page.
+      readHubWritable((method, path) => ghApi(token, method, path), config.hubOwner, config.hubRepo)
+        .then((writable) => { if (!superseded()) hubWritable.value = writable })
       return
     }
 

@@ -147,16 +147,29 @@ export function resultsWithoutPoints(rows) {
  *
  * @param {Array<object>} failed  the read's failed rows
  */
-export function nothingGradedMessage(failed = []) {
+export function nothingGradedMessage(failed = [], { failedReads = null } = {}) {
+  // WHOSE READ FAILED is not "nobody has a score" (review 2026-10-14, P2-10):
+  // a cohort the rate limit stopped read "Nobody has a score to read yet (20
+  // with no result)", advice to wait for runs that had all finished. They are
+  // `failedReads` (lib/grade-cohort.mjs gradeCohort), counted apart.
+  const unread = (row) => Boolean(failedReads?.has?.(normalizeLogin(row?.login)))
+  const notRead = failed.filter(unread).length
   const n = {}
-  for (const f of failed) n[failedKind(f)] = (n[failedKind(f)] || 0) + 1
+  for (const f of failed) {
+    if (unread(f)) continue
+    n[failedKind(f)] = (n[failedKind(f)] || 0) + 1
+  }
   const parts = [
     n.running && `${n.running} still being graded`,
     n['not-handed-in'] && `${n['not-handed-in']} not handed in`,
     n.late && `${n.late} handed in late`,
     n['no-result'] && `${n['no-result']} with no result`,
   ].filter(Boolean)
-  return `Nobody has a score to read yet${parts.length ? ` (${parts.join(', ')})` : ''}. Nothing was saved, so the scores on record stay.`
+  const saved = 'Nothing was saved, so the scores on record stay.'
+  if (notRead) {
+    return `${notRead === 1 ? '1 student' : `${notRead} students`} could not be read${parts.length ? ` (and ${parts.join(', ')})` : ''}: read the scores again in a few minutes. ${saved}`
+  }
+  return `Nobody has a score to read yet${parts.length ? ` (${parts.join(', ')})` : ''}. ${saved}`
 }
 
 /** The sentence `scoreStats` makes, as the box under the cards says it. */
