@@ -542,16 +542,22 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
         log("org-lock", { ok: true, note:
           `${res.action} ruleset ${res.rulesetId} over ${orgCovered.size} repositor${orgCovered.size === 1 ? "y" : "ies"}` +
           (dropped.size ? ` (${dropped.size} no longer exist)` : "") });
+        // Gone only as the other paths call it (`confirmedGone`, P2-26): under
+        // "Only select repositories" a repository the App was not given is a
+        // 404 too, and calling it gone excused it from the deadline. One that
+        // is not confirmed takes the per-repository path below, which says it
+        // was not stopped (TV-7, 2026-10-15).
         for (const t of orgTargets) {
-          if (!dropped.has(t.rec.repo_id)) continue;
+          if (!dropped.has(t.rec.repo_id) || !(await confirmedGone(t))) continue;
           orgGone.add(t);
           log(`org-lock ${t.displayKey}`, { ok: false, note: "repository no longer exists - nothing to lock" });
         }
       } else {
         // Degrade to the repository-scoped path rather than to no lock at all,
         // exactly as a failed repository ruleset degrades to a demotion. What
-        // GitHub said no longer exists stays gone on that path too.
-        for (const t of orgTargets) if ((res.dropped ?? []).includes(t.rec.repo_id)) orgGone.add(t);
+        // GitHub said no longer exists stays gone on that path too, confirmed
+        // the same way.
+        for (const t of orgTargets) if ((res.dropped ?? []).includes(t.rec.repo_id) && (await confirmedGone(t))) orgGone.add(t);
         log("org-lock", { ok: false, note: `${res.reason} - falling back to repository rulesets` });
         // Named here as on the success path: a gone repository takes no step
         // below, so this is the only line that says what became of it.
@@ -1182,6 +1188,7 @@ async function main() {
   let errorCount = 0;
   let unfreezableCount = 0;
   let noSubmissionCount = 0;
+  let goneCount = 0;
   let maxUncertainty = 0;
   const rows = [];
   const lockdownResults = [];
@@ -1255,6 +1262,17 @@ async function main() {
     // locked, Reopen can act on it, and find-finalizable queues the next pass
     // to read it again (review 2026-10-14 - it used to vanish from the record).
     if (!state?.ok) {
+      // GONE, as the stop confirmed it (P2-26: a 404 by id where the
+      // installation sees every repository), and read gone again here: a
+      // student who deleted their own repository before the deadline has
+      // nothing to lock or preserve. Counted as an error, it made a finalize
+      // that locked everybody else `partial` (TV-7, live 2026-10-15). A 404
+      // the stop did not confirm is still an error.
+      if (state?.gone && stop?.gone) {
+        goneCount++;
+        rows.push(`| ${t.displayKey} | - | - | gone - the repository no longer exists |`);
+        continue;
+      }
       errorCount++;
       rows.push(`| ${t.displayKey} | - | - | error${state?.reason ? `: ${state.reason}` : ""} |`);
       if (state && !state.gone) {
@@ -1406,6 +1424,8 @@ async function main() {
     // nothing can freeze them - and separately from locks because they were NOT
     // frozen. Each carries `unfreezable_reason` in `results`.
     unfreezable_count: unfreezableCount,
+    // Deleted before the lock: neither a lock nor an error, and no row.
+    gone_count: goneCount,
     max_uncertainty_seconds: maxUncertainty,
     results: lockdownResults,
   };
@@ -1431,11 +1451,12 @@ async function main() {
     (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
     (noSubmissionCount ? `, **${noSubmissionCount}** with no submission before the deadline` : "") +
     (unfreezableCount ? `, **${unfreezableCount}** NOT FROZEN (organization owner - change their role to Member to freeze them)` : "") +
+    (goneCount ? `, **${goneCount}** deleted before the lock` : "") +
     `. Max uncertainty: **${maxUncertainty}s**.\n`
   );
   await setOutput("unfreezable_count", unfreezableCount);
   await setOutput("reopened_count", reopenedTargets.length);
-  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${unfreezableCount} unfreezable, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${unfreezableCount} unfreezable, ${goneCount} gone, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

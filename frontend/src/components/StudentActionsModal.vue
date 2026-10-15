@@ -138,8 +138,31 @@
              reopened", the same way lib/effective-deadline.mjs owns the
              extension rule above - a dialog that re-derived either would be the
              second implementation DESIGN.md §6 exists to prevent. -->
-        <p v-if="!unlock.can" class="text-secondary">{{ unlock.reason }}</p>
-        <template v-else>
+        <p v-if="!unlock.can && !relock" class="text-secondary">{{ unlock.reason }}</p>
+        <!-- REOPENED: the way back is here, beside the way in (lib/repo-relock.mjs,
+             P2-57). Every lockdown run skips a reopened repository, so nothing
+             else would ever lock it again. -->
+        <template v-if="relock">
+          <p class="text-secondary" data-reopened>
+            Reopened{{ relock.at ? ` on ${formatDate(relock.at)}` : '' }}{{ relock.by ? ` by @${relock.by}` : '' }}{{ relock.why ? `: "${relock.why}"` : '' }}.
+            <template v-if="relock.can">
+              Lock again puts the deadline's lock back{{ relock.demote ? ' and makes them read-only again' : '' }}. The snapshot that was
+              graded does not move; anything pushed since is after it.
+            </template>
+            <template v-else>{{ relock.reason }}</template>
+          </p>
+          <button
+            v-if="relock.can"
+            class="btn"
+            type="button"
+            data-relock
+            @click="emit('relock')"
+            :disabled="busy"
+          >
+            {{ relocking ? 'Locking…' : 'Lock again' }}
+          </button>
+        </template>
+        <template v-else-if="unlock.can">
           <p class="text-secondary">
             Lets this student push again. The deadline snapshot is already in the archive and does not
             move, so what you grade is unaffected.
@@ -192,6 +215,7 @@
             Now <strong>{{ grading.current.earned_points }}/{{ grading.current.total_points }}</strong><template v-if="grading.current.graded_sha">,
               on commit <code class="mono">{{ grading.current.graded_sha.slice(0, 7) }}</code></template>.
           </template>
+          <template v-else-if="grading && grading.noScore"><span data-no-score>{{ grading.noScore }}.</span></template>
           <template v-else>No score has been read for this student yet.</template>
           <template v-if="!decision"> Graded by the rules.</template>
         </p>
@@ -350,6 +374,13 @@ const props = defineProps({
    * is noise on every student in a live cohort.
    */
   unlock: { type: Object, default: null },
+  /**
+   * Whether a reopened repository can be locked again, from its reopen record
+   * (lib/repo-relock.mjs `relockability`): `{ can, demote, by, at, why, reason }`,
+   * or null when it was not reopened.
+   */
+  relock: { type: Object, default: null },
+  relocking: { type: Boolean, default: false },
   unlocking: { type: Boolean, default: false },
   /**
    * Whether this student's score can be read again, already decided:
@@ -371,14 +402,16 @@ const props = defineProps({
   savingHandIns: { type: Boolean, default: false },
   /**
    * What this student's grade is now and who decided it, already decided:
-   * `{ current, decision, defaultTotal }` - `current` the grading summary row
-   * (or null), `decision` from lib/grade-override.mjs (null = the rules).
+   * `{ current, noScore, decision, defaultTotal }` - `current` the grading
+   * summary row (or null), `noScore` the Grading tab's label for a row read
+   * with no score (or null), `decision` from lib/grade-override.mjs (null =
+   * the rules).
    */
   grading: { type: Object, default: null },
   deciding: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide', 'send-page-deadline'])
+const emit = defineEmits(['close', 'grant', 'retry', 'unlock', 'relock', 'regrade', 'grant-hand-ins', 'revoke-hand-ins', 'choose-commit', 'decide', 'send-page-deadline'])
 
 const decision = computed(() => props.grading?.decision || null)
 // A chosen commit whose score has not been read on it yet.
@@ -440,7 +473,7 @@ const ownLogin = computed(() => String(props.student.github_login || '').toLower
 // function reference there is an object - always truthy, so every control would
 // render permanently disabled.
 const busy = computed(
-  () => props.extending || props.retrying || props.unlocking || props.regrading || props.savingHandIns || props.deciding,
+  () => props.extending || props.retrying || props.unlocking || props.relocking || props.regrading || props.savingHandIns || props.deciding,
 )
 
 function requestClose() {

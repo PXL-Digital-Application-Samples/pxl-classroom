@@ -324,7 +324,7 @@ Two things to know before turning it on:
 - **There is no control on the assignment form.** The field is set on the assignment document, or by the migration below. That is deliberate while item 3 in `OPEN-ITEMS.md` is open: the path has never held a real cohort through a deadline and a reopen.
 - **An existing cohort can be moved** with the **Migrate to organization-scoped lock** workflow (`workflow_dispatch`; `dry_run` defaults to true - run it that way and read what it says first). It creates and verifies the organization ruleset *before* disabling any repository one, then records in the control repo that the organization ruleset is now the lock. Both halves matter: an unrecorded migration leaves Reopen flipping a repository ruleset that no longer holds anything, and the next finalize re-locking per repository.
 
-Measured against a live Team organization before any of this was built: an organization ruleset blocks pushes to the repositories it targets and leaves the rest of the org alone, `PUT` **replaces** the targeted id list rather than merging into it, and a create carrying a deleted repository's id is refused `422` while an update carrying one is accepted.
+Measured against a live Team organization before any of this was built: an organization ruleset blocks pushes to the repositories it targets and leaves the rest of the org alone, `PUT` **replaces** the targeted id list rather than merging into it, and any write that leaves a deleted repository's id in the list is refused `422`. A student deleting their repository therefore stops nothing: the lock, **Reopen** and **Lock again** leave that id out and try once more.
 
 ## 3.5 Before an exam deadline: nobody in the cohort may be an organization owner
 
@@ -933,12 +933,12 @@ There are none. A tag a student pushes is an ordinary git tag: nothing collects 
 
 ### 6.10 Feedback PRs
 
-Enable `feedback_pr: true` on the assignment (the assignment form's **Grading** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo.
+Enable `feedback_pr: true` on the assignment (the assignment form's **Grading** section has a checkbox; manual YAML also works). Provisioning then creates and protects a `pxl-baseline` branch on each new student repo, at what the student was given. A **Retry** for a student whose repository has no baseline makes one: at GitHub's first commit when they have pushed already, so their work is in the pull request; where that cannot be told apart from their work (a grading workflow was added on top of the copy), the run says there is no baseline rather than guessing.
 
-Open the actual draft PRs lazily - at provisioning time, `main` and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
+Open the actual draft PRs lazily - at provisioning time, the submission branch and `pxl-baseline` point at the same SHA and GitHub refuses with 422 "No commits between …".
 
 **Option A: Web UI (1-Click):**
-Navigate to the assignment's `AssignmentDetailView` in the SPA. Click the **Open Feedback PRs** button in the action bar. The web app takes every student the report shows as started (On time or Late) and opens draft pull requests (the submission branch, usually `main`, -> `pxl-baseline`), committing record updates to the control repo and displaying PR links immediately. A student with nothing past the baseline yet is counted as not started, not as a failure.
+Open the assignment, then the **Grading** tab: **More → Open feedback PRs**. The web app takes every student the report shows as started (On time or Late) and opens draft pull requests (the submission branch, usually `main`, -> `pxl-baseline`), committing record updates to the control repo and displaying PR links immediately. A student with nothing past the baseline yet is counted as not started, not as a failure.
 
 **Option B: CLI Companion:**
 
@@ -950,7 +950,7 @@ pxl-classroom feedback open --assignment linux-processes-2026 --dry-run        #
 pxl-classroom feedback list --assignment linux-processes-2026                  # PR URLs + open review-comment counts
 ```
 
-The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The assignment page (`AssignmentDetailView`) shows a **Feedback PR** column when the assignment opts in; "- pending" means provisioning created the baseline but no PR exists yet (student hasn't pushed, or you haven't opened PRs).
+The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The assignment page shows a **Feedback PR** column when the assignment opts in: **Not opened** is a student who handed in and has no pull request yet, a dash is a student with nothing past the starting point to review.
 
 `feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 
@@ -1235,11 +1235,13 @@ It appears only once the deadline has actually frozen something, and only for a 
 
 | How it was frozen | What reopening does |
 |---|---|
-| Ruleset (the normal case) | Switches the ruleset off. It is not deleted, so the deadline can be re-applied later without rebuilding it. |
+| Ruleset (the normal case) | The organization ruleset stops covering this repository and keeps everyone else locked. Where the assignment uses a repository ruleset, that is switched off. Neither is deleted, so **Lock again** can put the lock back. |
 | Ruleset, and the repository became read-only as well | Both: switches the ruleset off, then puts the student back to the assignment's **Student permission**. If the second half fails the dialog says the student is still read-only, and trying again finishes it. |
 | Reduced access (the fallback, per repository) | Puts the student back to the assignment's **Student permission**. |
 
-**A reopened repository stays open.** A finalize run is not once - the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`). To close it again, re-run the freeze.
+**A reopened repository stays open.** A finalize run is not once - the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`). **Lock everyone out now** skips it too.
+
+**To close it again, use Lock again.** Once a repository is reopened, the student's **Actions** say when, by whom and why, and offer **Lock again** where Reopen was. It puts back the lock the deadline put on that repository - into the organization ruleset, the repository ruleset switched back on, read-only again where that was the lock - for every member of a team, and removes the reopen record, so later runs treat the repository like everyone else's. It never creates a ruleset that is not there: if the deadline's ruleset was deleted on GitHub, it says so.
 
 **The record keeps a row for them**, carrying `reopened_at` and the snapshot that was frozen, with `lock_method: null` because nothing is holding the repository now. They used to be dropped from it entirely - counted in `reopened_count` and then written about nowhere - so the document a grade dispute is read from lost the fact that they had ever been locked. The report says `lock_down_outcome: reopened` and exports `reopened_at` beside `lock_down_at`, which is the pair that answers *could this student have pushed after the deadline, and from when*.
 

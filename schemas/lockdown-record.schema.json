@@ -106,6 +106,11 @@
       "minimum": 0,
       "description": "Accounts that own the organization and keep admin whatever the run does. Not an error: nothing can freeze them under a demotion, and a ruleset stops them anyway."
     },
+    "gone_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Repositories deleted before the lock, as the stop confirmed it (a 404 by id where the installation sees every repository). Not an error: there is nothing to lock or preserve. They produce no result row - the count is the record."
+    },
     "max_uncertainty_seconds": {
       "type": [
         "number",

@@ -156,6 +156,26 @@ test.describe('87 - grading decisions', () => {
     await expect(dialog(page).getByRole('button', { name: 'Re-grade this student' })).toHaveCount(0);
   });
 
+  test('read with no score, the dialog says which answer it was, as the Grading tab does', async ({ page }) => {
+    // It said "No score has been read for this student yet" over every one of
+    // them, a student read as not handed in included (seen live 2026-10-15).
+    const noScore = (kind, reason) => ({ ...summary, students: [], failed: [{ login: LOGIN, reason, kind }] });
+    await setup(page, { startSummary: noScore('not-handed-in', 'nothing handed in') });
+    await openActions(page);
+    await expect(grading(page).locator('[data-no-score]')).toHaveText('Not handed in.');
+    await expect(grading(page)).not.toContainText('No score has been read');
+    await expect(grading(page)).toContainText('Graded by the rules.');
+    await page.keyboard.press('Escape');
+    await setup(page, { startSummary: noScore('late', 'handed in after the deadline') });
+    await openActions(page);
+    await expect(grading(page).locator('[data-no-score]')).toHaveText('Handed in after the deadline.');
+    await page.keyboard.press('Escape');
+    // In no summary at all: nobody has read them, which is what it says.
+    await setup(page, { startSummary: { ...summary, students: [], failed: [] } });
+    await openActions(page);
+    await expect(grading(page)).toContainText('No score has been read for this student yet.');
+  });
+
   test('RE-GRADE A COMMIT: the over-limit hand-in is listed with its result, chosen with a reason, and stored', async ({ page }) => {
     const { contentWrites } = await setup(page);
     await openActions(page);

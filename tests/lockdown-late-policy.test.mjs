@@ -469,6 +469,44 @@ test("P2-26: on the repository-ruleset and demotion paths a deleted repository i
   }
 });
 
+test("TV-7: the finalize's record counts a repository deleted before the lock as gone, not an error - on every path, and only where the App sees every repository", async () => {
+  // Live 2026-10-15 (drill-20261015-0150, --repo-lock --delete-one): the stop
+  // called it gone and the record still said `error_count: 1`, so a finalize
+  // that locked everybody else was `partial`.
+  const setups = [
+    ["organization ruleset", { latePolicy: "block", lockDownEnabled: false }, {}],
+    ["repository ruleset, then read-only", { latePolicy: "block", lockDownEnabled: true, orgScopedLock: false }, {}],
+    ["rulesets refused, so a demotion", { latePolicy: "block", lockDownEnabled: false, orgScopedLock: false }, { denyRulesets: true }],
+  ];
+  for (const [label, control, stub] of setups) {
+    for (const selection of ["all", "selected"]) {
+      await withStubApi(
+        async (api) => {
+          const dir = makeControlDir({ ...control, logins: ["alice"] });
+          writeFileSync(
+            join(dir, "repositories", "exam", "bob.json"),
+            JSON.stringify({ github_login: "bob", repo_name: "TestOrg/exam-bob", repo_id: 77 }),
+          );
+          const res = await runLockdown(dir, api);
+          assert.equal(res.status, 0, `${label}: ${res.stdout}${res.stderr}`);
+          assert.ok(!res.record.results.some((r) => r.github_login === "bob"), `${label}: no row for a repository that is gone`);
+          assert.equal(res.record.locked_count, 1, `${label}: alice is locked`);
+          if (selection === "all") {
+            assert.deepEqual([res.record.error_count, res.record.gone_count], [0, 1], label);
+            assert.match(res.outputs, /outcome=locked/, label);
+            assert.match(res.stdout, /1 gone, 0 err/, label);
+          } else {
+            // A 404 the App may simply not be given is still an error.
+            assert.deepEqual([res.record.error_count, res.record.gone_count], [1, 0], `${label}, selected`);
+            assert.match(res.outputs, /outcome=partial/, `${label}, selected`);
+          }
+        },
+        { goneIds: [77], goneNames: ["exam-bob"], installationSelection: selection, ...stub },
+      );
+    }
+  }
+});
+
 test("TL-2: the organization ruleset failing on its retry without a deleted repository still stops everyone else, and the deleted one is not a missed stop", async () => {
   // The create carrying the deleted id is refused 422, the retry without it
   // fails too: lockdown falls back to repository rulesets for the cohort, and

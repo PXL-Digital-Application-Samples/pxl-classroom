@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { personPushed, repoTouched } from "../lib/untouched-repo.mjs";
+import { logReachesCreation, personPushed, repoTouched } from "../lib/untouched-repo.mjs";
 
 // The generated first commit, as measured on PXL-Systems-Expert's team
 // repositories on 2026-10-08: no parent, the App's bot, committed by GitHub,
@@ -36,12 +36,21 @@ const student = {
 // address, which anyone can type - and cannot sign it.
 const spoofed = { ...student, author: { login: "pxl-classroom-provisioner[bot]" } };
 
-function fake({ branches = [{ name: "main" }], commits = [generated], branchesStatus = 200, commitsStatus = 200 } = {}) {
+const CREATED = "2026-10-15T02:29:45Z";
+const BOT = "pxl-classroom-provisioner[bot]";
+/** The App filling the repository, four seconds after creation, as measured live. */
+const filled = (minutes = 0) => ({ actor: { login: BOT }, activity_type: "branch_creation", timestamp: new Date(Date.parse(CREATED) + 4_000 + minutes * 60_000).toISOString() });
+const pushBy = (login, minutes) => ({ actor: { login }, activity_type: "push", timestamp: new Date(Date.parse(CREATED) + minutes * 60_000).toISOString() });
+
+// `activity`: the push log's entries, or null for a log that could not be read.
+function fake({ branches = [{ name: "main" }], commits = [generated], branchesStatus = 200, commitsStatus = 200, activity = null } = {}) {
   const asked = [];
   const get = async (path) => {
     asked.push(path);
     if (path.includes("/branches")) return { status: branchesStatus, ok: branchesStatus < 300, data: branchesStatus < 300 ? branches : { message: "x" } };
     if (path.includes("/commits")) return { status: commitsStatus, ok: commitsStatus < 300, data: commitsStatus < 300 ? commits : { message: "x" } };
+    if (path.includes("/activity") && activity) return { status: 200, ok: true, data: activity };
+    if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) return { status: 200, ok: true, data: { created_at: CREATED } };
     return { status: 400, ok: false, data: null };
   };
   return { get, asked };
@@ -50,7 +59,46 @@ function fake({ branches = [{ name: "main" }], commits = [generated], branchesSt
 test("only the commit GitHub generated: untouched", async () => {
   const { get, asked } = fake();
   assert.equal(await repoTouched(get, "o/team-a"), "untouched");
-  assert.deepEqual(asked, ["/repos/o/team-a/branches?per_page=2", "/repos/o/team-a/commits?per_page=21"]);
+  assert.deepEqual(asked, ["/repos/o/team-a/branches?per_page=2", "/repos/o/team-a/activity?per_page=100", "/repos/o/team-a/commits?per_page=21"]);
+});
+
+// A copy of the template's whole history (template_full_history): prepared
+// branches, and the template's commits by the lecturer, from the first second.
+const lecturerCommit = { ...student, sha: "1ec1ec1", author: { login: "tomcoolpxl" }, committer: { login: "tomcoolpxl" } };
+const fullHistory = { branches: [{ name: "main" }, { name: "feature-x" }], commits: [lecturerCommit, { ...lecturerCommit, parents: [] }] };
+
+test("TV-5: a full-history copy nobody but PXL Classroom pushed to is untouched, by its push log - it was kept for ever", async () => {
+  // Measured live 2026-10-15: such a copy's log is the App's branch
+  // creations alone, from four seconds after creation; a student's push is
+  // in it under their login.
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: [filled(), filled(), filled()] }).get, "o/t"), "untouched");
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: [pushBy("ann", 60), filled()] }).get, "o/t"), "touched", "a person in the log is their work");
+  // A log that says nothing is not "nobody": the commits decide, and keep it.
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: null }).get, "o/t"), "touched");
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: [] }).get, "o/t"), "touched", "an empty log is not nobody");
+  // And on GitHub's copy the log wins over commits that look generated.
+  assert.equal(await repoTouched(fake({ activity: [pushBy("ann", 1), filled()] }).get, "o/t"), "touched");
+});
+
+test("the App alone is nobody only when the log reaches back to the creation - a push can have fallen off its start", async () => {
+  // GitHub does not say how long it keeps the log. Months in, a student's
+  // push may be gone from it while a later App push (a starter sync) is not.
+  const laterSync = { ...filled(60 * 24 * 90), activity_type: "push" };
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: [laterSync] }).get, "o/t"), "touched", "kept: the commits still see work");
+  // A GitHub copy in that state: the student's commit is under the sync.
+  assert.equal(await repoTouched(fake({ commits: [botAdded, student, generated], activity: [laterSync] }).get, "o/t"), "touched");
+  // The oldest entry a branch the App made, but long after creation: not the filling.
+  assert.equal(await repoTouched(fake({ ...fullHistory, activity: [filled(60)] }).get, "o/t"), "touched");
+});
+
+test("logReachesCreation: the App's branch creation within minutes of created_at, and nothing else", () => {
+  assert.equal(logReachesCreation([filled(), filled(2)], CREATED), true);
+  assert.equal(logReachesCreation([filled(14)], CREATED), true, "a full-history push can take minutes");
+  assert.equal(logReachesCreation([filled(16)], CREATED), false);
+  assert.equal(logReachesCreation([pushBy(BOT, 0.1)], CREATED), false, "a push is not the filling");
+  assert.equal(logReachesCreation([{ ...filled(), actor: { login: "ann" } }], CREATED), false);
+  assert.equal(logReachesCreation([], CREATED), false);
+  assert.equal(logReachesCreation([filled()], undefined), false);
 });
 
 test("PXL Classroom's own verified commits on top (the grading workflow, a sync): still untouched", async () => {

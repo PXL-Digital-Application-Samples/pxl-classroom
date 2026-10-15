@@ -1947,6 +1947,21 @@ The update path recovers the same way now. The fixture distinguishes *deleted*
 from *never existed*, because a fake that is kinder than the API is how the
 first version passed.
 
+**And then a third writer, a month later.** Reopen removes one id from the same
+list, and `removeRepoFromOrgLock` had no recovery at all: the fix above went to
+the two branches of the one function it was found in, while ARCHITECTURE,
+RUNBOOK and OPEN-ITEMS went on stating the artefact as measured. A live UI test
+of Lock again (2026-10-15) found it: one student had deleted their repository,
+and every reopen on that assignment answered `422 ... repository selected does
+not exist`. The first fix then met one more refusal: with every other
+repository gone the ruleset is disabled, and a PUT sending
+`enforcement` alone is refused too, because GitHub validates the list it already
+stores. All four writers go through `withoutGoneRepos` now, the disable sends a
+list once anything was dropped, and the reopen test's fake checks the stored
+list the way GitHub does - it passed the first fix and failed the second, as
+the live run did. A correction recorded only in LESSONS is not a correction:
+the documents a writer reads still said otherwise.
+
 ### An organization owner in the cohort fails differently under each lock
 
 `unfreezableAcceptorsFinding` explained one mechanism: owners hold admin
@@ -2886,3 +2901,15 @@ The same first look found a finished, locked, archived assignment labelled "Acce
 Delivering the extension was the user's decision, because it is a decision about who sees it: the cohort's published data would show every classmate who was given more time. It is a variable on the student's own repository, the date only. Whether a student can read one was measured, not assumed (`tests/live/variable-probe.mjs`): with push access yes, at triage or read a 404 for one that exists - so a locked, demoted student cannot, and a 404 means "none" only where the repository says the reader can push. The fixture had to learn both halves too: it answered a repository with no `permissions` field, which GitHub always sends a collaborator, and answered the variable's URL with the repository object.
 
 A fixture answers what GitHub answers *this reader*; a screen is proven on the real API, as the real accounts.
+
+### A feedback baseline read the branch off a response written before the branch existed.
+
+Every surface that opens a feedback pull request had been fixed to read the submission branch rather than spell `main` (review S1), and a live drill on a `master` template still gave no student a baseline: provisioning took the default branch from the generate response, `repo.default_branch || "main"`, and GitHub writes that response while the copy is still empty, naming the organization's default. The run said `read main HTTP 404` and went on green, because the baseline is optional scaffolding. Everything else in provisioning already read the template's branch; this one read the only value in the run that described a repository that did not exist yet. It reads the repository again after the copy now (`currentDefaultBranch`), and an unread branch makes no baseline rather than a guessed `main`, which is the rule the form already followed.
+
+The same drill found the second half by accident. Its Retry ran after the student had pushed, met no baseline, and made one at the head - with the student's work inside it, so the pull request that exists to review that work would have shown nothing. A Retry is the documented repair for exactly this failure, so the repair was the defect. Where the baseline goes is what the student was given (`baselineStart`): the head when nobody but the App has pushed, GitHub's generated first commit when nothing was added on top of it, and otherwise nothing, said in the run. `baseline_sha` had also been the head over a baseline that already existed elsewhere; it is where the baseline is now.
+
+No provisioning test had a template whose default branch was not `main`, so the stub's generate response and the template always agreed. The new one answers it the way GitHub does - `main`, whatever the template says - and fails four of five cases against the old code.
+
+### An empty team's repository was judged by its commits, which cannot speak for a copy of the template's history.
+
+A switch that leaves a team empty removes its repository when nobody pushed to it, and `repoTouched` decided that from the commits: GitHub's generated one, then verified bot commits, and a second branch was work. A full-history copy has prepared branches and the template's commits by the lecturer from its first second, so every one read as touched and was kept for ever - found while drilling teams on such a copy (TV-5). The push log answers the question directly, since its actor is who pushed and every push PXL Classroom makes is its App's; the student pages already read it that way. But the first version trusted a log of the App alone outright, and GitHub does not say how long it keeps the log: a student's push months old could have fallen off its start under a later starter sync, and the repository holding their work would have been deleted on the log's word where the commits still saw it. The log counts as nobody only when its oldest entry is the App creating the branch it filled, minutes after `created_at` (`logReachesCreation`, measured on both kinds of copy); anything less falls back to the commits. A new reason to delete has to be at least as strong as the old one everywhere the old one applied, not only where it was failing.

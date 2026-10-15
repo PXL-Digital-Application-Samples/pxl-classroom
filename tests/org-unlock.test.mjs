@@ -25,10 +25,23 @@ const REPO = "lab-1-ada";
 const ASSIGNMENT = "lab-1";
 const REPO_ID = 111;
 
-function transport({ orgRulesets = [], repoRulesets = [] } = {}) {
+function transport({ orgRulesets = [], repoRulesets = [], deleted = [] } = {}) {
   const calls = [];
   const request = async (method, path, body) => {
     calls.push({ method, path, body });
+    // A repository deleted after the lock: GitHub refuses a write that leaves
+    // it in the list, without saying which - and a write sending enforcement
+    // alone is checked against the list it already stores (measured, live
+    // 2026-10-15).
+    if (method === "GET" && path.startsWith("/repositories/")) {
+      const id = Number(path.split("/").pop());
+      return deleted.includes(id) ? { ok: false, status: 404, data: {} } : { ok: true, status: 200, data: { id, owner: { login: ORG } } };
+    }
+    const stored = orgRulesets.find((r) => method === "PUT" && path === `/orgs/${ORG}/rulesets/${r.id}`);
+    const named = body?.conditions?.repository_id?.repository_ids ?? stored?.conditions?.repository_id?.repository_ids ?? [];
+    if (stored && named.some((id) => deleted.includes(id))) {
+      return { ok: false, status: 422, data: { message: "Validation Failed", errors: ["Invalid parameter repository_ids: repository selected does not exist or is not in this organization"] } };
+    }
     if (method === "GET" && splitQuery(path).pathname === `/orgs/${ORG}/rulesets`) {
       return { ok: true, status: 200, data: pageOf(path, orgRulesets.map((r) => ({ id: r.id, name: r.name }))) };
     }
@@ -101,6 +114,43 @@ test("it removes ONE id and leaves the rest of the cohort locked", async () => {
   assert.equal(res.ok, true, res.reason);
   assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [222, 333]);
   assert.equal(t.orgRulesets[0].enforcement, "active", "everybody else stays locked");
+});
+
+test("another student's DELETED repository in the list does not stop a reopen: it is left out, and named", async () => {
+  // Found live 2026-10-15: one deleted repository made every reopen on the
+  // assignment fail 422 while the lockdown, which had this recovery, passed.
+  const t = transport({ orgRulesets: [orgLock([111, 222, 333])], deleted: [222] });
+  const res = await removeRepoFromOrgLock(t.request, { org: ORG, assignmentId: ASSIGNMENT, repositoryId: REPO_ID });
+  assert.deepEqual(res, { ok: true, action: "removed", dropped: [222], reason: null });
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [333]);
+  assert.equal(t.orgRulesets[0].enforcement, "active", "the living rest stay locked");
+  // Through the reopen itself, too.
+  const again = transport({ orgRulesets: [orgLock([111, 222, 333])], deleted: [222] });
+  assert.equal((await unlock(again)).ok, true);
+});
+
+test("everyone else's repository deleted: the ruleset is disabled, as removing the last one does", async () => {
+  const t = transport({ orgRulesets: [orgLock([111, 222])], deleted: [222] });
+  const res = await removeRepoFromOrgLock(t.request, { org: ORG, assignmentId: ASSIGNMENT, repositoryId: REPO_ID });
+  assert.deepEqual(res, { ok: true, action: "disabled", dropped: [222], reason: null });
+  assert.equal(t.orgRulesets[0].enforcement, "disabled");
+  assert.deepEqual(t.orgRulesets[0].conditions.repository_id.repository_ids, [REPO_ID],
+    "the deleted one is out of the list, or every later write is refused for it");
+  assert.ok(!t.calls.some((c) => c.method === "DELETE"));
+});
+
+test("a 422 with every repository alive is reported, not retried with the same list", async () => {
+  const t = transport({ orgRulesets: [orgLock([111, 222])] });
+  let puts = 0;
+  const refuse = async (m, p, b) => (m === "PUT" && p.startsWith(`/orgs/${ORG}/rulesets/`))
+    ? (puts++, { ok: false, status: 422, data: { message: "Validation Failed" } }) : t.request(m, p, b);
+  const res = await removeRepoFromOrgLock(refuse, { org: ORG, assignmentId: ASSIGNMENT, repositoryId: REPO_ID });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /HTTP 422 Validation Failed/);
+  assert.equal(puts, 1, "one PUT, no identical retry");
+  // ...and an unreadable repository is not taken for a deleted one.
+  const blind = async (m, p, b) => p.startsWith("/repositories/") ? { ok: false, status: 500, data: {} } : refuse(m, p, b);
+  assert.match((await removeRepoFromOrgLock(blind, { org: ORG, assignmentId: ASSIGNMENT, repositoryId: REPO_ID })).reason, /HTTP 500 \(after update org ruleset HTTP 422/);
 });
 
 test("it never deletes the organization ruleset", async () => {

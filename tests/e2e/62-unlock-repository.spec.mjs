@@ -101,9 +101,12 @@ async function openTracking(page, {
   collaboratorStatus = 204,
   writeStatus = null,
   doc = assignment(),
+  // Its reopen record, lockdowns/<id>/unlocked/<login>.json, when it was reopened.
+  unlocked = null,
 } = {}) {
   const contentWrites = [];
   const apiCalls = [];
+  const gitCommits = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     currentUser: LECTURER,
@@ -111,7 +114,11 @@ async function openTracking(page, {
     roster: [{ student_number: '0123456', full_name: 'Alice Example', email: 'a@x.be', github_login: STUDENT }],
     reports: { [ID]: report },
     contentWrites,
+    gitCommits,
+    controlUnlocked: unlocked ? { [ID]: { [STUDENT]: unlocked } } : {},
   });
+  // The App, for a repository ruleset's bypass list (lib/submission-lock.mjs resolveAppId).
+  await page.route('**/api.github.com/apps/*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 4242 }) }));
 
   await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
     route.fulfill(record ? asContent(record) : NOT_FOUND));
@@ -155,7 +162,7 @@ async function openTracking(page, {
   await page.goto(`/dashboard/${ORG}/${ID}`);
   await expect(page.getByRole('button', { name: `Actions for ${STUDENT}` }).first())
     .toBeVisible({ timeout: 15000 });
-  return { contentWrites, apiCalls };
+  return { contentWrites, apiCalls, gitCommits };
 }
 
 const modal = (page) => page.locator('.modal-overlay .modal');
@@ -497,5 +504,56 @@ test.describe('DESIGN.md conformity', () => {
     await openTracking(page, { report: reportWith({ preservation_status: 'pending', preserved_sha: null }) });
     await openActions(page);
     await expect(unlockSection(page)).not.toContainText(/RUNBOOK|ARCHITECTURE|LESSONS|DESIGN\.md/);
+  });
+});
+
+// LOCK AGAIN (review 2026-10-15, P2-57). Every lockdown run skips a repository
+// with a reopen record, the manual "Lock everyone out" included, so nothing
+// could ever lock it again (lib/repo-relock.mjs).
+test.describe('Lock again', () => {
+  const reopened = {
+    schema_version: 1, assignment_id: ID, github_login: STUDENT, repo_name: `${ORG}/${REPO}`,
+    unlocked_at: '2026-09-22T10:00:00Z', unlocked_by: 'lecturer', reason: 'Appeal upheld',
+    lock_method: 'ruleset', snapshot_sha: SHA,
+  };
+  const off = [{ id: RULESET_ID, name: 'pxl-classroom-deadline', enforcement: 'disabled', source_type: 'Repository' }];
+
+  test('a reopened repository says when, by whom and why, offers Lock again, and never Reopen a second time', async ({ page }) => {
+    // The lockdown row still reads locked: no pass has rewritten it since. The
+    // reopen record is what knows (it offered Reopen on an open repository).
+    await openTracking(page, { unlocked: reopened, rulesets: off });
+    await openActions(page);
+    const section = unlockSection(page);
+    await expect(section.locator('[data-reopened]')).toContainText('by @lecturer: "Appeal upheld"');
+    await expect(section.locator('[data-reopened]')).toContainText("Lock again puts the deadline's lock back.");
+    await expect(section.getByRole('button', { name: 'Lock again' })).toBeVisible();
+    await expect(section.getByRole('button', { name: /Reopen repository/ })).toHaveCount(0);
+  });
+
+  test("Lock again switches the ruleset back on, and one commit removes the reopen record and gives a 'reopened' row its lock back", async ({ page }) => {
+    // A later pass wrote the row reopened: no method, a reopened_at.
+    const record = lockdownRecord({ lock_method: null, reopened_at: '2026-09-22T10:00:00Z', verified: false });
+    const { apiCalls, gitCommits } = await openTracking(page, { unlocked: reopened, rulesets: off, putEnforcement: 'active', record });
+    await openActions(page);
+    await unlockSection(page).getByRole('button', { name: 'Lock again' }).click();
+    await expect(page.locator('.toast', { hasText: `${ORG}/${REPO} is locked again.` })).toBeVisible({ timeout: 15000 });
+
+    const put = apiCalls.find((c) => c.method === 'PUT' && c.url.includes(`/rulesets/${RULESET_ID}`));
+    expect(put?.body, 'only enforcement, back on').toEqual({ enforcement: 'active' });
+    expect(apiCalls.some((c) => c.method === 'DELETE'), 'nothing is deleted').toBe(false);
+    expect(gitCommits).toHaveLength(1);
+    const files = Object.fromEntries(gitCommits[0].files.map((f) => [f.path, f.content]));
+    expect(files[`lockdowns/${ID}/unlocked/${STUDENT}.json`], 'the reopen record goes').toBeNull();
+    const row = JSON.parse(files[`lockdowns/${ID}/lockdown-record.json`]).results[0];
+    expect(row).toMatchObject({ lock_method: 'ruleset', verified: true, snapshot_sha: SHA });
+    expect('reopened_at' in row).toBe(false);
+  });
+
+  test('a ruleset that will not switch back on says so, and changes no record', async ({ page }) => {
+    const { gitCommits } = await openTracking(page, { unlocked: reopened, rulesets: off, putStatus: 403 });
+    await openActions(page);
+    await unlockSection(page).getByRole('button', { name: 'Lock again' }).click();
+    await expect(page.locator('.toast', { hasText: `Could not lock ${ORG}/${REPO} again` })).toBeVisible({ timeout: 15000 });
+    expect(gitCommits).toEqual([]);
   });
 });

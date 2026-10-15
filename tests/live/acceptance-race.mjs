@@ -18,6 +18,14 @@
 //         4. every hub run is findable by its run name, as the page finds it
 //         5. the nightly's unanswered-attempt check finds nothing to report
 //
+//   node tests/live/acceptance-race.mjs start --full-history
+//       the same on `history-template` (drill.mjs --full-history makes it),
+//       copied with its whole history (TV-5): the student who joins alpha
+//       second has to wait for the first one's copy to be filled, and both
+//       records carry the team's start - the joiner's from the team file;
+//       the copy is checked branch by branch after every team is made, and
+//       the team left behind by a switch is checked for what was kept.
+//
 //   node tests/live/drill.mjs cleanup <drill-race-id>
 //       delete it afterwards, like any drill.
 //
@@ -39,7 +47,10 @@ import {
 } from "./live-kit.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
-const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
+const FULL_HISTORY = process.argv.includes("--full-history");
+// drill.mjs's --full-history template: two commits on main, two prepared
+// branches, a tag.
+const TEMPLATE = FULL_HISTORY ? "history-template" : process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 // The same description drill.mjs writes, so `drill.mjs cleanup` deletes these.
 const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
@@ -131,6 +142,38 @@ async function settle(broker, attempts, since) {
 }
 
 const manifest = (id, slug) => readControlJson(`teams/${id}/${slug}.json`);
+
+/** Every branch and tag of a repository on the drill org: ref -> sha, or null when unread. */
+async function refsOf(repoName) {
+  const full = repoName?.includes("/") ? repoName : `${ORG}/${repoName}`;
+  const out = {};
+  for (const kind of ["heads", "tags"]) {
+    const res = await api(`/repos/${full}/git/matching-refs/${kind}/`, { token: LECTURER.token });
+    if (!res.ok) return null;
+    for (const x of res.data || []) out[x.ref] = x.object?.sha;
+  }
+  return out;
+}
+
+/**
+ * --full-history (TV-5): the team's repository is the template's whole
+ * history, and the team file and every member's record say what it was given -
+ * whoever's acceptance made the copy and whoever joined it.
+ */
+async function checkFullHistoryTeam(id, slug, records, teamFile, want) {
+  const got = teamFile?.repo_name ? await refsOf(teamFile.repo_name) : null;
+  if (!got || !want) { bad(`${slug}: the refs could not be read`); return; }
+  const diff = [...new Set([...Object.keys(want), ...Object.keys(got)])].filter((ref) => want[ref] !== got[ref]);
+  if (diff.length === 0) ok(`${slug}: every branch and tag of the template, same SHAs (${Object.keys(got).join(", ")})`);
+  else bad(`${slug}: refs differ from the template: ${diff.map((ref) => `${ref} ${want[ref]?.slice(0, 7) ?? "-"} vs ${got[ref]?.slice(0, 7) ?? "-"}`).join("; ")}`);
+  const start = want["refs/heads/main"];
+  if (teamFile.starter_sha === start && teamFile.full_history === true) ok(`${slug}'s team file carries the start ${start.slice(0, 7)} (${teamFile.starter_commit_count} commits)`);
+  else bad(`${slug}'s team file: starter_sha ${teamFile.starter_sha ?? "none"}, full_history ${teamFile.full_history}; the template's main is ${start?.slice(0, 7)}`);
+  for (const rec of records) {
+    if (rec?.starter_sha === start && rec?.starter_commit_count === teamFile.starter_commit_count && rec?.full_history === true) ok(`${rec.github_login}'s record: given ${start.slice(0, 7)}, a full-history copy`);
+    else bad(`${rec?.github_login ?? "a member"}'s record: starter_sha ${rec?.starter_sha ?? "none"}, count ${rec?.starter_commit_count}, full_history ${rec?.full_history}`);
+  }
+}
 const acceptanceOf = (id, s) => readControlJson(`acceptances/${id}/${normalizeLogin(s.login)}.json`);
 
 async function start() {
@@ -139,7 +182,9 @@ async function start() {
   await checkAccounts(ACCOUNTS, r);
   await checkOrg(ORG, LECTURER, r);
   const tpl = await api(`/repos/${ORG}/${TEMPLATE}`, { token: LECTURER.token });
-  if (!tpl.ok) bad(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}`);
+  if (!tpl.ok) bad(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}${FULL_HISTORY ? " - run `drill.mjs start --full-history` once to make it" : ""}`);
+  const tplRefs = FULL_HISTORY ? await refsOf(TEMPLATE) : null;
+  if (FULL_HISTORY && tplRefs) ok(`${TEMPLATE}: ${Object.keys(tplRefs).join(", ")}`);
   if (r.failures()) finish();
 
   const now = Date.now();
@@ -171,6 +216,7 @@ async function start() {
     assignment_type: "group",
     group_config: { max_team_size: 2, formation_mode: "self-service", allow_team_creation: true },
     state: "published",
+    ...(FULL_HISTORY ? { template_full_history: true } : {}),
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
   const { valid, errors } = validateAgainst("assignment", structuredClone(doc));
@@ -237,6 +283,7 @@ async function start() {
     if (acc?.issue_number === n && acc?.decided_by_run_id) ok(`${s.login}'s record names attempt #${n} and run ${acc.decided_by_run_id}`);
     else bad(`${s.login}'s record: issue_number ${acc?.issue_number}, decided_by_run_id ${acc?.decided_by_run_id}`);
   }
+  if (FULL_HISTORY) await checkFullHistoryTeam(id, "alpha", [recA, recB], alpha, tplRefs);
 
   console.log("\n3. One free seat, both students ask for it at the same instant\n");
   const seeded = await putControl(
@@ -263,6 +310,12 @@ async function start() {
   const loserAcc = await acceptanceOf(id, loser);
   if (loserAcc?.team_slug === "alpha") ok(`${loser.login} is still in alpha`);
   else bad(`${loser.login}'s record says ${loserAcc?.team_slug}`);
+  if (FULL_HISTORY && winner) {
+    // The winner switched OUT of alpha into beta: beta's copy is theirs now,
+    // made for them, and alpha is the loser's alone.
+    const recW = await readControlJson(`repositories/${id}/${normalizeLogin(winner.login)}.json`);
+    await checkFullHistoryTeam(id, "beta", [recW], beta, tplRefs);
+  }
 
   console.log(`\n4. ${loser.login} sends two attempts back to back - the newer must stand\n`);
   since = Date.now() - 10_000;
@@ -272,6 +325,33 @@ async function start() {
   const final = await acceptanceOf(id, loser);
   if (final?.team_slug === "alpha" && final?.issue_number === second) ok(`${loser.login} ends in alpha, decided by #${second}`);
   else bad(`${loser.login} ends in ${final?.team_slug} decided by #${final?.issue_number} - expected alpha by #${second}`);
+  if (FULL_HISTORY) {
+    // gamma, if the first attempt made it: a full-history copy nobody pushed
+    // to, its team left empty by the switch back. Reported as it is.
+    const gamma = await api(`/repos/${ORG}/${id}-gamma`, { token: LECTURER.token });
+    note(`gamma's repository after the switch back: ${gamma.ok ? "kept" : gamma.status === 404 ? "not there" : `HTTP ${gamma.status}`}`);
+    const recL = await readControlJson(`repositories/${id}/${normalizeLogin(loser.login)}.json`);
+    if (recL?.repo_name === alpha?.repo_name && recL?.full_history === true && recL?.starter_sha === tplRefs?.["refs/heads/main"]) ok(`${loser.login}'s record is alpha's again, with alpha's start`);
+    else bad(`${loser.login}'s record after the switch back: ${recL?.repo_name}, full_history ${recL?.full_history}, start ${recL?.starter_sha?.slice(0, 7)}`);
+
+    // A SWITCH OUT that leaves a full-history team empty. Nobody pushed to
+    // alpha's copy, so it goes with the team, by its push log
+    // (lib/untouched-repo.mjs): read by its commits it was always "touched".
+    const alphaNow = await manifest(id, "alpha");
+    if ((alphaNow?.members || []).length === 1) {
+      console.log(`\n4b. ${loser.login}, alone in alpha, switches to delta: alpha is left empty\n`);
+      since = Date.now() - 10_000;
+      const out = await attempt(secret, id, broker, loser, "delta", "switch");
+      await settle(broker, [{ issue: out, who: loser.login }], since);
+      const delta = await manifest(id, "delta");
+      const recD = await readControlJson(`repositories/${id}/${normalizeLogin(loser.login)}.json`);
+      if (delta && recD) await checkFullHistoryTeam(id, "delta", [recD], delta, tplRefs);
+      else bad(`delta: team file ${delta ? "there" : "missing"}, ${loser.login}'s record ${recD?.repo_name ?? "missing"}`);
+      const gone = await api(`/repos/${alpha.repo_name.includes("/") ? alpha.repo_name : `${ORG}/${alpha.repo_name}`}`, { token: LECTURER.token });
+      if (gone.status === 404) ok("alpha's copy is removed with its team: nobody but PXL Classroom had pushed to it");
+      else bad(`alpha's copy is still there (HTTP ${gone.status}) though nobody pushed to it`);
+    } else note(`alpha holds ${JSON.stringify(alphaNow?.members)}, so no switch can leave it empty here`);
+  }
 
   console.log("\n5. The nightly's unanswered-attempt check, an hour from now\n");
   const issues = await api(`/repos/${ORG}/${broker}/issues?state=all&per_page=100`, { token: LECTURER.token });
@@ -291,4 +371,4 @@ async function start() {
 
 const [command] = process.argv.slice(2);
 if (command === "start") await start();
-else die("usage: node tests/live/acceptance-race.mjs start");
+else die("usage: node tests/live/acceptance-race.mjs start [--full-history]");

@@ -662,6 +662,8 @@ export async function setupStandardMockRoutes(page, {
   // commits during the run is layered on top, so an append reads back what
   // was there.
   controlOverrides = {},
+  // Reopen records, `lockdowns/<id>/unlocked/<login>.json`: { [id]: { [login]: doc } }.
+  controlUnlocked = {},
   // What GET /apps/{slug} reports the App declares. Defaults to a healthy App;
   // drop a key to reproduce an App that predates a manifest permission.
   appPermissions = { ...MANIFEST_APP_PERMISSIONS },
@@ -735,6 +737,7 @@ export async function setupStandardMockRoutes(page, {
 
   // In-memory dynamic files committed during the test session
   const dynamicFiles = new Map();
+  const deletedFiles = new Set();
   const gitBlobs = new Map();
   let pendingTree = [];
   for (const [asgnId, list] of Object.entries(controlTeams)) {
@@ -1234,8 +1237,10 @@ export async function setupStandardMockRoutes(page, {
 
           pendingTree = tree;
           for (const f of pendingTree) {
-            if (f.content === null) dynamicFiles.delete(f.path);
-            else dynamicFiles.set(f.path, f.content);
+            // `deletedFiles`: a deletion of a file a spec STAGED (it was never in
+            // dynamicFiles) has to hide it too.
+            if (f.content === null) { dynamicFiles.delete(f.path); deletedFiles.add(f.path); }
+            else { dynamicFiles.set(f.path, f.content); deletedFiles.delete(f.path); }
           }
           await route.fulfill({ status: 201, body: JSON.stringify({ sha: 'new_tree_sha' }) });
           return;
@@ -1519,6 +1524,30 @@ export async function setupStandardMockRoutes(page, {
         // answered here - the rename (spec 108) read every new name as taken.
         await route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
         return;
+      } else if (/\/pxl-classroom-control\/contents\/lockdowns\/[^/?]+\/unlocked(\/[^/?]+\.json)?(\?|$)/.test(url)) {
+        // THE REOPEN RECORDS (lib/repo-relock.mjs): staged by a spec
+        // (`controlUnlocked`) or written by Reopen in this run. Without this
+        // branch the listing fell to the catch-all below and answered with the
+        // repository object, which reads as unreadable.
+        const [, asgnId, file] = url.match(/\/lockdowns\/([^/?]+)\/unlocked(?:\/([^/?]+)\.json)?/);
+        const docs = new Map(Object.entries(controlUnlocked?.[asgnId] ?? {}).map(([l, d]) => [l, JSON.stringify(d)]));
+        for (const [p, content] of dynamicFiles.entries()) {
+          const m = p.match(new RegExp(`^lockdowns/${asgnId}/unlocked/([^/]+)\\.json$`));
+          if (m) docs.set(m[1], content);
+        }
+        for (const p of deletedFiles) {
+          const m = p.match(new RegExp(`^lockdowns/${asgnId}/unlocked/([^/]+)\\.json$`));
+          if (m) docs.delete(m[1]);
+        }
+        if (file) {
+          const content = docs.get(file);
+          return content == null
+            ? route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) })
+            : route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(content).toString('base64'), encoding: 'base64', sha: contentSha(content) }) });
+        }
+        return docs.size
+          ? route.fulfill({ status: 200, body: JSON.stringify([...docs.keys()].map((l) => ({ name: `${l}.json`, path: `lockdowns/${asgnId}/unlocked/${l}.json`, type: 'file' }))) })
+          : route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
       } else if (url.includes('/pxl-classroom-control/contents/assignments')) {
         const match = url.match(/\/assignments\/([^/?#]+)\.ya?ml/);
         const asgnId = match ? match[1] : null;

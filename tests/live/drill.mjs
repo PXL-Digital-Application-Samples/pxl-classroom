@@ -5,7 +5,7 @@
 // real accounts in .env.test, so a change to the jobs that run an exam can be
 // proven the same day instead of at the next real deadline:
 //
-//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock] [--full-history | --grades]
+//   node tests/live/drill.mjs start [--minutes 45] [--deadline <ISO>] [--repo-lock] [--full-history | --grades | --feedback]
 //       create and publish drill-<utc stamp> (individual, late work blocked,
 //       lock on), accept it as both students with their invitation labels,
 //       push one commit each, have the lecturer refused, retry one student.
@@ -29,6 +29,10 @@
 //       in, then runs the CLI's `grade` whole and with --login, deletes the
 //       scored student's repository and grades again, which must keep their
 //       score on record.
+//       --feedback turns feedback pull requests on, on a template whose only
+//       branch is `master` (`feedback-template-master`, made once). Start
+//       checks provisioning made the baseline at what each student was given;
+//       after verify, tests/live/ui/feedback.live.mjs opens the pull requests.
 //       --deadline pins the instant instead of deriving it from --minutes, so a
 //       second drill started minutes later SHARES it. That is what an exam with
 //       several groups does, and the sentinel that is already waiting has to
@@ -111,7 +115,9 @@ const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HISTORY_TEMPLATE = "history-template";
 const HISTORY_BRANCHES = ["main", "feature-x", "bugfix"];
 const HISTORY_COMMITS = 2;
-const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
+// --feedback's template: one commit on `master`, made once (TV-3).
+const FEEDBACK_TEMPLATE = "feedback-template-master";
+const HUB =`${HUB_OWNER}/${HUB_REPO_NAME}`;
 const ON_TIME_MESSAGE = "drill: on-time submission";
 // --grades: checks defined in the assignment and run on GitHub Actions, in the
 // workflow provisioning writes into every student repository; the hand-in
@@ -272,6 +278,54 @@ async function ensureHistoryTemplate(name = HISTORY_TEMPLATE, branch = "main") {
   ok(`made ${ORG}/${name}: ${want.join(", ")} (default ${branch}) and tag v1`);
 }
 
+/**
+ * --feedback's template: one file on `master` and no `main`, so every surface
+ * that opens a feedback pull request has to read the submission branch rather
+ * than spell one (review S1). Made once, as the lecturer.
+ */
+async function ensureFeedbackTemplate() {
+  const T = LECTURER.token;
+  const at = `/repos/${ORG}/${FEEDBACK_TEMPLATE}`;
+  const have = await api(at, { token: T });
+  if (have.ok) {
+    const branches = ((await api(`${at}/branches`, { token: T })).data || []).map((b) => b.name);
+    if (have.data.is_template && have.data.default_branch === "master" && !branches.includes("main")) {
+      ok(`${ORG}/${FEEDBACK_TEMPLATE} is there: ${branches.join(", ")}, default master`);
+      return;
+    }
+    bad(`${ORG}/${FEEDBACK_TEMPLATE} exists but is not the drill's (template: ${have.data.is_template}, default ${have.data.default_branch}, branches: ${branches.join(", ")}) - delete it and start again`);
+    finish();
+  }
+  if (have.status !== 404) { bad(`${ORG}/${FEEDBACK_TEMPLATE}: HTTP ${have.status}`); finish(); }
+  const step = (res, what) => {
+    if (!res.ok) { bad(`making ${FEEDBACK_TEMPLATE}: ${what} HTTP ${res.status} ${res.data?.message ?? ""}`); finish(); }
+    return res.data;
+  };
+  step(await api(`/orgs/${ORG}/repos`, {
+    token: T, method: "POST",
+    body: { name: FEEDBACK_TEMPLATE, private: true, auto_init: false, description: "Drill template on master (tests/live/drill.mjs --feedback). Safe to delete." },
+  }), "create");
+  const first = step(await api(`${at}/contents/README.md`, {
+    token: T, method: "PUT", body: { message: "Start", content: Buffer.from("Feedback drill\n").toString("base64") },
+  }), "README");
+  const firstBranch = (await api(at, { token: T })).data?.default_branch;
+  step(await api(`${at}/git/refs`, { token: T, method: "POST", body: { ref: "refs/heads/master", sha: first.commit.sha } }), "master");
+  step(await api(at, { token: T, method: "PATCH", body: { is_template: true, default_branch: "master" } }), "mark as template");
+  if (firstBranch && firstBranch !== "master") step(await api(`${at}/git/refs/heads/${firstBranch}`, { token: T, method: "DELETE" }), `delete ${firstBranch}`);
+  ok(`made ${ORG}/${FEEDBACK_TEMPLATE}: master only`);
+}
+
+/** --feedback, before the student pushes: provisioning made the baseline at what they were given. */
+async function checkFeedbackBaseline(student, record, baseline) {
+  const repo = bareRepo(record.repo_name);
+  const [branch, head] = await Promise.all([
+    api(`/repos/${ORG}/${repo}/branches/${baseline}`, { token: LECTURER.token }),
+    api(`/repos/${ORG}/${repo}/branches/master`, { token: LECTURER.token }),
+  ]);
+  if (branch.ok && branch.data?.commit?.sha === head.data?.commit?.sha) ok(`${student.login}: ${baseline} is at master's ${branch.data.commit.sha.slice(0, 7)}, what they were given`);
+  else bad(`${student.login}: ${baseline} ${branch.ok ? `is at ${branch.data?.commit?.sha?.slice(0, 7)}, master at ${head.data?.commit?.sha?.slice(0, 7)}` : `HTTP ${branch.status}`}`);
+}
+
 /** Every branch and tag of a repository on the drill org: ref -> sha. */
 async function refsOf(repo) {
   const out = {};
@@ -386,7 +440,9 @@ async function start() {
 
   const fullHistory = flag("full-history");
   const grades = flag("grades");
+  const feedback = flag("feedback");
   if (grades && fullHistory) die("--grades and --full-history are separate drills");
+  if (feedback && (grades || fullHistory)) die("--feedback is a drill of its own");
   // --history-branch <name>: a full-history template whose default branch is
   // not `main`, which is what the submission ref, the copy and the report must
   // follow (TV-9).
@@ -395,7 +451,8 @@ async function start() {
   if (!/^[A-Za-z0-9._-]+$/.test(historyBranch)) die(`--history-branch "${historyBranch}" is not a branch name this drill makes`);
   const historyTemplate = historyBranch === "main" ? HISTORY_TEMPLATE : `${HISTORY_TEMPLATE}-${historyBranch}`;
   if (fullHistory) await ensureHistoryTemplate(historyTemplate, historyBranch);
-  const templateName = fullHistory ? historyTemplate : TEMPLATE;
+  if (feedback) await ensureFeedbackTemplate();
+  const templateName = fullHistory ? historyTemplate : feedback ? FEEDBACK_TEMPLATE : TEMPLATE;
   const tpl = await api(`/repos/${ORG}/${templateName}`, { token: LECTURER.token });
   if (!tpl.ok) bad(`template ${ORG}/${templateName}: HTTP ${tpl.status}`);
   else ok(`template ${ORG}/${templateName} #${tpl.data.id}, default branch ${tpl.data.default_branch}`);
@@ -442,6 +499,7 @@ async function start() {
     // `lock_down_enabled: true` demotes on top of the ruleset.
     ...(flag("repo-lock") ? { org_scoped_lock: false } : {}),
     ...(fullHistory ? { template_full_history: true } : {}),
+    ...(feedback ? { feedback_pr: true } : {}),
     // One check that passes for anyone who pushed the drill's file; the hand-in
     // message, not the check, is what separates the two students.
     ...(grades
@@ -514,6 +572,7 @@ async function start() {
     ok(`provisioned ${record.repo_url}`);
     if (fullHistory) await checkHistoryCopy(student, record, tpl.data);
     if (grades) await checkInjectedWorkflow(student, record);
+    if (feedback) await checkFeedbackBaseline(student, record, doc.feedback_pr_baseline_branch);
 
     // The label step runs with continue-on-error, so a token that cannot label
     // leaves the run green. The label is the only evidence it worked. It is put
@@ -551,11 +610,31 @@ async function start() {
   const retryAt = Date.now() - 5_000;
   const firstRecordPath = `repositories/${id}/${normalizeLogin(STUDENTS[0].login)}.json`;
   const beforeRetry = fullHistory || grades ? await readControlJson(firstRecordPath) : null;
+  // --feedback: the Retry meets a repository the student has pushed to and no
+  // baseline, as after a first run that failed to make one. The head holds
+  // their work now, so the baseline must go at GitHub's first commit (TV-3).
+  const retriedRepo = feedback ? bareRepo((await readControlJson(firstRecordPath))?.repo_name) : null;
+  if (feedback) {
+    const del = await api(`/repos/${ORG}/${retriedRepo}/git/refs/heads/${doc.feedback_pr_baseline_branch}`, { token: LECTURER.token, method: "DELETE" });
+    if (del.ok) ok(`removed ${STUDENTS[0].login}'s ${doc.feedback_pr_baseline_branch}, so the Retry has to make it over their push`);
+    else bad(`could not remove ${STUDENTS[0].login}'s ${doc.feedback_pr_baseline_branch}: HTTP ${del.status} ${del.data?.message ?? ""}`);
+  }
   if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: STUDENTS[0].login })) {
     const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
     const done = run ? await waitForRun(run) : null;
     if (done?.conclusion === "success") ok(`retry run succeeded: ${run.html_url}`);
     else bad(`retry run ${done?.conclusion ?? "did not appear or finish"}${run ? `: ${run.html_url}` : ""}`);
+    if (feedback) {
+      const at = `/repos/${ORG}/${retriedRepo}`;
+      const [base, commits] = await Promise.all([
+        api(`${at}/branches/${doc.feedback_pr_baseline_branch}`, { token: LECTURER.token }),
+        api(`${at}/commits?sha=master&per_page=100`, { token: LECTURER.token }),
+      ]);
+      const list = commits.data || [];
+      const first = list[list.length - 1];
+      if (base.ok && first && base.data.commit.sha === first.sha && list.length > 1) ok(`the Retry made ${doc.feedback_pr_baseline_branch} at GitHub's first commit ${first.sha.slice(0, 7)}, under the student's ${list.length - 1} commit(s)`);
+      else bad(`after the Retry ${doc.feedback_pr_baseline_branch} is ${base.ok ? `at ${base.data.commit.sha.slice(0, 7)}` : `HTTP ${base.status}`}; GitHub's first commit is ${first?.sha?.slice(0, 7)}, master has ${list.length} commit(s)`);
+    }
     // A retry provisions nothing (`reused`) and rewrites the record whole; what
     // the copy was given is known only to the run that copied it - for a
     // --grades drill, GitHub's copy plus the grading workflow (X1).
@@ -792,6 +871,9 @@ async function verify() {
   else {
     if (lockdown.error_count === 0) ok(`lockdown record: ${lockdown.locked_count} locked, 0 errors`);
     else bad(`lockdown record: ${lockdown.error_count} error(s)${goneLogins.size ? ` - ${goneLogins.size} of them a repository that is gone, which is not a lock that failed` : ""}`);
+    if ((lockdown.gone_count ?? 0) === goneLogins.size) {
+      if (goneLogins.size) ok(`lockdown record: ${lockdown.gone_count} deleted before the lock, counted as such`);
+    } else bad(`lockdown record: gone_count ${lockdown.gone_count ?? "absent"}, but ${goneLogins.size} repository/repositories are gone`);
     for (const [i, student] of STUDENTS.entries()) {
       const login = normalizeLogin(student.login);
       const row = (lockdown.results || []).find((x) => normalizeLogin(x.github_login) === login);
@@ -1288,4 +1370,4 @@ else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
 else if (command === "cleanup") await cleanup();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history [--history-branch <name>] | --grades] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history [--history-branch <name>] | --grades | --feedback] [--delete-one] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");

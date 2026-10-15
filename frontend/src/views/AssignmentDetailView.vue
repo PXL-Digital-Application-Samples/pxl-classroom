@@ -1396,6 +1396,9 @@
         :retrying="actionRetrying"
         :unlock="actionUnlock"
         :unlocking="actionUnlocking"
+        :relock="actionRelock"
+        :relocking="actionRelocking"
+        @relock="relockRepositoryFor(actionStudent)"
         :regrade="actionRegrade"
         :regrading="actionRegrading"
         @close="closeActions"
@@ -1497,7 +1500,7 @@ import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,
   repositoriesDir, repositoryPath, overridesDir, overridePath,
-  lockdownRecordPath, unlockRecordPath, observationPath,
+  lockdownRecordPath, unlockRecordPath, unlockedDir, observationPath,
 } from '../../../lib/control-layout.mjs'
 import { snapshotObservation, isBotAuthorName, commitDateOf } from '../../../lib/observation.mjs'
 import { addedCommits, noSubmissionRow, unstartedRepo } from '../../../lib/starter-commit.mjs'
@@ -1506,7 +1509,8 @@ import { syncRefusal } from '../lib/starter-sync.js'
 import { lockdownRowFor, unlockability, unlockRecord, applyUnlock, unlockLogins } from '../lib/repo-unlock.js'
 import { changedSinceRead, contentsAt } from '../../../lib/team-write-guard.mjs'
 import { studentPresence } from '../../../lib/permission-change.mjs'
-import { releaseSubmissionLock, removeRepoFromOrgLock } from '../../../lib/submission-lock.mjs'
+import { releaseSubmissionLock, removeRepoFromOrgLock, addRepoToOrgLock, ensureSubmissionLock, resolveAppId } from '../../../lib/submission-lock.mjs'
+import { relockability, applyRelock, relockedRecord } from '../../../lib/repo-relock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import AssignmentHeader from '../components/AssignmentHeader.vue'
@@ -1554,7 +1558,7 @@ import { validateAgainst } from '../lib/validate.js'
 // answers - and this view only asks it questions.
 import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
-import { FAILED_READ_VERDICTS, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
+import { FAILED_READ_VERDICTS, failedKind, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
@@ -5084,8 +5088,13 @@ const actionGrading = computed(() => {
   const student = actionStudent.value
   if (!student) return null
   const login = String(student.github_login).toLowerCase()
+  // Read and no score is an answer, and which one is stored (CLAUDE.md, "No
+  // score" is several answers): said as the Grading tab says it, not as
+  // "no score has been read", which was the dialog's word for all of them.
+  const failed = (autogradeSummary.value?.failed || []).find((s) => String(s.login).toLowerCase() === login) || null
   return {
     current: (autogradeSummary.value?.students || []).find((s) => String(s.login).toLowerCase() === login) || null,
+    noScore: failed ? gradingStatusText({ status: failedKind(failed), student }) : null,
     decision: gradeDecisionFor(student.github_login, {
       overrides: overridesByLogin.value,
       team: teamOf(student, report.value?.students || []),
@@ -5289,13 +5298,15 @@ async function syncDashboardAggregate(token) {
 function openActions(student) {
   actionStudent.value = student
   actionLockdown.value = null
+  actionReopen.value = null
   loadLockdownRecord()
 }
 
 function closeActions() {
-  if (actionExtending.value || actionRetrying.value || actionUnlocking.value || actionHandInsSaving.value) return
+  if (actionExtending.value || actionRetrying.value || actionUnlocking.value || actionRelocking.value || actionHandInsSaving.value) return
   actionStudent.value = null
   actionLockdown.value = null
+  actionReopen.value = null
 }
 
 /**
@@ -5320,6 +5331,32 @@ async function loadLockdownRecord() {
     console.error('Failed to read the lockdown record:', e)
     actionLockdown.value = null
   }
+  const reopen = await readReopenRecords(opened)
+  if (actionStudent.value === opened) actionReopen.value = reopen
+}
+
+// WHETHER IT WAS REOPENED is the reopen record's (lib/repo-relock.mjs): one per
+// login under lockdowns/<id>/unlocked/, for anyone on the repository - a team's
+// repository is one object, and Reopen writes the record of the member clicked.
+const actionReopen = ref(null)
+async function readReopenRecords(student) {
+  const members = teamMembersOf(student).map((s) => s.github_login).filter(Boolean)
+  try {
+    let files = []
+    try {
+      files = await listRepoDir(getToken(), props.org, config.controlRepo, unlockedDir(props.assignmentId))
+    } catch (e) {
+      if (e?.status === 404) return { record: null, paths: [], unreadable: false }
+      throw e
+    }
+    const mine = files.filter((f) => f.type === 'file' && f.name.endsWith('.json') && members.some((m) => sameLogin(m, f.name.slice(0, -'.json'.length))))
+    if (!mine.length) return { record: null, paths: [], unreadable: false }
+    const text = await getRepoContent(getToken(), props.org, config.controlRepo, mine[0].path)
+    return { record: text ? JSON.parse(text) : null, paths: mine.map((f) => f.path), unreadable: false }
+  } catch (e) {
+    console.error('Failed to read the reopen records:', e)
+    return { record: null, paths: [], unreadable: true }
+  }
 }
 
 /**
@@ -5334,8 +5371,20 @@ const actionUnlock = computed(() => {
   if (!student || !actionLockdown.value) return null
   const lockdownRow = lockdownRowFor(actionLockdown.value, student.github_login)
   if (!lockdownRow) return null
-  return unlockability({ row: student, lockdownRow, assignment: assignment.value })
+  // Not read yet, or unreadable: whether it is open already is not known, so
+  // neither button is offered on a guess.
+  if (!actionReopen.value) return { can: false, method: null, repo: null, permission: null, reason: 'Checking whether it was reopened…' }
+  if (actionReopen.value.unreadable) {
+    return { can: false, method: null, repo: null, permission: null, reason: 'Could not read whether this repository was reopened, so it is not offered. Close this and open it again.' }
+  }
+  return unlockability({ row: student, lockdownRow, assignment: assignment.value, reopenRecord: actionReopen.value.record })
 })
+
+/** Whether it can be locked again: null unless it was reopened (lib/repo-relock.mjs). */
+const actionRelock = computed(() => (actionStudent.value && actionReopen.value?.record
+  ? relockability({ reopenRecord: actionReopen.value.record })
+  : null))
+const actionRelocking = ref(false)
 
 const actionRegrading = ref(false)
 
@@ -5480,6 +5529,98 @@ async function unlockRepositoryFor(student, { reason }) {
     toast.error(`Could not reopen the repository: ${e.message || String(e)}`)
   } finally {
     actionUnlocking.value = false
+  }
+}
+
+/**
+ * Lock a reopened repository again (lib/repo-relock.mjs, P2-57): the lock its
+ * reopen record says was undone is put back, the reopen records go, and a
+ * lockdown row a later pass marked reopened gets its lock back - in one
+ * commit, refused if the lockdown record changed since it was read.
+ */
+async function relockRepositoryFor(student) {
+  const verdict = actionRelock.value
+  if (!verdict?.can || actionRelocking.value) return
+  const token = getToken()
+  const request = (method, path, body) => ghApi(token, method, path, body)
+  const [owner, name] = String(verdict.repo).split('/')
+  const members = teamMembersOf(student).map((s) => s.github_login).filter(Boolean)
+  const reopenPaths = actionReopen.value?.paths || []
+  actionRelocking.value = true
+  try {
+    // The id the organization ruleset targets, from GitHub rather than a copy.
+    let repositoryId = null
+    if (verdict.method === 'org-ruleset') {
+      const r = await getRepo(token, owner, name)
+      if (!r.ok) {
+        toast.error(`Could not lock ${verdict.repo} again: it could not be read (HTTP ${r.status}).`)
+        return
+      }
+      repositoryId = r.data.id
+    }
+    const res = await applyRelock({
+      request,
+      ensureLock: ensureSubmissionLock,
+      addToOrgLock: addRepoToOrgLock,
+      // The demotion, through the writer that updates a pending invitation too.
+      setPermission: async ({ org, repo, login, permission }) => {
+        const r = await addCollaborator(token, org, repo, login, permission)
+        return { ok: r.ok, reason: r.ok ? null : `${r.status ? `HTTP ${r.status} ` : ''}${r.data?.message ?? ''}`.trim() }
+      },
+      presence: (login) => studentPresence(request, { repo: verdict.repo, login }),
+      org: owner,
+      repo: name,
+      repositoryId,
+      assignmentId: props.assignmentId,
+      submissionRef: assignment.value?.submission_ref || `refs/heads/${submissionBranch(assignment.value)}`,
+      appId: verdict.method === 'ruleset' ? await resolveAppId(request) : null,
+      login: student.github_login,
+      logins: members,
+      method: verdict.method,
+      demote: verdict.demote,
+    })
+    if (!res.ok) {
+      toast.error(res.locked
+        ? `${verdict.repo} is locked again, but ${res.reason}. Lock again finishes it.`
+        : `Could not lock ${verdict.repo} again: ${res.reason}`)
+      return
+    }
+    const lockPath = lockdownRecordPath(props.assignmentId)
+    const lockText = await getRepoContent(token, props.org, config.controlRepo, lockPath)
+    const changes = reopenPaths.map((path) => ({ path, content: null }))
+    if (lockText) {
+      const before = JSON.parse(lockText)
+      const after = relockedRecord(before, { logins: members, method: verdict.method, demote: verdict.demote, at: new Date().toISOString() })
+      if (after !== before) {
+        const { valid } = await validateAgainst('lockdown-record', structuredClone(after))
+        if (!valid) {
+          toast.error(`${verdict.repo} is locked again, but its lockdown record would not be valid afterwards, so it was not changed. Tell whoever runs PXL Classroom.`)
+          return
+        }
+        changes.push({ path: lockPath, content: JSON.stringify(after, null, 2) + '\n' })
+      }
+    }
+    const wrote = changes.length
+      ? await commitFiles(token, props.org, config.controlRepo, changes, `Lock ${verdict.repo} again after it was reopened`, {
+          precondition: async ({ request: req, parentSha }) => (await changedSinceRead({
+            get: contentsAt(req, parentSha, props.org, config.controlRepo),
+            decode: decodeBase64,
+            files: [{ path: lockPath, text: lockText }],
+          })) ? 'the lockdown record changed while this ran; open their actions and try again' : null,
+        })
+      : { ok: true }
+    if (!wrote.ok) {
+      // The repository IS locked. Without the records, the next deadline run
+      // still treats it as reopened and the dialog offers Lock again.
+      toast.error(`${verdict.repo} is locked again, but its records could not be updated (${wrote.error || 'the save failed'}). Press Lock again once more to record it.`)
+      return
+    }
+    toast.success(`${verdict.repo} is locked again. ${members.length > 1 ? 'Its team' : student.github_login} can no longer push.`)
+    closeActions()
+  } catch (e) {
+    toast.error(`Could not lock the repository again: ${e.message || String(e)}`)
+  } finally {
+    actionRelocking.value = false
   }
 }
 

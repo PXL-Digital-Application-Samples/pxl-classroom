@@ -296,6 +296,7 @@ export type LockdownRecord = {
   deferred_count?: number;
   reopened_count?: number;
   unfreezable_count?: number;
+  gone_count?: number;
   max_uncertainty_seconds?: number;
   results?: Array<{
     github_login?: string;

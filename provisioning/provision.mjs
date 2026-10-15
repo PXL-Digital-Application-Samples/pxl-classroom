@@ -101,10 +101,13 @@ function validate() {
 
 // --- Feedback-PR: baseline branch + protection ------------------------------
 //
-// Creates a frozen branch (idempotent) pointing at the repo's default-branch
-// HEAD and protects it against force-push/delete. The Feedback PR itself
-// cannot be opened at provisioning time because main and the baseline point
-// at the same SHA - GitHub returns 422 "No commits between …". The PR is
+// Creates a frozen branch (idempotent) at what the student was given and
+// protects it against force-push/delete. The Feedback PR itself cannot be
+// opened at provisioning time because the submission branch and the baseline
+// point at the same SHA - GitHub returns 422 "No commits between …". The PR is
+// opened lazily (the page, `pxl-classroom feedback open` or the workflow) once
+// the student has pushed.
+//
 // `POST /repos/{tpl}/generate` RETURNS BEFORE THE REPOSITORY HAS ANY CONTENT.
 //
 // GitHub creates the repository object and populates it from the template
@@ -176,13 +179,47 @@ async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
   return false;
 }
 
-// opened lazily by `pxl-classroom feedback open` once the student has pushed.
 /**
- * @param {{ default_branch?: string }} repo
- * @param {{ copiedTemplateBranches?: boolean }} [opts] this run copied every
- *   branch of the template into the repository (a full-history copy it made):
- *   a branch with the baseline's name is then the template's, never ours.
+ * The default branch as the repository has it NOW, or "" when unread (asked
+ * three times). The generate response is read while the copy is still empty
+ * and names the organization's default (`main`), not the template's, so a
+ * `master` template's baseline read `main`, got 404, and no student had one
+ * (live, 2026-10-15, TV-3). Never a guessed `main`.
  */
+async function currentDefaultBranch() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 1500));
+    const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
+    const branch = res.ok ? res.data?.default_branch : null;
+    if (typeof branch === "string" && BRANCH.test(branch)) return branch;
+  }
+  return "";
+}
+
+/**
+ * Where a baseline made now goes: what the student was given, so the feedback
+ * pull request is their work and nothing else. On a repository this run made,
+ * or one nobody but PXL Classroom has pushed to, that is the head. On a reuse
+ * somebody pushed to - a Retry after the student's first push - the head holds
+ * their work, and a baseline there hid it from the review (live, 2026-10-15):
+ * GitHub's generated first commit is what they were given when nothing was
+ * added on top of it (`addsWorkflow`), and otherwise nothing is known.
+ *
+ * @returns {Promise<{ sha: string|null, why?: string }>}
+ */
+async function baselineStart({ reused, head, defaultBranch, addsWorkflow, repo }) {
+  if (!reused || (await onlyAppPushed())) return { sha: head };
+  if (repo?.template_repository && !addsWorkflow) {
+    const at = `/repos/${cfg.org}/${cfg.targetRepo}/commits?sha=${encodeURIComponent(defaultBranch)}&per_page=1`;
+    const first = await gh("GET", at);
+    const last = String(first.headers?.get?.("link") || "").match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
+    const page = last ? await gh("GET", `${at}&page=${last[1]}`) : first;
+    const root = page.ok && Array.isArray(page.data) && page.data.length === 1 ? page.data[0] : null;
+    if (root && generatedFromTemplate(root)) return { sha: root.sha };
+  }
+  return { sha: null, why: "somebody has pushed to it since it was made, and what the student was given cannot be told apart from their work" };
+}
+
 /**
  * Whether a branch named like the feedback baseline in a copy this system
  * PUSHED (a full-history copy: GitHub's own copy names its template and takes
@@ -198,9 +235,20 @@ async function templateOwnsBranch(repo, branch, sha) {
   return tplRef.data?.object?.sha === sha;
 }
 
-async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = {}) {
+/**
+ * The feedback baseline: a branch at what the student was given, protected.
+ * The pull request itself is opened later, once the student has pushed.
+ *
+ * @param {{ template_repository?: object }} repo
+ * @param {{ copiedTemplateBranches?: boolean, reused?: boolean, addsWorkflow?: boolean }} [opts]
+ *   `copiedTemplateBranches`: this run copied every branch of the template
+ *   into the repository (a full-history copy it made), so a branch with the
+ *   baseline's name is the template's, never ours. `reused`: the repository
+ *   was there before this run. `addsWorkflow`: provisioning commits the
+ *   grading workflow on top of what GitHub copied.
+ */
+async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false, reused = false, addsWorkflow = false } = {}) {
   const branch = cfg.baselineBranch;
-  const defaultBranch = repo.default_branch || "main";
 
   // Same race as the autograding injection: on a freshly generated repository
   // `refs/heads/<default>` does not exist yet, and a baseline branched from
@@ -211,18 +259,32 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = 
     log("feedback-baseline", { ok: false, note: `${cfg.targetRepo} is still empty after generate - no baseline` });
     return null;
   }
+  const defaultBranch = await currentDefaultBranch();
+  if (!defaultBranch) {
+    log("feedback-baseline", { ok: false, note: `${cfg.targetRepo}'s default branch could not be read - no baseline` });
+    return null;
+  }
 
   const head = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/git/ref/heads/${defaultBranch}`);
   if (!head.ok) { log("feedback-baseline", { ok: false, note: `read ${defaultBranch} HTTP ${head.status}` }); return null; }
   const sha = head.data.object.sha;
 
+  // Where the baseline IS, which is what this returns (`baseline_sha`): it
+  // returned the default branch's head, also over a baseline elsewhere.
+  let baselineAt = null;
   const exists = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/git/ref/heads/${branch}`);
   if (exists.status === 404) {
+    const start = await baselineStart({ reused, head: sha, defaultBranch, addsWorkflow, repo });
+    if (!start.sha) {
+      log("feedback-baseline", { ok: false, note: `no ${branch}: ${start.why}` });
+      return null;
+    }
     const make = await gh("POST", `/repos/${cfg.org}/${cfg.targetRepo}/git/refs`, {
-      ref: `refs/heads/${branch}`, sha,
+      ref: `refs/heads/${branch}`, sha: start.sha,
     });
     if (!make.ok) { log("feedback-baseline", { ok: false, note: `create ${branch} HTTP ${make.status}` }); return null; }
-    log("feedback-baseline", { ok: true, note: `created ${branch}@${sha.slice(0, 12)}` });
+    log("feedback-baseline", { ok: true, note: `created ${branch}@${start.sha.slice(0, 12)}${start.sha === sha ? "" : `, GitHub's first commit: ${defaultBranch} has the student's work on it`}` });
+    baselineAt = start.sha;
   } else if (exists.ok && (copiedTemplateBranches || (await templateOwnsBranch(repo, branch, exists.data?.object?.sha)))) {
     // The template's own branch, which the copy brought: adopted, it was
     // protected against the exercise that needs it, and every feedback PR
@@ -234,6 +296,10 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = 
     return null;
   } else if (exists.ok) {
     log("feedback-baseline", { ok: true, note: `${branch} already exists @${exists.data.object.sha.slice(0, 12)}` });
+    baselineAt = exists.data.object.sha;
+  } else {
+    log("feedback-baseline", { ok: false, note: `read ${branch} HTTP ${exists.status} - no baseline` });
+    return null;
   }
 
   // Protection: only the fields we care about; the App's admin role outranks
@@ -251,7 +317,7 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false } = 
   } else {
     log("feedback-baseline-protect", { ok: true, note: `protected ${branch}` });
   }
-  return sha;
+  return baselineAt;
 }
 
 /**
@@ -1024,11 +1090,15 @@ async function main() {
   // The commit it made on the default branch, if it made one - part of what a
   // full-history copy is given (step 7).
   let injectedSha = null;
+  // Whether provisioning commits on top of GitHub's copy, so its first commit
+  // alone is not what the student was given (the feedback baseline, step 6).
+  let addsWorkflow = false;
   if (!cfg.dryRun && repo && cfg.assignmentId) {
     try {
       const yamlStr = await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8");
       const assignment = parse(yamlStr);
       if (assignment?.autograde?.enabled && assignment.autograde.execution_environment === "github_actions") {
+        addsWorkflow = true;
         injectedSha = await injectAutogradingWorkflow(assignment);
       }
     } catch (e) {
@@ -1048,7 +1118,7 @@ async function main() {
   //    is deferred to `pxl-classroom feedback open` once student commits land.
   let baselineSha = "";
   if (cfg.feedbackPr && !cfg.dryRun && repo) {
-    baselineSha = (await setupFeedbackBaseline(repo, { copiedTemplateBranches: cfg.fullHistory && !alreadyExists })) || "";
+    baselineSha = (await setupFeedbackBaseline(repo, { copiedTemplateBranches: cfg.fullHistory && !alreadyExists, reused: alreadyExists, addsWorkflow })) || "";
   }
 
   // 7. What a repository copied with its history was given: its default
