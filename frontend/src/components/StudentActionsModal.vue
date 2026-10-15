@@ -24,7 +24,9 @@
              (lib/deadline-variable.mjs): the control repository is private to
              staff, so the extension reaches their page only through it. -->
         <p v-if="pageDeadline && pageDeadline.state !== 'none'" class="text-sm" data-page-deadline :data-state="pageDeadline.state">
-          <template v-if="pageDeadline.state === 'current'">Their own page shows this deadline.</template>
+          <template v-if="pageDeadline.state === 'current' && pageDeadline.fromTeammate">Their own page shows {{ formatDate(pageDeadline.at.toISOString()) }}, a teammate's extension: the team shares one repository.</template>
+          <template v-else-if="pageDeadline.state === 'current'">Their own page shows this deadline.</template>
+          <template v-else-if="pageDeadline.state === 'no-repo' && pageDeadline.acceptClosed">They have no repository yet, and nobody can accept after the deadline. Retry acceptance below gives them one; their page shows the extension then.</template>
           <template v-else-if="pageDeadline.state === 'no-repo'">They have no repository yet; their page shows the extension once they accept.</template>
           <template v-else-if="pageDeadline.state === 'unknown' && pageDeadline.expectedUnknown">Could not read the extensions, so whether their own page shows the right deadline is not known.</template>
           <template v-else-if="pageDeadline.state === 'unknown'">Could not read what their own page shows as their deadline.</template>

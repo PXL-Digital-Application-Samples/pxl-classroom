@@ -96,6 +96,23 @@ test("the writer records the commit given, keeps it through a retry, and gives i
   assert.equal("full_history" in recovered, false);
 });
 
+test("R6-42: a retry keeps the feedback pull request the record names, for the same repository only", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-record-pr-"));
+  const first = write(dir, "ann", ["--baseline-sha", A]);
+  // What scripts/open-feedback-prs.mjs writes once the pull request is open.
+  const path = join(dir, "repositories", "lab", "ann.json");
+  writeFileSync(path, JSON.stringify({ ...first, feedback_pr_number: 3, feedback_pr_url: "https://github.com/Org/lab-team/pull/3" }));
+  const retry = write(dir, "ann");
+  assert.deepEqual([retry.feedback_pr_number, retry.feedback_pr_url, retry.feedback_pr_baseline_sha], [3, "https://github.com/Org/lab-team/pull/3", A], "kept, the baseline too where none was given");
+  assert.ok((await validateAgainst("repository-record", retry)).valid);
+  // A different repository at that name: nothing of the old one's.
+  const other = spawnSync("node", [writer, "--assignment-id", "lab", "--login", "ann", "--org", "Org", "--target-repo", "lab-team",
+    "--repo-id", "78", "--repo-url", "https://github.com/Org/lab-team", "--data-dir", dir], { encoding: "utf8" });
+  assert.equal(other.status, 0, other.stderr);
+  const moved = JSON.parse(readFileSync(path, "utf8"));
+  assert.deepEqual([moved.feedback_pr_number, moved.feedback_pr_url, moved.feedback_pr_baseline_sha], [null, null, null]);
+});
+
 test("the writer marks a start full_history exactly when provisioning says so, and carries it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "pxl-starter-fh-"));
   const first = write(dir, "ann", ["--starter-sha", A, "--starter-commit-count", "14", "--full-history", "true"]);

@@ -41,7 +41,7 @@ import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
-import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { sentinelSampledRepos, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
@@ -318,12 +318,33 @@ async function readPriorLockdown() {
  * @returns an ISO instant, or null.
  */
 async function readSentinelStop() {
+  // CONFIRMED stops only: crediting the instant for a stop that failed
+  // understated how long writes stayed open.
+  return sentinelStoppedAt(await readSentinelTimelines(), { confirmedOnly: true });
+}
+
+/** Whether this student's submission is in the archive, verified (preserve/preserve.mjs writes it). */
+async function preservedVerified(login) {
+  try {
+    const doc = JSON.parse(await readFile(join(cfg.dataDir, "observations", cfg.assignmentId, login, "preservation.json"), "utf8"));
+    return doc?.verified === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The repositories that credited stop was watching (lib/sentinel-window.mjs, R6-25). */
+async function readSentinelSampled() {
+  return sentinelSampledRepos(await readSentinelTimelines(), { confirmedOnly: true });
+}
+
+async function readSentinelTimelines() {
   const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId);
   let names;
   try {
     names = await readdir(dir);
   } catch {
-    return null;
+    return [];
   }
 
   // Which timelines count, and the earliest - a cohort can be armed more than
@@ -339,9 +360,7 @@ async function readSentinelStop() {
       console.error(`Unreadable sentinel timeline ${name}: ${e.message}`);
     }
   }
-  // CONFIRMED stops only: crediting the instant for a stop that failed
-  // understated how long writes stayed open.
-  return sentinelStoppedAt(timelines, { confirmedOnly: true });
+  return timelines;
 }
 
 // --- Phase 0: plan -----------------------------------------------------------
@@ -763,7 +782,7 @@ async function submissionAsOf({ repoName, branch, deadline }) {
   return { ok: true, sha: row?.sha ?? null, row, reason: null };
 }
 
-async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, sentinelStoppedAt = null }) {
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, sentinelStoppedAt = null, sentinelSampled = new Set() }) {
   const byRepo = new Map();
 
   // A group assignment has one repository record PER MEMBER, all naming the
@@ -802,7 +821,12 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       // was locked by nothing until this run, so its HEAD can hold later
       // pushes, and the stop's instant is not when it was locked.
       const createdAt = repoRes.data.created_at ?? null;
-      const existedAtStop = !createdAt || !sentinelStoppedAt || new Date(createdAt) <= new Date(sentinelStoppedAt);
+      // ...and only one the stop was WATCHING (R6-25): created before it is
+      // not covered by it, when its record arrived after.
+      const existedAtStop = !sentinelStoppedAt || (
+        (!createdAt || new Date(createdAt) <= new Date(sentinelStoppedAt)) &&
+        sentinelSampled.has(String(t.repoName).toLowerCase())
+      );
       let snapshotSha;
       let reconstructed = false;
       let noSubmission = false;
@@ -1168,6 +1192,8 @@ async function main() {
     // discard exactly what the policy says to keep.
     deadlineFor: blockLate ? deadlineFor : null,
     sentinelStoppedAt,
+    // Which repositories that stop was watching (R6-25).
+    sentinelSampled: sentinelStoppedAt ? await readSentinelSampled() : new Set(),
   });
 
   // --- Phase 4: DEMOTE -------------------------------------------------------
@@ -1181,10 +1207,24 @@ async function main() {
   const demoted = new Set();
   const toDemote = targets.filter((t) => demotesAfterStop(assignment, lock.byRepo.get(t)?.method));
   if (toDemote.length) {
+    const notDemoted = [];
     for (const t of toDemote) {
       const out = await demote(t);
       if (out.locked) demoted.add(t);
-      else log(`demote ${t.displayKey}`, { ok: false, note: `permission after=${out.permissionAfter}` });
+      else notDemoted.push({ t, out });
+    }
+    // An organization owner keeps admin on every repository whatever their
+    // collaborator grant says - said, so a lecturer reading the run does not
+    // chase it (seen on a real deadline, 2026-10-15). The owners are asked
+    // only when a demotion did not hold; the ruleset that stopped them still
+    // holds the branch.
+    const ownerList = notDemoted.length ? (await fetchOrgOwners(gh, cfg.org)).owners : null;
+    for (const { t, out } of notDemoted) {
+      const owner = (t.teamMembers?.length ? t.teamMembers : [t.login]).filter((l) => l && isKnownOwner(ownerList, l));
+      log(`demote ${t.displayKey}`, {
+        ok: false,
+        note: `permission after=${out.permissionAfter}${owner.length ? ` - ${owner.join(", ")} owns the organization, so GitHub keeps them admin` : ""}`,
+      });
     }
     log("phase 4 - demote", { ok: true, note: `${demoted.size}/${toDemote.length} demoted to pull` });
   }
@@ -1242,6 +1282,7 @@ async function main() {
 
   // --- Assemble the record ---------------------------------------------------
   let lockedCount = 0;
+  let recordedCount = 0;
   let errorCount = 0;
   let unfreezableCount = 0;
   let noSubmissionCount = 0;
@@ -1328,6 +1369,15 @@ async function main() {
       if (state?.gone && stop?.gone) {
         goneCount++;
         rows.push(`| ${t.displayKey} | - | - | gone - the repository no longer exists |`);
+        // DELETED AFTER IT WAS LOCKED (review 2026-10-15, R6-30): the row of
+        // what was frozen is history, and the record is rewritten whole, so a
+        // later pass dropped it. Kept as it was where the submission is in the
+        // archive - preservation skips what it already holds. One never
+        // preserved stays out: nothing can preserve it now.
+        for (const m of t.members) {
+          const prior = priorByLogin.get(normalizeLogin(m));
+          if (prior?.snapshot_sha && (await preservedVerified(m))) lockdownResults.push(prior);
+        }
         continue;
       }
       errorCount++;
@@ -1346,7 +1396,11 @@ async function main() {
             lockdown_at: stop?.lockdownAt ?? null,
             lock_method: stop?.method ?? null,
             permission_after: null,
-            verified: false,
+            // WHAT THE STOP DID, not what the read did (review 2026-10-15,
+            // R6-24): the snapshot is what failed, and the lock may well hold.
+            // Written false, Reopen said the run had not locked it - while the
+            // reason to refuse is the snapshot nobody has archived.
+            verified: Boolean(stop?.locked),
             uncertainty_seconds: null,
           });
         }
@@ -1417,6 +1471,8 @@ async function main() {
     if (state.noSubmission) noSubmissionCount++;
     if (stop.locked || lock.method === "none") {
       if (stop.locked) lockedCount++;
+      // Under "Nothing is locked" a recorded student is what success is (R6-29).
+      else recordedCount++;
       log(`lockdown ${t.displayKey}`, { ok: true, note: `${state.branch}@${sha12} -> ${how} (${uncertaintySec ?? "?"}s)` });
       rows.push(`| ${t.displayKey} | \`${sha12}\` | ${uncertaintySec ?? "-"}s | ${state.noSubmission ? "no submission" : `[OK] ${how}`} |`);
     } else if (loginsOf(t).some((l) => isKnownOwner(owners, l))) {
@@ -1492,7 +1548,10 @@ async function main() {
   // A deferral is neither a lock nor an error: the student was granted more
   // time and the system honoured it. Counting it as either would paint the
   // nightly amber for doing the right thing.
-  const outcome = errorCount === 0 ? "locked" : lockedCount > 0 ? "partial" : "fail:all-errors";
+  // A success is a student locked, or under "Nothing is locked" one recorded:
+  // there nobody is ever locked, so one unreadable repository read as every
+  // student failing and failed the whole finalize (review 2026-10-15, R6-29).
+  const outcome = errorCount === 0 ? "locked" : lockedCount + recordedCount > 0 ? "partial" : "fail:all-errors";
   await setOutput("locked_count", lockedCount);
   await setOutput("error_count", errorCount);
   await setOutput("deferred_count", deferrals.length);

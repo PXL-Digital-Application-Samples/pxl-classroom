@@ -7,7 +7,7 @@ import { parseInvitationLink } from "../frontend/src/lib/invite.js";
 import { signInviteToken, generateKeyPair } from "../lib/invite-token.mjs";
 // The student home's own matching, not a copy (review 2026-10-14, P2-22): a
 // copy here kept the login-only rule after PG5 taught the page team names.
-import { matchStudentAssignments as match, timeRemaining } from "../frontend/src/lib/student-assignments.js";
+import { matchStudentAssignments as match, timeRemaining, withOwnDeadlines } from "../frontend/src/lib/student-assignments.js";
 
 const matchStudentAssignments = (all, login, repos, invites) => match(all, { login, repos, invites });
 
@@ -185,4 +185,25 @@ test("the time-left badge", () => {
   assert.deepEqual(timeRemaining("2026-10-14T12:30:00Z", now), { text: "30m left", badgeClass: "badge-warning" });
   assert.deepEqual(timeRemaining("2026-10-14T17:00:00Z", now), { text: "5h left", badgeClass: "badge-warning" });
   assert.deepEqual(timeRemaining("2026-10-17T12:00:00Z", now), { text: "3d left", badgeClass: "badge-success" });
+});
+
+test("R6-34: past the class deadline the home shows a student's own later deadline, read from their repository", async () => {
+  const now = new Date("2026-10-14T12:00:00Z");
+  const row = (repoFullName, extra = {}) => ({ id: repoFullName, repoFullName, stateStatus: "provisioned", deadline_at: "2026-10-14T10:00:00Z", timeRemainingStr: "Closed", timeRemainingBadgeClass: "badge-error", ...extra });
+  const rows = [row("o/extended"), row("o/none"), row("o/unreadable"), row("o/earlier"), row("o/open", { deadline_at: "2026-10-15T10:00:00Z", timeRemainingStr: "22h left" })];
+  const asked = [];
+  await withOwnDeadlines(rows, {
+    now,
+    read: async (full) => {
+      asked.push(full);
+      return {
+        "o/extended": { state: "set", at: new Date("2026-10-16T12:00:00Z") },
+        "o/none": { state: "none" },
+        "o/unreadable": { state: "unreadable" },
+        "o/earlier": { state: "set", at: new Date("2026-10-13T10:00:00Z") },
+      }[full];
+    },
+  });
+  assert.deepEqual(rows.map((r) => r.timeRemainingStr), ["2d left", "Closed", "Closed", "Closed", "22h left"]);
+  assert.ok(!asked.includes("o/open"), "nothing is read before the class deadline");
 });

@@ -437,6 +437,12 @@ test.describe('64 - where a lecturer finds the link', () => {
     await expect(row).toContainText(/no repository/i);
   });
 
+  test('R6-32: after the deadline it is not offered - the page would refuse it', async ({ page }) => {
+    await detail(page, { deadline_at: new Date(Date.now() - 3600_000).toISOString() });
+    await expect(page.getByText('Copy invite link')).toBeVisible({ timeout: 15000 });
+    await expect(confirmRow(page)).toHaveCount(0);
+  });
+
   test('it does NOT add a second primary button to the view', async ({ page }) => {
     // DESIGN.md §1.2. The row is a secondary route out of a block whose primary
     // action is already spoken for.

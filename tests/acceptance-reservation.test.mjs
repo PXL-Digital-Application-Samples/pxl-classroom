@@ -56,6 +56,9 @@ test("a decision is made again when another run touched anything it read", () =>
   assert.equal(decisionInputsChanged(["teams/groepsindeling/other.json"], who), true);
   // Their own record, whatever the case of the file name.
   assert.equal(decisionInputsChanged(["acceptances/groepsindeling/sabrikatoglupxl.json"], who), true);
+  // R6-42: and their own REPOSITORY record, which names the repository an
+  // unfinished switch still has to leave - a lecturer's move rewrites it.
+  assert.equal(decisionInputsChanged(["repositories/groepsindeling/sabrikatoglupxl.json"], who), true);
   // The roster and every claim binding, the assignment, extensions, the lock.
   for (const p of [
     "students/roster.yml",

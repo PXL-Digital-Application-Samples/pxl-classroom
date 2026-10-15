@@ -528,6 +528,25 @@ test.describe('90 - Grade exports and autograder features', () => {
     expect(text).toContain('2026-10-01T10:15:00.000Z');
   });
 
+  test('R6-43: a chosen commit is exported with that commit, never "chosen  (login)"', async ({ page }) => {
+    // `decided_by` names who and why; the commit is the row's `graded_sha`.
+    const chosen = {
+      ...initialSummary,
+      students: initialSummary.students.map((s) => (s.login === 'student-bob'
+        ? { ...s, decided_by: { kind: 'commit', by: 'lecturer1', at: '2026-10-01T14:00:00.000Z', reason: 'wifi dropped' } }
+        : s)),
+    };
+    await setup(page, { tab: 'grading', summary: chosen });
+    await page.locator('.grading-actions').getByRole('button', { name: /^Export/ }).click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('.grading-actions').getByRole('menuitem', { name: /Export grades/ }).click(),
+    ]);
+    const text = readFileSync(await download.path()).toString('utf8');
+    expect(text).toContain(`chosen ${sha(2).slice(0, 7)} (lecturer1)`);
+    expect(text).not.toContain('chosen  (');
+  });
+
   test('Export Breakdown (Excel) skips detailed log for max points and includes breakdown for partial points', async ({ page }) => {
     await setup(page, { tab: 'grading' });
 

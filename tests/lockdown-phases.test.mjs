@@ -328,14 +328,18 @@ test("an empty cohort stops nothing and still writes a record", async () => {
 // That number is what a lecturer would cite in a dispute, and it was
 // understating the system against them.
 
-/** A fired sentinel timeline beside the record it explains. */
-function writeSentinel(dir, { at, outcome = "fired", key = "k1", due } = {}) {
+/**
+ * A fired sentinel timeline beside the record it explains, sampling `repos` as
+ * a real watch does - the repositories its stop covered (R6-25).
+ */
+function writeSentinel(dir, { at, outcome = "fired", key = "k1", due, repos = ["exam-alice"] } = {}) {
   const d = join(dir, "lockdowns", "exam");
   mkdirSync(d, { recursive: true });
   writeFileSync(
     join(d, `sentinel-${key}.json`),
     JSON.stringify({
-      schema_version: 1, assignment_id: "exam", outcome, deadline_at: at, samples: [],
+      schema_version: 1, assignment_id: "exam", outcome, deadline_at: at,
+      samples: [{ observed_at: at, pushed_at: Object.fromEntries(repos.map((r) => [r, PUSHED_AT])) }],
       ...(due === undefined ? {} : { due }),
     }),
   );
@@ -394,6 +398,19 @@ test("a timeline from before `due` existed is still credited", async () => {
     writeSentinel(dir, { at: DEADLINE });
     const res = await runLockdown(dir, api);
     assert.equal(res.record.results[0].lockdown_at, DEADLINE);
+  });
+});
+
+test("R6-25: a repository the stop was not watching is not credited its instant, whatever its created_at", async () => {
+  // Created before the stop, its record arriving after: no sample names it,
+  // so the stop covered it not, and its HEAD may hold later pushes.
+  await withStubApi(async (api) => {
+    const dir = makeControlDir(["alice", "bob"]);
+    writeSentinel(dir, { at: DEADLINE, repos: ["exam-alice"] });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(rowFor(res.record, "alice").lockdown_at, DEADLINE, "the one it watched");
+    assert.notEqual(rowFor(res.record, "bob").lockdown_at, DEADLINE, "locked by this run, not at the stop");
   });
 });
 

@@ -150,6 +150,22 @@ test("applyRelock: each method puts back its own lock, then every member who can
   assert.match((await applyRelock({ ...deps, method: "none" })).reason, /unknown lock method/);
 });
 
+test("R6-26: a member whose access could not be read is not written to - an unanswered check is no invitation", async () => {
+  const seen = [];
+  const res = await applyRelock({
+    request: async () => ({ ok: true }),
+    ensureLock: async () => ({ ok: true }),
+    setPermission: async (a) => { seen.push(a.login); return { ok: true }; },
+    presence: async (l) => ({ ann: "collaborator", bob: "unreadable", cy: "invited" })[l],
+    org: "Org", repo: "lab-team", assignmentId: "lab", submissionRef: "refs/heads/main", appId: 42, login: "ann",
+    logins: ["ann", "bob", "cy"], method: "ruleset", demote: true,
+  });
+  assert.deepEqual(seen, ["ann", "cy"], "bob is never written to");
+  assert.equal(res.ok, false);
+  assert.equal(res.locked, true, "the ruleset is back on");
+  assert.match(res.reason, /@bob: could not tell whether they still have access/);
+});
+
 test("applyRelock: a ruleset back on with a permission that failed says the half that happened", async () => {
   const base = {
     request: async () => ({ ok: true }), org: "Org", repo: "r", login: "ann", repositoryId: 9, assignmentId: "lab",

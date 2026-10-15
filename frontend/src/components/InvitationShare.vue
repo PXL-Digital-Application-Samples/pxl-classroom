@@ -60,7 +60,7 @@
     <!-- The confirm-email link: see the banner's copy of this block below for
          why it lives beside the invitation. Its help button sits BESIDE the row,
          because a button inside a button is not valid HTML. -->
-    <template v-if="link">
+    <template v-if="link && confirmOpen">
       <div class="dropdown-divider" role="separator"></div>
       <div class="invitation-share-confirm">
         <button type="button" class="export-dropdown-item" :disabled="busy" @click="copyConfirm">
@@ -147,7 +147,7 @@
          `btn-link` rather than a second solid button: DESIGN.md §1.2 is one
          primary per view, and this row is a secondary route out of the same
          block. -->
-    <div v-if="variant === 'banner' && link" class="invitation-share-confirm">
+    <div v-if="variant === 'banner' && link && confirmOpen" class="invitation-share-confirm">
       <span class="invitation-share-confirm-label">Confirm-email link</span>
       <HelpButton topic="confirming-an-email-address" label="the confirm-email link" />
       <button
@@ -216,6 +216,14 @@ const props = defineProps({
 })
 
 defineEmits(['regenerate'])
+
+// The confirm-email link closes at the deadline (ConfirmEmailView.vue), so it
+// is not handed out after it (review 2026-10-15, R6-32): a copied link a
+// student would open only to be told it is closed.
+const confirmOpen = computed(() => {
+  const due = Date.parse(props.assignment?.deadline_at ?? '')
+  return !Number.isFinite(due) || due > Date.now()
+})
 
 const fetched = ref(null)
 const fetchedExpiry = ref(null)
@@ -300,7 +308,9 @@ const status = computed(() => {
     return { dot: 'dot-warning', label: `Opens ${when(a.opens_at)}`, note: `The link works, but nobody can accept before then.${expiryNote}` }
   }
   if (a.deadline_at && now > new Date(a.deadline_at)) {
-    return { dot: 'dot-neutral', label: 'Closed', note: `The deadline passed ${when(a.deadline_at)}.${expiryNote}` }
+    // The header's words for the same fact (R6-37): it said Deadline passed
+    // three lines above a share block saying Closed, which is another state.
+    return { dot: 'dot-neutral', label: 'Deadline passed', note: `The deadline passed ${when(a.deadline_at)}.${expiryNote}` }
   }
   const cap = Number(a.max_acceptances) || 0
   // An absent count is UNKNOWN, not zero. Two of the three callers build this

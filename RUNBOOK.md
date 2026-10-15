@@ -808,9 +808,9 @@ An **empty** cell opens holding whatever the hint below it says, tinted to show 
 
 **Send them the confirm-email link.** Acceptance is not the only way to collect that any more. Every published assignment has a second link beside its invitation - **Confirm-email link**, under *Invite link* on the assignment page and in the publish banner. Copy it and send it however you already reach students.
 
-It is the *same* link as the invitation, on `/c/` instead of `/i/`, and it asks a smaller question: the student signs in, picks one of their own GitHub-verified addresses, and their account is bound to it. **No repository, no roster check, no deadline** - it works after the deadline, before the assignment opens, and in every roster mode, because a confirmation says who an account *is* rather than what they may accept. The record is org-wide, so one confirmation covers every assignment in the organization, and a student who has already confirmed is not asked again.
+It is the *same* link as the invitation, on `/c/` instead of `/i/`, and it asks a smaller question: the student signs in, picks one of their own GitHub-verified addresses, and their account is bound to it. **No repository and no roster check** - it works before the assignment opens and in every roster mode, because a confirmation says who an account *is* rather than what they may accept. The record is org-wide, so one confirmation covers every assignment in the organization, and a student who has already confirmed is not asked again.
 
-What bounds it is the assignment: the link stops working the night that assignment finalizes, and **Regenerate link** retires it immediately along with the invitation. That is deliberate - it means there is no permanent door to remember to close. The cost is that **you need a live assignment to carry one.** If you have none and a lot of people to identify, publish one for the purpose; it hands out nothing, so an assignment used only as a carrier costs you no repositories.
+What bounds it is the assignment: **the link works until that assignment's deadline**, and the Invite link menu stops offering it then, because the night it finalizes the broker that carries it is switched off. **Regenerate link** retires it immediately along with the invitation. That is deliberate - it means there is no permanent door to remember to close. The cost is that **you need a live assignment to carry one.** If you have none and a lot of people to identify, publish one for the purpose; it hands out nothing, so an assignment used only as a carrier costs you no repositories.
 
 Sharing it is not a leak in the way an invitation would be: whoever opens it can bind *their own* account to *their own* address and nothing else. The signed request says which of the two questions it is asking, so a confirm link cannot be turned into an acceptance.
 
@@ -1043,7 +1043,7 @@ autograde:
 
 #### Grading from the CLI
 
-Where the assignment grades on GitHub Actions - its checks run there, or its template's own grading workflow grades it - `pxl-classroom grade` runs nothing: it reads the scores GitHub recorded for every student with a repository, at their hand-in, preserved or newest commit, exactly as **Read all scores again** does, and `--runner` is ignored.
+Where the assignment grades on GitHub Actions - its checks run there, or its template's own grading workflow grades it - `pxl-classroom grade` runs nothing: it reads the scores GitHub recorded for every student with a repository, at their hand-in, preserved or newest commit, exactly as **Read all scores again** does, and `--runner` is ignored. That includes its refusal: when GitHub could not be read for a student, it writes no summary, names them and exits 1 - run it again in a few minutes. With `--login`, a failed read keeps that student's score on record, as **Read score again** does.
 
 When `execution_environment` is `lecturer_local`, run the grader **on your machine** - never on the platform:
 

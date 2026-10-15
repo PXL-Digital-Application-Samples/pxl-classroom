@@ -28,6 +28,10 @@ const ROOT = "b".repeat(40);
 // GitHub's generated first commit, as the commit list answers it.
 const GENERATED = { sha: ROOT, parents: [], committer: { login: "web-flow" }, author: { login: `${APP_SLUG}[bot]` }, commit: { verification: { verified: true } } };
 const PUSHED_ROOT = { sha: ROOT, parents: [], committer: { login: "ann" }, author: { login: "ann" }, commit: { verification: { verified: false } } };
+const MID = "c".repeat(40);
+// The commit above the first: the student's own, or the App's grading workflow.
+const STUDENT_MID = { sha: MID, parents: [{ sha: ROOT }], committer: { login: "ann" }, author: { login: "ann" }, commit: { verification: { verified: false } } };
+const APP_MID = { sha: MID, parents: [{ sha: ROOT }], committer: { login: "web-flow" }, author: { login: `${APP_SLUG}[bot]` }, commit: { verification: { verified: true } } };
 
 /**
  * `existing`: the repository is there before the run (a Retry). `pushedBy`:
@@ -36,9 +40,16 @@ const PUSHED_ROOT = { sha: ROOT, parents: [], committer: { login: "ann" }, autho
  * repository's default is once it is filled in; the generate response always
  * says `main`, as GitHub's did while the copy was empty.
  */
-async function withApi(fn, { existing = false, pushedBy = ["app"], rootCommit = GENERATED, defaultBranch = "master", baselineThere = false, repoReadStatus = 200 } = {}) {
+async function withApi(fn, { existing = false, pushedBy = ["app"], rootCommit = GENERATED, defaultBranch = "master", baselineThere = false, repoReadStatus = 200, middle = STUDENT_MID, refStatus = 201, longHistory = false } = {}) {
   const calls = [];
   let generated = existing;
+  // The whole branch as one page, newest first: the student's head, `middle`
+  // (theirs, or the App's grading workflow), and the first commit.
+  const history = [
+    { sha: HEAD, parents: [{ sha: middle.sha }], author: { login: "ann" }, committer: { login: "ann" }, commit: { verification: { verified: false } } },
+    middle,
+    rootCommit,
+  ];
   const server = createServer((req, res) => {
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
@@ -66,14 +77,24 @@ async function withApi(fn, { existing = false, pushedBy = ["app"], rootCommit = 
       if (url === "/repos/Org/lab-ann/contents/.github/workflows/autograding.yml" && req.method === "GET") return send(200, { name: "autograding.yml" });
       if (url === "/repos/Org/lab-ann/git/ref/heads/master") return send(200, { object: { sha: HEAD } });
       if (url === "/repos/Org/lab-ann/git/ref/heads/pxl-baseline") return baselineThere ? send(200, { object: { sha: ROOT } }) : send(404, { message: "Not Found" });
-      if (url === "/repos/Org/lab-ann/git/refs" && req.method === "POST") return send(201, { ref: "refs/heads/pxl-baseline" });
+      if (url === "/repos/Org/lab-ann/git/refs" && req.method === "POST") {
+        // `refStatus` 422: a teammate's run made it in between; it is there now.
+        if (refStatus === 422) {
+          baselineThere = true;
+          return send(422, { message: "Reference already exists" });
+        }
+        return send(201, { ref: "refs/heads/pxl-baseline" });
+      }
       if (url === "/repos/Org/lab-ann/branches/pxl-baseline/protection" && req.method === "PUT") return send(200, {});
       if (url === "/repos/Org/lab-ann/activity") {
         return send(200, pushedBy.map((who) => ({ actor: { login: who === "app" ? `${APP_SLUG}[bot]` : who } })));
       }
       if (url === "/repos/Org/lab-ann/commits") {
         // Three commits on master: the newest first, the `last` page the oldest.
-        const page = new URLSearchParams(query).get("page");
+        const params = new URLSearchParams(query);
+        // `longHistory`: a full page, so the first commit is beyond it.
+        if (params.get("per_page") === "100") return send(200, longHistory ? Array.from({ length: 100 }, () => history[0]) : history);
+        const page = params.get("page");
         return page === "3"
           ? send(200, [rootCommit])
           : send(200, [{ sha: HEAD }], { link: `<http://x/repos/Org/lab-ann/commits?sha=master&per_page=1&page=3>; rel="last"` });
@@ -90,9 +111,13 @@ async function withApi(fn, { existing = false, pushedBy = ["app"], rootCommit = 
   }
 }
 
-function provision(apiBase, { autograde = false } = {}) {
+function provision(apiBase, { autograde = false, record = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-baseline-"));
   mkdirSync(join(dir, "control", "assignments"), { recursive: true });
+  if (record) {
+    mkdirSync(join(dir, "control", "repositories", "lab"), { recursive: true });
+    writeFileSync(join(dir, "control", "repositories", "lab", "ann.json"), JSON.stringify(record));
+  }
   writeFileSync(join(dir, "control", "assignments", "lab.yml"), stringify({
     id: "lab", deadline_at: "2026-10-20T22:00:00Z", feedback_pr: true,
     ...(autograde ? { autograde: { enabled: true, execution_environment: "github_actions", tests: [{ id: "t", name: "t", run: "true", points: 1 }] } } : {}),
@@ -143,8 +168,36 @@ test("a Retry over a repository the student has pushed to puts the baseline at G
     assert.equal(output(r.outputs, "outcome"), "reused");
     assert.equal(madeAt(calls), ROOT, "the head holds the student's work");
     assert.equal(output(r.outputs, "baseline_sha"), ROOT);
-    assert.match(r.log, /GitHub's first commit: master has the student's work on it/);
+    assert.match(r.log, /what it was given: master has the student's work on it/);
   }, { existing: true, pushedBy: ["app", "ann"] });
+});
+
+test("R6-41: the App's own commit above GitHub's is part of what they were given - the template ships a workflow or not", async () => {
+  // Only GitHub's first commit was taken, and only where this run added no
+  // workflow, so a Retry refused where the template ships one, and the App's
+  // own commits read as the student's work.
+  await withApi(async (api, calls) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.equal(madeAt(calls), MID, "the App's grading workflow, not the student's head");
+  }, { existing: true, pushedBy: ["app", "ann"], middle: APP_MID });
+});
+
+test("R6-41: a start an earlier run recorded is used first", async () => {
+  await withApi(async (api, calls) => {
+    const r = await provision(api, { record: { github_login: "ann", repo_name: "Org/lab-ann", starter_sha: MID } });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(madeAt(calls), MID);
+  }, { existing: true, pushedBy: ["app", "ann"] });
+});
+
+test("R6-41: a baseline a teammate's run made in between is adopted, not a failure", async () => {
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "baseline_sha"), ROOT);
+    assert.match(r.log, /pxl-baseline was made meanwhile/);
+  }, { existing: true, pushedBy: ["app", "ann"], refStatus: 422 });
 });
 
 test("...and at the head when nobody but PXL Classroom has pushed to it", async () => {
@@ -164,12 +217,14 @@ test("a Retry that cannot tell what they were given makes no baseline rather tha
     assert.equal(output(r.outputs, "baseline_sha"), "");
     assert.match(r.log, /no pxl-baseline: somebody has pushed to it since it was made/);
   }, { existing: true, pushedBy: ["ann"], rootCommit: PUSHED_ROOT });
-  // A grading workflow added on top of GitHub's copy: its first commit is not all they were given.
+  // A history longer than the one page read: GitHub's first commit is not on
+  // it, so where it starts is not known. (A grading workflow the App added on
+  // top of GitHub's copy is walked through since R6-41, test above.)
   await withApi(async (api, calls) => {
     const r = await provision(api, { autograde: true });
     assert.equal(madeAt(calls), null, r.log);
-    assert.match(r.log, /no pxl-baseline/);
-  }, { existing: true, pushedBy: ["ann"] });
+    assert.match(r.log, /no pxl-baseline: somebody has pushed to it since it was made/);
+  }, { existing: true, pushedBy: ["ann"], longHistory: true });
 });
 
 test("an existing baseline is what baseline_sha says, not the head; an unreadable default branch makes none", async () => {

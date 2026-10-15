@@ -184,3 +184,17 @@ test("a read that failed is unknown - never untouched, so nothing is deleted on 
   assert.equal(await repoTouched(fake({ commitsStatus: 502 }).get, "o/t"), "unknown");
   assert.equal(await repoTouched(fake({ commits: [] }).get, "o/t"), "unknown");
 });
+
+test("R6-42: the repository the record names, by its id - another one at that name is never judged in its place", async () => {
+  // The name is reused once the team's repository is deleted or renamed.
+  const at = (status, id) => {
+    const f = fake();
+    return { get: async (path) => (path === "/repos/o/t" ? { status, ok: status < 300, data: status < 300 ? { id, created_at: CREATED } : { message: "x" } } : f.get(path)) };
+  };
+  assert.equal(await repoTouched(at(200, 20).get, "o/t", { appLogin: BOT, expectedId: 20 }), "untouched", "the same repository goes on to be judged");
+  assert.equal(await repoTouched(at(200, 31).get, "o/t", { appLogin: BOT, expectedId: 20 }), "replaced");
+  assert.equal(await repoTouched(at(404).get, "o/t", { appLogin: BOT, expectedId: 20 }), "absent");
+  assert.equal(await repoTouched(at(502).get, "o/t", { appLogin: BOT, expectedId: 20 }), "unknown");
+  // No id on record: judged by its name, as before.
+  assert.equal(await repoTouched(at(200, 31).get, "o/t", { appLogin: BOT }), "untouched");
+});

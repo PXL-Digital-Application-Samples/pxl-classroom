@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
-import { APP_SLUG } from "../lib/deployment.mjs";
+import { APP_SLUG, CONTROL_REPO } from "../lib/deployment.mjs";
 import { applyStudentPermission, grantableAfterLock } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
@@ -55,6 +55,11 @@ const cfg = {
   // student left, and its repository goes too if it STILL holds nothing
   // anybody pushed when this step gets to it.
   removePreviousRepo: env("REMOVE_PREVIOUS_REPO", "") === "true",
+  // The repo_id a record holds for previousRepo (R6-42): only that repository
+  // is deleted. Empty where no record holds one.
+  previousRepoId: /^[1-9][0-9]*$/.test(env("PREVIOUS_REPO_ID", "")) ? Number(env("PREVIOUS_REPO_ID", "")) : null,
+  // The team it was left with (R6-44): made again since, its repository stays.
+  previousTeamSlug: /^[a-z0-9][a-z0-9-]{0,63}$/.test(env("PREVIOUS_TEAM_SLUG", "")) ? env("PREVIOUS_TEAM_SLUG", "") : "",
   // Exactly "true". Absent, empty or anything else keeps an existing
   // repository: the safe default is never to delete.
   recreateEmpty: env("RECREATE_EMPTY", "") === "true",
@@ -81,6 +86,16 @@ async function fail(category, note) {
   await summary(`### Provisioning FAILED: \`${category}\`\n\n${note ?? ""}`);
   process.exit(1);
 }
+
+/**
+ * A failure that happens after the grant and leaves the rest of the run worth
+ * doing (review 2026-10-15, R6-44): the run still ends red with it, but only
+ * after the steps that do not depend on it. Failing at once skipped the
+ * student's `invited` output, so their page never learned an invitation had
+ * been emailed to them, and their deadline variable, feedback baseline and
+ * starting commit with it.
+ */
+let failAtEnd = null;
 
 // --- Strict input validation (security requirement) -------------------------
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;          // org / repo names
@@ -230,22 +245,80 @@ async function currentDefaultBranch() {
  * or one nobody but PXL Classroom has pushed to, that is the head. On a reuse
  * somebody pushed to - a Retry after the student's first push - the head holds
  * their work, and a baseline there hid it from the review (live, 2026-10-15):
- * GitHub's generated first commit is what they were given when nothing was
- * added on top of it (`addsWorkflow`), and otherwise nothing is known.
+ * the start an earlier run recorded, else GitHub's generated first commit with
+ * the App's own commits on top of it, and otherwise nothing is known.
  *
  * @returns {Promise<{ sha: string|null, why?: string }>}
  */
-async function baselineStart({ reused, head, defaultBranch, addsWorkflow, repo }) {
-  if (!reused || (await onlyAppPushed())) return { sha: head };
-  if (repo?.template_repository && !addsWorkflow) {
-    const at = `/repos/${cfg.org}/${cfg.targetRepo}/commits?sha=${encodeURIComponent(defaultBranch)}&per_page=1`;
-    const first = await gh("GET", at);
-    const last = String(first.headers?.get?.("link") || "").match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
-    const page = last ? await gh("GET", `${at}&page=${last[1]}`) : first;
-    const root = page.ok && Array.isArray(page.data) && page.data.length === 1 ? page.data[0] : null;
-    if (root && generatedFromTemplate(root)) return { sha: root.sha };
+async function baselineStart({ reused, head, defaultBranch, repo }) {
+  if (!reused) return { sha: head };
+  // WHAT AN EARLIER RUN RECORDED it was given (review 2026-10-15, R6-41),
+  // before anything is worked out again.
+  const recorded = await recordedStart();
+  if (recorded) return { sha: recorded };
+  if (await onlyAppPushed()) return { sha: head };
+  // GITHUB'S COPY, walked forward from the commit GitHub generated through the
+  // commits PXL Classroom's App made on top of it - the grading workflow, a
+  // starter sync - and no further: the newest of those is what the student was
+  // given. Only GitHub's first commit was taken, and only where provisioning
+  // added no workflow, so a template that ships its own refused, and the
+  // App's own commits read as the student's work (R6-41).
+  if (repo?.template_repository) {
+    const list = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?sha=${encodeURIComponent(defaultBranch)}&per_page=100`);
+    const rows = list.ok && Array.isArray(list.data) && list.data.length < 100 ? [...list.data].reverse() : null;
+    if (rows?.length && generatedFromTemplate(rows[0])) {
+      let start = rows[0];
+      for (const row of rows.slice(1)) {
+        const byApp = row?.commit?.verification?.verified === true && sameLogin(row?.author?.login, `${APP_SLUG}[bot]`);
+        const onStart = Array.isArray(row?.parents) && row.parents.length === 1 && row.parents[0]?.sha === start.sha;
+        if (!byApp || !onStart) break;
+        start = row;
+      }
+      return { sha: start.sha };
+    }
   }
   return { sha: null, why: "somebody has pushed to it since it was made, and what the student was given cannot be told apart from their work" };
+}
+
+/**
+ * Whether the repository a switch left now has a different repository at its
+ * name (review 2026-10-15, R6-42): deleted and made again, or renamed with the
+ * name reused. Leaving it then means nothing - the student's access, a pending
+ * invitation, its members' deadline and the repository itself are another
+ * repository's - so nothing is done to it. Known only where a record held the
+ * id; an unreadable answer is not "different", and the delete asks again.
+ */
+async function leftRepoReplaced(name) {
+  if (!Number.isInteger(cfg.previousRepoId)) return false;
+  const res = await gh("GET", `/repos/${cfg.org}/${name}`);
+  if (!res.ok || !Number.isInteger(res.data?.id) || res.data.id === cfg.previousRepoId) return false;
+  log("left-repo", { ok: true, note: `${name} is a different repository now (id ${res.data.id}, the record names ${cfg.previousRepoId}) - nothing is done to it` });
+  return true;
+}
+
+/**
+ * Whether the team the switch left is still gone from the control repository,
+ * as GitHub has it now (R6-44): `untouched` when it is, `remade` when its file
+ * is back, `team-unread` when that could not be read. Without the slug (an
+ * older dispatch), `untouched`, as before.
+ *
+ * @returns {Promise<"untouched"|"remade"|"team-unread">}
+ */
+async function leftTeamStillGone() {
+  if (!cfg.previousTeamSlug || !cfg.assignmentId) return "untouched";
+  const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/teams/${encodeURIComponent(cfg.assignmentId)}/${cfg.previousTeamSlug}.json`);
+  if (res.status === 404) return "untouched";
+  return res.ok ? "remade" : "team-unread";
+}
+
+/** The start a repository record for this student already holds, or null. */
+async function recordedStart() {
+  try {
+    const rec = JSON.parse(await readFile(`control/repositories/${cfg.assignmentId}/${cfg.studentLogin}.json`, "utf-8"));
+    return typeof rec?.starter_sha === "string" && /^[0-9a-f]{40}$/.test(rec.starter_sha) ? rec.starter_sha : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -268,14 +341,13 @@ async function templateOwnsBranch(repo, branch, sha) {
  * The pull request itself is opened later, once the student has pushed.
  *
  * @param {{ template_repository?: object }} repo
- * @param {{ copiedTemplateBranches?: boolean, reused?: boolean, addsWorkflow?: boolean }} [opts]
+ * @param {{ copiedTemplateBranches?: boolean, reused?: boolean }} [opts]
  *   `copiedTemplateBranches`: this run copied every branch of the template
  *   into the repository (a full-history copy it made), so a branch with the
  *   baseline's name is the template's, never ours. `reused`: the repository
- *   was there before this run. `addsWorkflow`: provisioning commits the
- *   grading workflow on top of what GitHub copied.
+ *   was there before this run.
  */
-async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false, reused = false, addsWorkflow = false } = {}) {
+async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false, reused = false } = {}) {
   const branch = cfg.baselineBranch;
 
   // Same race as the autograding injection: on a freshly generated repository
@@ -302,7 +374,7 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false, reu
   let baselineAt = null;
   const exists = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/git/ref/heads/${branch}`);
   if (exists.status === 404) {
-    const start = await baselineStart({ reused, head: sha, defaultBranch, addsWorkflow, repo });
+    const start = await baselineStart({ reused, head: sha, defaultBranch, repo });
     if (!start.sha) {
       log("feedback-baseline", { ok: false, note: `no ${branch}: ${start.why}` });
       return null;
@@ -310,9 +382,17 @@ async function setupFeedbackBaseline(repo, { copiedTemplateBranches = false, reu
     const make = await gh("POST", `/repos/${cfg.org}/${cfg.targetRepo}/git/refs`, {
       ref: `refs/heads/${branch}`, sha: start.sha,
     });
-    if (!make.ok) { log("feedback-baseline", { ok: false, note: `create ${branch} HTTP ${make.status}` }); return null; }
-    log("feedback-baseline", { ok: true, note: `created ${branch}@${start.sha.slice(0, 12)}${start.sha === sha ? "" : `, GitHub's first commit: ${defaultBranch} has the student's work on it`}` });
-    baselineAt = start.sha;
+    if (make.ok) {
+      log("feedback-baseline", { ok: true, note: `created ${branch}@${start.sha.slice(0, 12)}${start.sha === sha ? "" : `, what it was given: ${defaultBranch} has the student's work on it`}` });
+      baselineAt = start.sha;
+    } else {
+      // A TEAMMATE'S RUN made it in the meantime (R6-41): two members accepting
+      // together both found no branch. There now is the outcome this is for.
+      const again = make.status === 422 ? await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/git/ref/heads/${branch}`) : null;
+      if (!again?.ok) { log("feedback-baseline", { ok: false, note: `create ${branch} HTTP ${make.status}` }); return null; }
+      log("feedback-baseline", { ok: true, note: `${branch} was made meanwhile @${again.data.object.sha.slice(0, 12)}` });
+      baselineAt = again.data.object.sha;
+    }
   } else if (exists.ok && (copiedTemplateBranches || (await templateOwnsBranch(repo, branch, exists.data?.object?.sha)))) {
     // The template's own branch, which the copy brought: adopted, it was
     // protected against the exercise that needs it, and every feedback PR
@@ -821,11 +901,15 @@ async function injectAutogradingWorkflow(assignment) {
     // still absent fails.
     const again = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`);
     if (again.status !== 200) {
-      await fail(
-        "fail:grading-workflow",
-        `${cfg.org}/${cfg.targetRepo} was created and the student has it, but the grading workflow could not be added ` +
+      // At the end of the run, not now (R6-44): the steps after this one do not
+      // need the workflow, and the student's page needs the invitation.
+      failAtEnd = {
+        category: "fail:grading-workflow",
+        note: `${cfg.org}/${cfg.targetRepo} was created and the student has it, but the grading workflow could not be added ` +
           `(HTTP ${res.status}), so their work would not be graded. Re-run Retry acceptance for this student.`,
-      );
+      };
+      log("inject-autograding", { ok: false, note: `the grading workflow could not be added (HTTP ${res.status}); the run fails once the rest is done` });
+      return null;
     }
     log("inject-autograding", { ok: true, note: `the grading workflow is there already (the write answered HTTP ${res.status})` });
     return await workflowCommit();
@@ -1147,7 +1231,7 @@ async function main() {
     grantInvited = add.via === "invitation";
 
     // 5.1 If student switched teams, remove collaborator access and cancel pending invitations on previous repository
-    if (cfg.previousRepo && cfg.previousRepo !== cfg.targetRepo) {
+    if (cfg.previousRepo && cfg.previousRepo !== cfg.targetRepo && !(await leftRepoReplaced(cfg.previousRepo.split("/").pop()))) {
       const prevRepoName = cfg.previousRepo.split("/").pop();
       const remove = await gh("DELETE", `/repos/${cfg.org}/${prevRepoName}/collaborators/${cfg.studentLogin}`);
       log("remove-old-collab", { ok: remove.ok || remove.status === 404, note: `removed from ${prevRepoName} (HTTP ${remove.status})` });
@@ -1182,13 +1266,26 @@ async function main() {
           // notice - while keeping it, the manifest already removed by the
           // decision, leaves a repository no record names: the typo team
           // switched away from within minutes is exactly the case this exists for.
-          const state = await repoTouched((path) => gh("GET", path), full, { appLogin: `${APP_SLUG}[bot]` });
+          const touched = await repoTouched((path) => gh("GET", path), full, { appLogin: `${APP_SLUG}[bot]`, expectedId: cfg.previousRepoId });
+          // AND WHETHER THE TEAM IS STILL GONE (review 2026-10-15, R6-44): a
+          // student joining it in the seconds since the decision makes it
+          // again (a join of a team with no file is a create), and under an
+          // explicit `reuse` is handed this repository - which this step then
+          // deleted under them. Asked of the control repository on GitHub now,
+          // never the checkout; an unread answer keeps it.
+          const state = touched === "untouched" ? await leftTeamStillGone() : touched;
           if (state === "untouched") {
             const del = await gh("DELETE", `/repos/${full}`);
             prevDeleted = del.ok || del.status === 404;
             log("remove-old-repo", { ok: prevDeleted, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });
           } else {
-            const why = { absent: "already gone", touched: "something was pushed to it since" }[state] || "could not read it";
+            const why = {
+              absent: "already gone",
+              touched: "something was pushed to it since",
+              replaced: "a different repository has that name now",
+              remade: "its team has been made again since, so someone may be joining it",
+              "team-unread": "could not tell whether its team has been made again since",
+            }[state] || "could not read it";
             log("remove-old-repo", { ok: true, note: `kept ${prevRepoName}: ${why}` });
           }
         } catch (e) {
@@ -1204,15 +1301,11 @@ async function main() {
   // The commit it made on the default branch, if it made one - part of what a
   // full-history copy is given (step 7).
   let injectedSha = null;
-  // Whether provisioning commits on top of GitHub's copy, so its first commit
-  // alone is not what the student was given (the feedback baseline, step 6).
-  let addsWorkflow = false;
   if (!cfg.dryRun && repo && cfg.assignmentId) {
     try {
       const yamlStr = await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8");
       const assignment = parse(yamlStr);
       if (assignment?.autograde?.enabled && assignment.autograde.execution_environment === "github_actions") {
-        addsWorkflow = true;
         injectedSha = await injectAutogradingWorkflow(assignment);
       }
     } catch (e) {
@@ -1232,7 +1325,7 @@ async function main() {
   //    is deferred to `pxl-classroom feedback open` once student commits land.
   let baselineSha = "";
   if (cfg.feedbackPr && !cfg.dryRun && repo) {
-    baselineSha = (await setupFeedbackBaseline(repo, { copiedTemplateBranches: cfg.fullHistory && !alreadyExists, reused: alreadyExists, addsWorkflow })) || "";
+    baselineSha = (await setupFeedbackBaseline(repo, { copiedTemplateBranches: cfg.fullHistory && !alreadyExists, reused: alreadyExists })) || "";
   }
 
   // 7. What a repository copied with its history was given: its default
@@ -1311,9 +1404,12 @@ async function main() {
   await setOutput("repo_id", repo?.id ?? "");
   await setOutput("repo_url", repo?.html_url ?? "");
   await setOutput("repo_name", repo?.full_name ?? "");
-  await setOutput("outcome", outcome);
   await setOutput("baseline_sha", baselineSha);
   await setOutput("invited", grantInvited ? "true" : "false");
+  // Every output above is written first: the record step reads them on a
+  // failed run too, and the student's invitation label reads `invited`.
+  if (failAtEnd) await fail(failAtEnd.category, failAtEnd.note);
+  await setOutput("outcome", outcome);
   await summary(
     `### Provisioning: \`${outcome}\`\n\n` +
     `| field | value |\n|---|---|\n` +

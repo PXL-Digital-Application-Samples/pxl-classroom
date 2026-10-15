@@ -1104,6 +1104,12 @@ async function main() {
   // The team this student left is removed, and its repository with it - set
   // only when that repository held nothing anybody pushed (step 5).
   let previousRepoRemove = false;
+  // Its `repo_id`, where a record holds one: provisioning removes only that
+  // repository, never whatever has its name by then (R6-42).
+  let previousRepoId = null;
+  // The team it was left with: provisioning asks again, at the delete, whether
+  // somebody has made that team again since (R6-44).
+  let leftTeamSlug = null;
   let isFirstMember = true;
   // Set by step 7. Recorded on the acceptance so the lecturer's report can say
   // this student did not start from the template - `outcome: "reused"` already
@@ -1256,6 +1262,7 @@ async function main() {
       } else {
         log("team-switch", { ok: true, note: `switching from ${oldTeam.team_slug} to ${teamSlug}` });
         previousTeamSlug = oldTeam.team_slug;
+        leftTeamSlug = oldTeam.team_slug;
         // The repository the team's record names, where it names one: that is
         // the repository the student loses and, emptied, the one removed. The
         // pattern's name only where the record has none (review 2026-10-14).
@@ -1276,6 +1283,7 @@ async function main() {
             policy: normalizeExistingRepoPolicy(assignment.existing_repo_policy, { assignmentType: assignment.assignment_type }),
           }) ? patternRepo : null);
         previousRepo = recordedRepo || patternRepo;
+        if (manifestRepoName(oldTeam.repo_name, org) && Number.isInteger(oldTeam.repo_id)) previousRepoId = oldTeam.repo_id;
         // Same coercion, and this one mattered more: `.some()` above stops at
         // the first match, so a non-string sitting AFTER the student was never
         // evaluated there and reached this filter, which evaluates every entry.
@@ -1301,7 +1309,7 @@ async function main() {
           // hand - could be judged untouched and deleted. A team whose record
           // names no repository is kept vacant: a seeded team is the
           // lecturer's plan, and whoever enters it makes the repository.
-          const state = recordedRepo ? await repoTouched((path) => gh("GET", path), `${org}/${recordedRepo}`, { appLogin: `${APP_SLUG}[bot]` }) : "unrecorded";
+          const state = recordedRepo ? await repoTouched((path) => gh("GET", path), `${org}/${recordedRepo}`, { appLogin: `${APP_SLUG}[bot]`, expectedId: previousRepoId }) : "unrecorded";
           // ONLY a repository that is there and holds nothing. A 404 is not
           // "there is none": it is also what an App that cannot see the
           // repository is told (an owner's "Only select repositories",
@@ -1322,6 +1330,7 @@ async function main() {
               absent: "GitHub shows no repository for it",
               unknown: "its repository could not be read",
               unrecorded: "its record names no repository of this assignment",
+              replaced: "a different repository has its repository's name now",
             }[state];
             log("team-vacant", { ok: true, note: `${oldTeam.team_slug} is empty and kept: ${why}` });
           }
@@ -1505,6 +1514,8 @@ async function main() {
       const leftRepo = manifestRepoName(rec?.repo_name, org);
       if (leftRepo && leftSlug && leftSlug !== teamSlug.toLowerCase() && leftRepo.toLowerCase() !== targetRepo.toLowerCase()) {
         previousRepo = leftRepo;
+        previousRepoId = Number.isInteger(rec?.repo_id) ? rec.repo_id : null;
+        leftTeamSlug = leftSlug;
         previousRepoRemove = !existsSync(join(dataDir, "teams", assignmentId, `${leftSlug}.json`));
         log("team-switch-unfinished", { ok: true, note: `still to leave ${leftRepo} from the earlier switch${previousRepoRemove ? " (its team is gone)" : ""}` });
       }
@@ -1556,6 +1567,8 @@ async function main() {
     await setOutput("is_first_member", isFirstMember ? "true" : "false");
     await setOutput("previous_repo", previousRepo || "");
     await setOutput("previous_repo_remove", previousRepoRemove ? "true" : "false");
+    await setOutput("previous_repo_id", previousRepoId === null ? "" : String(previousRepoId));
+    await setOutput("previous_team_slug", leftTeamSlug || "");
     // Whether an EMPTY repository at this name may be removed and created
     // again by provisioning (lib/existing-repo.mjs `leftoverOfOwnAttempt`): an
     // earlier attempt of this student's that failed after GitHub created it.
@@ -1804,6 +1817,8 @@ async function main() {
   await setOutput("is_first_member", isFirstMember ? "true" : "false");
   await setOutput("previous_repo", previousRepo || "");
   await setOutput("previous_repo_remove", previousRepoRemove ? "true" : "false");
+  await setOutput("previous_repo_id", previousRepoId === null ? "" : String(previousRepoId));
+  await setOutput("previous_team_slug", leftTeamSlug || "");
   await setOutput("own_earlier_attempt", ownEarlierAttempt ? "true" : "false");
   await setOutput("student_permission", studentPermission);
   await setOutput("template_owner", assignment.template.owner);

@@ -192,6 +192,16 @@ outputs:
       held nothing anybody pushed: the team was removed, and provisioning
       deletes the repository after checking again.
     value: ${{ steps.accept.outputs.previous_repo_remove }}
+  previous_repo_id:
+    description: >-
+      The repo_id a record holds for previous_repo, or empty: provisioning
+      deletes only the repository with that id.
+    value: ${{ steps.accept.outputs.previous_repo_id }}
+  previous_team_slug:
+    description: >-
+      The slug of the team previous_repo belonged to, or empty: provisioning
+      keeps the repository when that team has been made again since.
+    value: ${{ steps.accept.outputs.previous_team_slug }}
   own_earlier_attempt:
     description: >-
       "true" when a repository at the student's name is this assignment's own

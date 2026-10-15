@@ -203,6 +203,18 @@ test("an unreadable assignment touches NOTHING", async () => {
 
   assert.deepEqual(calls, [], "no request may be made on a guess");
   assert.ok(logged.some((l) => l.includes("::warning::") && l.includes("Could not read")));
+  // R6-31: and a record, counted, so the nightly's ceiling ends the retries
+  // rather than queueing this every night.
+  const record = JSON.parse(readFileSync(join(dataDir, "lockdowns", "does-not-exist", "broker-closed.json"), "utf8"));
+  assert.deepEqual([record.closed, record.key_removed, record.attempts], [false, false, 1]);
+});
+
+test("R6-31: an assignment stored as .yaml is read, as the finalize queue reads it", async () => {
+  rmSync(join(dataDir, "assignments", `${ID}.yml`));
+  writeFileSync(join(dataDir, "assignments", `${ID}.yaml`), `id: ${ID}\ntitle: Exam\n`, "utf8");
+  stubFetch({ [VAR]: { status: 204 }, [KEY]: { status: 204 }, [CID]: { status: 204 } });
+  await run();
+  assert.deepEqual(calls, [VAR, KEY, CID]);
 });
 
 test("a missing org or assignment is a no-op, not a warning", async () => {

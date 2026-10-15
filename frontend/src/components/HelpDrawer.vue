@@ -79,8 +79,20 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 // Move focus into the panel when it opens so the keyboard goes with it, and so
 // a screen reader announces the topic rather than leaving the user in the page
 // behind.
-watch(topic, async (t) => {
-  if (!t) return
+//
+// AND BACK WHEN IT CLOSES (review 2026-10-15, R6-33): to what was focused when
+// it opened - usually the `?` inside a dialog - so the keyboard carries on in
+// the dialog it came from instead of starting again at the top of the page.
+// Remembered on opening only; moving between topics inside it keeps the first.
+let opener = null
+watch(topic, async (t, was) => {
+  if (!t) {
+    const back = opener
+    opener = null
+    if (back?.isConnected) back.focus()
+    return
+  }
+  if (!was) opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
   panel.value?.focus()
 })

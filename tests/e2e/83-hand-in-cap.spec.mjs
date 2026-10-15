@@ -52,7 +52,7 @@ const grant = (extra, reason = 'Lab crashed at 11:40, redeploy approved', by = '
 });
 const overrideDoc = (entries) => ({ schema_version: 1, assignment_id: ID, github_login: LOGIN, overrides: entries });
 
-async function setup(page, { summary = summaryOver, overrides = null, malformedOverride = false } = {}) {
+async function setup(page, { summary = summaryOver, overrides = null, malformedOverride = false, noCheckRunFor = null } = {}) {
   const contentWrites = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -85,6 +85,7 @@ async function setup(page, { summary = summaryOver, overrides = null, malformedO
   });
   await page.route(new RegExp(`/repos/${esc}/commits/([0-9a-f]{40})/check-runs`), (route) => {
     const n = Number(route.request().url().match(/commits\/(\d\d)a/)[1]);
+    if (n === noCheckRunFor) return route.fulfill({ status: 200, body: JSON.stringify({ total_count: 0, check_runs: [] }) });
     return route.fulfill({ status: 200, body: JSON.stringify({ check_runs: [{ id: n, name: 'run-autograding-tests', conclusion: 'success', html_url: `https://x/${n}`, output: { summary: null, annotations_count: 1 } }] }) });
   });
   await page.route(new RegExp(`/repos/${esc}/check-runs/(\\d+)/annotations`), (route) => {
@@ -212,6 +213,24 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     expect(row.earned_points).toBe(5);
     expect(row.hand_ins).toMatchObject({ used: 6, allowed: 5, extra: 0 });
     expect(row.hand_ins.ignored.map((i) => i.number)).toEqual([6]);
+  });
+
+  test('R6-43: a revoke whose new answer is no score replaces the granted score, never "unchanged"', async ({ page }) => {
+    // Hand-in 5 has no grading run, so without the grant nothing can be scored:
+    // re-read as an ordinary read, the 6/10 from a hand-in that no longer
+    // counts stayed on record.
+    const { contentWrites } = await setup(page, {
+      overrides: overrideDoc([grant(1)]),
+      summary: { ...summaryOver, students: [{ ...summaryOver.students[0], earned_points: 6, hand_ins: { used: 6, allowed: 6, extra: 1, graded_sha: sha(6), graded_number: 6, ignored: [] } }] },
+      noCheckRunFor: 5,
+    });
+    await openActions(page);
+    await handSection(page).getByLabel(/^Reason/).fill('Granted to the wrong student');
+    await handSection(page).getByRole('button', { name: 'Revoke the extra hand-ins' }).click();
+    await expect.poll(() => lastWrite(contentWrites, summaryPath)).toBeTruthy();
+    const summary = JSON.parse(lastWrite(contentWrites, summaryPath).content);
+    expect(summary.students.find((s) => s.login === LOGIN), 'the granted score is gone').toBeUndefined();
+    expect(summary.failed.find((f) => f.login === LOGIN), 'replaced by why there is no score').toBeTruthy();
   });
 
   test('GRANT with a deadline extension writes both entries, one reason', async ({ page }) => {

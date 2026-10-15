@@ -119,6 +119,18 @@ test.describe('41 - the action is offered only where it does something', () => {
 
 // ======================================================= what it says first
 
+test.describe('41 - R6-38: claims that could not be read are the reason, not the assignment', () => {
+  test('the lede says the addresses could not be read, never that nobody was asked', async ({ page }) => {
+    await openDetail(page);
+    await page.route('**/pxl-classroom-control/contents/students/claims**', (route) =>
+      route.fulfill({ status: 502, body: JSON.stringify({ message: 'Bad Gateway' }) }));
+    await openModal(page);
+    const lede = modal(page).locator('.promote-lede[data-claims-unread="true"]');
+    await expect(lede).toContainText('could not all be read', { timeout: 15000 });
+    await expect(lede).not.toContainText('never collected');
+  });
+});
+
 test.describe('41 - the modal shows the plan before anything is written', () => {
   test('it lists the students it would add, and the counts', async ({ page }) => {
     await openDetail(page);

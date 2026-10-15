@@ -87,7 +87,12 @@ async function withApi(fn, { templateGrades = false, existing = null, contentsEm
       // GitHub's one commit plus the workflow: the `last` page is 2.
       return send(200, [{ sha: INJECTED }], { link: `<http://x/repos/Org/lab-ann/commits?sha=${INJECTED}&per_page=1&page=2>; rel="last"` });
     }
-    if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") return grantStatus === 204 ? send(204) : send(grantStatus, { message: "Forbidden" });
+    // 201: an invitation GitHub emailed (they were not in the organization).
+    if (/\/collaborators\/ann$/.test(url) && req.method === "PUT") {
+      if (grantStatus === 204) return send(204);
+      if (grantStatus === 201) return send(201, { id: 55, invitee: { login: "ann" }, permissions: "write" });
+      return send(grantStatus, { message: "Forbidden" });
+    }
     // The student's own deadline (lib/deadline-variable.mjs): none there yet.
     if (url === "/repos/Org/lab-ann/actions/variables/PXL_DEADLINE" && req.method === "PATCH") return send(404, { message: "Not Found" });
     if (url === "/repos/Org/lab-ann/actions/variables" && req.method === "POST") {
@@ -205,6 +210,22 @@ test("TA-9: a grading workflow that cannot be added fails the run, so a student 
     assert.ok(!calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml")));
     assert.match(r.log, /workflow already present from template - skipping injection/);
   }, { templateGrades: true, injectStatus: 500 });
+});
+
+test("R6-44: a grading workflow that cannot be added fails the run at its END - the invitation, the deadline and the rest are still done", async () => {
+  // It failed at once, after the grant: the student was emailed an invitation
+  // and their page was never told (no `invited`), and their deadline variable,
+  // baseline and start were skipped with it.
+  await withApi(async (api, calls) => {
+    const r = await provision(api, { files: { "overrides/lab/ann.json": extension("ann", "2026-10-25T22:00:00Z") } });
+    assert.equal(r.status, 1, r.log);
+    assert.equal(output(r.outputs, "outcome"), "fail:grading-workflow");
+    assert.equal(output(r.outputs, "invited"), "true", "their page is told an invitation is waiting");
+    assert.ok(calls.some((c) => c.startsWith("BODY ")), "their own deadline still reaches their repository");
+    assert.equal(output(r.outputs, "repo_id"), "10");
+    // The failure is the last word of the log, after everything else ran.
+    assert.match(r.log.trim().split("\n").at(-1), /fail:grading-workflow - .*could not be added \(HTTP 403\)/);
+  }, { injectStatus: 403, grantStatus: 201 });
 });
 
 test("R6-16: a write refused because a teammate's run (or GitHub's retried PUT) already added the workflow is done, and records that commit", async () => {

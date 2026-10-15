@@ -258,6 +258,15 @@ export function registerGradeCommand(program) {
       // them. Under --login their result on record stands (oneReadReplaces).
       const failedReads = new Set();
       const failedRead = (login) => failedReads.add(normalizeLogin(login));
+      // Of those, the ones GitHub's API failed for (`api-failed`, or a read that
+      // threw): a whole-cohort run then writes nothing, as `gradeCohort` refuses
+      // for the page and the nightly (review 2026-10-15, R6-43). The CLI kept
+      // their rows and wrote the rest: two rules for one situation.
+      const apiFailed = new Set();
+      const apiFailedRead = (login) => {
+        failedRead(login);
+        apiFailed.add(normalizeLogin(login));
+      };
       const teamResultsCache = new Map(); // team_slug -> result
 
       const markerBranch = submissionBranch(assignment);
@@ -370,7 +379,8 @@ export function registerGradeCommand(program) {
               }
               if (found.verdict !== "found") {
                 const unread = FAILED_READ_VERDICTS.includes(found.verdict);
-                if (unread) failedRead(s.github_login);
+                if (found.verdict === "api-failed") apiFailedRead(s.github_login);
+                else if (unread) failedRead(s.github_login);
                 // `!` is something to look at; an answer (not handed in, late,
                 // still running) is `-`, as the no-submission line above.
                 const mark = unread || (found.kind || "no-result") === "no-result" ? "!" : "-";
@@ -390,7 +400,8 @@ export function registerGradeCommand(program) {
             }
 
             if (outcome.verdict !== "graded") {
-              if (FAILED_READ_VERDICTS.includes(outcome.verdict)) failedRead(s.github_login);
+              if (outcome.verdict === "api-failed") apiFailedRead(s.github_login);
+              else if (FAILED_READ_VERDICTS.includes(outcome.verdict)) failedRead(s.github_login);
               process.stderr.write(`  ! ${s.github_login}: ${outcome.reason}\n`);
               summary.failed.push({ login: s.github_login, reason: outcome.reason, kind: outcome.kind || "no-result" });
               return;
@@ -452,7 +463,7 @@ export function registerGradeCommand(program) {
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
-            failedRead(s.github_login);
+            apiFailedRead(s.github_login);
             summary.failed.push({ login: s.github_login, reason: `checks: ${err.message}`, kind: "no-result" });
             return;
           }
@@ -536,6 +547,19 @@ export function registerGradeCommand(program) {
           summary.failed.push({ login: s.github_login, reason: err.message, kind: "no-result" });
         }
       });
+
+      // A WHOLE-COHORT READ THAT GITHUB FAILED FOR WRITES NOTHING, as the page and
+      // the nightly refuse it (`gradeCohort`, "api-errors"). One student
+      // (`--login`) is merged as the page's Read score again is, keeping their
+      // row on a failed read (`oneReadReplaces`).
+      if (!opts.login && apiFailed.size) {
+        const who = [...apiFailed].sort();
+        process.stderr.write(
+          `\nGitHub could not be read for ${who.length} student(s): ${who.join(", ")}. ` +
+          `${opts.dryRun ? "A real run would not write" : "Did not write"} the summary of scores the assignment page shows, as the page and the nightly refuse the same. Run it again in a few minutes.\n`,
+        );
+        process.exit(1);
+      }
 
       if (!opts.dryRun) {
         // ONE STUDENT IS MERGED INTO THE SUMMARY ON RECORD (review 2026-10-14).

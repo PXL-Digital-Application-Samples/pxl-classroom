@@ -240,6 +240,23 @@ test("an existing lock is UPDATED, and an id that NEVER EXISTED is tolerated", a
   assert.ok(!gh.calls.some((c) => c.path.startsWith("/repositories/")), "no per-repository reads on the ordinary path");
 });
 
+test("R6-28: an id the ruleset GitHub answers with does not cover is reported, on create and on update", async () => {
+  // GitHub accepts an id it does not know and leaves it out of the list.
+  const answering = (ruleset) => async (method, path, body) => {
+    if (method === "GET" && path.startsWith(`/orgs/${ORG}/rulesets`) && !/\/\d+$/.test(path)) return { ok: true, status: 200, data: ruleset ? [{ id: ruleset.id, name: ruleset.name }] : [] };
+    if (method === "GET" && /\/rulesets\/\d+$/.test(path)) return { ok: true, status: 200, data: ruleset };
+    const ids = (body?.conditions?.repository_id?.repository_ids ?? []).filter((id) => id !== 33);
+    return { ok: true, status: method === "POST" ? 201 : 200, data: { id: 600, enforcement: body.enforcement, conditions: { ...body.conditions, repository_id: { repository_ids: ids } } } };
+  };
+  const made = await ensureOrgSubmissionLock(answering(null), { ...base, repositoryIds: [11, 33], enforcement: "active" });
+  assert.equal(made.action, "created");
+  assert.deepEqual(made.dropped, [33], "not covered, so not locked by it");
+  const existing = { id: 600, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "active", conditions: { repository_id: { repository_ids: [11] }, ref_name: { include: [REF], exclude: [] } } };
+  const updated = await ensureOrgSubmissionLock(answering(existing), { ...base, repositoryIds: [11, 33], enforcement: "active" });
+  assert.equal(updated.action, "updated");
+  assert.deepEqual(updated.dropped, [33]);
+});
+
 test("R6-3: keepCurrent never takes out what an ACTIVE ruleset locks, and keeps nothing a disabled one lists", async () => {
   // A Lock again put 33 back while this run planned from an older reading
   // without it: replacing the list with the plan undid the lock.

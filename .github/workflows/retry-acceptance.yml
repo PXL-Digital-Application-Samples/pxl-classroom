@@ -212,6 +212,8 @@ jobs:
           feedback-pr-baseline-branch: ${{ steps.accept.outputs.feedback_pr_baseline_branch }}
           previous-repo: ${{ steps.accept.outputs.previous_repo }}
           remove-previous-repo: ${{ steps.accept.outputs.previous_repo_remove }}
+          previous-repo-id: ${{ steps.accept.outputs.previous_repo_id }}
+          previous-team-slug: ${{ steps.accept.outputs.previous_team_slug }}
           recreate-empty: ${{ steps.accept.outputs.own_earlier_attempt }}
           student-permission: ${{ steps.accept.outputs.student_permission }}
           template-full-history: ${{ steps.accept.outputs.template_full_history }}

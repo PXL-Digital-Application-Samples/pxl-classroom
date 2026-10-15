@@ -835,6 +835,32 @@ test("a late count belongs to the commit it was counted at: a Refresh that saw a
   assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
 });
 
+test("R6-23: a team repository reopened for one member reads reopened on every member's row", async () => {
+  const repo = "TestOrg/test-asgn-team-a";
+  const rows = runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }, { github_login: "ann", status: "provisioned" }],
+    repositories: [
+      { github_login: "tom", repo_name: repo, repo_id: 7 },
+      { github_login: "ann", repo_name: repo, repo_id: 7 },
+      { github_login: "bo", repo_name: "TestOrg/test-asgn-team-b", repo_id: 8 },
+    ],
+    teams: [
+      { team_slug: "team-a", members: ["tom", "ann"], repo_name: repo },
+      // A teammate's record for ANOTHER repository is not theirs.
+      { team_slug: "team-b", members: ["bo", "tom"], repo_name: "TestOrg/test-asgn-team-b" },
+    ],
+    unlocked: [{
+      schema_version: 1, assignment_id: "test-asgn", github_login: "tom", repo_name: repo,
+      unlocked_at: "2026-09-12T09:00:00Z", unlocked_by: "lecturer", reason: "appeal", lock_method: "ruleset",
+    }],
+  }).students;
+  const ann = rows.find((s) => s.github_login === "ann");
+  assert.equal(ann.lock_down_outcome, "reopened");
+  assert.equal(ann.reopened_at, "2026-09-12T09:00:00Z");
+  assert.equal(rows.find((s) => s.github_login === "bo").reopened_at, null);
+});
+
 test("R6-13: a reopen Lock again ended still says when they could push, from the copy it kept", async () => {
   const { relockHistoryDoc } = await import("../lib/repo-relock.mjs");
   const { validateAgainst } = await import("../lib/validate.mjs");

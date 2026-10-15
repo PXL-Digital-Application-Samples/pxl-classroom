@@ -1004,6 +1004,18 @@ test("a student's dispatch of ANOTHER workflow is not a hand-in, and each file i
   assert.deepEqual(get.reads, [`/repos/${REPO}/contents/.github/workflows/lint.yml?ref=${DISPATCH_HEAD}`]);
 });
 
+test("R6-43: a rate-limited read of the workflow file is 'try again', not a missing permission; a plain 403 still is a failed read", async () => {
+  const world = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }], dispatches: [{ n: 2, min: 20, by: "ada" }] });
+  const withFile = (res) => async (path) => (path.includes("/contents/") ? res : world(path));
+  const limited = await listHandIns(
+    withFile({ status: 403, data: { message: "API rate limit exceeded for installation" }, headers: { "x-ratelimit-remaining": "0" } }),
+    { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] },
+  );
+  assert.deepEqual([limited.ok, limited.failedRead, limited.status, limited.rateLimited], [false, "runs", 403, true]);
+  const denied = await listHandIns(withFile({ status: 403, data: { message: "Resource not accessible by integration" } }), { repoFullName: REPO, branch: "main", marker: marker(), students: ["ada"] });
+  assert.deepEqual([denied.ok, denied.rateLimited], [false, false]);
+});
+
 test("the grading workflow is judged by what it does, not its file name", async () => {
   // A template's own file, grading its own way: a job the grader would read.
   const own = ".github/workflows/exam.yml";

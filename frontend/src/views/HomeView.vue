@@ -199,10 +199,11 @@ import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
 import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getInstallations, getInvitations, getUserRepos } from '../lib/api.js'
+import { getInstallations, getInvitations, getUserRepos, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
-import { matchStudentAssignments } from '../lib/student-assignments.js'
+import { matchStudentAssignments, withOwnDeadlines } from '../lib/student-assignments.js'
+import { readDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 
 const router = useRouter()
 
@@ -362,9 +363,17 @@ async function loadStudentAssignments() {
     const userInvites = (invitesRes.ok && Array.isArray(invitesRes.data)) ? invitesRes.data : []
 
     // 4. Match student repos with assignments (lib/student-assignments.js).
-    acceptedAssignments.value = matchStudentAssignments(allOrgAssignments, {
+    const matched = matchStudentAssignments(allOrgAssignments, {
       login: user.value.login, repos: userRepos, invites: userInvites,
     })
+    // Their own deadline past the class one, from their repository (R6-34).
+    await withOwnDeadlines(matched, {
+      read: (full) => readDeadlineVariable((method, path) => ghApi(token, method, path), {
+        repoFullName: full,
+        canPush: userRepos.find((r) => String(r.full_name).toLowerCase() === String(full).toLowerCase())?.permissions?.push ?? null,
+      }),
+    })
+    acceptedAssignments.value = matched
   } catch (e) {
     console.error('Failed to load student assignments:', e)
     assignmentsError.value = 'Failed to load your accepted assignments.'

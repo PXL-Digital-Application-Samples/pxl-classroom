@@ -371,6 +371,28 @@ grep -n "newestRegen > lastOkAt\|r.conclusion === \"success\" || r.conclusion ==
 
 ---
 
+## 15. Two brokers finalized before acceptance was closed at the deadline may still hold the broker App's key
+
+**Status: open.** Found 2026-10-14 (REVIEW-TRACKER P2-41); moved here 2026-10-15 because no nightly will ever retry it.
+
+Six assignments were finalized before `scripts/close-acceptance.mjs` existed (2026-09-03). Four of their brokers are confirmed closed. The two `test-opdracht` brokers, `PXL-2TIN-CloudEssentials-2627/broker-test-opdracht` and `PXL-2TIN-DevOps-2627/broker-test-opdracht`, cannot be read by the account that checked (a member there, not an admin), and the finalize queue does not reach them: it re-runs a broker close only for a lock written since closing was recorded (`BROKER_CLOSE_RECORDED_SINCE`, `scripts/find-finalizable.mjs`). Every finalize since 2026-09-03 closed its broker (136 nightly logs: 93 closed, one broker already deleted).
+
+Either broker still open is the broker App's private key on a public repository and a door that books a runner for each attempt. The fix needs an admin of each organization: delete the test assignment in the Admin Panel, which removes the broker, or close it by hand as ADMIN.md §5.7 says (door first, then the key).
+
+**How to tell it is closed** - as an admin of each organization; closed when the variable reads `false` (or the repository is gone) and the secret is not listed:
+
+```bash
+gh api repos/PXL-2TIN-CloudEssentials-2627/broker-test-opdracht/actions/variables/INVITE_ENABLED --jq .value
+```
+
+```bash
+gh secret list --repo PXL-2TIN-CloudEssentials-2627/broker-test-opdracht
+```
+
+and the same two for `PXL-2TIN-DevOps-2627/broker-test-opdracht`.
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog - 2026-08-31 unless the row says otherwise.

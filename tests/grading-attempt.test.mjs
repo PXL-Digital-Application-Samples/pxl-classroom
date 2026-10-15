@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { countedGradingRun, latestCheckRuns } from "../lib/grading-attempt.mjs";
+import { countedGradingRun, getAllCheckRuns, latestCheckRuns } from "../lib/grading-attempt.mjs";
 import { readScoreAtCommit } from "../lib/grade-cohort.mjs";
 import { readRunScore } from "../lib/grade-dispatch.mjs";
 import { repoFiles } from "./repo-files.mjs";
@@ -166,6 +166,43 @@ test("readRunScore: a student's re-run of a lecturer's dispatch is not read, and
   const out = await readRunScore(request, { repoFullName: REPO, runId: RUN, sha: SHA, fallbackTotal: 10, students: ["ann"] });
   assert.equal(out.verdict, "graded", JSON.stringify(out));
   assert.equal(out.parsed.earned, 4);
+});
+
+test("R6-43: one page is not the list - the grading check on page 2 of a commit's check runs is read", async () => {
+  // 100 other checks first (a busy commit, re-run often), the grading one after.
+  const other = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, name: `lint-${i}`, status: "completed", conclusion: "success", check_suite: { id: 7 }, output: {} }));
+  const base = `/repos/${REPO}/commits/${SHA}/check-runs?filter=all&per_page=100`;
+  const calls = [];
+  const request = async (_m, path) => {
+    calls.push(path);
+    if (path === base) return { ok: true, status: 200, data: { total_count: 101, check_runs: other } };
+    if (path === `${base}&page=2`) return { ok: true, status: 200, data: { total_count: 101, check_runs: [check(11, 6)] } };
+    if (path.startsWith(`/repos/${REPO}/actions/runs?head_sha=`)) return { ok: true, status: 200, data: { workflow_runs: [] } };
+    if (path === `/repos/${REPO}/actions/runs?check_suite_id=${SUITE}&per_page=1`) {
+      return { ok: true, status: 200, data: { workflow_runs: [{ id: RUN, run_attempt: 1, triggering_actor: user("ann") }] } };
+    }
+    return { ok: false, status: 404, data: null };
+  };
+  const out = await readScoreAtCommit(request, { repoFullName: REPO, sha: SHA, fallbackTotal: 10, students: ["ann"] });
+  assert.equal(out.verdict, "graded", JSON.stringify(out));
+  assert.equal(out.parsed.earned, 6);
+  assert.ok(calls.includes(`${base}&page=2`));
+
+  // A page that fails is the read's failure, never "no CI run".
+  const broken = async (m, path) => (path === `${base}&page=2` ? { ok: false, status: 502, data: { message: "Bad Gateway" } } : request(m, path));
+  const failed = await readScoreAtCommit(broken, { repoFullName: REPO, sha: SHA, fallbackTotal: 10, students: ["ann"] });
+  assert.equal(failed.verdict, "api-failed");
+  assert.match(failed.reason, /HTTP 502/);
+});
+
+test("getAllCheckRuns: a short first page is the whole list, asked once; past its cap it is not a list", async () => {
+  let asked = 0;
+  const one = await getAllCheckRuns(async () => { asked++; return { ok: true, status: 200, data: { check_runs: [check(1, 1)] } }; }, "/x?per_page=100");
+  assert.deepEqual([one.ok, one.data.check_runs.length, asked], [true, 1, 1]);
+  const full = Array.from({ length: 100 }, (_, i) => check(i, 1));
+  const endless = await getAllCheckRuns(async () => ({ ok: true, status: 200, data: { check_runs: full } }), "/x?per_page=100");
+  assert.equal(endless.ok, false);
+  assert.match(endless.data.message, /not all of them could be read/);
 });
 
 test("every read of a commit's or a suite's check runs lists every attempt", () => {

@@ -90,10 +90,12 @@ test.describe('34 - WS2.1 The share block says what a student would see', () => 
     await expect(share(page).first().locator('.status-dot.dot-success')).toBeVisible();
   });
 
-  test('A past deadline is Closed here too, because it is closed to the student', async ({ page }) => {
+  test('A past deadline says Deadline passed here, in the header\'s words for it', async ({ page }) => {
+    // R6-37: it said Closed three lines below a header saying Deadline passed,
+    // and Closed is a state of its own.
     await openEditor(page, assignment({ deadline_at: new Date(Date.now() - 3600000).toISOString() }));
     await openInvitePopover(page);
-    await expect(share(page).first()).toContainText('Closed');
+    await expect(share(page).first()).toContainText('Deadline passed');
     await expect(share(page).first()).toContainText('The deadline passed');
   });
 

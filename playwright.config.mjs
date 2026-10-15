@@ -25,15 +25,14 @@ const env = {
 // the build the suite ran in 3.7 minutes instead of 6, with none. It is also
 // what the site serves.
 //
-// These five need the dev server: four visit `/sandbox`, which the build
+// These three need the dev server: two visit `/sandbox`, which the build
 // drops (`import.meta.env.DEV`, frontend/src/router), and 46 imports
 // `/src/lib/claim.js` into the page. A spec that needs it and is not listed
-// fails loudly on the build, never silently.
+// fails loudly on the build, never silently. 08 and 39 were listed and need
+// neither (review 2026-10-15, R6-40): they run on what the site serves.
 const DEV_SERVER_SPECS = [
-  '**/08-group-autograding-scenarios.spec.mjs',
   '**/19-theme-toggle.spec.mjs',
   '**/22-design-conformity.spec.mjs',
-  '**/39-orphan-routes.spec.mjs',
   '**/46-claim-address.spec.mjs',
 ];
 

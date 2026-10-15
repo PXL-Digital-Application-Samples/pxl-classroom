@@ -62,6 +62,9 @@ test.describe('116 - the student page reads their own deadline from their reposi
     await expect(card.locator('.override-alert-banner')).toHaveText(`Deadline extended to ${shown(extended)}.`);
     await expect(card.locator('.deadline-countdown')).toContainText('Closes in');
     await expect(card.locator('.badge-success')).toHaveText('Submitted on time');
+    // R6-34: the header goes by their deadline too - never Closed, never red.
+    await expect(page.getByText('Closed', { exact: true })).toHaveCount(0);
+    await expect(card.locator('.deadline-countdown .stat-red')).toHaveCount(0);
   });
 
   test('R6-11: a variable the deadline has since passed shortens nothing', async ({ page }) => {
@@ -113,6 +116,10 @@ async function lecturerPage(page, { variable = null, overrides = {}, variableWri
     await page.route(`**/pxl-classroom-control/contents/overrides/${ID}**`, (route) =>
       route.fulfill({ status: overridesStatus, body: JSON.stringify({ message: 'Server Error' }) }));
   }
+  // The repository as GitHub shows it to a lecturer who owns the organization:
+  // push access, which is what makes a 404 on its variable "none" (R6-35).
+  await page.route(new RegExp(`/repos/${FULL.replace('/', '\\/')}$`), (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify({ name: REPO, full_name: FULL, permissions: { admin: true, push: true, pull: true } }) }));
   await page.goto(`/dashboard/${ORG}/${ID}`);
   await page.getByRole('button', { name: `Actions for ${STUDENT.login}` }).first().click();
   return page.getByRole('dialog', { name: `Actions for ${STUDENT.login}` });
@@ -159,6 +166,21 @@ test.describe('116 - the lecturer grants it, and sees what their page shows', ()
     await expect(line).toHaveText('Could not read the extensions, so whether their own page shows the right deadline is not known.');
     await expect(line.getByRole('button')).toHaveCount(0);
     expect(variableWrites).toEqual([]);
+  });
+
+  test('R6-35: a lecturer the repository does not let push reads a 404 as not known, never as none', async ({ page }) => {
+    const value = hours(48);
+    const dialog = await lecturerPage(page, {
+      overrides: { [STUDENT.login]: { schema_version: 1, assignment_id: ID, github_login: STUDENT.login, overrides: [{ type: 'deadline_extension', value, reason: 'medical', overridden_by: 'l', overridden_at: hours(-1) }] } },
+    });
+    // Registered after lecturerPage's: the newest route answers first.
+    await page.route(new RegExp(`/repos/${FULL.replace('/', '\\/')}$`), (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify({ name: REPO, full_name: FULL, permissions: { admin: false, push: false, pull: true } }) }));
+    await dialog.getByRole('button', { name: 'Close' }).first().click();
+    await page.getByRole('button', { name: `Actions for ${STUDENT.login}` }).first().click();
+    const line = page.getByRole('dialog', { name: `Actions for ${STUDENT.login}` }).locator('[data-page-deadline]');
+    await expect(line).toHaveAttribute('data-state', 'unknown');
+    await expect(line.getByRole('button')).toHaveCount(0);
   });
 
   test('one their page already shows is said so, with nothing to send', async ({ page }) => {

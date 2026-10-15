@@ -5582,8 +5582,9 @@ async function setState(newState) {
   const questions = {
     draft: {
       title: `Move "${name}" back to draft?`,
-      paragraphs: [past
-        ? 'It is taken off the student pages. Existing repositories are untouched.'
+      // Closed has stopped the link already (R6-37), as the deadline has.
+      paragraphs: [past || form.value.state === 'closed'
+        ? `It is taken off the student pages. Existing repositories are untouched${past ? '' : ', and are still locked at the deadline'}.`
         : 'The invitation link stops working, so students can no longer open it. Existing repositories are untouched, and are still locked at the deadline.'],
       confirmLabel: 'Back to draft',
       destructive: true,

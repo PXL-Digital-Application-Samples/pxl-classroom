@@ -1369,6 +1369,31 @@ test("...and only the repository the team's RECORD names: an untouched one at th
   }
 });
 
+test("R6-42: the repository the record names by its id: another one at that name keeps the team vacant, and the id goes to provisioning", () => {
+  const run = (repoId, repo) => {
+    probe.setRepos({ "asgn-typo-team": { commits: [GENERATED_ROOT], ...repo } });
+    try {
+      return runAccept(
+        { ORG: "TestOrg", ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101", TEAM_NAME: "Right Team", TEAM_ACTION: "switch" },
+        { assignmentYaml: selfServiceYaml(), teams: { "test-asgn": { "typo-team": { ...ALONE_IN_TYPO, repo_id: repoId } } } },
+      );
+    } finally {
+      probe.setRepos({});
+    }
+  };
+  const same = run(55, { id: 55 });
+  assert.equal(same.status, 0, same.stdout + same.stderr);
+  assert.equal(same.outputs.previous_repo_remove, "true");
+  assert.equal(same.outputs.previous_repo_id, "55", "provisioning deletes only that one");
+
+  const other = run(55, { id: 4242 });
+  assert.equal(other.status, 0, other.stdout + other.stderr);
+  assert.equal(other.outputs.previous_repo_remove, "false");
+  const typo = JSON.parse(readFileSync(join(other.dir, "teams", "test-asgn", "typo-team.json"), "utf8"));
+  assert.equal(typo.vacant, true);
+  assert.match(other.stdout + other.stderr, /a different repository has its repository's name now/);
+});
+
 test("...EXCEPT the one the leaving student's own decision into that team made: a switch that beat the record push still removes it", () => {
   // Review 2026-10-14: the manifest learns repo_name only at the record step,
   // after the invitation; a student switching straight back from a team made

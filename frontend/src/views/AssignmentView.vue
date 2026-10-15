@@ -773,24 +773,26 @@ let pollGeneration = 0
 const now = ref(new Date())
 let nowInterval = null
 
+// THIS STUDENT'S deadline, their extension included (review 2026-10-15, R6-34):
+// past the class deadline the header said Closed and the countdown turned red
+// over a student whose extension was still running. The class deadline is
+// still the date shown beside it.
 const isPastDeadline = computed(() => {
-  if (!assignment.value?.deadline_at) return false
-  return now.value > new Date(assignment.value.deadline_at)
+  if (!effectiveDeadline.value) return false
+  return now.value > effectiveDeadline.value
 })
 
-// The header badge counts down the ASSIGNMENT's deadline; deadlineCountdown
-// below counts down this student's effective one. Different numbers, same
-// arithmetic - which is why it comes from the shared module rather than a
-// fourth copy of it.
+// The header badge and deadlineCountdown below count down this student's
+// effective deadline, with the shared arithmetic rather than a fourth copy.
 const timeRemainingStr = computed(() => {
-  const parts = countdownParts(assignment.value?.deadline_at, now.value)
+  const parts = countdownParts(effectiveDeadline.value?.toISOString?.() ?? null, now.value)
   if (!parts) return ''
   return parts.passed ? 'Closed' : `${parts.duration} left`
 })
 
 const timeRemainingBadgeClass = computed(() => {
-  if (!assignment.value?.deadline_at) return 'badge-neutral'
-  const diffMs = new Date(assignment.value.deadline_at) - now.value
+  if (!effectiveDeadline.value) return 'badge-neutral'
+  const diffMs = effectiveDeadline.value - now.value
   if (diffMs <= 0) return 'badge-error'
   
   const diffHours = Math.floor(diffMs / 3600000)

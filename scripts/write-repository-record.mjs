@@ -148,6 +148,27 @@ if (!teamOnly) {
     fullHistory: start.fullHistory,
   });
 
+  // WHAT A LATER STEP WROTE ON IT (review 2026-10-15, R6-42). The feedback
+  // pull request is opened after provisioning and recorded here, and a retry
+  // rebuilt the record without it, so the page said "Not opened" over an open
+  // one until the next open found it again. Kept from this student's own
+  // record where it names the same repository: another repository's pull
+  // request is not this one's. `created_at` is NOT kept - it is when the record
+  // was written, which scripts/find-finalizable.mjs reads as such.
+  let prior = null;
+  try {
+    prior = JSON.parse(readFileSync(join(values["data-dir"], "repositories", assignmentId, `${login}.json`), "utf8"));
+  } catch {
+    prior = null;
+  }
+  if (prior?.repo_id === repoId) {
+    if (Number.isInteger(prior.feedback_pr_number)) record.feedback_pr_number = prior.feedback_pr_number;
+    if (typeof prior.feedback_pr_url === "string" && prior.feedback_pr_url) record.feedback_pr_url = prior.feedback_pr_url;
+    if (!record.feedback_pr_baseline_sha && typeof prior.feedback_pr_baseline_sha === "string" && prior.feedback_pr_baseline_sha) {
+      record.feedback_pr_baseline_sha = prior.feedback_pr_baseline_sha;
+    }
+  }
+
   const { valid, errors } = validateAgainst("repository-record", record);
   if (!valid) {
     console.error("::error::write-repository-record: schema validation failed");

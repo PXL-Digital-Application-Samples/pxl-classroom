@@ -3,7 +3,7 @@
 //
 //   provisioning/provision.mjs   setOutput("invited", …)
 //   provisioning/action.yml      invited: value: ${{ steps.run.outputs.invited }}
-//   acceptance-handler.yml       if: steps.prov.outputs.invited == 'true'
+//   acceptance-handler.yml       if: ${{ !cancelled() && steps.prov.outputs.invited == 'true' }}
 //
 // Misspell any one of them and the expression evaluates to the empty string.
 // `if: '' == 'true'` is false, the step is skipped, the run is GREEN, and the
@@ -198,10 +198,12 @@ test("the invitation announcement is wired all three ways", () => {
     "${{ steps.run.outputs.invited }}",
     "action.yml must forward it",
   );
+  // `!cancelled()` first (R6-44): a provisioning that failed after the grant
+  // still emailed the invitation, and a bare condition means success() too.
   assert.match(
     handler,
-    /if:\s*steps\.prov\.outputs\.invited == 'true'/,
-    "the handler must gate the student comment on it",
+    /if:\s*\$\{\{\s*!cancelled\(\) && steps\.prov\.outputs\.invited == 'true'\s*\}\}/,
+    "the handler must gate the student comment on it, failed provisioning included",
   );
 
   // And it must be set from the grant's answer, not from the outcome - GitHub's

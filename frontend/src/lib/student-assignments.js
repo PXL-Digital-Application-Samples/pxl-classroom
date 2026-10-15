@@ -25,6 +25,30 @@ export function timeRemaining(deadlineAt, now = new Date()) {
 }
 
 /**
+ * Past the class deadline, THIS student's own one, where their repository
+ * carries a later date (lib/deadline-variable.mjs; review 2026-10-15, R6-34):
+ * the home called an assignment Closed over a running extension. Only a later
+ * date read from their repository changes the badge; one that cannot be read
+ * (a locked student cannot read theirs) leaves it as it was.
+ *
+ * @param {Array<object>} rows  matchStudentAssignments' rows, changed in place
+ * @param {{ read: (repoFullName: string) => Promise<{state: string, at?: Date}>, now?: Date }} a
+ */
+export async function withOwnDeadlines(rows, { read, now = new Date() }) {
+  for (const row of rows || []) {
+    if (row.stateStatus !== 'provisioned' || !row.repoFullName) continue
+    const due = Date.parse(row.deadline_at ?? '')
+    if (!Number.isFinite(due) || due > now.getTime()) continue
+    const own = await Promise.resolve(read(row.repoFullName)).catch(() => null)
+    if (own?.state !== 'set' || !(own.at instanceof Date) || own.at.getTime() <= due) continue
+    const left = timeRemaining(own.at.toISOString(), now)
+    row.timeRemainingStr = left.text
+    row.timeRemainingBadgeClass = left.badgeClass
+  }
+  return rows
+}
+
+/**
  * The assignments this student has, in the order given.
  *
  * @param {Array<object>} allOrgAssignments  published assignments, each with `org`

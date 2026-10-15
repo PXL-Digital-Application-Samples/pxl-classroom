@@ -63,7 +63,9 @@ export function stateActions({ state, deadlinePassed = false, everPublished = fa
     case 'closed':
       return [
         reopen,
-        { key: 'draft', label: 'Back to draft', sub: 'The invitation link stops working' },
+        // Closed has stopped the link already (R6-37): what is left to say is
+        // what Back to draft does now.
+        { key: 'draft', label: 'Back to draft', sub: 'Takes it off the student pages' },
         { key: 'archive', label: 'Archive', sub: 'Leaves the student-facing list and day-to-day tracking' },
         ...freeze,
         { key: 'delete', label: 'Delete assignment…', sub: 'Asks for confirmation first', danger: true },

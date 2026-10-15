@@ -36,7 +36,7 @@ import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
 import { gh } from "../lib/gh.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
-import { assignmentPath, brokerClosedPath } from "../lib/control-layout.mjs";
+import { assignmentPathsRead, brokerClosedPath } from "../lib/control-layout.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -63,11 +63,24 @@ async function main() {
 
   // The broker's name is DECIDED, never composed: an assignment carrying a
   // custom `broker_repo` is why lib/broker-repo.mjs exists.
+  // EVERY SPELLING THE FINALIZE QUEUE READS (scripts/find-finalizable.mjs:
+  // .yml, .yaml, .json), and a RECORD when none can be read (review
+  // 2026-10-15, R6-31): returning without one left the broker "not closed, no
+  // record", which the nightly queues again every night with no ceiling. The
+  // record counts the attempt, so the ceiling ends it and says so.
   let assignment = null;
-  try {
-    assignment = parse(await readFile(join(dataDir, assignmentPath(assignmentId)), "utf8"));
-  } catch (e) {
-    console.log(`::warning::Could not read ${assignmentId} to find its broker (${e.message}) - acceptance stays open.`);
+  let readError = null;
+  for (const path of assignmentPathsRead(assignmentId)) {
+    try {
+      assignment = parse(await readFile(join(dataDir, path), "utf8"));
+      break;
+    } catch (e) {
+      readError = readError ?? e;
+    }
+  }
+  if (!assignment) {
+    console.log(`::warning::Could not read ${assignmentId} to find its broker (${readError?.message ?? "no assignment file"}) - acceptance stays open.`);
+    await recordClose({ dataDir, assignmentId, broker: null, closed: false, keyRemoved: false });
     return;
   }
   const broker = brokerRepoName({ assignment, assignmentId });
@@ -161,8 +174,13 @@ async function recordClose({ dataDir, assignmentId, broker, closed, keyRemoved }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((e) => {
+  main().catch(async (e) => {
     console.log(`::warning::Could not close acceptance (${e.message}) - the finalisation itself is unaffected.`);
+    // Counted, so the nightly's ceiling ends it rather than every night (R6-31).
+    const assignmentId = env("ASSIGNMENT_ID");
+    if (assignmentId) {
+      await recordClose({ dataDir: env("DATA_DIR", "."), assignmentId, broker: null, closed: false, keyRemoved: false }).catch(() => {});
+    }
   });
 }
 

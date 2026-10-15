@@ -3964,7 +3964,9 @@ function buildGradesDataset(includeBreakdown = false, breakdownsMap = null) {
       pct = `${Math.round((s.earned_points / s.total_points) * 100)}%`
     }
     const decidedBy = s.grade_decided_by
-      ? (s.grade_decided_by.kind === 'score' ? `by hand (${s.grade_decided_by.by})` : `chosen ${s.grade_decided_by.sha?.slice(0, 7) || ''} (${s.grade_decided_by.by})`)
+      // The chosen commit is the row's `graded_sha`: `decided_by` names who and
+      // why, never a commit, so this printed "chosen  (login)" (R6-43).
+      ? (s.grade_decided_by.kind === 'score' ? `by hand (${s.grade_decided_by.by})` : `${['chosen', String(s.graded_sha || '').slice(0, 7)].filter(Boolean).join(' ')} (${s.grade_decided_by.by})`)
       : ''
     const commitShaVal = s.last_on_time_sha || (s.submission_status === 'on-time' ? latestSha(s) : null) || ''
     const commitTimeVal = s.commit_date || s.latest_commit_date || ''
@@ -5666,7 +5668,12 @@ async function relockRepositoryFor(student) {
       toast.error(`${verdict.repo} is locked again, but its records could not be updated (${wrote.error || 'the save failed'}). Press Lock again once more to record it.`)
       return
     }
-    toast.success(`${verdict.repo} is locked again. ${members.length > 1 ? 'Its team' : student.github_login} can no longer push.`)
+    // What the lock covers, not more (R6-39): a ruleset stops the submission
+    // branch only, a demotion every write.
+    const who = members.length > 1 ? 'Its team' : student.github_login
+    toast.success(`${verdict.repo} is locked again. ${verdict.method === 'demotion' || verdict.demote
+      ? `${who} can no longer push to it.`
+      : `${who} can no longer push to its submission branch.`}`)
     closeActions()
   } catch (e) {
     toast.error(`Could not lock the repository again: ${e.message || String(e)}`)
@@ -5811,7 +5818,10 @@ async function grantHandInsFor(student, { extra, reason, deadline_local }) {
   } finally {
     actionHandInsSaving.value = false
   }
-  await regradeStudent(student)
+  // As a decision is read again (review 2026-10-15, R6-43): every member, since
+  // a team pools its allowance, and with the flag, so a score from a hand-in
+  // that no longer counts is not kept as "unchanged".
+  for (const m of teamMembersOf(student)) await regradeStudent(m, { afterDecision: true })
 }
 
 /**
@@ -5836,7 +5846,7 @@ async function revokeHandInsFor(student, { reason }) {
   } finally {
     actionHandInsSaving.value = false
   }
-  await regradeStudent(student)
+  for (const m of teamMembersOf(student)) await regradeStudent(m, { afterDecision: true })
 }
 
 // A STUDENT'S OWN DEADLINE REACHES THEIR PAGE THROUGH THEIR REPOSITORY
@@ -5879,12 +5889,27 @@ async function readPageDeadline(student) {
   const mine = ++pageDeadlineRun
   actionPageDeadline.value = null
   if (!student) return
+  // Whether THIS reader may push decides what a 404 means (R6-35): a lecturer
+  // who is not admin of the repository is answered 404 for a variable that
+  // exists, which `canPush: true` read as none.
+  const canPush = student.repo_name
+    ? await ghApi(getToken(), 'GET', `/repos/${student.repo_name}`).then((r) => (r.ok ? r.data?.permissions?.push === true : null)).catch(() => null)
+    : null
   const read = student.repo_name
-    ? await readDeadlineVariable((method, path) => ghApi(getToken(), method, path), { repoFullName: student.repo_name, canPush: true })
+    ? await readDeadlineVariable((method, path) => ghApi(getToken(), method, path), { repoFullName: student.repo_name, canPush })
       .catch(() => ({ state: 'unreadable', status: 0 }))
     : { state: 'no-repo' }
   if (mine === pageDeadlineRun) {
-    actionPageDeadline.value = pageDeadlineState({ expected: expectedPageDeadline(student), read, expectedKnown: !overridesProblem.value })
+    const expected = expectedPageDeadline(student)
+    // A team's repository carries its most generous member's: said when that
+    // is a teammate's, not this student's own (R6-35).
+    const own = deadlineVariableValue(assignment.value, student.github_login, { overrides: [...overridesByLogin.value.values()] })
+    actionPageDeadline.value = {
+      ...pageDeadlineState({ expected, read, expectedKnown: !overridesProblem.value }),
+      fromTeammate: Boolean(expected) && expected !== own,
+      // Nobody accepts after the class deadline, an extension included (R6-5).
+      acceptClosed: deadlinePassed.value,
+    }
   }
 }
 watch(actionStudent, (s) => readPageDeadline(s))

@@ -76,6 +76,18 @@ inputs:
       removed. Deleted only if it still holds nothing anybody pushed.
     required: false
     default: "false"
+  previous-repo-id:
+    description: >-
+      The repo_id a record holds for previous-repo. Where given, a repository
+      with another id at that name is never deleted.
+    required: false
+    default: ""
+  previous-team-slug:
+    description: >-
+      The team previous-repo was left with. Its repository is not deleted when
+      that team's file exists on the control repository again.
+    required: false
+    default: ""
   recreate-empty:
     description: >-
       "true" lets provisioning remove an existing repository that has no commit
@@ -190,6 +202,8 @@ runs:
         FEEDBACK_PR_BASELINE_BRANCH: ${{ inputs.feedback-pr-baseline-branch }}
         PREVIOUS_REPO: ${{ inputs.previous-repo }}
         REMOVE_PREVIOUS_REPO: ${{ inputs.remove-previous-repo }}
+        PREVIOUS_REPO_ID: ${{ inputs.previous-repo-id }}
+        PREVIOUS_TEAM_SLUG: ${{ inputs.previous-team-slug }}
         RECREATE_EMPTY: ${{ inputs.recreate-empty }}
         TEMPLATE_FULL_HISTORY: ${{ inputs.template-full-history }}
       run: node "$GITHUB_ACTION_PATH/provision.mjs"

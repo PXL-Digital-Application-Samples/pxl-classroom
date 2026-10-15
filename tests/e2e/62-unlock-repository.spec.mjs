@@ -537,6 +537,8 @@ test.describe('Lock again', () => {
     await openActions(page);
     await unlockSection(page).getByRole('button', { name: 'Lock again' }).click();
     await expect(page.locator('.toast', { hasText: `${ORG}/${REPO} is locked again.` })).toBeVisible({ timeout: 15000 });
+    // R6-39: a ruleset covers the submission branch, and the toast says so.
+    await expect(page.locator('.toast', { hasText: 'can no longer push to its submission branch' })).toBeVisible();
 
     const put = apiCalls.find((c) => c.method === 'PUT' && c.url.includes(`/rulesets/${RULESET_ID}`));
     expect(put?.body, 'only enforcement, back on').toEqual({ enforcement: 'active' });

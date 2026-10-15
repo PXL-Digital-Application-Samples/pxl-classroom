@@ -164,10 +164,21 @@ const studentLine = computed(() => (props.studentPage ? studentPageLine(props.st
 
 const state = computed(() => props.assignment?.state || null)
 // What the state means for joining now: "Accepting" only while the hub accepts.
-const status = computed(() => assignmentStatus(props.assignment))
+// A CLOCK THAT TICKS (review 2026-10-15, R6-37): `Date.now()` inside a
+// computed is read once, so a page left open across the deadline went on
+// saying Published until a reload.
+const nowMs = ref(Date.now())
+const nowTimer = setInterval(() => { nowMs.value = Date.now() }, 30_000)
+onUnmounted(() => clearInterval(nowTimer))
+const status = computed(() => assignmentStatus(props.assignment, nowMs.value))
 const deadline = computed(() => props.assignment?.deadline_at || null)
-const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.value) < Date.now())
-const deadlineRelative = computed(() => (deadline.value ? formatRelative(deadline.value) : ''))
+const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.value) < nowMs.value)
+// On the same clock: formatRelative reads its own "now", so the tick is read
+// here for Vue to recompute it.
+const deadlineRelative = computed(() => {
+  void nowMs.value
+  return deadline.value ? formatRelative(deadline.value) : ''
+})
 const deadlineAbs = computed(() => (deadline.value ? formatDate(deadline.value, props.assignment?.timezone) : ''))
 const actions = computed(() => stateActions({
   state: state.value,

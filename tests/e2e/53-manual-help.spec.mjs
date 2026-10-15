@@ -63,6 +63,16 @@ test.describe('53 - the help drawer', () => {
     await expect(page.locator('.help-drawer')).toHaveCount(0);
   });
 
+  test('R6-33: closing it gives focus back to the button that opened it', async ({ page }) => {
+    await openForm(page);
+    const button = page.getByRole('button', { name: /What does late work mean/ });
+    await button.click();
+    await expect(page.locator('.help-drawer')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.help-drawer')).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+
   test('an internal link moves the drawer rather than navigating away', async ({ page }) => {
     // "Who may accept" links to the promote topic. Following it must not leave
     // the form the reader is filling in.

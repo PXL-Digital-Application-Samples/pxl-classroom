@@ -34,6 +34,14 @@ pxl-classroom --help
 A `gh extension install` distribution may follow later; the npm-link form is
 the supported path.
 
+The linked command runs whatever your clone holds, and nothing tells it a
+release came out. To take one, in the clone:
+
+```bash
+git pull
+npm install
+```
+
 ## First-run
 
 You'll need the PXL Classroom App's client ID (an `Iv…` string). Find it on

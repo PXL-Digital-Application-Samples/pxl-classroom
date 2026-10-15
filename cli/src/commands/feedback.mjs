@@ -59,6 +59,7 @@ async function openDraftPr(octokit, { org, repo, head, base, title, body }) {
   }
 }
 
+/** The pull request's review-comment count, or null when it could not be read - never a 0 (R6-43). */
 async function countOpenReviewComments(octokit, { org, repo, number }) {
   try {
     const res = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}/comments", {
@@ -67,9 +68,9 @@ async function countOpenReviewComments(octokit, { org, repo, number }) {
     const link = res.headers?.link || "";
     const m = link.match(/[?&]page=(\d+)>; rel="last"/);
     if (m) return Number(m[1]);
-    return Array.isArray(res.data) ? res.data.length : 0;
+    return Array.isArray(res.data) ? res.data.length : null;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -139,10 +140,8 @@ export function registerFeedbackCommand(program) {
           continue;
         }
         if (outcome.created) {
-          opened++;
           process.stdout.write(`  + ${login}: PR #${outcome.number} ${outcome.url}\n`);
         } else {
-          adopted++;
           process.stdout.write(`  · ${login}: adopted pre-existing PR #${outcome.number} ${outcome.url}\n`);
         }
 
@@ -171,6 +170,11 @@ export function registerFeedbackCommand(program) {
           failed++;
           continue;
         }
+        // Counted once it is on record (R6-43): one that opened and then could
+        // not be recorded is a failure above, and was counted twice, as opened
+        // and as failed.
+        if (outcome.created) opened++;
+        else adopted++;
       }
 
       if (opts.dryRun) {
@@ -213,6 +217,7 @@ export function registerFeedbackCommand(program) {
         `${pad("login", widths.login)}  ${pad("PR#", widths.pr)}  ${pad("comments", widths.comments)}  url\n` +
         `${"-".repeat(widths.login + widths.pr + widths.comments + 30)}\n`,
       );
+      let unread = 0;
       for (const rec of records) {
         const login = rec.doc.github_login;
         const num = rec.doc.feedback_pr_number;
@@ -222,11 +227,16 @@ export function registerFeedbackCommand(program) {
         }
         const repo = repoOnly(rec.doc.repo_name);
         const count = await countOpenReviewComments(octokit, { org, repo, number: num });
+        if (count === null) unread++;
         process.stdout.write(
-          `${pad(login, widths.login)}  ${pad(`#${num}`, widths.pr)}  ${pad(count, widths.comments)}  ${rec.doc.feedback_pr_url || ""}\n`,
+          `${pad(login, widths.login)}  ${pad(`#${num}`, widths.pr)}  ${pad(count === null ? "?" : count, widths.comments)}  ${rec.doc.feedback_pr_url || ""}\n`,
         );
       }
       process.stdout.write(`\n${withPr.length} of ${records.length} students have a Feedback PR.\n`);
+      if (unread) {
+        process.stdout.write(`${unread} comment count${unread === 1 ? "" : "s"} could not be read (shown as ?); run it again.\n`);
+        process.exit(1);
+      }
     });
 
   program.addCommand(feedback);

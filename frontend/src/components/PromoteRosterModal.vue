@@ -18,8 +18,15 @@
              and a bare GitHub username when there is not - and a lecturer who
              expected names had no way to know which they were about to get
              until they looked at the roster afterwards. -->
-        <p v-if="plan?.ok && plan.added.length" class="promote-lede">
-          <template v-if="withAddress > 0">
+        <p v-if="plan?.ok && plan.added.length" class="promote-lede" :data-claims-unread="claimsUnread ? 'true' : null">
+          <!-- R6-38: when the confirmed addresses could not be READ, that is
+               the reason, never "this assignment did not ask for one". -->
+          <template v-if="claimsUnread">
+            Some or all of them will arrive as GitHub usernames only, because the email addresses
+            students confirmed could not all be read just now. Close this and open it again to add them
+            with their addresses.
+          </template>
+          <template v-else-if="withAddress > 0">
             <strong>{{ withAddress }}</strong> of {{ plan.added.length }} will arrive with the email
             address they confirmed<template v-if="withAddress < plan.added.length">; the rest as a GitHub
             username only, because this assignment did not ask for one</template>.
@@ -158,6 +165,7 @@ const applying = ref(false)
 const failedReads = ref(0)
 const acceptances = ref([])
 const claims = ref([])
+const claimsUnread = ref(false)
 const roster = ref(null)
 
 const plan = computed(() => {
@@ -221,11 +229,15 @@ onMounted(async () => {
       // Unreadable is not evidence of none. Failing the whole promotion because
       // the claims could not be listed would refuse a lecturer an action that
       // works perfectly well without them, so this degrades to login-only rows.
-      listClaims(token, props.org, controlRepo).catch(() => ({ records: [] })),
+      // Said as such, though (R6-38): the dialog gave "this assignment did not
+      // ask for one" as the reason for rows that arrive without an address.
+      listClaims(token, props.org, controlRepo).catch(() => ({ records: [], unread: true })),
     ])
     acceptances.value = acc.records
     failedReads.value = acc.failed
     claims.value = claimResult?.records || []
+    // Some of them unread is the same answer for those students.
+    claimsUnread.value = claimResult?.unread === true || (claimResult?.failed ?? 0) > 0
     // getRepoContent resolves to decoded FILE TEXT and returns null on a 404,
     // so a falsy body here is a genuine absence - which the planner treats as
     // "create the roster", not as an error.

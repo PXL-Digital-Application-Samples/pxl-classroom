@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "provisioning", "provision.mjs");
@@ -33,7 +34,7 @@ const PUSHED = {
 };
 
 /** `oldCommits`: what the team left behind holds when provisioning asks. */
-async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new Date(Date.now() - 3600_000).toISOString(), onBody = null } = {}) {
+async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new Date(Date.now() - 3600_000).toISOString(), onBody = null, teamFileStatus = 404 } = {}) {
   const calls = [];
   let created = false;
   const server = createServer((req, res) => {
@@ -72,6 +73,10 @@ async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new D
     if (url === "/repos/Org/grp-typo/branches") return send(200, [{ name: "main" }]);
     if (url === "/repos/Org/grp-typo/commits") return send(200, oldCommits);
     if (url === "/repos/Org/grp-typo" && req.method === "DELETE") return send(204);
+    // The left team's file on the control repository, as GitHub has it now (R6-44).
+    if (url === `/repos/Org/${CONTROL_REPO}/contents/teams/lab/typo.json`) {
+      return teamFileStatus === 200 ? send(200, { name: "typo.json", content: "" }) : send(teamFileStatus, { message: "x" });
+    }
     // Its deadline variable (R6-11): a PATCH that finds one, a DELETE.
     if (url === "/repos/Org/grp-typo/actions/variables/PXL_DEADLINE" && ["PATCH", "DELETE"].includes(req.method)) return send(204);
     return send(404, { message: "not stubbed: " + url });
@@ -84,7 +89,7 @@ async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new D
   }
 }
 
-function provision(apiBase, { removePrevious = "true", control = {} } = {}) {
+function provision(apiBase, { removePrevious = "true", control = {}, previousRepoId = "", previousTeamSlug = "" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-switch-"));
   // The control checkout provisioning reads, relative to its working directory.
   for (const [path, body] of Object.entries(control)) {
@@ -111,6 +116,8 @@ function provision(apiBase, { removePrevious = "true", control = {} } = {}) {
         FEEDBACK_PR: "false",
         PREVIOUS_REPO: "grp-typo",
         REMOVE_PREVIOUS_REPO: removePrevious,
+        PREVIOUS_REPO_ID: previousRepoId,
+        PREVIOUS_TEAM_SLUG: previousTeamSlug,
         PXL_FILL_WAIT_CHECKS: "2",
         GITHUB_OUTPUT: join(dir, "out.env"),
         GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
@@ -214,6 +221,36 @@ test("R6-11: a repository deleted with its empty team, and an assignment with no
     assert.equal(res.status, 0, res.log);
     assert.equal(calls.some((c) => c.includes("/actions/variables")), false);
   });
+});
+
+test("R6-42: the id the record holds is the repository deleted; another repository at that name is left whole", async () => {
+  // The stub's grp-typo is id 20.
+  await withApi(async (api, calls) => {
+    const res = await provision(api, { previousRepoId: "20" });
+    assert.equal(res.status, 0, res.log);
+    assert.ok(calls.includes("DELETE /repos/Org/grp-typo"), res.log);
+  });
+  await withApi(async (api, calls) => {
+    const res = await provision(api, { previousRepoId: "19", control: { ...SWITCH_CONTROL, "overrides/lab/bo.json": ext("bo", "2026-10-22T15:00:00Z") } });
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.log, /grp-typo is a different repository now \(id 20, the record names 19\) - nothing is done to it/);
+    const toIt = calls.filter((c) => c.includes("/repos/Org/grp-typo") && !c.startsWith("GET "));
+    assert.deepEqual(toIt, [], "no access removed, no invitation cancelled, no variable written, nothing deleted");
+  });
+});
+
+test("R6-44: a team someone has made again since the decision keeps its repository; still gone, it goes; unread, it stays", async () => {
+  // A join in the seconds between the decision and this step makes the team
+  // again, and under an explicit `reuse` hands that student this repository.
+  for (const [status, deleted, why] of [[200, false, /its team has been made again since/], [404, true, /deleted grp-typo/], [502, false, /could not tell whether its team has been made again/]]) {
+    await withApi(async (api, calls) => {
+      const res = await provision(api, { previousTeamSlug: "typo" });
+      assert.equal(res.status, 0, res.log);
+      assert.ok(calls.includes(`GET /repos/Org/${CONTROL_REPO}/contents/teams/lab/typo.json`), "asked of GitHub at the delete");
+      assert.equal(calls.includes("DELETE /repos/Org/grp-typo"), deleted, `${status}\n${res.log}`);
+      assert.match(res.log, why);
+    }, { teamFileStatus: status });
+  }
 });
 
 test("without the flag nothing is asked and nothing is deleted - only the access is removed, as before", async () => {

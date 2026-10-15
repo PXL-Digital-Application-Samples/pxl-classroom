@@ -67,10 +67,18 @@ async function withStubApi(fn, opts = {}) {
     untilStatus = 200,
     // What GET /commits/main answers: the branch head.
     headRow = { sha: HEAD_SHA },
+    // Logins GitHub keeps admin whatever their grant (an organization owner),
+    // and the organization's owners.
+    failDemote = [],
+    owners = [],
+    // Organization rulesets already there when the run starts.
+    seedOrgRulesets = [],
+    // A status for ONE repository's object, by name.
+    repoStatusFor = {},
   } = opts;
   const calls = [];
   const rulesetsByRepo = new Map();
-  const orgRulesets = [];
+  const orgRulesets = [...seedOrgRulesets];
   let nextRulesetId = 500;
 
   const server = createServer((req, res) => {
@@ -151,6 +159,8 @@ async function withStubApi(fn, opts = {}) {
       if (/^\/repos\/[^/]+\/[^/]+\/commits$/.test(path)) return untilStatus === 200 ? send(200, untilCommits) : send(untilStatus, { message: "Bad Gateway" });
       if (/\/commits\/main$/.test(path)) return send(200, headRow);
       if (/^\/repos\/[^/]+\/[^/]+$/.test(path)) {
+        const one = repoStatusFor[path.split("/").pop()];
+        if (one) return send(one, { message: "Bad Gateway" });
         if (repoStatus !== 200) return send(repoStatus, { message: "Bad Gateway" });
         return send(200, { id: 42, default_branch: "main", pushed_at: pushedAt, created_at: repoCreatedAt });
       }
@@ -161,7 +171,9 @@ async function withStubApi(fn, opts = {}) {
         return res.end();
       }
       if (/^\/repos\/[^/]+\/[^/]+\/invitations$/.test(path)) return send(200, []);
-      if (/\/collaborators\/[^/]+\/permission$/.test(path)) return send(200, { permission: "read" });
+      if (path === "/orgs/TestOrg/members") return send(200, owners.map((login) => ({ login })));
+      const asked = path.match(/\/collaborators\/([^/]+)\/permission$/);
+      if (asked) return send(200, { permission: failDemote.includes(asked[1]) ? "admin" : "read" });
       if (/\/collaborators\/[^/]+$/.test(path) && req.method === "PUT") {
         res.writeHead(204);
         return res.end();
@@ -371,7 +383,8 @@ test("LD4: after the sentinel's confirmed stop at the deadline, HEAD is the dead
     mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
     writeFileSync(
       join(dir, "lockdowns", "exam", "sentinel-x.json"),
-      JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop: "done" }),
+      // Sampling alice's repository, as the watch whose stop covered it does (R6-25).
+      JSON.stringify({ outcome: "fired", due: true, deadline_at: DEADLINE, stop: "done", samples: [{ observed_at: DEADLINE, pushed_at: { "exam-alice": DEADLINE } }] }),
     );
     const res = await runLockdown(dir, api);
     assert.equal(res.status, 0, res.stderr);
@@ -410,6 +423,36 @@ test("P2-27: a repository made after the sentinel's stop is not its deadline sta
       assert.notEqual(alice.lockdown_at, DEADLINE, "not locked at the stop it did not exist for");
     },
     { repoCreatedAt: after },
+  );
+});
+
+test("R6-30: a repository deleted after its lock keeps its frozen row where it was preserved, and only there", async () => {
+  // The record is rewritten whole, so a later pass dropped the row of what was
+  // frozen for a student who deleted their repository afterwards.
+  const frozen = (login, sha) => ({
+    github_login: login, repo_name: `TestOrg/exam-${login}`, repo_id: login === "bob" ? 77 : 78, snapshot_sha: sha,
+    snapshot_ref: "refs/heads/main", lockdown_at: DEADLINE, lock_method: "org-ruleset", verified: true, permission_after: null,
+  });
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false, logins: ["alice"] });
+      for (const [login, id] of [["bob", 77], ["cy", 78]]) {
+        writeFileSync(join(dir, "repositories", "exam", `${login}.json`), JSON.stringify({ github_login: login, repo_name: `TestOrg/exam-${login}`, repo_id: id }));
+      }
+      mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+      writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
+        schema_version: 1, assignment_id: "exam", outcome: "locked", results: [frozen("bob", "b".repeat(40)), frozen("cy", "c".repeat(40))],
+      }));
+      // bob's submission is in the archive; cy's never got there.
+      mkdirSync(join(dir, "observations", "exam", "bob"), { recursive: true });
+      writeFileSync(join(dir, "observations", "exam", "bob", "preservation.json"), JSON.stringify({ verified: true }));
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stdout + res.stderr);
+      assert.equal(rowFor(res.record, "bob")?.snapshot_sha, "b".repeat(40), "kept: it is history");
+      assert.equal(rowFor(res.record, "cy"), undefined, "nothing can preserve it now");
+      assert.equal(res.record.gone_count, 2);
+    },
+    { goneIds: [77, 78], goneNames: ["exam-bob", "exam-cy"] },
   );
 });
 
@@ -548,6 +591,9 @@ test("TL-3: a repository or ?until read that fails leaves a locked row saying wh
         assert.equal(alice.snapshot_sha, null, `${label}: not HEAD`);
         assert.match(alice.snapshot_unread ?? "", reason, label);
         assert.ok(alice.lockdown_at, `${label}: locked all the same`);
+        // R6-24: and the row says so - Reopen read `verified: false` as "the
+        // run did not lock it".
+        assert.equal(alice.verified, true, `${label}: the stop held`);
       },
       stub,
     );
@@ -887,4 +933,54 @@ test("under `report` nothing is locked, whatever the default would have said", a
     assert.equal(orgRulesets.length, 0, "an org ruleset over a cohort that blocks nothing");
     assert.deepEqual(rulesetWrites(calls).map((c) => c.line), []);
   });
+});
+
+test("R6-27 / R6-3: a pass never takes out of the organization lock an id it holds and the plan lacks - a Lock again's", async () => {
+  // Lock again put repository 99 back while its reopen record lingered (its
+  // record commit failed): the next pass planned without it and replaced the
+  // list, undoing the lock with nothing but a toast to say so.
+  const { orgSubmissionLockName } = await import("../lib/submission-lock.mjs");
+  const seeded = {
+    id: 900, name: orgSubmissionLockName("exam"), enforcement: "active", source_type: "Organization",
+    conditions: { repository_id: { repository_ids: [99] }, ref_name: { include: ["refs/heads/main"], exclude: [] } },
+  };
+  await withStubApi(
+    async (api, _calls, _repoRulesets, orgRulesets) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: false });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      const ids = orgRulesets.find((r) => r.id === 900)?.conditions?.repository_id?.repository_ids ?? [];
+      assert.deepEqual([...ids].sort((a, b) => a - b), [42, 99], "alice added, 99 kept");
+    },
+    { seedOrgRulesets: [seeded] },
+  );
+});
+
+test("R6-29: under Nothing is locked, one unreadable repository is a partial pass, not a failed finalize", async () => {
+  // Nobody is ever locked there, so one failed read with 0 locked read as
+  // every student failing: `fail:all-errors`, and the deadline went red.
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir({ latePolicy: "report", lockDownEnabled: false, logins: ["alice", "bob"] });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stdout + res.stderr);
+      assert.match(res.outputs, /^outcome=partial$/m);
+    },
+    { repoStatusFor: { "exam-bob": 502 } },
+  );
+});
+
+test("a demotion GitHub does not apply to an organization owner says so, and the ruleset still holds them", async () => {
+  // Seen on a real deadline (2026-10-15): one of 63 still admin after the
+  // demotion, "permission after=admin" and nothing more.
+  await withStubApi(
+    async (api, _calls, _repoRulesets, orgRulesets) => {
+      const dir = makeControlDir({ latePolicy: "block", lockDownEnabled: true, logins: ["alice", "bob"] });
+      const res = await runLockdown(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.stdout, /demote bob - permission after=admin - bob owns the organization, so GitHub keeps them admin/);
+      assert.equal(orgRulesets.length, 1, "stopped by the organization ruleset all the same");
+    },
+    { failDemote: ["bob"], owners: ["bob"] },
+  );
 });

@@ -84,8 +84,9 @@ test("TG-4: a record changed between the read and the commit is not overwritten;
   assert.match(res.err, /ann: PR #7 is open, but it was not recorded: the repository record was changed by someone else while this ran/);
   assert.equal(fake.file("repositories/lab/ann.json").student_permission, "maintain", "their change stands");
   assert.equal(fake.file("repositories/lab/ann.json").feedback_pr_number, undefined);
-  // Opened on GitHub, and failed to be recorded: both are true of it.
-  assert.match(res.out, /1 opened, 0 adopted pre-existing, 0 already on record, 0 pending \(no commits yet\), 1 failed/);
+  // Counted once, as the failure it is (R6-43): it was "1 opened" and "1
+  // failed" for one student. The line above says the PR is open.
+  assert.match(res.out, /0 opened, 0 adopted pre-existing, 0 already on record, 0 pending \(no commits yet\), 1 failed/);
 
   // Run again: GitHub says the pull request exists, so it is adopted, and
   // recorded onto the record as it is now.
@@ -97,6 +98,23 @@ test("TG-4: a record changed between the read and the commit is not overwritten;
   const rec = again.fake.file("repositories/lab/ann.json");
   assert.equal(rec.feedback_pr_number, 7);
   assert.equal(rec.student_permission, "maintain", "written onto the record as it is now");
+});
+
+test("R6-43: feedback list shows a comment count it could not read as ?, never 0, and says so", async () => {
+  const listing = (status) => fakeControlRepo({
+    files: { "assignments/lab.yml": LAB, "repositories/lab/ann.json": record({ feedback_pr_number: 7, feedback_pr_url: pr.html_url }) },
+    routes: (c) => (c.method === "GET" && c.path === "/repos/Org/lab-ann/pulls/7/comments"
+      ? new Response(JSON.stringify(status === 200 ? [{ id: 1 }, { id: 2 }] : { message: "Server Error" }), { status, headers: { "content-type": "application/json" } })
+      : undefined),
+  });
+  const read = await run(listing(200), registerFeedbackCommand, ["feedback", "list", "--org", "Org", "--assignment", "lab"]);
+  assert.equal(read.exitCode, 0, read.out + read.err);
+  assert.match(read.out, /ann\s+#7\s+2\s+https/);
+  // 403, which is not retried: a 5xx is, for 14 seconds.
+  const failed = await run(listing(403), registerFeedbackCommand, ["feedback", "list", "--org", "Org", "--assignment", "lab"]);
+  assert.equal(failed.exitCode, 1, failed.out + failed.err);
+  assert.match(failed.out, /ann\s+#7\s+\?\s+https/);
+  assert.match(failed.out, /1 comment count could not be read/);
 });
 
 test("TG-5: roster import commits only onto the roster it planned from", async () => {

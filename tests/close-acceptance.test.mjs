@@ -124,9 +124,14 @@ test("the key is removed AFTER the door closes, never before", () => {
 test("an unreadable assignment closes nothing rather than guessing a broker", () => {
   // Reading the document is how the broker is identified. If that read fails,
   // the only alternative is composing a name - which is the bug above.
+  // Run, not only read, in tests/close-acceptance-edges.test.mjs ("an
+  // unreadable assignment touches NOTHING"), which also checks the record R6-31
+  // leaves. This holds the shape: the branch that found no document warns,
+  // records, and stops.
   const code = SCRIPT.replace(/^\s*\/\/.*$/gm, "");
-  const at = code.indexOf("catch (e)");
+  const at = code.indexOf("if (!assignment)");
   assert.ok(at > 0, "the read must be guarded");
-  assert.match(code.slice(at, at + 260), /::warning::Could not read/, "say so rather than proceed");
-  assert.match(code.slice(at, at + 260), /return/, "and stop");
+  assert.match(code.slice(at, at + 400), /::warning::Could not read/, "say so rather than proceed");
+  assert.match(code.slice(at, at + 400), /recordClose\([^)]*closed: false/, "count the attempt");
+  assert.match(code.slice(at, at + 400), /return;/, "and stop");
 });

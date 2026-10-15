@@ -29,14 +29,19 @@ const STORED = buildGradingSummary({
   ],
 });
 
-/** A scored run per student; `unread` logins answer their check runs 404, their repository 200; `running` ones a run still going. */
-function cohort({ unread = [], running = [], score = { alice: 20, bob: 15 } } = {}) {
+/**
+ * A scored run per student; `unread` logins answer their check runs 404, their
+ * repository 200 (an API failure); `gone` ones their repository 404 too (a
+ * read that failed for that student: `unreadable`); `running` ones a run still going.
+ */
+function cohort({ unread = [], gone = [], running = [], score = { alice: 20, bob: 15 } } = {}) {
   return fakeControlRepo({
     files: { "assignments/lab.yml": LAB, "reports/lab.json": REPORT, "grading/lab/summary.json": STORED },
     routes: (c) => {
       const m = c.path.match(/^\/repos\/Org\/lab-(\w+)(\/.*)?$/);
       if (!m) return undefined;
       const [, login, rest = ""] = m;
+      if (gone.includes(login)) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       if (rest === "") return { name: `lab-${login}`, full_name: `Org/lab-${login}` };
       if (rest === `/commits/${SHA[login]}/check-runs`) {
         if (unread.includes(login)) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
@@ -73,7 +78,8 @@ async function run(fake, argv) {
 const row = (fake, login) => fake.file("grading/lab/summary.json").students.find((r) => r.login === login);
 
 test("TG-1: the summary on record is read at the branch head's commit, and a student whose read failed keeps their row, said so", async () => {
-  const fake = cohort({ unread: ["bob"] });
+  // A read that failed for bob alone (`unreadable`); an API failure is the next test.
+  const fake = cohort({ gone: ["bob"] });
   const res = await run(fake, []);
   // Each read names the commit the branch head was at just before: never the
   // branch by name, which can answer a minute old (P2-8).
@@ -87,6 +93,16 @@ test("TG-1: the summary on record is read at the branch head's commit, and a stu
   // Alice's result file, then the summary: results are written one at a time.
   assert.match(fake.commitsByCommand().at(-1).message, /^Grade lab: summary \(1 graded, 1 failed\)/);
   assert.equal(res.exitCode, 1, "a failed read is a failure of the run");
+});
+
+test("R6-43: a whole-cohort read GitHub's API failed for writes no summary, as the page and the nightly refuse it", async () => {
+  const fake = cohort({ unread: ["bob"] });
+  const res = await run(fake, []);
+  assert.equal(res.exitCode, 1, res.out + res.err);
+  assert.match(res.err, /GitHub could not be read for 1 student\(s\): bob\. Did not write the summary of scores/);
+  assert.equal(row(fake, "alice").earned_points, 18, "the summary on record is as it was");
+  assert.equal(row(fake, "bob").earned_points, 12);
+  assert.equal(fake.commitsByCommand().some((c) => /summary/.test(c.message)), false);
 });
 
 test("TG-7 (R1-8): a run still going is written as `running`, in the words every grader uses - never 'never completed'", async () => {

@@ -24,7 +24,7 @@
 // be stale relative to MANUAL.md. The guard on the topic ids is
 // tests/manual-topics.test.mjs, which deliberately does NOT import this file.
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { INSTITUTION_SHORT } from "../lib/deployment.mjs";
@@ -188,7 +188,14 @@ function main() {
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
-  writeFileSync(OUT, JSON.stringify(doc, null, 2) + "\n", "utf8");
+  // WRITTEN WHOLE OR NOT AT ALL (review 2026-10-15, R6-40): the e2e suite
+  // starts the build and the dev server together, and their `prebuild` and
+  // `predev` both run this - two writers of one file, and a reader between
+  // them could take half of it. A private temporary file renamed over the
+  // target is atomic: each reader sees one complete version.
+  const tmp = `${OUT}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n", "utf8");
+  renameSync(tmp, OUT);
   console.log(`build-manual: ${doc.topics.length} topics -> ${OUT.replace(ROOT, ".")}`);
 }
 

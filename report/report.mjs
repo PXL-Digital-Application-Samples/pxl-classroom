@@ -649,7 +649,15 @@ async function main() {
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
     const lockdownRow = lockdownRowForStatus;
-    const unlocked = unlockedByLogin.get(key) ?? null;
+    // A TEAM'S REPOSITORY IS ONE OBJECT (review 2026-10-15, R6-23): Reopen
+    // writes the record of the member clicked and reopens it for every member,
+    // so a teammate's record naming this same repository is theirs too - their
+    // rows said locked over an open repository. The same for a reopen kept.
+    const sameRepo = (doc) => Boolean(doc?.repo_name) && Boolean(repo?.repo_name) &&
+      String(doc.repo_name).split("/").pop().toLowerCase() === String(repo.repo_name).split("/").pop().toLowerCase();
+    const teammates = (studentTeam?.members || []).map((m) => normalizeLogin(m)).filter((m) => m && m !== key);
+    const unlocked = unlockedByLogin.get(key) ?? teammates.map((m) => unlockedByLogin.get(m)).find(sameRepo) ?? null;
+    const relocked = relockedByLogin.get(key) ?? teammates.map((m) => relockedByLogin.get(m)).find(sameRepo) ?? null;
 
     const warnings = [];
     if (repo && !repo.repo_id) warnings.push("missing-repo-id");
@@ -749,8 +757,8 @@ async function main() {
       // deadline, and from when - and a spreadsheet is where it gets asked.
       // A reopen that was ended by Lock again still happened: its kept copy
       // says from when, and `relocked_at` until when (R6-13).
-      reopened_at: unlocked?.unlocked_at ?? relockedByLogin.get(key)?.unlocked_at ?? null,
-      relocked_at: unlocked ? null : relockedByLogin.get(key)?.relocked_at ?? null,
+      reopened_at: unlocked?.unlocked_at ?? relocked?.unlocked_at ?? null,
+      relocked_at: unlocked ? null : relocked?.relocked_at ?? null,
       // How long after their own deadline this student could still push. NOT
       // `uncertainty_interval_seconds` below, which is the opposite side of the
       // deadline - the gap between the last observation and the deadline, i.e.

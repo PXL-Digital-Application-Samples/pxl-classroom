@@ -177,7 +177,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
 - Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 - A team nobody has accepted into yet can be renamed: **Manage**, then **Rename team**. Its repository will get the new name. Once someone has accepted, the repository already has the old name, so the team keeps it.
-- With self-service teams, a student who joined the wrong team can fix it themselves with **Switch team** on their page, until their deadline. A team left empty, whose repository nobody pushed to, is removed with its repository.
+- With self-service teams, a student who joined the wrong team can fix it themselves with **Switch team** on their page, until the assignment's deadline (an extension does not move it). A team left empty, whose repository nobody pushed to, is removed with its repository.
 
 ## Every branch and its history
 
