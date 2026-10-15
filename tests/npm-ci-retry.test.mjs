@@ -1,4 +1,4 @@
-// scripts/npm-ci-retry.mjs - the sentinel's install, tried again on a registry
+// install/npm-ci-retry.mjs (the ./install action) - the sentinel's install, tried again on a registry
 // blip (ECONNRESET, 2026-10-15) under the rules any retry needs: only what a
 // retry can fix, capped backoff with jitter, a limit per try, a hard stop that
 // never sleeps across the deadline, and nothing run until it succeeds.
@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
-import { BACKOFF_SECONDS, GRACE_AFTER_DEADLINE_MS, isRetryable, planWait, retryInstall } from "../scripts/npm-ci-retry.mjs";
+import { BACKOFF_SECONDS, GRACE_AFTER_DEADLINE_MS, isRetryable, planWait, retryInstall } from "../install/npm-ci-retry.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MIN = 60_000;
@@ -98,21 +98,41 @@ test("retryInstall: a try that hung is a network failure; the end is an error na
   assert.match(state.logs.at(-1), /::error::npm ci failed \d+ time\(s\) \(it ran out of time\).*the nightly locks/);
 });
 
-test("both sentinel jobs install through it, the watch with its instant, inside each job's timeout", () => {
-  const wf = parse(readFileSync(join(root, ".github", "workflows", "deadline-sentinel.yml"), "utf8"));
-  const installOf = (job) => wf.jobs[job].steps.find((s) => /npm-ci-retry\.mjs/.test(String(s.run ?? "")));
-  for (const job of ["arm", "watch"]) {
-    assert.equal(wf.jobs[job].steps.some((s) => /\bnpm ci\b/.test(String(s.run ?? ""))), false, `${job} still runs a bare npm ci`);
-    const install = installOf(job);
-    assert.ok(install, `${job} installs through scripts/npm-ci-retry.mjs`);
-    assert.ok(Number(install.env.RETRY_BUDGET_MINUTES) < wf.jobs[job]["timeout-minutes"], `${job}: the retry fits inside the job's timeout`);
+const readYaml = (...path) => parse(readFileSync(join(root, ...path), "utf8"));
+
+test("ONE install step, ./install, and the script runs inside it after setup-node", () => {
+  const steps = readYaml("install", "action.yml").runs.steps;
+  const node = steps.findIndex((s) => String(s.uses ?? "").startsWith("actions/setup-node@"));
+  const install = steps.findIndex((s) => /npm-ci-retry\.mjs/.test(String(s.run ?? "")));
+  assert.ok(node >= 0 && install > node, "Node first, then the install");
+  assert.equal(steps[install].env.DEADLINE_AT, "${{ inputs.deadline-at }}");
+  assert.equal(steps[install].env.RETRY_BUDGET_MINUTES, "${{ inputs.retry-budget-minutes }}");
+});
+
+test("every job of the sentinel's path installs through ./install, inside its own timeout, the watch with its instant", () => {
+  // The job every sentinel run starts with, shared with the other fan-outs,
+  // was found by the drill after the first push still on a bare npm ci.
+  const sentinel = readYaml(".github", "workflows", "deadline-sentinel.yml");
+  assert.equal(sentinel.jobs["find-orgs"].uses, "./.github/workflows/_find-orgs.reusable.yml");
+  const jobs = {
+    arm: sentinel.jobs.arm,
+    watch: sentinel.jobs.watch,
+    "find-orgs": readYaml(".github", "workflows", "_find-orgs.reusable.yml").jobs.list,
+  };
+  const useOf = (job) => jobs[job].steps.find((s) => s.uses === "./install");
+  for (const [name, job] of Object.entries(jobs)) {
+    assert.equal(job.steps.some((s) => /\bnpm (ci|install)\b|npm-ci-retry/.test(String(s.run ?? ""))), false, `${name} installs by hand`);
+    assert.equal(job.steps.some((s) => String(s.uses ?? "").startsWith("actions/setup-node@")), false, `${name}: ./install sets up Node`);
+    const use = useOf(name);
+    assert.ok(use, `${name} installs through ./install`);
+    assert.ok(Number(use.with["retry-budget-minutes"]) < job["timeout-minutes"], `${name}: the retry fits inside the job's timeout`);
   }
-  assert.equal(installOf("watch").env.DEADLINE_AT, "${{ matrix.sentinel.deadline_at }}");
-  assert.equal(installOf("arm").env.DEADLINE_AT, undefined, "the arm job has no instant yet");
+  assert.equal(useOf("watch").with["deadline-at"], "${{ matrix.sentinel.deadline_at }}");
+  assert.equal(useOf("arm").with["deadline-at"], undefined, "the arm job has no instant yet");
 });
 
 test("it imports node builtins only: it runs before anything is installed", () => {
-  const src = readFileSync(join(root, "scripts", "npm-ci-retry.mjs"), "utf8");
+  const src = readFileSync(join(root, "install", "npm-ci-retry.mjs"), "utf8");
   const specifiers = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
   assert.ok(specifiers.length > 0);
   assert.deepEqual(specifiers.filter((s) => !s.startsWith("node:")), []);

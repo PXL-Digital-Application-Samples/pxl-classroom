@@ -25,15 +25,18 @@ on:
 jobs:
   list:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The install may retry for 8 minutes (./install).
+    timeout-minutes: 15
     outputs:
       orgs: ${{ steps.list.outputs.orgs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      # Every sentinel run starts here, so a registry blip in this install
+      # armed nothing. Retried on a network failure only (./install); it reads
+      # a list and changes nothing, so a retry can only delay its caller.
+      - uses: ./install
         with:
-          node-version: "24"
-      - run: npm ci --omit=dev
+          retry-budget-minutes: "8"
       - id: list
         env:
           ORG_INPUT: ${{ inputs.org }}

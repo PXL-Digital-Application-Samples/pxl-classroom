@@ -24,6 +24,7 @@ const NODE_FILES = [
   'scripts/**/*.mjs',
   'acceptance/**/*.mjs',
   'collect/**/*.mjs',
+  'install/**/*.mjs',
   'lockdown/**/*.mjs',
   'preserve/**/*.mjs',
   'provisioning/**/*.mjs',

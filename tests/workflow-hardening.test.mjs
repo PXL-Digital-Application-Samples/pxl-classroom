@@ -323,7 +323,7 @@ test("every npm install runs on the Node the hub declares, set up before it", ()
         node = Number(/(\d+)/.exec(String(step.with?.["node-version"]))?.[1]);
         if (node !== engine) offenders.push(`${label}: setup-node ${step.with?.["node-version"]} is not engines ${engine}`);
       }
-      // The retried install is an install too (scripts/npm-ci-retry.mjs).
+      // The retried install is an install too (install/npm-ci-retry.mjs, in ./install).
       if (typeof step?.run === "string" && /\bnpm (ci|install)\b|npm-ci-retry\.mjs/.test(step.run)) {
         installs++;
         if (node === null) offenders.push(`${label}: \`${step.run.trim().split("\n")[0]}\` runs before any setup-node`);

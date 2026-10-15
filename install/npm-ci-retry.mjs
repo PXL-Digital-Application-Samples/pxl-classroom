@@ -5,8 +5,10 @@
 // watchdog's 17:08 run) fails a job before any of its own code has run. For
 // most jobs the next run is the retry. For the Deadline Sentinel it is not: a
 // watch that cannot install stops nothing at the instant, and the cohort can
-// push until the nightly locks it, hours later. So the sentinel's two jobs
-// install through this, under the rules any retry loop needs:
+// push until the nightly locks it, hours later. So every job of the
+// sentinel's path installs through this, by way of the ./install composite
+// action beside it (one step, never copied into a workflow), under the rules
+// any retry loop needs:
 //
 // - ONLY WHAT A RETRY CAN FIX is retried: a network or registry-side failure
 //   (`isRetryable`). Anything else - a lockfile out of date, an engine refused,

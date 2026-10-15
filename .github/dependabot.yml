@@ -79,6 +79,7 @@ updates:
       - "/"
       - "/acceptance"
       - "/collect"
+      - "/install"
       - "/lockdown"
       - "/notify"
       - "/pages"

@@ -69,7 +69,7 @@ jobs:
       max-parallel: 4
       fail-fast: false
     runs-on: ubuntu-latest
-    # The install may retry for 8 minutes (scripts/npm-ci-retry.mjs).
+    # The install may retry for 8 minutes (./install).
     timeout-minutes: 15
     steps:
       # A person dispatches this. The other thing that can reach
@@ -106,15 +106,11 @@ jobs:
           echo "::error::This workflow is dispatched by a person or by a hub workflow, not by a credential."
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      # Tried again on a registry blip (2026-10-15, ./install): an arm that
+      # cannot install arms nothing until the next firing four hours later.
+      - uses: ./install
         with:
-          node-version: "24"
-      # Tried again on a registry blip (2026-10-15): an arm that cannot install
-      # arms nothing until the next firing four hours later.
-      - name: npm ci, retried
-        env:
-          RETRY_BUDGET_MINUTES: "8"
-        run: node scripts/npm-ci-retry.mjs
+          retry-budget-minutes: "8"
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
@@ -221,18 +217,14 @@ jobs:
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      # Tried again on a registry blip (2026-10-15, ./install), never sleeping
+      # across the instant, and on past it: a watch that starts late still
+      # stops writes at once, which beats the nightly. 270 minutes leaves the
+      # steps after it room inside the job's 300.
+      - uses: ./install
         with:
-          node-version: "24"
-      # Tried again on a registry blip (2026-10-15), never sleeping across the
-      # instant, and on past it: a watch that starts late still stops writes at
-      # once, which beats the nightly. 270 minutes leaves the steps after it
-      # room inside the job's 300.
-      - name: npm ci, retried up to and past the instant
-        env:
-          DEADLINE_AT: ${{ matrix.sentinel.deadline_at }}
-          RETRY_BUDGET_MINUTES: "270"
-        run: node scripts/npm-ci-retry.mjs
+          deadline-at: ${{ matrix.sentinel.deadline_at }}
+          retry-budget-minutes: "270"
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
