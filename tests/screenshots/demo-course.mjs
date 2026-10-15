@@ -2,8 +2,13 @@
 //
 // Every name, login, number and address here is invented. The logins carry a
 // `demo-` prefix so none of them is mistaken for a real GitHub account, and
-// the addresses are at example.edu for the same reason. Times are relative to
-// when the script runs, so "2 hours ago" and "in 5 days" read naturally.
+// the addresses are at student.example.edu for the same reason: an invented
+// name at a real institution's domain could be a real student's address, shown
+// in a public README beside a grade. Times are relative to when the script
+// runs, so "2 hours ago" and "in 5 days" read naturally.
+//
+// Set up the way the form's defaults set an assignment up: anyone with the
+// link may accept, and each student confirms their institutional address.
 
 export const ORG = 'PXL-Demo-Course-2627';
 const NOW = Date.now();
@@ -16,7 +21,7 @@ const sha = (n) => (n.toString(16) + 'a3f9c27e1d4b8065').repeat(5).slice(0, 40);
 export const LECTURER = { login: 'demo-lecturer', id: 910001, name: 'Demo Lecturer', token: 'mock_demo_lecturer' };
 
 const PEOPLE = [
-  ['Alice', 'Vermeulen', '3A'], ['Bram', 'Peeters', '3A'], ['Cara', 'Janssens', '3A'], ['Dries', 'Maes', '3A'],
+  ['Alice', 'Smets', '3A'], ['Bram', 'Peeters', '3A'], ['Cara', 'Janssens', '3A'], ['Dries', 'Maes', '3A'],
   ['Eva', 'Willems', '3A'], ['Femke', 'Claes', '3A'], ['Gilles', 'Goossens', '3A'], ['Hanne', 'Wouters', '3A'],
   ['Ibe', 'De Smet', '3B'], ['Jana', 'Mertens', '3B'], ['Kobe', 'Jacobs', '3B'], ['Lotte', 'Dubois', '3B'],
   ['Milan', 'Lambrechts', '3B'], ['Nora', 'Hermans', '3B'], ['Oscar', 'Michiels', '3B'], ['Pauline', 'Aerts', '3B'],
@@ -27,7 +32,7 @@ export const STUDENTS = PEOPLE.map(([first, last, group], i) => ({
   full_name: `${first} ${last}`,
   student_number: String(12345601 + i),
   class_group: group,
-  email: `${first}.${last.replace(/\s+/g, '')}@example.edu`.toLowerCase(),
+  email: `${first}.${last.replace(/\s+/g, '')}@student.example.edu`.toLowerCase(),
   id: 920001 + i,
 }));
 
@@ -53,7 +58,7 @@ const tests = (n) => Array.from({ length: n }, (_, i) => ({ id: `check-${i + 1}`
 export const ASSIGNMENTS = {
   [LAB]: {
     schema_version: 1, id: LAB, title: 'Lab 3: Docker networking', organization: ORG, state: 'published',
-    assignment_type: 'individual', roster_mode: 'enforced',
+    assignment_type: 'individual', roster_mode: 'open', require_claim: true, max_acceptances: 40,
     template: { owner: ORG, repository: 'lab-3-docker-networking-template' },
     repository_name_pattern: `${LAB}-{github_login}`, broker_repo: `broker-${LAB}`,
     opens_at: iso(NOW - 6 * D), deadline_at: iso(NOW + 4 * D + 5 * H),
@@ -62,7 +67,7 @@ export const ASSIGNMENTS = {
   },
   [PROJECT]: {
     schema_version: 1, id: PROJECT, title: 'Group project: CI/CD pipeline', organization: ORG, state: 'published',
-    assignment_type: 'group', roster_mode: 'enforced',
+    assignment_type: 'group', roster_mode: 'open', require_claim: true, max_acceptances: 40,
     template: { owner: ORG, repository: 'cicd-pipeline-template' },
     repository_name_pattern: `${PROJECT}-{team_slug}`, broker_repo: `broker-${PROJECT}`,
     opens_at: iso(NOW - 3 * D), deadline_at: iso(NOW + 18 * D),
@@ -70,7 +75,7 @@ export const ASSIGNMENTS = {
   },
   [EXAM]: {
     schema_version: 1, id: EXAM, title: 'Exam: Linux administration', organization: ORG, state: 'closed',
-    assignment_type: 'individual', roster_mode: 'enforced',
+    assignment_type: 'individual', roster_mode: 'open', require_claim: true, max_acceptances: 40,
     template: { owner: ORG, repository: 'linux-exam-template' },
     repository_name_pattern: `${EXAM}-{github_login}`, broker_repo: `broker-${EXAM}`,
     opens_at: iso(NOW - 9 * D - 3 * H), deadline_at: iso(NOW - 9 * D),
@@ -79,7 +84,7 @@ export const ASSIGNMENTS = {
   },
   [DRAFT]: {
     schema_version: 1, id: DRAFT, title: 'Lab 4: Kubernetes basics', organization: ORG, state: 'draft',
-    assignment_type: 'individual', roster_mode: 'enforced',
+    assignment_type: 'individual', roster_mode: 'open', require_claim: true, max_acceptances: 40,
     template: { owner: ORG, repository: 'lab-4-kubernetes-template' },
     repository_name_pattern: `${DRAFT}-{github_login}`,
     deadline_at: iso(NOW + 25 * D),
@@ -88,14 +93,23 @@ export const ASSIGNMENTS = {
 
 // --- reports --------------------------------------------------------------
 
-function row(s, assignmentId, i, { status, committedAgo, commits, deadline, preserved = false, team = null, claimed = false }) {
+// Who typed their address rather than picking it from the ones GitHub had
+// already verified on their account: a few, as in a real class.
+const TYPED = new Set(['demo-dries', 'demo-jana', 'demo-oscar']);
+
+function row(s, assignmentId, i, { status, committedAgo, commits, deadline, preserved = false, team = null }) {
   const repo = team ? `${assignmentId}-${team}` : `${assignmentId}-${s.login}`;
   const base = {
     github_login: s.login,
     full_name: s.full_name,
     student_number: s.student_number,
     class_group: s.class_group,
-    ...(claimed ? { claimed_email: s.email, claim_verified: true } : {}),
+    // The address they confirmed when they accepted, judged as report.mjs
+    // judges it: in an allowed domain, and with their name in it.
+    claimed_email: s.email,
+    claim_verified: !TYPED.has(s.login),
+    claim_domain_allowed: true,
+    claim_format_allowed: true,
     acceptance_state: 'provisioned',
     submission_status: status,
     repo_name: `${ORG}/${repo}`,
@@ -135,7 +149,6 @@ const examRows = STUDENTS.map((s, i) => row(s, EXAM, i, {
   commits: 6 + (i % 5),
   deadline: examDeadline,
   preserved: i !== 13,
-  claimed: true,
 }));
 
 export const TEAMS = [
@@ -179,7 +192,7 @@ function rollUp(id) {
   const count = (status) => rows.filter((r) => r.submission_status === status).length;
   return {
     title: a.title, state: a.state, opens_at: a.opens_at, deadline_at: a.deadline_at, timezone: 'Europe/Brussels',
-    max_acceptances: null, total_students: rows.length, accepted: rows.length, provisioned: rows.length,
+    max_acceptances: a.max_acceptances ?? null, total_students: rows.length, accepted: rows.length, provisioned: rows.length,
     on_time: count('on-time'), late: count('late'), no_submission: count('no-submission'), with_repo_faults: 0,
     generated_at: REPORTS[id].generated_at,
   };

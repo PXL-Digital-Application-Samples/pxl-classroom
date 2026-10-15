@@ -162,7 +162,7 @@ test('teams tab', async ({ page }) => {
 
 test('roster', async ({ page }) => {
   await asLecturer(page, `/dashboard/${demo.ORG}/roster`);
-  await expect(page.getByText('Alice Vermeulen').first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(demo.STUDENTS[0].full_name).first()).toBeVisible({ timeout: 20000 });
   await shot(page, 'readme-roster');
 });
 

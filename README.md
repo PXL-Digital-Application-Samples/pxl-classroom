@@ -42,7 +42,7 @@ I built it for my own courses at first.
 ![Assignments at a glance](assets/images/readme-overview.png)
 
 ### Progress
-*One assignment, student by student: their repository, last commit and score.*
+*One assignment, student by student: the institutional address they confirmed when they accepted, their repository, last commit and score.*
 
 ![Progress of one assignment](assets/images/readme-progress.png)
 
