@@ -187,6 +187,7 @@
           :is-group="isGroupAssignment"
           :accepted-count="reportError ? null : acceptedStudentsCount"
           :busy="freezingNow"
+          :lock-ran="Boolean(preservationLockdownTime)"
           :primary-invite="activeTab !== 'settings' || !settingsSavePrimary"
           :settings-unsaved="settingsUnsaved"
           :retired-invite-key="retiredInviteKey"

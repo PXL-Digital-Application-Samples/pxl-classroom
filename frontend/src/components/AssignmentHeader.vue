@@ -145,6 +145,8 @@ const props = defineProps({
   acceptedCount: { type: Number, default: null },
   /** A state change is in flight. */
   busy: { type: Boolean, default: false },
+  /** The deadline's lock has run (frontend/src/lib/state-actions.js). */
+  lockRan: { type: Boolean, default: false },
   /** Whether Invite link is the view's one solid button (not under the editor). */
   primaryInvite: { type: Boolean, default: true },
   /** An invitation secret just regenerated away, not to be offered again. */
@@ -169,6 +171,7 @@ const actions = computed(() => stateActions({
   state: state.value,
   deadlinePassed: deadlinePassed.value,
   everPublished: everPublished(props.assignment),
+  lockRan: props.lockRan,
 }))
 
 // A link just regenerated is retired at once, while the stored assignment still

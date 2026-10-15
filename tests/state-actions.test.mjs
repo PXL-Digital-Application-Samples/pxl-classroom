@@ -79,3 +79,18 @@ test("a draft that was published before is deleted in full, never as a bare file
   assert.equal(everPublished({ state: "closed" }), true);
   assert.equal(everPublished(null), false);
 });
+
+test("past the deadline each line says what it does now, and a lock that already ran is not offered again (live UI, 2026-10-15)", () => {
+  const sub = (actions, key) => actions.find((a) => a.key === key)?.sub;
+  const before = stateActions({ state: "published", deadlinePassed: false });
+  assert.equal(sub(before, "close"), "Nobody new can accept; existing repositories are unaffected");
+  assert.equal(sub(before, "draft"), "The invitation link stops working");
+  const after = stateActions({ state: "published", deadlinePassed: true });
+  assert.equal(sub(after, "close"), "Marks it closed. Nobody could accept after the deadline anyway; repositories are unaffected");
+  assert.equal(sub(after, "draft"), "Takes it off the student pages");
+  assert.ok(after.some((a) => a.key === "freeze"), "before the lock ran it is the way to run it now");
+  for (const state of ["published", "closed"]) {
+    const locked = stateActions({ state, deadlinePassed: true, lockRan: true }).map((a) => a.key);
+    assert.ok(!locked.includes("freeze"), `${state}: it skips what was reopened and locked the rest, so it changes nothing`);
+  }
+});

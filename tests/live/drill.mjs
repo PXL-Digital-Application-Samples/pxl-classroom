@@ -17,6 +17,10 @@
 //       start from their record and retries them before they push, which must
 //       recover it from the push log; verify checks the report counts
 //       only the student's commit and that starter sync refuses it.
+//       --history-branch <name> (with --full-history) makes that template's
+//       default branch <name> rather than main - `history-template-<name>`,
+//       made once - so the submission ref, the copy and the report are drilled
+//       on a branch nothing spells.
 //       --grades defines one check in the assignment, run on GitHub Actions in
 //       the workflow provisioning adds, with a hand-in message: the first
 //       student hands in, the last pushes work without the message. Start
@@ -227,28 +231,29 @@ async function waitForRun(run, { minutes = 10 } = {}) {
  * each, and a tag - a git exercise in miniature. Made once, through the API as
  * the lecturer; a repository of that name that is not it stops the drill.
  */
-async function ensureHistoryTemplate() {
+async function ensureHistoryTemplate(name = HISTORY_TEMPLATE, branch = "main") {
   const T = LECTURER.token;
-  const at = `/repos/${ORG}/${HISTORY_TEMPLATE}`;
+  const at = `/repos/${ORG}/${name}`;
+  const want = [branch, ...HISTORY_BRANCHES.filter((b) => b !== "main")];
   const have = await api(at, { token: T });
   if (have.ok) {
     const branches = ((await api(`${at}/branches`, { token: T })).data || []).map((b) => b.name);
-    if (have.data.is_template && HISTORY_BRANCHES.every((b) => branches.includes(b))) {
-      ok(`${ORG}/${HISTORY_TEMPLATE} is there: ${branches.join(", ")}`);
+    if (have.data.is_template && have.data.default_branch === branch && want.every((b) => branches.includes(b))) {
+      ok(`${ORG}/${name} is there: ${branches.join(", ")}, default ${branch}`);
       return;
     }
-    bad(`${ORG}/${HISTORY_TEMPLATE} exists but is not the drill's (template: ${have.data.is_template}, branches: ${branches.join(", ")}) - delete it and start again`);
+    bad(`${ORG}/${name} exists but is not the drill's (template: ${have.data.is_template}, default ${have.data.default_branch}, branches: ${branches.join(", ")}) - delete it and start again`);
     finish();
   }
-  if (have.status !== 404) { bad(`${ORG}/${HISTORY_TEMPLATE}: HTTP ${have.status}`); finish(); }
+  if (have.status !== 404) { bad(`${ORG}/${name}: HTTP ${have.status}`); finish(); }
 
   const step = (res, what) => {
-    if (!res.ok) { bad(`making ${HISTORY_TEMPLATE}: ${what} HTTP ${res.status} ${res.data?.message ?? ""}`); finish(); }
+    if (!res.ok) { bad(`making ${name}: ${what} HTTP ${res.status} ${res.data?.message ?? ""}`); finish(); }
     return res.data;
   };
   step(await api(`/orgs/${ORG}/repos`, {
     token: T, method: "POST",
-    body: { name: HISTORY_TEMPLATE, private: true, auto_init: false, description: "Drill template with history and prepared branches (tests/live/drill.mjs --full-history). Safe to delete." },
+    body: { name, private: true, auto_init: false, description: "Drill template with history and prepared branches (tests/live/drill.mjs --full-history). Safe to delete." },
   }), "create");
   const put = async (path, text, message, extra = {}) => step(await api(`${at}/contents/${path}`, {
     token: T, method: "PUT", body: { message, content: Buffer.from(text).toString("base64"), ...extra },
@@ -260,8 +265,11 @@ async function ensureHistoryTemplate() {
   }
   await put("feature.py", "x = 1\n", "Feature x", { branch: "feature-x" });
   await put("app.py", "print('v1')\n", "Fix the bug", { branch: "bugfix", sha: bug.content.sha });
-  step(await api(at, { token: T, method: "PATCH", body: { is_template: true } }), "mark as template");
-  ok(`made ${ORG}/${HISTORY_TEMPLATE}: ${HISTORY_BRANCHES.join(", ")} and tag v1`);
+  // --history-branch: the exercise lives on another branch, which is the
+  // template's default, with the same two commits (`main` stays beside it).
+  if (branch !== "main") step(await api(`${at}/git/refs`, { token: T, method: "POST", body: { ref: `refs/heads/${branch}`, sha: bug.commit.sha } }), branch);
+  step(await api(at, { token: T, method: "PATCH", body: { is_template: true, ...(branch !== "main" ? { default_branch: branch } : {}) } }), "mark as template");
+  ok(`made ${ORG}/${name}: ${want.join(", ")} (default ${branch}) and tag v1`);
 }
 
 /** Every branch and tag of a repository on the drill org: ref -> sha. */
@@ -379,8 +387,15 @@ async function start() {
   const fullHistory = flag("full-history");
   const grades = flag("grades");
   if (grades && fullHistory) die("--grades and --full-history are separate drills");
-  if (fullHistory) await ensureHistoryTemplate();
-  const templateName = fullHistory ? HISTORY_TEMPLATE : TEMPLATE;
+  // --history-branch <name>: a full-history template whose default branch is
+  // not `main`, which is what the submission ref, the copy and the report must
+  // follow (TV-9).
+  const historyBranch = textOption("history-branch", "main");
+  if (historyBranch !== "main" && !fullHistory) die("--history-branch is a --full-history drill's");
+  if (!/^[A-Za-z0-9._-]+$/.test(historyBranch)) die(`--history-branch "${historyBranch}" is not a branch name this drill makes`);
+  const historyTemplate = historyBranch === "main" ? HISTORY_TEMPLATE : `${HISTORY_TEMPLATE}-${historyBranch}`;
+  if (fullHistory) await ensureHistoryTemplate(historyTemplate, historyBranch);
+  const templateName = fullHistory ? historyTemplate : TEMPLATE;
   const tpl = await api(`/repos/${ORG}/${templateName}`, { token: LECTURER.token });
   if (!tpl.ok) bad(`template ${ORG}/${templateName}: HTTP ${tpl.status}`);
   else ok(`template ${ORG}/${templateName} #${tpl.data.id}, default branch ${tpl.data.default_branch}`);
@@ -551,7 +566,25 @@ async function start() {
       } else {
         bad(`the retry rewrote ${firstRecordPath} without what it was given: ${after?.starter_sha ?? "none"} (was ${beforeRetry?.starter_sha ?? "none"})`);
       }
+    } else {
+      // GitHub's copy that provisioning added nothing to records no start, on
+      // a Retry as on the first run: one commit is the start (TV-9, X1).
+      const after = await readControlJson(firstRecordPath);
+      if (after && after.starter_sha == null && after.full_history == null) ok(`the retry recorded no start for ${STUDENTS[0].login}: GitHub's one commit is it`);
+      else bad(`the retry wrote a start into ${firstRecordPath}: starter_sha ${after?.starter_sha}, full_history ${after?.full_history}`);
     }
+  }
+
+  // --delete-one (TV-7, P2-26): the last student's repository is deleted before
+  // the deadline. The stop must lock everyone else and call this one gone, not
+  // fail the stop for the whole instant; verify expects exactly that.
+  if (flag("delete-one")) {
+    const gone = STUDENTS[STUDENTS.length - 1];
+    console.log(`\n${6 + STUDENTS.length}. ${gone.login}'s repository is deleted before the deadline\n`);
+    const rec = await readControlJson(`repositories/${id}/${normalizeLogin(gone.login)}.json`);
+    const del = rec ? await api(`/repos/${rec.repo_name}`, { token: LECTURER.token, method: "DELETE" }) : null;
+    if (del?.ok) ok(`deleted ${rec.repo_name}`);
+    else bad(`could not delete ${gone.login}'s repository: ${rec ? `HTTP ${del?.status}` : "no record"}`);
   }
 
   if (Date.now() >= new Date(deadlineAt).getTime()) {
@@ -748,13 +781,25 @@ async function verify() {
 
   console.log("\n5. The lock\n");
   const late = new Map();
+  // A repository deleted before the deadline (--delete-one): nothing to lock,
+  // and not a lock that failed (P2-26).
+  const goneLogins = new Set();
+  for (const s of STUDENTS) {
+    const rec = await readControlJson(`repositories/${id}/${normalizeLogin(s.login)}.json`);
+    if (rec && (await api(`/repos/${rec.repo_name}`, { token: LECTURER.token })).status === 404) goneLogins.add(normalizeLogin(s.login));
+  }
   if (!lockdown) bad(`lockdowns/${id}/lockdown-record.json is absent`);
   else {
     if (lockdown.error_count === 0) ok(`lockdown record: ${lockdown.locked_count} locked, 0 errors`);
-    else bad(`lockdown record: ${lockdown.error_count} error(s)`);
+    else bad(`lockdown record: ${lockdown.error_count} error(s)${goneLogins.size ? ` - ${goneLogins.size} of them a repository that is gone, which is not a lock that failed` : ""}`);
     for (const [i, student] of STUDENTS.entries()) {
       const login = normalizeLogin(student.login);
       const row = (lockdown.results || []).find((x) => normalizeLogin(x.github_login) === login);
+      if (goneLogins.has(login)) {
+        if (row) bad(`${login}: a lockdown row for a repository that is gone`);
+        else ok(`${login}: the repository was deleted before the deadline - no lock row, nothing to preserve`);
+        continue;
+      }
       if (!row) { bad(`${login}: no row in the lockdown record`); continue; }
       if (row.lock_method === expectedLock) ok(`${login}: stopped by ${row.lock_method}`);
       else bad(`${login}: stopped by ${row.lock_method}, expected ${expectedLock} - a degraded lock reports success, which is why this is checked per row`);
@@ -839,7 +884,9 @@ async function verify() {
   // student and say nothing. Only a retry against a repository that IS locked
   // can tell the two apart, and the refusal is in the run log alone.
   console.log(`\n9. A retry cannot hand back a locked repository\n`);
-  const frozenStudent = STUDENTS[STUDENTS.length - 1];
+  // The last student whose repository still exists: a Retry for a gone one
+  // would make it again.
+  const frozenStudent = [...STUDENTS].reverse().find((s) => !goneLogins.has(normalizeLogin(s.login))) || STUDENTS[0];
   const retryAt = Date.now() - 5_000;
   if (await dispatch("retry-acceptance.yml", { org: ORG, assignment_id: id, github_login: frozenStudent.login })) {
     const run = await findDispatchedRun("retry-acceptance.yml", retryAt);
@@ -1241,4 +1288,4 @@ else if (command === "handin") await handinOnly();
 else if (command === "verify") await verify();
 else if (command === "migrate") await migrate();
 else if (command === "cleanup") await cleanup();
-else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history | --grades] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");
+else die("usage: node tests/live/drill.mjs start [--minutes 45] [--repo-lock] [--full-history [--history-branch <name>] | --grades] | handin <id> | verify <id> [--wait] [--timeout 40] | migrate <id> | cleanup <id>... | cleanup --all | cleanup --break-lock");

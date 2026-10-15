@@ -12,12 +12,20 @@
  * offered only where it was before - a draft, or an assignment that no longer
  * accepts.
  *
- * @param {{state?: string|null, deadlinePassed?: boolean, everPublished?: boolean}} args
+ * EACH LINE SAYS WHAT IT DOES NOW, not what the stored state would do on its
+ * own (live UI suite, 2026-10-15): a finished, locked, archived assignment
+ * still `published` offered "Stop accepting - nobody new can accept" (nobody
+ * could since the deadline) and "Lock everyone out now" over "All student
+ * work is archived" - a lock that had already run, and that skips whatever a
+ * lecturer reopened (lockdown.mjs), so it could change nothing.
+ *
+ * @param {{state?: string|null, deadlinePassed?: boolean, everPublished?: boolean, lockRan?: boolean}} args
+ *   `lockRan`: the deadline's lock has run (the report says when)
  * @returns {Array<{key: string, label: string, sub: string, danger?: boolean}>}
  */
-export function stateActions({ state, deadlinePassed = false, everPublished = false }) {
+export function stateActions({ state, deadlinePassed = false, everPublished = false, lockRan = false }) {
   // Not "cannot be undone": a student can be let back in from their row.
-  const freeze = deadlinePassed
+  const freeze = deadlinePassed && !lockRan
     ? [{ key: 'freeze', label: 'Lock everyone out now', sub: 'Takes away every student\'s write access and archives their work. Asks for confirmation first.', danger: true }]
     : []
   // REOPENING NEEDS A DEADLINE IN THE FUTURE. Past it, every acceptance is
@@ -43,8 +51,12 @@ export function stateActions({ state, deadlinePassed = false, everPublished = fa
       ]
     case 'published':
       return [
-        { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept; existing repositories are unaffected' },
-        { key: 'draft', label: 'Back to draft', sub: 'The invitation link stops working' },
+        deadlinePassed
+          ? { key: 'close', label: 'Stop accepting', sub: 'Marks it closed. Nobody could accept after the deadline anyway; repositories are unaffected' }
+          : { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept; existing repositories are unaffected' },
+        deadlinePassed
+          ? { key: 'draft', label: 'Back to draft', sub: 'Takes it off the student pages' }
+          : { key: 'draft', label: 'Back to draft', sub: 'The invitation link stops working' },
         { key: 'archive', label: 'Archive', sub: 'Leaves the student-facing list and day-to-day tracking' },
         ...freeze,
       ]

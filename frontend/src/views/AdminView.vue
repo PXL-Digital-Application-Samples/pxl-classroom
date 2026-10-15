@@ -5572,18 +5572,25 @@ async function deleteAssignment() {
 }
 
 async function setState(newState) {
-  // Asked in the state menu's own words (lib/state-actions.js), by title.
+  // Asked in the state menu's own words (lib/state-actions.js), by title - and,
+  // as there, in what it does NOW: past the deadline nobody can accept anyway,
+  // and the link was closed at the lock (live UI suite, 2026-10-15).
   const name = form.value.title || form.value.id
+  const past = deadlineInPast.value
   const questions = {
     draft: {
       title: `Move "${name}" back to draft?`,
-      paragraphs: ['The invitation link stops working, so students can no longer open it. Existing repositories are untouched.'],
+      paragraphs: [past
+        ? 'It is taken off the student pages. Existing repositories are untouched.'
+        : 'The invitation link stops working, so students can no longer open it. Existing repositories are untouched.'],
       confirmLabel: 'Back to draft',
       destructive: true,
     },
     closed: {
       title: `Stop accepting "${name}"?`,
-      paragraphs: ['Nobody new can accept it. Existing repositories are untouched.'],
+      paragraphs: [past
+        ? 'It is marked closed. Nobody could accept after the deadline anyway, and existing repositories are untouched.'
+        : 'Nobody new can accept it. Existing repositories are untouched.'],
       confirmLabel: 'Stop accepting',
       destructive: true,
     },

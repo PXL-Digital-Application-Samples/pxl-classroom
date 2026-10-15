@@ -105,8 +105,24 @@ test("L9: delete a finished drill through the Admin Panel's own dialog, and GitH
   await signInAs(page, ACCOUNTS.LECTURER);
   await publishedData(page);
   await page.goto(`/dashboard/${ORG}/${DELETE}`);
-  await page.locator("[data-state-menu]").click({ timeout: MINUTE });
-  await page.locator(".state-menu [role=menuitem]").filter({ hasText: "Delete assignment" }).click();
+  const menu = page.locator("[data-state-menu]");
+  const item = (text) => page.locator(".state-menu [role=menuitem]").filter({ hasText: text });
+  await menu.click({ timeout: MINUTE });
+  if (doc.state === "published") {
+    // Finished but never closed: Delete waits for Stop accepting, and the menu
+    // says what each entry does now - nobody could accept since the deadline,
+    // and the lock it would run has run (P2-56).
+    await expect(item("Stop accepting")).toContainText("Nobody could accept after the deadline anyway");
+    await expect(page.locator(".state-menu")).not.toContainText("Lock everyone out now");
+    await item("Stop accepting").click();
+    // It runs in the editor, which asks first - in the same words as the menu.
+    const ask = page.getByRole("alertdialog");
+    await expect(ask).toContainText("Nobody could accept after the deadline anyway", { timeout: MINUTE });
+    await ask.getByRole("button", { name: "Stop accepting" }).click();
+    await expect(menu).toContainText("Closed", { timeout: 3 * MINUTE });
+    await menu.click();
+  }
+  await item("Delete assignment").click();
   const dialog = page.locator('[aria-label="Delete assignment"]');
   await expect(dialog).toContainText("Student repositories are untouched");
   await expect(dialog.locator('[data-archive-state="kept"]')).toContainText("The archive is kept.", { timeout: MINUTE });
