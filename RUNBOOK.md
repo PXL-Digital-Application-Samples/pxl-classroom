@@ -484,6 +484,8 @@ What to expect once it is on: a run every 4 hours, which does nothing at all unl
 
 Every failure degrades the same way. A dropped cron firing, a killed job, a deadline moved out of reach - all of them leave the nightly finalize doing exactly what it did before. Nothing the sentinel does can make things worse than it not having run.
 
+A network failure while the sentinel installs is tried again by the sentinel itself, up to an hour past the deadline, so a blip at the npm registry does not cost the deadline; any other install failure goes red at once. If a sentinel run is red anyway before a real deadline - the watchdog alerts on a failed run - press **Re-run failed jobs** on it: a watch that starts late still stops writes at once, which is better than waiting for the nightly.
+
 The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, beside the lockdown record it explains, with `outcome` (`fired`, `gave-up:runtime`, `gave-up:moved`) and one `pushed_at` sample per poll.
 
 ---

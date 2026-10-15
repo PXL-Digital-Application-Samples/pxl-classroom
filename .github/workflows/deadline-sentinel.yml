@@ -69,7 +69,8 @@ jobs:
       max-parallel: 4
       fail-fast: false
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The install may retry for 8 minutes (scripts/npm-ci-retry.mjs).
+    timeout-minutes: 15
     steps:
       # A person dispatches this. The other thing that can reach
       # workflow_dispatch is an App installation token - what a stolen broker
@@ -108,7 +109,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-      - run: npm ci --omit=dev
+      # Tried again on a registry blip (2026-10-15): an arm that cannot install
+      # arms nothing until the next firing four hours later.
+      - name: npm ci, retried
+        env:
+          RETRY_BUDGET_MINUTES: "8"
+        run: node scripts/npm-ci-retry.mjs
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
@@ -218,7 +224,15 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-      - run: npm ci --omit=dev
+      # Tried again on a registry blip (2026-10-15), never sleeping across the
+      # instant, and on past it: a watch that starts late still stops writes at
+      # once, which beats the nightly. 270 minutes leaves the steps after it
+      # room inside the job's 300.
+      - name: npm ci, retried up to and past the instant
+        env:
+          DEADLINE_AT: ${{ matrix.sentinel.deadline_at }}
+          RETRY_BUDGET_MINUTES: "270"
+        run: node scripts/npm-ci-retry.mjs
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
