@@ -97,4 +97,10 @@ test("what the lecturer's dialog says their page shows, against what it should",
   assert.deepEqual(pageDeadlineState({ expected: want, read: { state: "none" } }), { state: "behind", at: null, expected: d(want) });
   assert.equal(pageDeadlineState({ expected: want, read: { state: "set", at: d("2026-10-23T22:00:00Z") } }).state, "behind");
   assert.equal(pageDeadlineState({ expected: null, read: { state: "set", at: d(want) } }).state, "behind");
+  // R6-10: extensions that could not be read are not "none" - a page showing
+  // one is not behind, and nothing may be sent over it.
+  assert.deepEqual(
+    pageDeadlineState({ expected: null, expectedKnown: false, read: { state: "set", at: d(want) } }),
+    { state: "unknown", at: null, expected: null, expectedUnknown: true },
+  );
 });

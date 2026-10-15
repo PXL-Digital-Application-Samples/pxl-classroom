@@ -60,6 +60,15 @@
     "snapshot_sha": {
       "type": ["string", "null"],
       "description": "The preserved deadline snapshot at the moment of the unlock. Copied in deliberately: it is what was graded, and it is what makes the rest of this record mean something. A reader has to be able to see, in one place, that the work was already safely in the archive when the repository was reopened."
+    },
+    "relocked_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Only on the copy kept at lockdowns/<id>/relocked/<login>/<relocked_at>.json: when a lecturer locked it again. Lock again removes the record under unlocked/, which every lockdown run reads as 'leave it open', and keeps this copy, because it is the only durable statement that the student could push after the deadline, from unlocked_at to here (review 2026-10-15, R6-13)."
+    },
+    "relocked_by": {
+      "type": "string",
+      "description": "Only beside relocked_at: the GitHub login of the lecturer who locked it again."
     }
   }
 }

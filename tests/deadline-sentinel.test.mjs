@@ -1143,3 +1143,28 @@ test("a duplicate that cannot credit the first's stop writes its own timeline be
     { deadlineFor: () => deadline },
   );
 });
+
+// R6-22 (review 2026-10-15): an exam sent back to draft, or archived, before its
+// sentinel armed was never stopped at the instant - only locked by the nightly,
+// hours later, from commit dates a student sets. The sentinel watches what the
+// finalize locks (lib/finalize-scope.mjs).
+test("R6-22: a draft or archived assignment students accepted into is armed and joins; one nobody accepted is not", () => {
+  const LATER = Date.parse("2026-10-20T10:00:00Z");
+  const soon = new Date(LATER + 2 * HOUR).toISOString();
+  const { armed } = planSentinels(
+    [
+      { id: "drafted", doc: published(soon, "draft"), hasRepositories: true },
+      { id: "archived", doc: published(soon, "archived"), hasRepositories: true },
+      { id: "empty-draft", doc: published(soon, "draft"), hasRepositories: false },
+    ],
+    { now: LATER, org: "TestOrg" },
+  );
+  assert.deepEqual(armed.map((a) => a.assignment_ids).flat(), ["archived", "drafted"]);
+  const docs = [
+    { id: "drafted", doc: published(soon, "draft") },
+    { id: "empty-draft", doc: published(soon, "draft") },
+    { id: "live", doc: published(soon) },
+  ];
+  assert.deepEqual(assignmentsAtInstant(docs, soon, new Set(["drafted"])), ["drafted", "live"]);
+  assert.deepEqual(assignmentsAtInstant(docs, soon), ["live"], "without records a draft does not join");
+});

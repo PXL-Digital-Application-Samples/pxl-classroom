@@ -25,6 +25,7 @@ import { parse, stringify as stringifyYaml } from "yaml";
 import { PROVISIONABLE_BRANCH, resolveTemplatePin } from "../lib/template-source.mjs";
 import { emptyFromCommits, mayStillBeFilling } from "../lib/existing-repo.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
+import { copiedFrom } from "../lib/unrecorded-repos.mjs";
 import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
 // The branch grading reads from. One decision, one implementation - the
 // generated workflow has to fire on the branch the reader walks.
@@ -746,6 +747,21 @@ async function onlyAppPushed() {
 }
 
 /**
+ * The sha of the first commit on `branch` of `full` (`owner/name`): one commit
+ * per page, the `last` link's page is the oldest. Null when unread.
+ */
+async function rootSha(full, branch) {
+  const at = `/repos/${full}/commits?sha=${encodeURIComponent(branch)}&per_page=1`;
+  const first = await gh("GET", at);
+  if (!first.ok || !Array.isArray(first.data) || first.data.length === 0) return null;
+  const last = String(first.headers?.get?.("link") || "").match(/<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/);
+  if (!last) return typeof first.data[0]?.sha === "string" ? first.data[0].sha : null;
+  const res = await gh("GET", `${at}&page=${last[1]}`);
+  const row = res.ok && Array.isArray(res.data) ? res.data[0] : null;
+  return typeof row?.sha === "string" ? row.sha : null;
+}
+
+/**
  * How many commits `sha` has behind it, counted as the collector counts a
  * branch (collect/collect.mjs: one per page, the `last` link's page number),
  * so the report can subtract the one from the other. "" when unread.
@@ -797,16 +813,40 @@ async function injectAutogradingWorkflow(assignment) {
   // was never graded and nothing anywhere was red. The grant has happened, so
   // the record is still written (`granted`), and Retry adds the workflow.
   if (!res.ok) {
-    await fail(
-      "fail:grading-workflow",
-      `${cfg.org}/${cfg.targetRepo} was created and the student has it, but the grading workflow could not be added ` +
-        `(HTTP ${res.status}), so their work would not be graded. Re-run Retry acceptance for this student.`,
-    );
+    // THERE NOW IS DONE (review 2026-10-15, R6-16). Two teammates arriving
+    // together both find no workflow and both write it, and a PUT GitHub
+    // carried out and answered badly is retried: the second write is refused
+    // because the file exists - which is the outcome this step is for, and it
+    // failed the run and recorded no start. Asked again; only a file that is
+    // still absent fails.
+    const again = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/contents/.github/workflows/autograding.yml`);
+    if (again.status !== 200) {
+      await fail(
+        "fail:grading-workflow",
+        `${cfg.org}/${cfg.targetRepo} was created and the student has it, but the grading workflow could not be added ` +
+          `(HTTP ${res.status}), so their work would not be graded. Re-run Retry acceptance for this student.`,
+      );
+    }
+    log("inject-autograding", { ok: true, note: `the grading workflow is there already (the write answered HTTP ${res.status})` });
+    return await workflowCommit();
   }
   log("inject-autograding", { ok: true, note: "injected .github/workflows/autograding.yml" });
   // The commit it made, on the default branch (the PUT names no other).
   const sha = res.data?.commit?.sha;
   return typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
+/**
+ * The commit that added the grading workflow, when another write put it there:
+ * the newest commit touching the file, taken only where PXL Classroom's App
+ * made it - otherwise null, and no start is recorded (the report then asks the
+ * head itself, lib/untouched-repo.mjs `headIsProvided`).
+ */
+async function workflowCommit() {
+  const res = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}/commits?path=${encodeURIComponent(".github/workflows/autograding.yml")}&per_page=1`);
+  const row = res.ok && Array.isArray(res.data) ? res.data[0] : null;
+  const byApp = row?.commit?.verification?.verified === true && sameLogin(row?.author?.login, `${APP_SLUG}[bot]`);
+  return byApp && /^[0-9a-f]{40}$/.test(String(row.sha)) ? row.sha : null;
 }
 
 /** The JSON files of one control-repository directory, parsed; none when it is absent. */
@@ -839,6 +879,32 @@ async function writeOwnDeadline() {
     if (!res.ok) log("own-deadline", { ok: false, note: `the repository's deadline variable could not be written (HTTP ${res.status})` });
   } catch (e) {
     log("own-deadline", { ok: false, note: `the repository's deadline variable could not be written: ${e.message}` });
+  }
+}
+
+/**
+ * The deadline variable of the repository a student left (review 2026-10-15,
+ * R6-11): it carried the most generous member's, theirs included, and nothing
+ * else rewrites it, so the team kept a departed member's later date on their
+ * pages. Worked out again for the members who stay, and removed where none of
+ * them has one. Never written where nobody on the assignment has an extension,
+ * since then none was ever written. Best effort, as writeOwnDeadline.
+ */
+async function rewriteLeftDeadline(prevRepoName) {
+  try {
+    const overrides = await controlJson(`control/overrides/${cfg.assignmentId}`);
+    if (!overrides.length) return;
+    const assignment = parse(await readFile(`control/assignments/${cfg.assignmentId}.yml`, "utf-8"));
+    const team = (await controlJson(`control/teams/${cfg.assignmentId}`))
+      .find((t) => String(t?.repo_name ?? "").split("/").pop() === prevRepoName);
+    const members = (team?.members || []).filter((m) => !sameLogin(m, cfg.studentLogin));
+    const value = members.length ? deadlineVariableValue(assignment, members[0], { overrides, team: { members } }) : null;
+    const res = await writeDeadlineVariable((method, path, body) => gh(method, path, body), {
+      repoFullName: `${cfg.org}/${prevRepoName}`, value,
+    });
+    if (!res.ok) log("left-deadline", { ok: false, note: `the deadline variable of the repository left could not be written (HTTP ${res.status})` });
+  } catch (e) {
+    log("left-deadline", { ok: false, note: `the deadline variable of the repository left could not be written: ${e.message}` });
   }
 }
 
@@ -1006,9 +1072,19 @@ async function main() {
   // it was, whose run failed, and retried after it was turned off, recorded
   // nothing - and is still a full-history copy. Nobody but the App having
   // pushed is what makes it certain, whatever the setting says now.
+  // AND ONLY A COPY OF THIS TEMPLATE'S HISTORY (review 2026-10-15, R6-17): no
+  // template named and only the App pushing is also GitHub's own copy of a
+  // template since deleted, and stamping that `full_history` refused starter
+  // sync for the whole assignment. A pushed copy shares the template's first
+  // commit (as the nightly finds one, lib/unrecorded-repos.mjs `copiedFrom`);
+  // GitHub's copy and a repository anybody else made do not.
   let recoverHistoryCopy = false;
   if (alreadyExists && !cfg.dryRun && repo && !repo.template_repository) {
-    recoverHistoryCopy = await onlyAppPushed();
+    const tplBranch = tpl.data?.default_branch;
+    recoverHistoryCopy = (await onlyAppPushed()) && Boolean(tplBranch) && copiedFrom(
+      await rootSha(`${cfg.org}/${cfg.targetRepo}`, tplBranch),
+      await rootSha(`${cfg.templateOwner}/${cfg.templateRepo}`, tplBranch),
+    ) === true;
     const branch = tpl.data?.default_branch;
     if (recoverHistoryCopy && branch && BRANCH.test(branch) && repo.default_branch !== branch) {
       const patch = await gh("PATCH", `/repos/${cfg.org}/${cfg.targetRepo}`, { default_branch: branch });
@@ -1096,6 +1172,7 @@ async function main() {
       // between is kept, and the nightly reports it as a repository nobody
       // recorded rather than this step deleting work. Never fails the
       // acceptance - the student is in their new team either way.
+      let prevDeleted = false;
       if (cfg.removePreviousRepo) {
         const full = `${cfg.org}/${prevRepoName}`;
         try {
@@ -1108,7 +1185,8 @@ async function main() {
           const state = await repoTouched((path) => gh("GET", path), full, { appLogin: `${APP_SLUG}[bot]` });
           if (state === "untouched") {
             const del = await gh("DELETE", `/repos/${full}`);
-            log("remove-old-repo", { ok: del.ok || del.status === 404, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });
+            prevDeleted = del.ok || del.status === 404;
+            log("remove-old-repo", { ok: prevDeleted, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });
           } else {
             const why = { absent: "already gone", touched: "something was pushed to it since" }[state] || "could not read it";
             log("remove-old-repo", { ok: true, note: `kept ${prevRepoName}: ${why}` });
@@ -1117,6 +1195,8 @@ async function main() {
           log("remove-old-repo", { ok: false, note: `kept ${prevRepoName}: ${e.message}` });
         }
       }
+      // 5.3 What its remaining members' pages show as their deadline.
+      if (!cfg.dryRun && !prevDeleted && cfg.assignmentId) await rewriteLeftDeadline(prevRepoName);
     }
   }
 
@@ -1205,10 +1285,20 @@ async function main() {
     // not have. The record writer takes this over the one on record.
     const branch = tpl.data?.default_branch;
     starterSha = branch ? await branchHead(branch) : "";
-    if (starterSha) starterCount = await commitCountAt(starterSha);
-    log("starter", starterSha
-      ? { ok: true, note: `only PXL Classroom has pushed to it: starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ""}` }
-      : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
+    // THE HEAD FIRST, THE LOG AGAIN AFTER (review 2026-10-15, R6-18): the log
+    // was asked at the start of the run and the head read here, so a teammate's
+    // first push in between became the start - and the record with the most
+    // commits is every member's, so the whole team read No submission. Any
+    // push that reached the head read above is in the log now.
+    if (starterSha && !(await onlyAppPushed())) {
+      starterSha = "";
+      log("starter", { ok: true, note: "someone pushed to it while this ran, so no start is recorded" });
+    } else {
+      if (starterSha) starterCount = await commitCountAt(starterSha);
+      log("starter", starterSha
+        ? { ok: true, note: `only PXL Classroom has pushed to it: starts at ${starterSha.slice(0, 12)}${starterCount ? ` (${starterCount} commits)` : ""}` }
+        : { ok: false, note: "the starting commit could not be read, so it is not recorded" });
+    }
   }
 
   const outcome = cfg.dryRun ? "dry-run:ok" : alreadyExists ? "reused" : "created";

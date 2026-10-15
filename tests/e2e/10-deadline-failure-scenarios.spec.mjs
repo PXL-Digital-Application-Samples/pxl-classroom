@@ -429,4 +429,40 @@ test.describe('10 - Deadline Failure Modes, Edge Cases & Recovery Flows', () => 
     const betaStudentRow = page.locator('tr', { hasText: 'student-beta1' });
     await expect(betaStudentRow.locator('.status-indicator:has(.dot-warning)', { hasText: 'late' })).toBeVisible();
   });
+
+  test('R6-15: a student still inside an extension keeps "all work is archived" from showing, and is never offered Try again', async ({ page }) => {
+    const pastDeadline = new Date(Date.now() - 3600 * 1000 * 24).toISOString();
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: {
+        'lab-deferred': {
+          id: 'lab-deferred', title: 'Lab Deferred', organization: ORG, state: 'published',
+          assignment_type: 'individual', deadline_at: pastDeadline,
+        },
+      },
+      reports: {
+        'lab-deferred': {
+          schema_version: 1, generated_at: new Date().toISOString(), assignment_id: 'lab-deferred',
+          students: [
+            {
+              github_login: 'student-1', acceptance_state: 'accepted', submission_status: 'on-time',
+              preservation_status: 'preserved', preserved_sha: 'c0ffee1234567890abcdef1234567890abcdef12',
+              archive_repo: `${ORG}/pxl-classroom-archive-lab-deferred`, archive_ref: 'refs/heads/preserved/lab-deferred/student-1',
+              repo_name: `${ORG}/lab-deferred-student-1`, lock_down_at: pastDeadline,
+            },
+            {
+              github_login: 'student-2', acceptance_state: 'accepted', submission_status: 'on-time',
+              preservation_status: 'deferred', preserved_sha: null, repo_name: `${ORG}/lab-deferred-student-2`,
+            },
+          ],
+        },
+      },
+    });
+    await page.goto(`/dashboard/${ORG}/lab-deferred`);
+    const banner = page.locator('.card.preservation-strip');
+    await expect(banner.locator('.preservation-strip-title'))
+      .toContainText("1 of 2 students' work is archived; 1 is archived when their extension ends");
+    await expect(banner.locator('button', { hasText: /Try again for/ })).toHaveCount(0);
+  });
 });

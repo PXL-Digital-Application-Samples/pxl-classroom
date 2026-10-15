@@ -55,7 +55,14 @@ export async function readOwnDeadline({ token, org, assignment, login, repoFullN
     return readDeadlineVariable((method, path) => ghApi(token, method, path), { repoFullName, canPush })
   }
   const [control, variable] = await Promise.all([fromControl(), fromRepo().catch(() => ({ state: 'unreadable', status: 0 }))])
-  const candidates = [control.at, variable.state === 'set' ? variable.at : null].filter(Boolean)
+  // ONLY EVER LATER than the assignment's deadline (lib/effective-deadline.mjs).
+  // The variable is written when an extension is granted and nothing rewrites
+  // it when the deadline moves: a date the deadline has since passed shortened
+  // their deadline on screen (review 2026-10-15, R6-11). A student who can push
+  // can also set it themselves, which changes this page and nothing else.
+  const due = Date.parse(assignment?.deadline_at ?? '')
+  const later = (d) => d && (!Number.isFinite(due) || d.getTime() > due)
+  const candidates = [control.at, variable.state === 'set' ? variable.at : null].filter(later)
   const known = control.read || variable.state !== 'unreadable'
   if (!candidates.length) return { extension: null, known }
   const at = new Date(Math.max(...candidates.map((d) => d.getTime())))

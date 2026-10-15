@@ -26,6 +26,7 @@
         <p v-if="pageDeadline && pageDeadline.state !== 'none'" class="text-sm" data-page-deadline :data-state="pageDeadline.state">
           <template v-if="pageDeadline.state === 'current'">Their own page shows this deadline.</template>
           <template v-else-if="pageDeadline.state === 'no-repo'">They have no repository yet; their page shows the extension once they accept.</template>
+          <template v-else-if="pageDeadline.state === 'unknown' && pageDeadline.expectedUnknown">Could not read the extensions, so whether their own page shows the right deadline is not known.</template>
           <template v-else-if="pageDeadline.state === 'unknown'">Could not read what their own page shows as their deadline.</template>
           <template v-else-if="pageDeadline.expected && pageDeadline.at">Their own page still shows {{ formatDate(pageDeadline.at.toISOString()) }}.</template>
           <template v-else-if="pageDeadline.expected">Their own page does not show it yet: it shows the assignment deadline.</template>

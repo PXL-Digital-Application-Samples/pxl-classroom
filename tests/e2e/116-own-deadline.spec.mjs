@@ -64,6 +64,14 @@ test.describe('116 - the student page reads their own deadline from their reposi
     await expect(card.locator('.badge-success')).toHaveText('Submitted on time');
   });
 
+  test('R6-11: a variable the deadline has since passed shortens nothing', async ({ page }) => {
+    // Written for an extension, then the assignment's deadline moved past it:
+    // the page took the variable and showed the earlier date as theirs.
+    const card = await studentPage(page, { deadline: hours(24), variable: new Date(hours(12)).toISOString(), commitAt: hours(-1) });
+    await expect(card.locator('.override-alert-banner')).toHaveCount(0);
+    await expect(card.locator('.badge-success')).toHaveText('Submitted on time');
+  });
+
   test('no extension, and they can still push: work after the deadline is late', async ({ page }) => {
     const card = await studentPage(page);
     await expect(card.locator('.badge-warning')).toHaveText('Submitted late');
@@ -90,7 +98,7 @@ const REPORT_ROW = {
   github_login: STUDENT.login, acceptance_state: 'provisioned', submission_status: 'late',
   repo_name: FULL, repo_id: 9116, effective_deadline_at: null,
 };
-async function lecturerPage(page, { variable = null, overrides = {}, variableWrites = [] } = {}) {
+async function lecturerPage(page, { variable = null, overrides = {}, variableWrites = [], overridesStatus = null } = {}) {
   const deadline = hours(-12);
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -101,6 +109,10 @@ async function lecturerPage(page, { variable = null, overrides = {}, variableWri
     repoVariables: variable ? { [FULL]: variable } : {},
     variableWrites,
   });
+  if (overridesStatus) {
+    await page.route(`**/pxl-classroom-control/contents/overrides/${ID}**`, (route) =>
+      route.fulfill({ status: overridesStatus, body: JSON.stringify({ message: 'Server Error' }) }));
+  }
   await page.goto(`/dashboard/${ORG}/${ID}`);
   await page.getByRole('button', { name: `Actions for ${STUDENT.login}` }).first().click();
   return page.getByRole('dialog', { name: `Actions for ${STUDENT.login}` });
@@ -135,6 +147,18 @@ test.describe('116 - the lecturer grants it, and sees what their page shows', ()
     await expect(line).toHaveAttribute('data-state', 'current', { timeout: 15000 });
     await expect(line).toHaveText('Their own page shows this deadline.');
     expect(variableWrites).toEqual([{ repo: FULL, method: 'POST', value: new Date(value).toISOString() }]);
+  });
+
+  test('R6-10: extensions that could not be read are said so, and nothing is sent over the one their page shows', async ({ page }) => {
+    // "None expected" read off unread extensions made the page "behind", and
+    // Send it to their page DELETED the real extension from their repository.
+    const variableWrites = [];
+    const dialog = await lecturerPage(page, { variable: new Date(hours(48)).toISOString(), variableWrites, overridesStatus: 500 });
+    const line = dialog.locator('[data-page-deadline]');
+    await expect(line).toHaveAttribute('data-state', 'unknown');
+    await expect(line).toHaveText('Could not read the extensions, so whether their own page shows the right deadline is not known.');
+    await expect(line.getByRole('button')).toHaveCount(0);
+    expect(variableWrites).toEqual([]);
   });
 
   test('one their page already shows is said so, with nothing to send', async ({ page }) => {

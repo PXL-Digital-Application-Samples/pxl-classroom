@@ -192,6 +192,19 @@ test.describe('59 - the dialog says what it costs before it can be used', () => 
     await expect(dialog(page)).not.toContainText('The archive is kept');
   });
 
+  test('R6-15: a student still inside an extension is not in the archive, and is counted as such', async ({ page }) => {
+    await openClosedAssignment(page, {
+      extraRoutes: lockRecord(200),
+      reportStudents: [
+        { github_login: 'alice', acceptance_state: 'provisioned', submission_status: 'on-time', preservation_status: 'preserved' },
+        { github_login: 'bob', acceptance_state: 'provisioned', submission_status: 'on-time', preservation_status: 'deferred' },
+      ],
+    });
+    await chooseState(page, 'Delete assignment');
+    await expect(dialog(page).locator('[data-archive-state="partial"]')).toContainText("1 student's work is not in the archive yet");
+    await expect(dialog(page)).not.toContainText('The archive is kept');
+  });
+
   test('P2-17: a lock record that cannot be read says so, and never "kept"', async ({ page }) => {
     await openClosedAssignment(page, { extraRoutes: lockRecord(500) });
     await chooseState(page, 'Delete assignment');

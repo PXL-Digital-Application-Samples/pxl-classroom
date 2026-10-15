@@ -29,9 +29,14 @@ test("locked with no snapshot and no reason for it: failed - the snapshot was ne
 
 test("no snapshot FOR A REASON, or nothing locked yet: not-required", () => {
   assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null, no_submission: true } }), "not-required");
-  assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null, deferred_until: "2026-10-20T10:00:00Z" } }), "not-required");
   assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null, reconstructed: true } }), "not-required");
   assert.equal(preservationStatus({ preservation: null, lockdownRow: null }), "not-required");
+});
+
+test("R6-15: still inside an extension is owed a copy later - deferred, never not-required", () => {
+  // Read as not-required, the Progress strip said all work was archived and
+  // the delete dialog that each submission was kept, over students still working.
+  assert.equal(preservationStatus({ preservation: null, lockdownRow: { snapshot_sha: null, deferred_until: "2026-10-20T10:00:00Z" } }), "deferred");
 });
 
 test("so Reopen is refused for every case where a snapshot is owed and not archived", () => {

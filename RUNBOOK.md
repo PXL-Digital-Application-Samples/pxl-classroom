@@ -1043,7 +1043,7 @@ autograde:
 
 #### Grading from the CLI
 
-Where the assignment grades on GitHub Actions - its checks run there, or its template's own grading workflow grades it - `pxl-classroom grade` runs nothing: it reads the scores GitHub recorded, at each student's hand-in or preserved commit, exactly as **Read all scores again** does, and `--runner` is ignored.
+Where the assignment grades on GitHub Actions - its checks run there, or its template's own grading workflow grades it - `pxl-classroom grade` runs nothing: it reads the scores GitHub recorded for every student with a repository, at their hand-in, preserved or newest commit, exactly as **Read all scores again** does, and `--runner` is ignored.
 
 When `execution_environment` is `lecturer_local`, run the grader **on your machine** - never on the platform:
 

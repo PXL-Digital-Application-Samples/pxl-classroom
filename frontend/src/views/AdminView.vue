@@ -3772,7 +3772,9 @@ async function openDeleteModal() {
       rows = text ? JSON.parse(text)?.students : []
     } catch { rows = null }
     if (!Array.isArray(rows)) return set({ state: 'unknown' })
-    const missing = rows.filter((r) => r?.preservation_status === 'pending' || r?.preservation_status === 'failed').length
+    // Still inside an extension is not in the archive either, and a deleted
+    // assignment is never finalized again, so it never will be (R6-15).
+    const missing = rows.filter((r) => ['pending', 'failed', 'deferred'].includes(r?.preservation_status)).length
     return set(missing ? { state: 'partial', missing } : { state: 'kept' })
   }
   if (lock.status !== 404) return set({ state: 'unknown' })
@@ -5582,7 +5584,7 @@ async function setState(newState) {
       title: `Move "${name}" back to draft?`,
       paragraphs: [past
         ? 'It is taken off the student pages. Existing repositories are untouched.'
-        : 'The invitation link stops working, so students can no longer open it. Existing repositories are untouched.'],
+        : 'The invitation link stops working, so students can no longer open it. Existing repositories are untouched, and are still locked at the deadline.'],
       confirmLabel: 'Back to draft',
       destructive: true,
     },

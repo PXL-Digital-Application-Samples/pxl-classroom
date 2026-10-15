@@ -544,9 +544,29 @@ test.describe('Lock again', () => {
     expect(gitCommits).toHaveLength(1);
     const files = Object.fromEntries(gitCommits[0].files.map((f) => [f.path, f.content]));
     expect(files[`lockdowns/${ID}/unlocked/${STUDENT}.json`], 'the reopen record goes').toBeNull();
+    // ...and is KEPT, ended (R6-13): the only statement that they could push
+    // after the deadline. Validated against unlock-record by the fixture.
+    const keptPath = Object.keys(files).find((p) => p.startsWith(`lockdowns/${ID}/relocked/${STUDENT}/`));
+    expect(keptPath, 'the reopen is kept under relocked/').toBeTruthy();
+    const kept = JSON.parse(files[keptPath]);
+    expect(kept).toMatchObject({ unlocked_at: reopened.unlocked_at, unlocked_by: 'lecturer', reason: 'Appeal upheld' });
+    expect(Date.parse(kept.relocked_at)).toBeGreaterThan(Date.parse(reopened.unlocked_at));
     const row = JSON.parse(files[`lockdowns/${ID}/lockdown-record.json`]).results[0];
     expect(row).toMatchObject({ lock_method: 'ruleset', verified: true, snapshot_sha: SHA });
     expect('reopened_at' in row).toBe(false);
+  });
+
+  test('R6-12: locked, and then the record could not be read - says it is locked, never "could not lock"', async ({ page }) => {
+    const { gitCommits } = await openTracking(page, { unlocked: reopened, rulesets: off, putEnforcement: 'active' });
+    await openActions(page);
+    // From here the lockdown record answers 500: the lock is already back on
+    // when Lock again reads it to record that.
+    await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 500, body: JSON.stringify({ message: 'Server Error' }) }));
+    await unlockSection(page).getByRole('button', { name: 'Lock again' }).click();
+    await expect(page.locator('.toast', { hasText: `${ORG}/${REPO} is locked again, but its records could not be updated` })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.toast', { hasText: 'Could not lock' })).toHaveCount(0);
+    expect(gitCommits).toEqual([]);
   });
 
   test('a ruleset that will not switch back on says so, and changes no record', async ({ page }) => {

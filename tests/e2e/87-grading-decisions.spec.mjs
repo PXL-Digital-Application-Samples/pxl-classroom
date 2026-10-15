@@ -134,6 +134,23 @@ test.describe('87 - grading decisions', () => {
     expect(lastSummary(contentWrites).students[0]).toMatchObject({ graded_sha: sha(5), graded_pushed_at: at(50), graded_pushed_from: 'run' });
   });
 
+  test('R6-19: a score set by hand elsewhere after this page opened is read, not written over', async ({ page }) => {
+    // The page graded with the overrides it loaded when it opened, so a
+    // co-teacher's decision since then was replaced by the rules' score.
+    const { contentWrites } = await setup(page);
+    const doc = {
+      schema_version: 1, assignment_id: ID, github_login: LOGIN,
+      overrides: [{ type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer2', overridden_at: '2026-10-01T14:00:00.000Z' }],
+    };
+    await page.route(`**/pxl-classroom-control/contents/overrides/${ID}**`, (route) => route.request().url().includes(`${LOGIN}.json`)
+      ? route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(doc)).toString('base64'), encoding: 'base64', sha: 'o1' }) })
+      : route.fulfill({ status: 200, body: JSON.stringify([{ name: `${LOGIN}.json`, path: `overrides/${ID}/${LOGIN}.json`, type: 'file' }]) }));
+    await openActions(page);
+    await grading(page).getByRole('button', { name: 'Read score again' }).click();
+    await expect.poll(() => !!lastWrite(contentWrites, summaryPath), { timeout: 15000 }).toBe(true);
+    expect(lastSummary(contentWrites).students[0]).toMatchObject({ earned_points: 7, total_points: 10, score_source: 'manual' });
+  });
+
   test('a hand-in committed before the deadline and pushed after it is shown at its push, beside "late"', async ({ page }) => {
     await setup(page, { pushedLate: true });
     await openActions(page);

@@ -58,6 +58,8 @@ const CONTROL_PATH_SCHEMAS = [
   // MORE SPECIFIC FIRST: `unlocked/<login>.json` is under `lockdowns/<id>/` and
   // would otherwise be caught by the record's own pattern below.
   [/^lockdowns\/[^/]+\/unlocked\/[^/]+\.json$/, 'unlock-record', 'json'],
+  // A reopen kept when it was locked again (R6-13): the same document, ended.
+  [/^lockdowns\/[^/]+\/relocked\/[^/]+\/[^/]+\.json$/, 'unlock-record', 'json'],
   // What the deadline did to the cohort. It had no schema at all until
   // 2026-09-08 - three writers' worth of fields and nothing that could reject
   // one - which is the exemption this list is designed to make impossible.

@@ -15,14 +15,33 @@ test("a commit made before the deadline is on time, whenever Refresh is pressed"
   assert.deepEqual(read({ committedAt: DEADLINE }), { submission_status: "on-time", last_on_time_sha: S }, "at the deadline is on time");
 });
 
-test("a commit made after it is late - unless an on-time commit is on record: late activity is not a late submission", () => {
+test("a commit made after it is late - and after an on-time one too, as the report says (R6-14)", () => {
   assert.deepEqual(read({ committedAt: "2026-09-02T00:00:01Z" }), { submission_status: "late", first_late_sha: S });
+  // Refresh said "on time" here while the report, a minute later, said late:
+  // under `report` late commits are part of the submission.
   assert.deepEqual(
     read({ committedAt: "2026-09-03T00:00:00Z", row: { submission_status: "on-time", last_on_time_sha: "a".repeat(40) } }),
-    { submission_status: "on-time", first_late_sha: S },
+    { submission_status: "late", first_late_sha: S },
   );
   // The first late commit on record is kept.
   assert.equal(read({ committedAt: "2026-09-03T00:00:00Z", row: { first_late_sha: "f".repeat(40) } }).first_late_sha, "f".repeat(40));
+});
+
+test("R6-14: Refresh and the report ask one function, and it says late for late activity after an on-time commit", async () => {
+  // report.mjs and refreshStatus both call classifySubmission; the report's
+  // own cases are in tests/report.test.mjs.
+  const { classifySubmission } = await import("../lib/submission-status.mjs");
+  const cases = [
+    { lastOnTimeSha: "a", hasLateActivity: true, want: "late" },
+    { lastOnTimeSha: "a", hasLateActivity: false, want: "on-time" },
+    { lastOnTimeSha: null, hasLateActivity: true, want: "late" },
+  ];
+  for (const c of cases) {
+    assert.equal(classifySubmission({ unstarted: false, latestObservedSha: "x", hasDeadline: true, ...c }), c.want, JSON.stringify(c));
+  }
+  // An on-time commit now, after a late one on record: late, as the report's
+  // observations in that order give.
+  assert.equal(read({ row: { first_late_sha: "f".repeat(40) } }).submission_status, "late");
 });
 
 test("nothing the student did is no submission; no deadline is unknown; an unreadable commit date falls back to now", () => {

@@ -34,9 +34,12 @@ const STUDENT_COMMIT = { sha: ROOT, parents: [{ sha: "f".repeat(40) }], committe
  * copy whose first run failed before the workflow was added), and the commit
  * under the one this run adds is `GENERATED_ROOT` or a student's.
  */
-async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204, injectStatus = 201, variableStatus = 201 } = {}) {
+async function withApi(fn, { templateGrades = false, existing = null, contentsEmpty = false, grantStatus = 204, injectStatus = 201, variableStatus = 201, raced = false } = {}) {
   const calls = [];
   let generated = Boolean(existing);
+  // `raced`: a teammate's run wrote the workflow between this run's check and
+  // its write, so the write is refused because the file now exists (R6-16).
+  let written = false;
   const server = createServer((req, res) => {
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
@@ -61,16 +64,24 @@ async function withApi(fn, { templateGrades = false, existing = null, contentsEm
     // `contentsEmpty`: GitHub never finishes copying the template in.
     if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") return contentsEmpty ? send(404, { message: "This repository is empty." }) : send(200, [{ name: "README.md", type: "file" }]);
     if (/^\/repos\/Org\/lab-ann\/contents\/\.github\/workflows\/(autograding|classroom)\.yml$/.test(url) && req.method === "GET") {
-      return templateGrades && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
+      return (templateGrades || written) && url.endsWith("autograding.yml") ? send(200, { name: "autograding.yml" }) : send(404, { message: "Not Found" });
     }
     if (url === "/repos/Org/lab-ann/contents/.github/workflows/autograding.yml" && req.method === "PUT") {
       let body = "";
       req.on("data", (c) => (body += c));
       return req.on("end", () => {
         calls.push(`MESSAGE ${JSON.parse(body || "{}").message}`);
+        if (raced) {
+          written = true;
+          return send(422, { message: "Invalid request.\n\n\"sha\" wasn't supplied." });
+        }
         if (injectStatus !== 201) return send(injectStatus, { message: "Resource not accessible by integration" });
         return send(201, { content: { path: ".github/workflows/autograding.yml" }, commit: { sha: INJECTED } });
       });
+    }
+    if (url === "/repos/Org/lab-ann/commits" && query.includes("path=")) {
+      // The commit that added the workflow: the teammate's run's, by the App.
+      return send(200, [{ sha: INJECTED, author: { login: "pxl-classroom-provisioner[bot]" }, commit: { verification: { verified: true } } }]);
     }
     if (url === "/repos/Org/lab-ann/commits") {
       // GitHub's one commit plus the workflow: the `last` page is 2.
@@ -194,6 +205,16 @@ test("TA-9: a grading workflow that cannot be added fails the run, so a student 
     assert.ok(!calls.some((c) => c.startsWith("PUT /repos/Org/lab-ann/contents/.github/workflows/autograding.yml")));
     assert.match(r.log, /workflow already present from template - skipping injection/);
   }, { templateGrades: true, injectStatus: 500 });
+});
+
+test("R6-16: a write refused because a teammate's run (or GitHub's retried PUT) already added the workflow is done, and records that commit", async () => {
+  await withApi(async (api) => {
+    const r = await provision(api);
+    assert.equal(r.status, 0, r.log);
+    assert.notEqual(output(r.outputs, "outcome"), "fail:grading-workflow");
+    assert.match(r.log, /the grading workflow is there already \(the write answered HTTP 422\)/);
+    assert.equal(output(r.outputs, "starter_sha"), INJECTED, "the App's commit is the start");
+  }, { raced: true });
 });
 
 test("TL-7: `granted` is said the moment the student holds the repository, so a later failure still leaves them on a record lockdown reads", async () => {

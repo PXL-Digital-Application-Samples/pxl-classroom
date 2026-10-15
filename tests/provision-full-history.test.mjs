@@ -65,8 +65,11 @@ const hasRefs = (bare) => existsSync(bare) && refs(bare).length > 0;
  * (our own failed copy, an hour old) or "has-commits" (a repository to reuse).
  * `defaultBranch`: what GitHub reports for the template.
  */
-async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, repoDefault = "master", generatedFrom = null, createdAgoMs = 3600_000, fillAfter = 0, raceCreate = false, patchStatus = 200, headStatus = 200 } = {}) {
+async function withApi(srv, fn, { target = "absent", defaultBranch = "master", activity = null, activityLater = null, repoDefault = "master", generatedFrom = null, createdAgoMs = 3600_000, fillAfter = 0, raceCreate = false, patchStatus = 200, headStatus = 200 } = {}) {
   const calls = [];
+  // `activityLater`: the push log from its second reading on - a teammate
+  // pushed while the run went on (R6-18).
+  let activityReads = 0;
   const repo = join(srv, "Org", "lab-ann.git");
   // `fillAfter`: an empty repository that another run is filling, which
   // GitHub shows as filled from that many reads of its contents on.
@@ -78,6 +81,16 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
       git(["clone", "-q", join(srv, "Org", "tpl.git"), w], srv);
       commit(w, "mine.txt", "the student's\n", "Student work");
       git(["push", "-q", repo, "master"], w);
+    }
+    if (target === "github-copy") {
+      // GitHub's own copy: the template's files under a NEW first commit, as
+      // generate makes one - whose template was since deleted, so it names none.
+      const w = mkdtempSync(join(tmpdir(), "pxl-generated-"));
+      git(["clone", "-q", join(srv, "Org", "tpl.git"), w], srv);
+      git(["checkout", "-q", "--orphan", "fresh"], w);
+      git(["-c", "user.name=bot", "-c", "user.email=bot@example.com", "commit", "-q", "-m", "Initial commit"], w);
+      git(["push", "-q", repo, "fresh:refs/heads/master"], w);
+      git(["symbolic-ref", "HEAD", "refs/heads/master"], repo);
     }
     if (target === "copy") {
       // An earlier run's copy, left with whatever default its push gave it.
@@ -110,7 +123,10 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
             })
           : send(404, { message: "Not Found" });
       }
-      if (url === "/repos/Org/lab-ann/activity") return activity ? send(200, activity) : send(404, { message: "Not Found" });
+      if (url === "/repos/Org/lab-ann/activity") {
+        const now = ++activityReads > 1 && activityLater ? activityLater : activity;
+        return now ? send(200, now) : send(404, { message: "Not Found" });
+      }
       if (url === "/repos/Org/lab-ann" && req.method === "DELETE") {
         rmSync(repo, { recursive: true, force: true });
         return send(204);
@@ -133,13 +149,18 @@ async function withApi(srv, fn, { target = "absent", defaultBranch = "master", a
         if (headStatus !== 200) return send(headStatus, { message: "Server Error" });
         return send(200, { commit: { sha: git(["rev-parse", `refs/heads/${decodeURIComponent(head[1])}`], repo) } });
       }
-      if (url === "/repos/Org/lab-ann/commits") {
-        if (!hasRefs(repo)) return send(409, { message: "Git Repository is empty." });
-        // As GitHub pages it: one per page, the `last` link's page is the count.
-        const sha = new URLSearchParams(query).get("sha") || "HEAD";
-        const n = Number(git(["rev-list", "--count", sha], repo));
-        const link = n > 1 ? { link: `<http://x/repos/Org/lab-ann/commits?sha=${sha}&per_page=1&page=${n}>; rel="last"` } : {};
-        return send(200, [{ sha: git(["rev-parse", sha], repo) }], link);
+      const listed = url.match(/^\/repos\/Org\/(lab-ann|tpl)\/commits$/);
+      if (listed) {
+        const bare = listed[1] === "tpl" ? join(srv, "Org", "tpl.git") : repo;
+        if (!hasRefs(bare)) return send(409, { message: "Git Repository is empty." });
+        // As GitHub pages it: one per page, newest first, the `last` link's page
+        // is the count - and that page is the first commit (R6-17 asks it).
+        const params = new URLSearchParams(query);
+        const sha = params.get("sha") || "HEAD";
+        const list = git(["rev-list", sha], bare).split("\n").filter(Boolean);
+        const page = Number(params.get("page") || 1);
+        const link = list.length > 1 ? { link: `<http://x/repos/Org/${listed[1]}/commits?sha=${sha}&per_page=1&page=${list.length}>; rel="last"` } : {};
+        return send(200, list[page - 1] ? [{ sha: list[page - 1] }] : [], link);
       }
       if (url === "/repos/Org/lab-ann/contents/" && req.method === "GET") {
         if (fillAfter && ++contentReads >= fillAfter && !hasRefs(repo)) git(["push", "-q", "--mirror", repo], join(srv, "Org", "tpl.git"));
@@ -503,6 +524,32 @@ test("F4b: the copy is recovered even after the setting was turned off, since it
     assert.equal(output(r.outputs, "full_history"), "true");
     assert.equal(output(r.outputs, "starter_sha"), git(["rev-parse", "refs/heads/master"], join(srv, "Org", "tpl.git")));
   }, { target: "copy", activity: [bot, bot], repoDefault: "master" });
+});
+
+test("R6-18: a teammate who pushes while the run goes on is not taken for the start - the log is asked again after the head", async () => {
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  await withApi(srv, async (api) => {
+    const r = await provision(api, srv, { fullHistory: "false" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "starter_sha"), "", "no start recorded rather than the teammate's push");
+    assert.match(r.log, /someone pushed to it while this ran, so no start is recorded/);
+  }, { target: "copy", activity: [bot, bot], activityLater: [{ actor: { login: "bo" }, activity_type: "push" }, bot, bot], repoDefault: "master" });
+});
+
+test("R6-17: GitHub's own copy of a template since deleted is no full-history copy: nothing recovered, nothing stamped", async () => {
+  // No template named and only the App pushing is GitHub's copy too, once its
+  // template is gone. Stamped `full_history`, starter sync refused the whole
+  // assignment. A pushed copy shares the template's first commit; this does not.
+  const srv = makeServer();
+  const bot = { actor: { login: `${APP_SLUG}[bot]` }, activity_type: "push" };
+  await withApi(srv, async (api, calls) => {
+    const r = await provision(api, srv, { fullHistory: "false" });
+    assert.equal(r.status, 0, r.log);
+    assert.equal(output(r.outputs, "full_history"), "false");
+    assert.equal(output(r.outputs, "starter_sha"), "");
+    assert.ok(calls.some((c) => c.startsWith("GET /repos/Org/tpl/commits")), "the template's first commit was asked");
+  }, { target: "github-copy", activity: [bot, bot], repoDefault: "master" });
 });
 
 test("...but one a person pushed to, or whose push log cannot be read, recovers nothing", async () => {

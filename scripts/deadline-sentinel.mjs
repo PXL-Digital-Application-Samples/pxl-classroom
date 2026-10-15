@@ -63,6 +63,7 @@ import { parseYaml } from "../lib/yaml.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir } from "../lib/control-layout.mjs";
 import { sentinelInstant, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { COHORT_STATES } from "../lib/finalize-scope.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -322,12 +323,14 @@ async function samplePushedAt(watched) {
  *
  * @param {Array<{id: string, doc: unknown}>} assignments
  * @param {string} armedAt the instant this sentinel was armed for
+ * @param {Set<string>} [withRecords] ids whose repository records exist: an
+ *   archived or draft assignment joins only then, as find-armable arms it
  * @returns {string[]} sorted
  */
-export function assignmentsAtInstant(assignments, armedAt) {
+export function assignmentsAtInstant(assignments, armedAt, withRecords = new Set()) {
   const instant = new Date(armedAt).toISOString();
   return assignments
-    .filter(({ id, doc }) => SLUG.test(id) && sentinelInstant(doc) === instant)
+    .filter(({ id, doc }) => SLUG.test(id) && sentinelInstant(/** @type {any} */ (doc), { hasRepositories: withRecords.has(id) }) === instant)
     .map(({ id }) => id)
     .sort();
 }
@@ -546,7 +549,18 @@ async function main() {
     const assignments = await readAssignments();
     let moved = null;
     if (assignments) {
-      for (const id of assignmentsAtInstant(assignments, cfg.armedAt)) {
+      // An archived or draft assignment at this instant joins where students
+      // accepted (R6-22): asked only of those, so the ordinary poll costs
+      // nothing more.
+      const withRecords = new Set();
+      const instant = new Date(cfg.armedAt).getTime();
+      for (const { id, doc } of assignments) {
+        const d = /** @type {any} */ (doc);
+        if (members.includes(id) || COHORT_STATES.includes(d?.state) || Date.parse(d?.deadline_at ?? "") !== instant) continue;
+        const listing = await listControlDir(repositoriesDir(id));
+        if (listing.ok && listing.files.some((f) => f.name.endsWith(".json"))) withRecords.add(id);
+      }
+      for (const id of assignmentsAtInstant(assignments, cfg.armedAt, withRecords)) {
         if (members.includes(id)) continue;
         members.push(id);
         joinedAt.set(id, new Date().toISOString());

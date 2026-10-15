@@ -39,6 +39,7 @@ import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaim
 import { teamRepresentative } from "../lib/team-representative.mjs";
 import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
 import { preservationStatus } from "../lib/preservation-status.mjs";
+import { classifySubmission } from "../lib/submission-status.mjs";
 
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT)
@@ -263,6 +264,21 @@ async function main() {
   const unlockedByLogin = indexByLogin(
     await readDirJsonFiles(join(dataDir, "lockdowns", assignmentId, "unlocked")),
   );
+  // ...and a reopen that ended: Lock again removes the record above and keeps
+  // it under relocked/<login>/ with when it ended (R6-13). The newest per
+  // student, so a row can say they could push from then to then.
+  const relockedByLogin = new Map();
+  const relockedRoot = join(dataDir, "lockdowns", assignmentId, "relocked");
+  if (existsSync(relockedRoot)) {
+    for (const dir of await readdir(relockedRoot)) {
+      for (const doc of await readDirJsonFiles(join(relockedRoot, dir))) {
+        const key = normalizeLogin(doc?.github_login);
+        if (!key || !doc?.relocked_at) continue;
+        const prev = relockedByLogin.get(key);
+        if (!prev || Date.parse(doc.relocked_at) > Date.parse(prev.relocked_at)) relockedByLogin.set(key, doc);
+      }
+    }
+  }
 
   // Load teams (for group assignments)
   const teams = await readDirJsonFiles(
@@ -615,31 +631,20 @@ async function main() {
     // then the observations decide, exactly as they would with the record.
     const hadRepository = Boolean(acceptance || repo || preservation);
 
-    let submissionStatus = "unknown";
-    if (!hadRepository || isUnstarted) {
-      submissionStatus = "no-submission";
-      noSubCount++;
-    } else if (preservedOnTimeSha) {
-      submissionStatus = "on-time";
-      onTimeCount++;
-    } else if (reconstructedNothing) {
-      submissionStatus = "no-submission";
-      noSubCount++;
-    } else if (lastOnTimeSha) {
-      if (hasLateActivity) {
-        submissionStatus = "late";
-        lateCount++;
-      } else {
-        submissionStatus = "on-time";
-        onTimeCount++;
-      }
-    } else if (latestObservedSha) {
-      submissionStatus = effectiveDeadline ? "late" : "unknown";
-      if (effectiveDeadline) lateCount++;
-    } else {
-      submissionStatus = "no-submission";
-      noSubCount++;
-    }
+    // One rule, shared with Refresh (lib/submission-status.mjs, R6-14).
+    const submissionStatus = classifySubmission({
+      hadRepository,
+      unstarted: isUnstarted,
+      preservedOnTimeSha,
+      reconstructedNothing,
+      lastOnTimeSha,
+      hasLateActivity,
+      latestObservedSha,
+      hasDeadline: Boolean(effectiveDeadline),
+    });
+    if (submissionStatus === "no-submission") noSubCount++;
+    else if (submissionStatus === "on-time") onTimeCount++;
+    else if (submissionStatus === "late") lateCount++;
 
     // Find lockdown info from observations
     const lockdownObs = observations.find((o) => o.collection_type === "lockdown");
@@ -742,7 +747,10 @@ async function main() {
       // Exported, unlike `lock_down_outcome` beside it: this is the question a
       // grade dispute actually asks - could this student have pushed after the
       // deadline, and from when - and a spreadsheet is where it gets asked.
-      reopened_at: unlocked?.unlocked_at ?? null,
+      // A reopen that was ended by Lock again still happened: its kept copy
+      // says from when, and `relocked_at` until when (R6-13).
+      reopened_at: unlocked?.unlocked_at ?? relockedByLogin.get(key)?.unlocked_at ?? null,
+      relocked_at: unlocked ? null : relockedByLogin.get(key)?.relocked_at ?? null,
       // How long after their own deadline this student could still push. NOT
       // `uncertainty_interval_seconds` below, which is the opposite side of the
       // deadline - the gap between the last observation and the deadline, i.e.

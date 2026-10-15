@@ -454,12 +454,13 @@ export type Report = {
     tagged_submission_declared_at?: string;
     lock_down_at?: string;
     lock_down_outcome?: string;
-    preservation_status?: "preserved" | "pending" | "failed" | "not-required" | null;
+    preservation_status?: "preserved" | "pending" | "failed" | "deferred" | "not-required" | null;
     preserved_sha?: string;
     archive_repo?: string;
     archive_ref?: string;
     warnings?: string[];
     reopened_at?: string;
+    relocked_at?: string;
   }>;
 };
 
@@ -631,4 +632,6 @@ export type UnlockRecord = {
   lock_method?: "org-ruleset" | "ruleset" | "demotion";
   permission_restored?: "pull" | "triage" | "push" | "maintain" | "admin";
   snapshot_sha?: string;
+  relocked_at?: string;
+  relocked_by?: string;
 };

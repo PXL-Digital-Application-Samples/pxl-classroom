@@ -504,10 +504,11 @@
               "preserved",
               "pending",
               "failed",
+              "deferred",
               "not-required",
               null
             ],
-            "description": "Status of the deadline snapshot preservation."
+            "description": "Status of the deadline snapshot preservation (lib/preservation-status.mjs). `deferred`: still inside an extension, so owed a copy at their own deadline and not archived yet."
           },
           "preserved_sha": {
             "type": [
@@ -544,7 +545,15 @@
               "null"
             ],
             "format": "date-time",
-            "description": "When a lecturer reopened this repository, from lockdowns/<id>/unlocked/<login>.json. Null when they never did. That file is the ONLY durable record of it: the lockdown record is rewritten whole by the next finalize pass and skips a reopened student, so their row disappears from it."
+            "description": "When a lecturer reopened this repository, from lockdowns/<id>/unlocked/<login>.json, or from the copy Lock again keeps under lockdowns/<id>/relocked/<login>/ when it was locked again since. Null when they never did. Those files are the ONLY durable record of it: the lockdown record is rewritten whole by the next finalize pass and skips a reopened student, so their row disappears from it."
+          },
+          "relocked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When a lecturer locked a reopened repository again, from the newest copy under lockdowns/<id>/relocked/<login>/. With reopened_at, the window in which this student could push after the deadline. Null while it is open, and when it was never reopened."
           }
         }
       }

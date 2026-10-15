@@ -1501,7 +1501,7 @@ import HelpButton from '../components/HelpButton.vue'
 import {
   assignmentPath, reportPath, teamsDir,
   repositoriesDir, repositoryPath, overridesDir, overridePath,
-  lockdownRecordPath, unlockRecordPath, unlockedDir, observationPath,
+  lockdownRecordPath, unlockRecordPath, unlockedDir, relockedRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
 import { snapshotObservation, isBotAuthorName, commitDateOf } from '../../../lib/observation.mjs'
 import { addedCommits, noSubmissionRow, unstartedRepo } from '../../../lib/starter-commit.mjs'
@@ -1511,7 +1511,7 @@ import { lockdownRowFor, unlockability, unlockRecord, applyUnlock, unlockLogins 
 import { changedSinceRead, contentsAt } from '../../../lib/team-write-guard.mjs'
 import { studentPresence } from '../../../lib/permission-change.mjs'
 import { releaseSubmissionLock, removeRepoFromOrgLock, addRepoToOrgLock, ensureSubmissionLock, resolveAppId } from '../../../lib/submission-lock.mjs'
-import { relockability, applyRelock, relockedRecord } from '../../../lib/repo-relock.mjs'
+import { relockability, applyRelock, relockedRecord, relockHistoryDoc } from '../../../lib/repo-relock.mjs'
 import AuthCard from '../components/AuthCard.vue'
 import Icon from '../components/Icon.vue'
 import AssignmentHeader from '../components/AssignmentHeader.vue'
@@ -1912,11 +1912,19 @@ const preservedCount = computed(() =>
 // anybody not locked yet are `not-required`. Counting them kept "All student
 // work is archived" from ever showing over one non-submitter, and offered
 // "Try again for 1 student" for good (review 2026-10-14).
+// A student still inside an extension IS owed one, later (`deferred`, R6-15):
+// counted, so the strip never says all work is archived over them - and never
+// in "Try again", which has nothing to archive for them yet.
 const owedPreservation = (s) => s.repo_name && s.acceptance_state !== 'rejected' && s.acceptance_state !== 'pending' &&
-  (s.preservation_status === 'preserved' || s.preservation_status === 'pending' || s.preservation_status === 'failed' || s.preserved_sha)
+  (s.preservation_status === 'preserved' || s.preservation_status === 'pending' || s.preservation_status === 'failed' ||
+    s.preservation_status === 'deferred' || s.preserved_sha)
 const eligiblePreservationCount = computed(() => (report.value?.students || []).filter(owedPreservation).length)
+const deferredPreservationCount = computed(() =>
+  (report.value?.students || []).filter((s) => owedPreservation(s) && s.preservation_status === 'deferred').length
+)
 const unpreservedCount = computed(() =>
-  (report.value?.students || []).filter((s) => owedPreservation(s) && s.preservation_status !== 'preserved' && !s.preserved_sha).length
+  (report.value?.students || []).filter((s) => owedPreservation(s) && s.preservation_status !== 'preserved' &&
+    s.preservation_status !== 'deferred' && !s.preserved_sha).length
 )
 const allPreserved = computed(() =>
   eligiblePreservationCount.value > 0 && preservedCount.value >= eligiblePreservationCount.value
@@ -3178,8 +3186,14 @@ const deadlineAbs = computed(() => {
 // student work has been copied somewhere safe and that nobody can still edit it.
 const preservationSummary = computed(() => {
   if (allPreserved.value) return 'All student work is archived'
+  // Students still inside an extension are archived at their own deadline.
+  const deferred = deferredPreservationCount.value
+  const later = deferred ? `; ${deferred} ${deferred === 1 ? 'is' : 'are'} archived when their extension ends` : ''
   if (preservedCount.value > 0) {
-    return `${preservedCount.value} of ${eligiblePreservationCount.value} students' work is archived`
+    return `${preservedCount.value} of ${eligiblePreservationCount.value} students' work is archived${later}`
+  }
+  if (deferred && deferred === eligiblePreservationCount.value) {
+    return `No student work has been archived yet${later}`
   }
   // Locked, and nobody owed a copy: nothing was handed in before the deadline.
   if (eligiblePreservationCount.value === 0 && (report.value?.students || []).some((s) => s.lock_down_outcome)) {
@@ -4920,6 +4934,10 @@ async function syncGradesFromGitHub() {
     )
     return
   }
+  // READ AGAIN AT THE CLICK (review 2026-10-15, R6-19): the overrides the page
+  // loaded when it opened miss a co-teacher's decision or grant since, and the
+  // summary this writes would replace that decision with the rules' score.
+  await loadOverrides(token)
   if (!capAllowancesReadable()) return
 
   // What gradeCohort walks, counted the way it counts: under a hand-in message
@@ -5167,9 +5185,12 @@ async function decideGrade(student, { type, value, reason, runId = null }) {
 async function regradeStudent(student, { afterDecision = false } = {}) {
   const token = getToken()
   if (!token || !student || actionRegrading.value) return
-  if (!capAllowancesReadable()) return
   actionRegrading.value = true
   try {
+    // Read again at the click (R6-19): a decision saved elsewhere since the
+    // page opened is graded by, not written over.
+    await loadOverrides(token)
+    if (!capAllowancesReadable()) return
     const outcome = await gradeStudent((method, path, body) => ghApi(token, method, path, body), {
       row: student,
       marker: readSubmissionMarker(assignment.value),
@@ -5595,30 +5616,50 @@ async function relockRepositoryFor(student) {
         : `Could not lock ${verdict.repo} again: ${res.reason}`)
       return
     }
-    const lockPath = lockdownRecordPath(props.assignmentId)
-    const lockText = await getRepoContent(token, props.org, config.controlRepo, lockPath)
-    const changes = reopenPaths.map((path) => ({ path, content: null }))
-    if (lockText) {
-      const before = JSON.parse(lockText)
-      const after = relockedRecord(before, { logins: members, method: verdict.method, demote: verdict.demote, at: new Date().toISOString() })
-      if (after !== before) {
-        const { valid } = await validateAgainst('lockdown-record', structuredClone(after))
-        if (!valid) {
-          toast.error(`${verdict.repo} is locked again, but its lockdown record would not be valid afterwards, so it was not changed. Tell whoever runs PXL Classroom.`)
-          return
+    // THE REPOSITORY IS LOCKED from here on: whatever fails below is the
+    // record, and is said as such (review 2026-10-15, R6-12) - a read or a
+    // validation that threw reached the catch at the bottom and told the
+    // lecturer it "could not lock" a repository it had just locked.
+    let wrote
+    try {
+      const lockPath = lockdownRecordPath(props.assignmentId)
+      const lockText = await getRepoContent(token, props.org, config.controlRepo, lockPath)
+      const changes = reopenPaths.map((path) => ({ path, content: null }))
+      // The reopen is KEPT, with when it ended (R6-13): the only statement that
+      // they could push after the deadline, and from when to when.
+      const reopenRecord = actionReopen.value?.record
+      if (reopenRecord?.github_login) {
+        const relockedAt = new Date().toISOString()
+        const kept = relockHistoryDoc(reopenRecord, { by: getUser()?.login || 'unknown', at: relockedAt })
+        const { valid } = await validateAgainst('unlock-record', structuredClone(kept))
+        if (valid) {
+          changes.push({ path: relockedRecordPath(props.assignmentId, reopenRecord.github_login, relockedAt), content: JSON.stringify(kept, null, 2) + '\n' })
         }
-        changes.push({ path: lockPath, content: JSON.stringify(after, null, 2) + '\n' })
       }
+      if (lockText) {
+        const before = JSON.parse(lockText)
+        const after = relockedRecord(before, { logins: members, method: verdict.method, demote: verdict.demote, at: new Date().toISOString() })
+        if (after !== before) {
+          const { valid } = await validateAgainst('lockdown-record', structuredClone(after))
+          if (!valid) {
+            toast.error(`${verdict.repo} is locked again, but its lockdown record would not be valid afterwards, so it was not changed. Tell whoever runs PXL Classroom.`)
+            return
+          }
+          changes.push({ path: lockPath, content: JSON.stringify(after, null, 2) + '\n' })
+        }
+      }
+      wrote = changes.length
+        ? await commitFiles(token, props.org, config.controlRepo, changes, `Lock ${verdict.repo} again after it was reopened`, {
+            precondition: async ({ request: req, parentSha }) => (await changedSinceRead({
+              get: contentsAt(req, parentSha, props.org, config.controlRepo),
+              decode: decodeBase64,
+              files: [{ path: lockPath, text: lockText }],
+            })) ? 'the lockdown record changed while this ran; open their actions and try again' : null,
+          })
+        : { ok: true }
+    } catch (e) {
+      wrote = { ok: false, error: e?.message || String(e) }
     }
-    const wrote = changes.length
-      ? await commitFiles(token, props.org, config.controlRepo, changes, `Lock ${verdict.repo} again after it was reopened`, {
-          precondition: async ({ request: req, parentSha }) => (await changedSinceRead({
-            get: contentsAt(req, parentSha, props.org, config.controlRepo),
-            decode: decodeBase64,
-            files: [{ path: lockPath, text: lockText }],
-          })) ? 'the lockdown record changed while this ran; open their actions and try again' : null,
-        })
-      : { ok: true }
     if (!wrote.ok) {
       // The repository IS locked. Without the records, the next deadline run
       // still treats it as reopened and the dialog offers Lock again.
@@ -5816,6 +5857,9 @@ function expectedPageDeadline(student) {
 const NO_REPO_YET = 'no-repo-yet'
 async function sendPageDeadline(student) {
   if (!student?.repo_name) return NO_REPO_YET
+  // What it should be is worked out from the extensions: unread, "none" would
+  // delete a real one from their repository (R6-10).
+  if (overridesProblem.value) return `the extensions could not be read (${overridesProblem.value}), so nothing was sent`
   const token = getToken()
   try {
     const res = await writeDeadlineVariable((method, path, body) => ghApi(token, method, path, body), {
@@ -5839,7 +5883,9 @@ async function readPageDeadline(student) {
     ? await readDeadlineVariable((method, path) => ghApi(getToken(), method, path), { repoFullName: student.repo_name, canPush: true })
       .catch(() => ({ state: 'unreadable', status: 0 }))
     : { state: 'no-repo' }
-  if (mine === pageDeadlineRun) actionPageDeadline.value = pageDeadlineState({ expected: expectedPageDeadline(student), read })
+  if (mine === pageDeadlineRun) {
+    actionPageDeadline.value = pageDeadlineState({ expected: expectedPageDeadline(student), read, expectedKnown: !overridesProblem.value })
+  }
 }
 watch(actionStudent, (s) => readPageDeadline(s))
 

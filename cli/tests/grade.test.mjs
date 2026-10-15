@@ -283,10 +283,13 @@ autograde:
   const reportJson = {
     students: [
       { github_login: "alice", preservation_status: "preserved", preserved_sha: aliceSha, repo_name: "TestOrg/cloud-pe-1-alice" },
-      // R1-13 (review 2026-10-14): nothing preserved, so not in this grader's
-      // queue - and left out of the summary that replaces the whole file.
+      // R6-21: GitHub Actions reads every student with a repository, as the
+      // page and the nightly do - bo has one and no commit on record.
       { github_login: "bo", preservation_status: "pending", repo_name: "TestOrg/cloud-pe-1-bo", submission_status: "on-time" },
       { github_login: "cy", preservation_status: "not-required", repo_name: "TestOrg/cloud-pe-1-cy", submission_status: "no-submission" },
+      // R1-13 (review 2026-10-14): not in the queue - no repository - and not
+      // left out of the summary that replaces the whole file.
+      { github_login: "dee", acceptance_state: "pending" },
     ]
   };
 
@@ -372,7 +375,7 @@ autograde:
     }
 
     assert.ok(stdout.includes("alice: 15/20"));
-    assert.ok(stdout.includes("1 graded, 0 failed"));
+    assert.ok(stdout.includes("1 graded, 2 failed"), stdout);
     assert.equal(committedBlobs.length, 2); // 1 per-student JSON + 1 summary JSON
     // R1-8 and R1-13: the summary written names every report student, each
     // failed row with the kind the page reads (lib/grade-cohort.mjs FAILED_KINDS).
@@ -381,8 +384,10 @@ autograde:
     assert.ok(summary, "the summary was committed");
     assert.deepEqual(summary.students.map((s) => s.login), ["alice"]);
     const kinds = Object.fromEntries(summary.failed.map((f) => [f.login, f.kind]));
-    assert.deepEqual(kinds, { bo: "no-result", cy: "not-handed-in" });
-    assert.match(summary.failed.find((f) => f.login === "bo").reason, /nothing was preserved/);
+    assert.deepEqual(kinds, { bo: "not-handed-in", cy: "not-handed-in", dee: "not-handed-in" });
+    assert.match(summary.failed.find((f) => f.login === "bo").reason, /no commit on record/);
+    assert.match(summary.failed.find((f) => f.login === "dee").reason, /no repository on record/);
+    assert.doesNotMatch(stdout + _stderr, /reads the archive|preserved submission/, "the Actions path does not say it reads the archive");
   } finally {
     globalThis.fetch = originalFetch;
     Object.defineProperty(process, 'platform', originalPlatform);
@@ -390,9 +395,10 @@ autograde:
 });
 
 test("P2-3: a row carried over from the summary read makes the write depend on that version: changed meanwhile, nothing is written", async () => {
-  // Review 2026-10-14: bo is outside the queue (nothing preserved), so their
-  // row is carried from the summary on record - and the write replaced the
-  // file whole with no check that it was still that version.
+  // Review 2026-10-14: bo is outside the queue (no repository; on the Actions
+  // path the queue is everyone with one, R6-21), so their row is carried from
+  // the summary on record - and the write replaced the file whole with no
+  // check that it was still that version.
   const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
   Object.defineProperty(process, "platform", { value: "linux" });
   const tmp = mkdtempSync(join(tmpdir(), "pxl-grade-carry-"));
@@ -404,7 +410,7 @@ test("P2-3: a row carried over from the summary read makes the write depend on t
   const reportJson = {
     students: [
       { github_login: "alice", preservation_status: "preserved", preserved_sha: aliceSha, repo_name: "TestOrg/carry-alice", submission_status: "on-time" },
-      { github_login: "bo", preservation_status: "pending", repo_name: "TestOrg/carry-bo", submission_status: "on-time" },
+      { github_login: "bo", acceptance_state: "pending" },
     ],
   };
   const stored = {

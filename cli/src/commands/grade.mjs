@@ -40,7 +40,7 @@ import {
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
 import { readRunScore } from "../../../lib/grade-dispatch.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, noSubmissionOutcome, archiveGradeQueue, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, NO_COMMIT_REASON, NO_REPOSITORY_REASON, noSubmissionOutcome, archiveGradeQueue, gradeQueue, gradingCommitFor, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { gradesInCi } from "../../../lib/autograde-source.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
@@ -197,14 +197,20 @@ export function registerGradeCommand(program) {
       // replaces the whole file - so a student it skipped lost their score
       // (review 2026-09-26). A read that fails throws and stops the run.
       const overrides = await listOverrides(octokit, { org, assignmentId: opts.assignment });
-      const eligible = archiveGradeQueue(report.students, overrides);
+      // WHOM TO GRADE: the local runners grade the ARCHIVE, so only what was
+      // preserved; GitHub Actions reads each student's grading run, as the page
+      // and the nightly do (`gradeQueue`, `gradingCommitFor`). The Actions path
+      // read the preserved students alone, said it read the archive when it
+      // did not, and built teams from that subset (review 2026-10-15, R6-21).
+      const eligible = isGitHubActions ? gradeQueue(report.students, overrides) : archiveGradeQueue(report.students, overrides);
       // `sameLogin`: --login is typed by a lecturer, and a casing difference read as
       // "No preserved submission for X" - for a student who has one.
       const queue = opts.login ? eligible.filter((s) => sameLogin(s.github_login, opts.login)) : eligible;
       if (queue.length === 0) {
+        const what = isGitHubActions ? "student with a repository" : "preserved submission";
         process.stdout.write(opts.login
-          ? `No preserved submission for ${opts.login}.\n`
-          : `No preserved submissions to grade.\n`);
+          ? `No ${what} for ${opts.login}.\n`
+          : `No ${what} to grade.\n`);
         return;
       }
 
@@ -271,7 +277,7 @@ export function registerGradeCommand(program) {
       // unreachable repository (404) with a thrown error where the shared one
       // names the student (review 2026-10-14, P2-9). Never a guessed score.
       // Whose re-run of a grading run does not count (lib/grading-attempt.mjs).
-      const studentsOf = (s) => [s.github_login, ...(teamOf(s, eligible)?.members || [])].filter(Boolean);
+      const studentsOf = (s) => [s.github_login, ...(teamOf(s, report.students)?.members || [])].filter(Boolean);
       const readScoreAtCommit = (s, sha) =>
         readScoreShared(readRequest, { repoFullName: s.repo_name, sha, marker, fallbackTotal: totalFallback, students: studentsOf(s) });
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
@@ -285,7 +291,7 @@ export function registerGradeCommand(program) {
         // The graded hand-in itself, for when GitHub recorded its push.
         let handIn = null;
         // A LECTURER'S DECISION FIRST, as every other grader does.
-        const decision = gradeDecisionFor(s.github_login, { overrides, team: teamOf(s, eligible) });
+        const decision = gradeDecisionFor(s.github_login, { overrides, team: teamOf(s, report.students) });
         if (decision?.kind === "score") {
           process.stdout.write(`  = ${s.github_login}: ${decision.earned}/${decision.total} set by hand by @${decision.by} - not graded\n`);
           summary.graded.push(gradedRowFromManualScore({ login: s.github_login, decision }));
@@ -356,7 +362,7 @@ export function registerGradeCommand(program) {
                 marker,
                 markerBranch,
                 overrides,
-                team: teamOf(s, eligible),
+                team: teamOf(s, report.students),
               });
               handIns = found.handIns;
               for (const item of handIns?.ignored || []) {
@@ -375,7 +381,12 @@ export function registerGradeCommand(program) {
               handIn = found.commit;
               outcome = await readScoreAtCommit(s, found.commit.sha);
             } else {
-              outcome = await readScoreAtCommit(s, s.preserved_sha);
+              // The commit every grader reads without a hand-in message: the
+              // preserved one, else the newest observed (lib/grade-cohort.mjs).
+              const at = gradingCommitFor(s);
+              outcome = at
+                ? await readScoreAtCommit(s, at)
+                : { verdict: "no-commit", kind: "not-handed-in", reason: NO_COMMIT_REASON };
             }
 
             if (outcome.verdict !== "graded") {
@@ -570,8 +581,10 @@ export function registerGradeCommand(program) {
             const none = s.submission_status === "no-submission" ? noSubmissionOutcome(s) : null;
             merged.failed.push({
               login: l,
-              reason: none ? none.reason : "nothing was preserved for them at the deadline, and this grader reads the archive",
-              kind: none ? none.kind : "no-result",
+              reason: none
+                ? none.reason
+                : isGitHubActions ? NO_REPOSITORY_REASON : "nothing was preserved for them at the deadline, and this grader reads the archive",
+              kind: none ? none.kind : isGitHubActions ? "not-handed-in" : "no-result",
             });
           }
         }

@@ -13,7 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,17 +33,26 @@ const PUSHED = {
 };
 
 /** `oldCommits`: what the team left behind holds when provisioning asks. */
-async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new Date(Date.now() - 3600_000).toISOString() } = {}) {
+async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new Date(Date.now() - 3600_000).toISOString(), onBody = null } = {}) {
   const calls = [];
   let created = false;
   const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      if (onBody && raw) {
+        try { onBody(JSON.parse(raw), req.url.split("?")[0]); } catch { /* not JSON */ }
+      }
+      handle(req, res);
+    });
+  });
+  const handle = (req, res) => {
     const send = (code, body) => {
       res.writeHead(code, { "content-type": "application/json" });
       res.end(body === undefined ? "" : JSON.stringify(body));
     };
     const url = req.url.split("?")[0];
     calls.push(`${req.method} ${url}`);
-    req.resume();
 
     if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
     if (url === "/repos/Org/tpl" && req.method === "GET") return send(200, { id: 7, is_template: true, private: true });
@@ -63,8 +72,10 @@ async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new D
     if (url === "/repos/Org/grp-typo/branches") return send(200, [{ name: "main" }]);
     if (url === "/repos/Org/grp-typo/commits") return send(200, oldCommits);
     if (url === "/repos/Org/grp-typo" && req.method === "DELETE") return send(204);
+    // Its deadline variable (R6-11): a PATCH that finds one, a DELETE.
+    if (url === "/repos/Org/grp-typo/actions/variables/PXL_DEADLINE" && ["PATCH", "DELETE"].includes(req.method)) return send(204);
     return send(404, { message: "not stubbed: " + url });
-  });
+  };
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   try {
     return await fn(`http://127.0.0.1:${server.address().port}`, calls);
@@ -73,8 +84,13 @@ async function withApi(fn, { oldCommits = [GENERATED_ROOT], oldCreatedAt = new D
   }
 }
 
-function provision(apiBase, { removePrevious = "true" } = {}) {
+function provision(apiBase, { removePrevious = "true", control = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-provision-switch-"));
+  // The control checkout provisioning reads, relative to its working directory.
+  for (const [path, body] of Object.entries(control)) {
+    mkdirSync(dirname(join(dir, "control", path)), { recursive: true });
+    writeFileSync(join(dir, "control", path), typeof body === "string" ? body : JSON.stringify(body));
+  }
   return new Promise((resolve, reject) => {
     const child = spawn("node", [script], {
       cwd: dir,
@@ -144,6 +160,60 @@ test("a repository minutes old is still removed: the typo team switched away fro
     assert.equal(res.status, 0, res.log);
     assert.ok(calls.includes("DELETE /repos/Org/grp-typo"), res.log);
   }, { oldCreatedAt: new Date(Date.now() - 60_000).toISOString() });
+});
+
+// R6-11: the team left behind kept the leaver's later deadline on its pages.
+const ext = (login, value) => ({
+  schema_version: 1, assignment_id: "lab", github_login: login,
+  overrides: [{ type: "deadline_extension", value, reason: "medical", overridden_by: "l", overridden_at: "2026-10-01T00:00:00Z" }],
+});
+const SWITCH_CONTROL = {
+  "assignments/lab.yml": "id: lab\ndeadline_at: '2026-10-20T15:00:00Z'\nassignment_type: group\n",
+  "teams/lab/typo.json": { team_slug: "typo", repo_name: "Org/grp-typo", members: ["Ann", "bo"] },
+};
+
+test("R6-11: the repository left keeps no departed member's extension - removed where nobody who stays has one", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api, {
+      removePrevious: "",
+      control: { ...SWITCH_CONTROL, "overrides/lab/ann.json": ext("ann", "2026-10-25T15:00:00Z") },
+    });
+    assert.equal(res.status, 0, res.log);
+    assert.ok(calls.includes("DELETE /repos/Org/grp-typo/actions/variables/PXL_DEADLINE"), calls.join("\n"));
+  });
+});
+
+test("R6-11: ...and the most generous of those who stay where one has", async () => {
+  const writes = [];
+  await withApi(async (api, calls) => {
+    const res = await provision(api, {
+      removePrevious: "",
+      control: {
+        ...SWITCH_CONTROL,
+        "overrides/lab/ann.json": ext("ann", "2026-10-25T15:00:00Z"),
+        "overrides/lab/bo.json": ext("bo", "2026-10-22T15:00:00Z"),
+      },
+    });
+    assert.equal(res.status, 0, res.log);
+    assert.ok(calls.includes("PATCH /repos/Org/grp-typo/actions/variables/PXL_DEADLINE"), calls.join("\n"));
+    assert.equal(calls.includes("DELETE /repos/Org/grp-typo/actions/variables/PXL_DEADLINE"), false);
+  }, { onBody: (b, url) => { if (url.startsWith("/repos/Org/grp-typo/")) writes.push(b); } });
+  // bo's, not the leaver's later one.
+  assert.deepEqual(writes.filter((b) => b?.name === "PXL_DEADLINE").map((b) => b.value), ["2026-10-22T15:00:00.000Z"]);
+});
+
+test("R6-11: a repository deleted with its empty team, and an assignment with no extension, touch no variable", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api, { control: { ...SWITCH_CONTROL, "overrides/lab/ann.json": ext("ann", "2026-10-25T15:00:00Z") } });
+    assert.equal(res.status, 0, res.log);
+    assert.ok(calls.includes("DELETE /repos/Org/grp-typo"), res.log);
+    assert.equal(calls.some((c) => c.includes("/grp-typo/actions/variables")), false);
+  });
+  await withApi(async (api, calls) => {
+    const res = await provision(api, { removePrevious: "", control: SWITCH_CONTROL });
+    assert.equal(res.status, 0, res.log);
+    assert.equal(calls.some((c) => c.includes("/actions/variables")), false);
+  });
 });
 
 test("without the flag nothing is asked and nothing is deleted - only the access is removed, as before", async () => {

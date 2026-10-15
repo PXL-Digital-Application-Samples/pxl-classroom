@@ -35,10 +35,16 @@ function runReport({
   claims = [],
   lockdown = null,
   unlocked = [],
+  relocked = [],
   csv = false,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-report-test-"));
   const id = "test-asgn";
+  // lockdowns/<id>/relocked/<login>/<at>.json - a reopen kept when Lock again ended it (R6-13).
+  for (const r of relocked) {
+    mkdirSync(join(dir, "lockdowns", id, "relocked", r.github_login), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", id, "relocked", r.github_login, `${r.relocked_at.replace(/[:.]/g, "-")}.json`), JSON.stringify(r));
+  }
 
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(join(dir, "assignments", `${id}.yml`), assignmentYaml);
@@ -827,6 +833,32 @@ test("a late count belongs to the commit it was counted at: a Refresh that saw a
   const nightly = obs("aaaaaaa", "2026-09-11T01:00:00.000Z", 0);
   assert.equal(run([nightly, obs("bbbbbbb", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, null, "a new commit, not counted");
   assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
+});
+
+test("R6-13: a reopen Lock again ended still says when they could push, from the copy it kept", async () => {
+  const { relockHistoryDoc } = await import("../lib/repo-relock.mjs");
+  const { validateAgainst } = await import("../lib/validate.mjs");
+  const reopen = {
+    schema_version: 1, assignment_id: "test-asgn", github_login: "tom", repo_name: "TestOrg/test-asgn-tom",
+    unlocked_at: "2026-09-12T09:00:00Z", unlocked_by: "lecturer", reason: "appeal", lock_method: "ruleset",
+  };
+  const first = relockHistoryDoc(reopen, { by: "lecturer", at: "2026-09-12T11:00:00.000Z" });
+  const second = relockHistoryDoc({ ...reopen, unlocked_at: "2026-09-13T09:00:00Z" }, { by: "lecturer", at: "2026-09-13T10:00:00.000Z" });
+  const { valid, errors } = await validateAgainst("unlock-record", structuredClone(second));
+  assert.ok(valid, JSON.stringify(errors));
+  const base = {
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }],
+    repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
+  };
+  const row = runReport({ ...base, relocked: [first, second] }).students.find((s) => s.github_login === "tom");
+  assert.equal(row.reopened_at, "2026-09-13T09:00:00Z", "the newest window");
+  assert.equal(row.relocked_at, "2026-09-13T10:00:00.000Z");
+  // Reopened again since: open, so no end.
+  const open = runReport({ ...base, relocked: [first], unlocked: [{ ...reopen, unlocked_at: "2026-09-14T09:00:00Z" }] })
+    .students.find((s) => s.github_login === "tom");
+  assert.equal(open.reopened_at, "2026-09-14T09:00:00Z");
+  assert.equal(open.relocked_at, null);
 });
 
 test("R6-9: the report reads 'still what it was given' from the look that judged it, at that commit only", async () => {

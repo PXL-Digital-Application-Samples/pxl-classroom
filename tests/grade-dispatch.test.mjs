@@ -129,9 +129,20 @@ test("a DELETED run is a named refusal for that student, never an API failure th
   assert.equal(out.verdict, "no-run");
   assert.match(out.reason, /no longer exists - grade that commit again, or go back to the rules/);
   // ...but a REPOSITORY that is gone (or outside this token) answers 404 for
-  // the run too, and that is a failed read, never "the run no longer exists".
+  // the run too, and that is a failed read, never "the run no longer exists" -
+  // and this student's, named, never an API failure that refuses the cohort
+  // (R6-20). A repository read that fails otherwise is still an API failure.
   const repoGone = async (_m, path) => (path.includes("/repos/Org/r") ? { ok: false, status: 404, data: { message: "Not Found" } } : fakeGitHub().request(_m, path));
-  assert.equal((await readRunScore(repoGone, { repoFullName: "Org/r", runId: 77, sha: SHA })).verdict, "api-failed");
+  const gonePlace = await readRunScore(repoGone, { repoFullName: "Org/r", runId: 77, sha: SHA });
+  assert.equal(gonePlace.verdict, "unreadable");
+  assert.match(gonePlace.reason, /does not exist \(deleted, or out of PXL Classroom's reach\)/);
+  const repoDown = async (_m, path) => (path === "/repos/Org/r" ? { ok: false, status: 502, data: {} } : path.includes("/repos/Org/r") ? { ok: false, status: 404, data: {} } : fakeGitHub().request(_m, path));
+  assert.equal((await readRunScore(repoDown, { repoFullName: "Org/r", runId: 77, sha: SHA })).verdict, "api-failed");
+  const { gradeCohort: cohort } = await import("../lib/grade-cohort.mjs");
+  const deleted = { schema_version: 1, assignment_id: "x", github_login: "kim", overrides: [decisionEntry({ type: CHOSEN_COMMIT, value: SHA, reason: "r", by: "l", runId: 77 })] };
+  const resGone = await cohort(repoGone, { students: [{ github_login: "kim", repo_name: "Org/r" }], overrides: [deleted], fallbackTotal: 10 });
+  assert.equal(resGone.apiFailedCount, 0, "one deleted repository does not refuse the cohort");
+  assert.ok(resGone.failedReads.has("kim"), "its stored row is kept");
 
   const doc = { schema_version: 1, assignment_id: "x", github_login: "kim", overrides: [decisionEntry({ type: CHOSEN_COMMIT, value: SHA, reason: "r", by: "l", runId: 77 })] };
   const { gradeCohort } = await import("../lib/grade-cohort.mjs");

@@ -65,10 +65,10 @@ export function sentinelKey(iso) {
 export function planSentinels(assignments, { now = Date.now(), window = ARM_WINDOW_MS, max = MAX_SENTINELS, org } = {}) {
   const byInstant = new Map();
 
-  for (const { id, doc } of assignments) {
+  for (const { id, doc, hasRepositories = false } of assignments) {
     // The same question the running sentinel asks when it looks for
     // assignments that joined its instant later (lib/sentinel-window.mjs).
-    const iso = sentinelInstant(doc);
+    const iso = sentinelInstant(doc, { hasRepositories });
     if (!iso) continue;
 
     const ms = Date.parse(iso);
@@ -103,7 +103,11 @@ async function readAssignments(controlDir) {
     const id = assignmentIdFromFile(file);
     if (!id) continue;
     try {
-      out.push({ id, doc: await loadYaml(path.join(dir, file)) });
+      // Whether students accepted: an archived or draft assignment is watched
+      // only then, as the finalize locks it only then (lib/finalize-scope.mjs).
+      const records = path.join(controlDir, 'repositories', id);
+      const hasRepositories = fs.existsSync(records) && fs.readdirSync(records).some((f) => f.endsWith('.json'));
+      out.push({ id, doc: await loadYaml(path.join(dir, file)), hasRepositories });
     } catch (e) {
       console.error(`Unreadable assignment ${file}: ${e.message}`);
     }
