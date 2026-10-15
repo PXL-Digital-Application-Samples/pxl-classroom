@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  deleteWaitsForReport, readReportFreshness, REGENERATED_STATES, REPORT_SOURCE_DIRS, reportFreshness,
+  deleteWaitsForReport, readReportFreshness, REPORT_SOURCE_DIRS, reportFreshness,
 } from "../lib/report-freshness.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -133,19 +133,23 @@ test("Refresh does not carry the loaded report's commit into the report it rebui
   assert.match(fn, /delete doc\.derived_from/);
 });
 
-test("a delete waits only where a regeneration will end the wait", () => {
-  // An archived or draft assignment's report is never rebuilt, so refusing it
-  // as stale would refuse it for ever.
-  assert.equal(deleteWaitsForReport("published"), true);
-  assert.equal(deleteWaitsForReport("closed"), true);
-  assert.equal(deleteWaitsForReport("archived"), false);
-  assert.equal(deleteWaitsForReport("draft"), false);
-  // And the regeneration reads the same list rather than spelling its own.
+test("a delete waits only where a regeneration will end the wait - and the finalize, the rebuild and the wait are one rule", () => {
+  const withStudents = { hasRepositories: true };
+  const none = { hasRepositories: false };
+  assert.equal(deleteWaitsForReport({ state: "published" }, none), true);
+  assert.equal(deleteWaitsForReport({ state: "closed" }, none), true);
+  // An archived or draft one the finalize reaches is rebuilt too (R6-4), so a
+  // delete waits for its report; one it does not reach would wait for ever.
+  assert.equal(deleteWaitsForReport({ state: "archived", deadline_at: "2026-10-20T10:00:00Z" }, withStudents), true);
+  assert.equal(deleteWaitsForReport({ state: "draft", deadline_at: "2026-10-20T10:00:00Z" }, none), false, "nobody accepted");
+  assert.equal(deleteWaitsForReport({ state: "archived", deadline_at: "2025-06-01T10:00:00Z" }, withStudents), false, "last year's, never finalized now");
+  // And the regeneration asks the same module rather than spelling its own list.
   const src = readFileSync(join(root, "scripts/generate-interim-reports.mjs"), "utf8");
-  assert.match(src, /import \{ REGENERATED_STATES \} from "\.\.\/lib\/report-freshness\.mjs"/);
-  assert.match(src, /REGENERATED_STATES\.includes\(assignment\.state\)/);
+  assert.match(src, /import \{ inFinalizeScope \} from "\.\.\/lib\/finalize-scope\.mjs"/);
+  assert.match(src, /inFinalizeScope\(assignment, \{ hasRepositories: hasRepositories\(dataDir, id\) \}\)/);
   assert.doesNotMatch(src, /state === "published"/);
-  assert.deepEqual([...REGENERATED_STATES], ["published", "closed"]);
+  const queue = readFileSync(join(root, "scripts/find-finalizable.mjs"), "utf8");
+  assert.match(queue, /inFinalizeScope\(assignment, \{ hasRepositories: hasRepositories\(controlDir, assignmentId\) \}\)/);
 });
 
 test("both deletes ask it before the broker goes", () => {

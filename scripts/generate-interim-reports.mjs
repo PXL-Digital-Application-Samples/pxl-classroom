@@ -2,7 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadYaml } from "../lib/yaml.mjs";
-import { REGENERATED_STATES } from "../lib/report-freshness.mjs";
+import { inFinalizeScope } from "../lib/finalize-scope.mjs";
+
+/** Repository records exist for this assignment (lib/finalize-scope.mjs's evidence). */
+function hasRepositories(dataDir, id) {
+  try {
+    return fs.readdirSync(path.join(dataDir, "repositories", id)).some((f) => f.endsWith(".json"));
+  } catch {
+    return false;
+  }
+}
 
 async function main() {
   const dataDir = process.argv[2] || "control";
@@ -21,9 +30,11 @@ async function main() {
       const filePath = path.join(assignmentsDir, file);
       try {
         const assignment = await loadYaml(filePath);
-        // lib/report-freshness.mjs: a delete waits for a current report only in
-        // the states this rebuilds, so the two cannot disagree.
-        if (assignment && REGENERATED_STATES.includes(assignment.state)) {
+        // lib/finalize-scope.mjs: what the finalize reaches is what is rebuilt,
+        // and a delete waits for a current report exactly there, so the three
+        // cannot disagree (R6-4: an archived assignment the finalize locked
+        // kept its pre-lock report).
+        if (inFinalizeScope(assignment, { hasRepositories: hasRepositories(dataDir, id) })) {
           console.log(`Generating interim report for assignment ${id}...`);
           const res = spawnSync("node", ["report/report.mjs"], {
             env: {

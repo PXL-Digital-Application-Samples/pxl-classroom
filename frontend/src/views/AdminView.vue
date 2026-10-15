@@ -5398,7 +5398,7 @@ async function deleteAssignment() {
     //     inside that minute would be kept for ever saying nothing was
     //     preserved. Refuse, and start the rebuild the lecturer is waiting for
     //     (lib/report-freshness.mjs). Before the broker: nothing has changed yet.
-    if (deleteWaitsForReport(form.value.state)) {
+    if (deleteWaitsForReport(form.value, { hasRepositories: retiredStudents(reportJson).some((s) => s?.repo_name) })) {
       if (reportUnreadable) {
         toast.error(UNREADABLE_REPORT_REFUSAL)
         return

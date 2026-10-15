@@ -3,6 +3,8 @@ import path from 'node:path';
 import { loadYaml } from '../lib/yaml.mjs';
 import { latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
 import { brokerClosedPath } from '../lib/control-layout.mjs';
+import { inFinalizeScope } from '../lib/finalize-scope.mjs';
+import { normalizeLogin } from '../lib/github-login.mjs';
 
 // A finalize is only done when every locked-down student's submission is also
 // preserved. Lockdown alone used to be the idempotency key, so a run that
@@ -47,15 +49,43 @@ function hasRepositories(controlDir, assignmentId) {
 }
 
 /**
- * Whether students can be in this assignment: published or closed, or any
- * other state while repository records exist (archived, or back to draft,
- * after students accepted). ONE answer for the finalize queue and the active
- * count below (review 2026-10-14, P2-25): the queue asked it and the count did
- * not, so an exam archived before its deadline was not active, the nightly
- * could switch itself off, and the deadline it would have locked never came.
+ * Whether students can be in this assignment: lib/finalize-scope.mjs decides,
+ * for the finalize queue and the active count below alike (review 2026-10-14,
+ * P2-25: the queue asked it and the count did not, so an exam archived before
+ * its deadline was not active, the nightly could switch itself off, and the
+ * deadline it would have locked never came) - and since R6-4 for the report
+ * rebuild too, with an archived or draft assignment in scope only for a
+ * deadline from the day that widening shipped.
  */
 function mayHaveStudents(assignment, controlDir, assignmentId) {
-  return assignment?.state === 'published' || assignment?.state === 'closed' || hasRepositories(controlDir, assignmentId);
+  return inFinalizeScope(assignment, { hasRepositories: hasRepositories(controlDir, assignmentId) });
+}
+
+/**
+ * Logins whose repository record was written after the lock and whom the lock
+ * record has no row for. A deleted repository's record is older than the lock,
+ * and a Retry of a student the lock already holds rewrites a record that has a
+ * row, so neither is counted.
+ */
+function joinedAfterLock(controlDir, id, record) {
+  const lockedAt = Date.parse(record?.locked_at || record?.executed_at || '');
+  if (!Number.isFinite(lockedAt)) return [];
+  const rows = new Set((record.results || []).map((r) => normalizeLogin(r?.github_login)).filter(Boolean));
+  let files;
+  try { files = fs.readdirSync(path.join(controlDir, 'repositories', id)); } catch { return []; }
+  const late = [];
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const rec = JSON.parse(fs.readFileSync(path.join(controlDir, 'repositories', id, f), 'utf8'));
+      const login = normalizeLogin(rec?.github_login);
+      const created = Date.parse(rec?.created_at || '');
+      if (login && !rows.has(login) && Number.isFinite(created) && created > lockedAt) late.push(login);
+    } catch {
+      // An unreadable record is the collector's to report; it cannot be told late or not.
+    }
+  }
+  return late;
 }
 
 /** True when this student's submission is archived and hash-verified. */
@@ -135,6 +165,17 @@ function finalizeReason(controlDir, lockdownsDir, id) {
   );
   if (dueDeferred.length > 0) {
     return `extension-expired (${dueDeferred.length} student(s) deferred past their extension)`;
+  }
+
+  // A STUDENT WHO GOT A REPOSITORY AFTER THE LOCK (review 2026-10-15, R6-5): a
+  // lecturer's Retry for a student with an extension, after the cohort's lock
+  // ran. No row names them, so nothing above queued a pass, and their
+  // repository was never locked, archived or graded. New work, so no ceiling:
+  // the pass writes their row (locked, or deferred until their own deadline),
+  // or moves `locked_at` past their record.
+  const joinedLate = joinedAfterLock(controlDir, id, record);
+  if (joinedLate.length > 0) {
+    return `joined-after-lock (${joinedLate.length} student(s) with a repository and no row)`;
   }
 
   // A captured SHA not yet archived is owed a preservation; a snapshot that

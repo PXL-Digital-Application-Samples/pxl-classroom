@@ -303,7 +303,7 @@ test("provisioning grants through the helper, never with a bare PUT that leaves 
   // still hold the first invitation; a bare PUT answers 201 with it unchanged.
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../provisioning/provision.mjs", import.meta.url), "utf8");
-  assert.match(src, /import \{ applyStudentPermission \} from "\.\.\/lib\/permission-change\.mjs"/);
+  assert.match(src, /import \{ applyStudentPermission(?:, \w+)* \} from "\.\.\/lib\/permission-change\.mjs"/);
   assert.match(src, /await applyStudentPermission\(/);
   assert.doesNotMatch(src, /gh\("PUT", `\/repos\/[^`]*\/collaborators\//, "a bare collaborator PUT is back in provisioning");
 });

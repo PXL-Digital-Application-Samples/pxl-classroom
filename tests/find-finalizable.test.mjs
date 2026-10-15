@@ -458,6 +458,56 @@ test("archived or back to draft AFTER students accepted is still finalized at th
   }
 });
 
+test("R6-5: a repository created after the lock, for a student the lock record has no row for, is owed a pass", () => {
+  const past = new Date(Date.now() - 86400_000).toISOString();
+  const lockedAt = new Date(Date.now() - 3600_000).toISOString();
+  const run = ({ created, row }) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-late-join-"));
+    mkdirSync(join(dir, "assignments"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "exam.yml"), `state: published\ndeadline_at: "${past}"`);
+    mkdirSync(join(dir, "repositories", "exam"), { recursive: true });
+    writeFileSync(join(dir, "repositories", "exam", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "TestOrg/exam-ann", created_at: created }));
+    mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
+      locked_at: lockedAt, results: row ? [{ github_login: "Ann", snapshot_sha: "a".repeat(40), verified: true }] : [],
+    }));
+    // Preserved and the broker closed, so nothing else is owed.
+    mkdirSync(join(dir, "observations", "exam", "ann"), { recursive: true });
+    writeFileSync(join(dir, "observations", "exam", "ann", "preservation.json"), JSON.stringify({ verified: true }));
+    writeFileSync(join(dir, "lockdowns", "exam", "broker-closed.json"), JSON.stringify({ closed: true, key_removed: true }));
+    const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
+    return { queued: JSON.parse(res.stdout.trim()).map((f) => f.assignment_id), stderr: res.stderr };
+  };
+  const after = new Date(Date.now() - 600_000).toISOString();
+  const late = run({ created: after, row: false });
+  assert.deepEqual(late.queued, ["exam"], late.stderr);
+  assert.match(late.stderr, /joined-after-lock \(1 student/);
+  // Before the lock and still no row: a repository the lock found gone, not new work.
+  assert.deepEqual(run({ created: new Date(Date.now() - 7200_000).toISOString(), row: false }).queued, []);
+  // A Retry of a student the lock holds rewrites a record that has a row.
+  assert.deepEqual(run({ created: after, row: true }).queued, []);
+});
+
+test("R6-4: an archived or draft assignment whose deadline passed before the widening is NOT finalized now, students or not", () => {
+  // P2-25 widened the finalize with no cutoff, so last year's archived courses
+  // - students in them, never locked because archived - would be locked out of
+  // the blue at the next nightly (review 2026-10-15).
+  for (const state of ["archived", "draft"]) {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-old-archived-"));
+    mkdirSync(join(dir, "assignments"), { recursive: true });
+    writeFileSync(join(dir, "assignments", "old.yml"), `state: ${state}\ndeadline_at: "2025-06-20T10:00:00Z"`);
+    mkdirSync(join(dir, "repositories", "old"), { recursive: true });
+    writeFileSync(join(dir, "repositories", "old", "alice.json"), "{}");
+    const run = JSON.parse(spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir }).stdout.trim());
+    assert.deepEqual(run, [], `${state}, deadline 2025: left alone`);
+  }
+  // A published one from then still is, as it always was.
+  const dir = mkdtempSync(join(tmpdir(), "pxl-ff-old-published-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  writeFileSync(join(dir, "assignments", "old.yml"), `state: published\ndeadline_at: "2025-06-20T10:00:00Z"`);
+  assert.deepEqual(JSON.parse(spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir }).stdout.trim()).map((f) => f.assignment_id), ["old"]);
+});
+
 test("P2-34: a broker the finalize left open is owed a pass, up to the ceiling; one closed, or finished before the record existed, is not", () => {
   const past = new Date(Date.now() - 3600_000).toISOString();
   const run = (lockedAt, closed) => {

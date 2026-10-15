@@ -20,7 +20,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,7 +29,12 @@ const lockdownScript = join(here, "..", "lockdown", "lockdown.mjs");
 const HEAD_SHA = "1".repeat(40);
 const DEADLINE = new Date(Date.now() - 3600_000).toISOString();
 
-async function withStubApi(fn) {
+// The control repository as GitHub holds it NOW (lockdown reads `unlocked/`
+// there since R6-3): by default the directory the test made, the same as the
+// checkout; `remote` makes the two differ - an object of login -> record, or
+// "error" for a read that fails.
+let lastDir = null;
+async function withStubApi(fn, { remote } = {}) {
   const calls = [];
   const server = createServer((req, res) => {
     const send = (code, body) => {
@@ -39,6 +44,21 @@ async function withStubApi(fn) {
     const url = req.url.split("?")[0];
     calls.push(`${req.method} ${url}`);
 
+    const unlocked = url.match(/^\/repos\/TestOrg\/pxl-classroom-control\/contents\/lockdowns\/exam\/unlocked(?:\/([^/]+))?$/);
+    if (unlocked) {
+      if (remote === "error") return send(502, { message: "Bad Gateway" });
+      const files = remote
+        ? Object.fromEntries(Object.entries(remote).map(([login, rec]) => [`${login}.json`, JSON.stringify(rec)]))
+        : (() => {
+            const dir = join(lastDir, "lockdowns", "exam", "unlocked");
+            if (!existsSync(dir)) return null;
+            return Object.fromEntries(readdirSync(dir).map((f) => [f, readFileSync(join(dir, f), "utf8")]));
+          })();
+      if (!files || (!unlocked[1] && Object.keys(files).length === 0)) return send(404, { message: "Not Found" });
+      if (!unlocked[1]) return send(200, Object.keys(files).map((name) => ({ name, type: "file" })));
+      const name = decodeURIComponent(unlocked[1]);
+      return name in files ? send(200, { name, content: Buffer.from(files[name]).toString("base64") }) : send(404, { message: "Not Found" });
+    }
     if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
     if (/^\/repos\/[^/]+\/[^/]+$/.test(url)) return send(200, { id: 42, default_branch: "main" });
     if (/\/commits\/main$/.test(url)) return send(200, { sha: HEAD_SHA });
@@ -65,6 +85,7 @@ async function withStubApi(fn) {
  */
 function makeControlDir({ students, teams = [], reopened = [], badReopened = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-lockdown-reopened-"));
+  lastDir = dir;
   const id = "exam";
 
   mkdirSync(join(dir, "assignments"), { recursive: true });
@@ -173,6 +194,33 @@ test("THE BUG: a reopened repository is NOT re-locked by a later pass", async ()
     assert.ok(!demoted(calls, "alice"), "a repository a lecturer reopened must stay open");
     assert.ok(demoted(calls, "bob"), "everyone else is still locked");
   });
+});
+
+test("R6-3: the reopen records are read from GITHUB at the moment it plans, not from a checkout taken minutes before", async () => {
+  // A Reopen clicked after the checkout: GitHub has the record, the checkout does not.
+  const record = { schema_version: 1, assignment_id: "exam", github_login: "alice", repo_name: "TestOrg/exam-alice", unlocked_at: new Date().toISOString(), unlocked_by: "lect", reason: "appeal", lock_method: "ruleset", snapshot_sha: HEAD_SHA };
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ students: [{ login: "alice" }, { login: "bob" }] });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!demoted(calls, "alice"), "reopened after the checkout: still left open");
+    assert.ok(demoted(calls, "bob"));
+  }, { remote: { alice: record } });
+  // A Lock again clicked after the checkout: the checkout still has the record, GitHub no longer does.
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ students: [{ login: "alice" }, { login: "bob" }], reopened: [{ login: "alice" }] });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(demoted(calls, "alice"), "locked again after the checkout: locked, not undone");
+  }, { remote: {} });
+  // GitHub cannot be read: the checkout's records, as before - never "nobody reopened".
+  await withStubApi(async (api, calls) => {
+    const dir = makeControlDir({ students: [{ login: "alice" }, { login: "bob" }], reopened: [{ login: "alice" }] });
+    const res = await runLockdown(dir, api);
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!demoted(calls, "alice"));
+    assert.match(res.stdout, /could not read the reopen records from GitHub - using the checkout's/);
+  }, { remote: "error" });
 });
 
 test("…and it is touched not at all - no read, no permission call", async () => {

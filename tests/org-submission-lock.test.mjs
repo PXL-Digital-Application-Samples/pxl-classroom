@@ -240,6 +240,37 @@ test("an existing lock is UPDATED, and an id that NEVER EXISTED is tolerated", a
   assert.ok(!gh.calls.some((c) => c.path.startsWith("/repositories/")), "no per-repository reads on the ordinary path");
 });
 
+test("R6-3: keepCurrent never takes out what an ACTIVE ruleset locks, and keeps nothing a disabled one lists", async () => {
+  // A Lock again put 33 back while this run planned from an older reading
+  // without it: replacing the list with the plan undid the lock.
+  const existing = {
+    id: 503, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "active",
+    conditions: { repository_id: { repository_ids: [11, 33] }, ref_name: { include: [REF], exclude: [] } },
+  };
+  const gh = fakeGitHub({ rulesets: [existing], live: new Set([11, 22, 33]), deleted: new Set() });
+  const res = await ensureOrgSubmissionLock(gh.request, { ...base, repositoryIds: [11, 22], enforcement: "active", keepCurrent: true });
+  assert.equal(res.ok, true, res.reason);
+  assert.deepEqual([...targetedRepositoryIds(existing)].sort(), [11, 22, 33], "33 stays");
+  // A DISABLED ruleset is one whose every repository was reopened (Reopen
+  // disables rather than empty it): keeping its ids would lock 33 again.
+  const second = {
+    id: 504, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "disabled",
+    conditions: { repository_id: { repository_ids: [33] }, ref_name: { include: [REF], exclude: [] } },
+  };
+  const gh2 = fakeGitHub({ rulesets: [second], live: new Set([11, 33]), deleted: new Set() });
+  assert.equal((await ensureOrgSubmissionLock(gh2.request, { ...base, repositoryIds: [11], enforcement: "active", keepCurrent: true })).ok, true);
+  assert.deepEqual(targetedRepositoryIds(second), [11], "the reopened 33 stays out");
+  assert.equal(second.enforcement, "active");
+  // Without keepCurrent (the migration), the list is the plan, as before.
+  const third = {
+    id: 505, name: orgSubmissionLockName(ASSIGNMENT), enforcement: "active",
+    conditions: { repository_id: { repository_ids: [11, 33] }, ref_name: { include: [REF], exclude: [] } },
+  };
+  const gh3 = fakeGitHub({ rulesets: [third], live: new Set([11, 22, 33]), deleted: new Set() });
+  await ensureOrgSubmissionLock(gh3.request, { ...base, repositoryIds: [11, 22], enforcement: "active" });
+  assert.deepEqual(targetedRepositoryIds(third), [11, 22]);
+});
+
 test("A DELETED REPOSITORY ON UPDATE IS RECOVERED TOO, and it was not", async () => {
   // THE DRILL FINDING. The create path recovered from a deleted repository and
   // the update path did not, so the SECOND finalize pass over a cohort where

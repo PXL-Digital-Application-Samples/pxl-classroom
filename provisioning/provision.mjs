@@ -19,7 +19,7 @@ import { gh } from "../lib/gh.mjs";
 import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 import { APP_SLUG } from "../lib/deployment.mjs";
-import { applyStudentPermission } from "../lib/permission-change.mjs";
+import { applyStudentPermission, grantableAfterLock } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
 import { PROVISIONABLE_BRANCH, resolveTemplatePin } from "../lib/template-source.mjs";
@@ -177,6 +177,33 @@ async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
     await new Promise((r) => setTimeout(r, delayMs));
   }
   return false;
+}
+
+/**
+ * The deadline's lock record and the reopen records, from the control checkout
+ * (`control/lockdowns/<id>/`). A lock record that will not parse is a lock
+ * that happened, so it is answered as a demotion over this repository; a reopen
+ * record that will not parse counts as a reopen, as lockdown reads it.
+ */
+async function readLockState() {
+  const dir = `control/lockdowns/${cfg.assignmentId}`;
+  let lockRecord = null;
+  try {
+    lockRecord = JSON.parse(await readFile(`${dir}/lockdown-record.json`, "utf-8"));
+  } catch (e) {
+    if (e?.code !== "ENOENT") lockRecord = { results: [{ repo_name: `${cfg.org}/${cfg.targetRepo}`, lock_method: "demotion" }] };
+  }
+  const reopenRecords = [];
+  let names = [];
+  try { names = await readdir(`${dir}/unlocked`); } catch { names = []; }
+  for (const f of names.filter((n) => n.endsWith(".json"))) {
+    try {
+      reopenRecords.push(JSON.parse(await readFile(`${dir}/unlocked/${f}`, "utf-8")));
+    } catch {
+      reopenRecords.push({ repo_name: `${cfg.org}/${cfg.targetRepo}` });
+    }
+  }
+  return { lockRecord, reopenRecords };
 }
 
 /**
@@ -1003,16 +1030,23 @@ async function main() {
 
   // 5. Grant the student their role (skip in dry-run).
   if (!cfg.dryRun) {
+    // NOT PAST A LOCK THAT TOOK ACCESS AWAY (review 2026-10-15, R6-2): a Retry
+    // after the deadline's demotion re-granted the assignment's permission, an
+    // unlock around Reopen with no record. Read is what the lock left; a
+    // reopened repository gets the assignment's again (lib/permission-change.mjs).
+    const lockState = await readLockState();
+    const grant = grantableAfterLock({ permission: cfg.permission, repoName: `${cfg.org}/${cfg.targetRepo}`, ...lockState });
+    if (grant.held) log("grant-after-lock", { ok: true, note: `the deadline's lock made this repository read-only and nobody reopened it - granting read, not ${cfg.permission}` });
     // Through the shared helper, because a plain PUT to a student who still
     // has an invitation answers 201 with THAT invitation at its OLD
     // permission (measured 2026-09-26): a retry after the lecturer changed
     // Student permission would leave them on the old one, reporting success.
     const add = await applyStudentPermission(
       (method, path, body) => gh(method, path, body),
-      { repo: `${cfg.org}/${cfg.targetRepo}`, login: cfg.studentLogin, permission: cfg.permission },
+      { repo: `${cfg.org}/${cfg.targetRepo}`, login: cfg.studentLogin, permission: grant.permission },
     );
     if (!add.ok) await fail("fail:grant", `grant HTTP ${add.status} ${add.message ?? ""}`);
-    log("grant", { ok: true, note: add.via === "invitation" ? `invitation (${cfg.permission})` : `already a collaborator (${cfg.permission})` });
+    log("grant", { ok: true, note: add.via === "invitation" ? `invitation (${grant.permission})` : `already a collaborator (${grant.permission})` });
     // SAID NOW, before anything below can fail (review 2026-10-14, LD5): the
     // student holds this repository from here on, and a failure after this
     // wrote only the team's record (or, alone, nothing), so lockdown - which

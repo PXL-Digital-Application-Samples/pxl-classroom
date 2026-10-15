@@ -45,6 +45,7 @@ import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -209,7 +210,44 @@ async function readOverrides() {
 //
 // An unreadable file here is treated as a reopen. That is the safe direction:
 // failing to skip re-locks a student a lecturer deliberately let back in.
+//
+// ASKED OF GITHUB, NOT OF THE CHECKOUT (review 2026-10-15, R6-3). The checkout
+// is taken before the cohort's collect, minutes earlier, so a Reopen clicked in
+// between was re-locked and a Lock again clicked in between was undone - one
+// order left a student able to push with no record, no Reopen and no Lock
+// again to stop it. The control repository is read again here, at the moment
+// lockdown plans; only a read that fails falls back to the checkout.
 async function readReopened() {
+  const fresh = await readReopenedRemote();
+  if (fresh) return fresh;
+  log("reopened", { ok: false, note: "could not read the reopen records from GitHub - using the checkout's" });
+  return readReopenedCheckout();
+}
+
+/** The reopen records as the control repository holds them now, or null when unread. */
+async function readReopenedRemote() {
+  const at = `/repos/${cfg.org}/${CONTROL_REPO}/contents/lockdowns/${cfg.assignmentId}/unlocked`;
+  const listing = await gh("GET", at).catch(() => null);
+  if (listing?.status === 404) return new Map();
+  if (!listing?.ok || !Array.isArray(listing.data)) return null;
+  const byLogin = new Map();
+  for (const f of listing.data) {
+    if (!String(f?.name ?? "").endsWith(".json")) continue;
+    const login = normalizeLogin(f.name.slice(0, -".json".length));
+    if (!login) continue;
+    const file = await gh("GET", `${at}/${encodeURIComponent(f.name)}`).catch(() => null);
+    try {
+      if (!file?.ok) throw new Error(`HTTP ${file?.status ?? "no answer"}`);
+      byLogin.set(login, JSON.parse(Buffer.from(String(file.data?.content ?? ""), "base64").toString("utf8")));
+    } catch (e) {
+      log(`reopened ${f.name}`, { ok: false, note: `${e.message} - treating as reopened anyway` });
+      byLogin.set(login, { reason: null });
+    }
+  }
+  return byLogin;
+}
+
+async function readReopenedCheckout() {
   const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId, "unlocked");
   let files;
   try { files = await readdir(dir); } catch { return new Map(); }
@@ -528,6 +566,9 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
         appId,
         repositoryIds: orgTargets.map((t) => t.rec.repo_id),
         enforcement: "active",
+        // Never take out what the ruleset locks: a Lock again clicked while
+        // this run planned is in it and not in the plan (R6-3).
+        keepCurrent: true,
       });
       if (res.ok) {
         orgRulesetId = res.rulesetId;

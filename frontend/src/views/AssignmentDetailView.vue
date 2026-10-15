@@ -5982,6 +5982,9 @@ async function retryAcceptanceFor(student) {
             ? `It opens ${fmt(assignment.value.opens_at)}, so nobody can accept yet.`
             : `Its deadline passed ${fmt(assignment.value.deadline_at)}, so nobody can accept any more.`,
           'Retrying lets this one acceptance through anyway.',
+          // What becomes of it (R6-5): a repository given after the lock is
+          // locked by the next nightly check, or left open until their own deadline.
+          ...(before ? [] : ['A repository they get now is locked by the next nightly check, or left open until their own deadline if they were given more time. A repository the lock already made read-only stays read-only.']),
         ],
         confirmLabel: 'Retry anyway',
       })
