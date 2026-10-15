@@ -40,4 +40,9 @@ jobs:
           HUB_OWNER: ${{ github.repository_owner }}
           HUB_REPO: ${{ github.event.repository.name }}
           ALERT_LEVEL: ${{ inputs.alert_level || 'stuck_and_failures' }}
-          AUTO_CANCEL: ${{ inputs.auto_cancel != false }}
+          # On the schedule there are no inputs, and `inputs.auto_cancel !=
+          # false` was false there: GitHub compares null and false as the same
+          # number, so the scheduled watchdog never cancelled anything
+          # (measured, TV-8 and the 2026-10-15 audit). On by default, as the
+          # dispatch input says.
+          AUTO_CANCEL: ${{ github.event_name == 'schedule' || inputs.auto_cancel }}

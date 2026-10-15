@@ -40,14 +40,22 @@
            has `INVITE_ENABLED=false` and runs nothing. Without this branch the
            page took the POST's 201 and said "that's all we needed" over a
            confirmation that never happened.
-           The DEADLINE is deliberately not consulted: a confirmation hands out
-           nothing, and the weeks after a deadline are exactly when this link is
-           wanted. Only the assignment being open at all decides. -->
-      <div v-else-if="assignment.state !== 'published'" class="center-card fade-in">
+           AND THE DEADLINE: the lock at the deadline switches the broker off
+           too (`close-acceptance.mjs`, INVITE_ENABLED=false, its key removed),
+           and the broker skips a confirmation then as it skips an acceptance.
+           This page once let a past deadline through, on the idea that the
+           weeks after one are when the link is wanted, and so thanked a
+           student over nothing (documentation audit, 2026-10-15). The link
+           rides the assignment's lifetime on purpose (CLAUDE.md, "a second
+           door on one credential"): a link for later comes from an assignment
+           still open. -->
+      <div v-else-if="closedBecause" class="center-card fade-in">
         <Icon name="lock" :size="48" class="status-icon status-icon-warn" />
         <h2>This link is no longer open</h2>
         <p class="text-secondary">
-          The assignment it belongs to has finished, so it cannot record an address any more.
+          {{ closedBecause === 'deadline'
+            ? 'The assignment it belongs to has passed its deadline'
+            : 'The assignment it belongs to has finished' }}, so it cannot record an address any more.
           Ask your lecturer for a current link.
         </p>
       </div>
@@ -193,6 +201,15 @@ const done = ref(false)
 const doneEmail = ref('')
 
 const claimKeyReady = computed(() => Boolean(hubClaimKey()))
+
+// Why the broker will not process a confirmation, or null when it will: not
+// published, or past the deadline, whose lock switches the broker off.
+const closedBecause = computed(() => {
+  if (!assignment.value) return null
+  if (assignment.value.state !== 'published') return 'finished'
+  const deadline = Date.parse(assignment.value.deadline_at ?? '')
+  return Number.isFinite(deadline) && deadline <= Date.now() ? 'deadline' : null
+})
 
 async function load() {
   loading.value = true

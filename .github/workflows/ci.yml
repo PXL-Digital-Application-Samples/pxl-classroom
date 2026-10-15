@@ -110,8 +110,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # playwright.config.mjs starts the Vite dev server itself, so the SPA's
-      # own dependencies have to be present before the suite runs.
+      # playwright.config.mjs builds the SPA and serves it, and starts the
+      # Vite dev server for the few specs that need one, so the SPA's own
+      # dependencies have to be present before the suite runs.
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 

@@ -272,13 +272,22 @@ test.describe('64 - the edges', () => {
     await expect(submit(page)).toHaveCount(0, { timeout: 15000 });
   });
 
-  test('a PAST DEADLINE still confirms - that is the whole point of the link', async ({ page }) => {
-    // The state gate must not become a deadline gate by accident. The weeks
-    // after a deadline are exactly when a lecturer reads the roster and finds
-    // rows with a login and nothing else.
+  test('a PAST DEADLINE does not offer to confirm either - the lock switched its broker off', async ({ page }) => {
+    // This test said the opposite until 2026-10-15: "the weeks after a
+    // deadline are exactly when the link is wanted". The lock at the deadline
+    // sets INVITE_ENABLED=false and removes the broker's key, and the broker
+    // skips a confirmation then as it skips an acceptance, so the page thanked
+    // students over a confirmation nothing processed (documentation audit).
+    // A link for later comes from an assignment still open.
     await openConfirm(page, {
       over: { deadline_at: new Date(Date.now() - 86400_000).toISOString() },
     });
+    await expect(page.locator('main')).toContainText('passed its deadline', { timeout: 15000 });
+    await expect(submit(page)).toHaveCount(0);
+  });
+
+  test('...while before the deadline it does', async ({ page }) => {
+    await openConfirm(page, { over: { deadline_at: new Date(Date.now() + 3600_000).toISOString() } });
     await expect(submit(page)).toBeVisible({ timeout: 15000 });
   });
 

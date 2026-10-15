@@ -615,6 +615,9 @@ async function start() {
   // their work now, so the baseline must go at GitHub's first commit (TV-3).
   const retriedRepo = feedback ? bareRepo((await readControlJson(firstRecordPath))?.repo_name) : null;
   if (feedback) {
+    // Protected against deletion, an owner included (measured: 422 "Cannot
+    // delete this branch"), so the protection goes first; the Retry puts it back.
+    await api(`/repos/${ORG}/${retriedRepo}/branches/${doc.feedback_pr_baseline_branch}/protection`, { token: LECTURER.token, method: "DELETE" });
     const del = await api(`/repos/${ORG}/${retriedRepo}/git/refs/heads/${doc.feedback_pr_baseline_branch}`, { token: LECTURER.token, method: "DELETE" });
     if (del.ok) ok(`removed ${STUDENTS[0].login}'s ${doc.feedback_pr_baseline_branch}, so the Retry has to make it over their push`);
     else bad(`could not remove ${STUDENTS[0].login}'s ${doc.feedback_pr_baseline_branch}: HTTP ${del.status} ${del.data?.message ?? ""}`);
