@@ -526,9 +526,13 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
       commit: { message: 'x', author: { date: new Date(Date.now() - 3600_000).toISOString() }, committer: { date: new Date(Date.now() - 3600_000).toISOString() }, verification: { verified: generated } },
     });
     const badge = page.locator('.provisioned-state .badge');
+    // As GitHub answers, measured 2026-10-15: the log starts with the App
+    // creating the branch, seconds after the repository's `created_at`.
+    const created = new Date(Date.now() - 7200_000).toISOString();
+    const filled = { actor: { login: 'pxl-classroom-provisioner[bot]' }, activity_type: 'branch_creation', timestamp: new Date(Date.parse(created) + 4000).toISOString() };
     for (const [label, log, generated, expected] of [
-      ['only the App pushed', { status: 200, body: [{ actor: { login: 'pxl-classroom-provisioner[bot]' } }] }, false, 'No commits pushed'],
-      ['the student pushed', { status: 200, body: [{ actor: { login: STUDENT_1.login } }] }, false, 'Submitted on time'],
+      ['only the App pushed', { status: 200, body: [filled] }, false, 'No commits pushed'],
+      ['the student pushed', { status: 200, body: [{ actor: { login: STUDENT_1.login }, activity_type: 'push', timestamp: new Date(Date.parse(created) + 600_000).toISOString() }, filled] }, false, 'Submitted on time'],
       ['no log, GitHub\'s own first commit', { status: 403, body: { message: 'Forbidden' } }, true, 'No commits pushed'],
       ['no log, somebody\'s commit: the date decides', { status: 403, body: { message: 'Forbidden' } }, false, 'Submitted on time'],
     ]) {
@@ -539,6 +543,7 @@ test.describe('16 - Team Lifecycle Edge Cases, Vacant Pruning, Collaborator Sync
         now: new Date(now),
         routes: async (p) => {
           await p.route(`**/repos/${repo}/activity**`, (route) => route.fulfill({ status: log.status, contentType: 'application/json', body: JSON.stringify(log.body) }));
+          await p.route(`**/repos/${repo}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ full_name: repo, created_at: created, permissions: { push: true } }) }));
           await p.route(`**/repos/${repo}/commits?*`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([head(generated)]) }));
         },
       });

@@ -1071,7 +1071,7 @@ async function main() {
           // notice - while keeping it, the manifest already removed by the
           // decision, leaves a repository no record names: the typo team
           // switched away from within minutes is exactly the case this exists for.
-          const state = await repoTouched((path) => gh("GET", path), full);
+          const state = await repoTouched((path) => gh("GET", path), full, { appLogin: `${APP_SLUG}[bot]` });
           if (state === "untouched") {
             const del = await gh("DELETE", `/repos/${full}`);
             log("remove-old-repo", { ok: del.ok || del.status === 404, note: `deleted ${prevRepoName}: its team was left empty and nothing was pushed to it (HTTP ${del.status})` });

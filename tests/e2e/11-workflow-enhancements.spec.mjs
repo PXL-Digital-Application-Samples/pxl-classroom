@@ -229,16 +229,21 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     // starting point (GitHub's, the grading workflow's, or a full-history
     // copy's template head, months old), and it read as "Submitted on time".
     const deadline = new Date(Date.now() + 3600 * 1000 * 24).toISOString();
+    // As GitHub answers, measured 2026-10-15: the log starts with the App
+    // creating the branch, seconds after the repository's `created_at` - which
+    // is what lets a log of bots say nobody pushed.
+    const created = new Date(Date.now() - 3600 * 1000).toISOString();
+    const at = (i) => new Date(Date.parse(created) + 4000 + i * 60_000).toISOString();
     const setup = async (actors) => {
       await injectAuth(page, STUDENT_EXTENDED);
       await setupStandardMockRoutes(page, {
         currentUser: STUDENT_EXTENDED,
-        userRepos: [{ name: 'lab-pushed-student-extended', full_name: `${ORG}/lab-pushed-student-extended`, html_url: `https://github.com/${ORG}/lab-pushed-student-extended` }],
+        userRepos: [{ name: 'lab-pushed-student-extended', full_name: `${ORG}/lab-pushed-student-extended`, html_url: `https://github.com/${ORG}/lab-pushed-student-extended`, created_at: created }],
         assignments: { 'lab-pushed': { id: 'lab-pushed', title: 'Pushed Lab', organization: ORG, state: 'published', assignment_type: 'individual', deadline_at: deadline } },
       });
       await page.route(`**/repos/${ORG}/lab-pushed-student-extended/activity**`, (route) => route.fulfill({
         status: 200, contentType: 'application/json',
-        body: JSON.stringify(actors.map((login) => ({ actor: { login }, activity_type: 'push' }))),
+        body: JSON.stringify(actors.map((login, i) => ({ actor: { login }, activity_type: i === 0 ? 'branch_creation' : 'push', timestamp: at(i) }))),
       }));
       await page.goto(inviteUrl(ORG, 'lab-pushed'));
       await expect(page.locator('h2', { hasText: 'Your repository is ready!' })).toBeVisible();

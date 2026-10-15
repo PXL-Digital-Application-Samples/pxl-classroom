@@ -1239,9 +1239,12 @@ async function refreshTeamSubmissionMeta(org, repoName) {
   const token = getToken()
   if (!token) return
   try {
-    const [res, log] = await Promise.all([
+    // The repository too: a push log of bots says nobody pushed only when it
+    // reaches back to its creation (lib/untouched-repo.mjs `personPushed`).
+    const [res, log, repo] = await Promise.all([
       ghApi(token, 'GET', `/repos/${org}/${repoName}/commits?per_page=1`),
       ghApi(token, 'GET', `/repos/${org}/${repoName}/activity?per_page=100`),
+      ghApi(token, 'GET', `/repos/${org}/${repoName}`),
     ])
     if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
       const c = res.data[0]
@@ -1252,7 +1255,7 @@ async function refreshTeamSubmissionMeta(org, repoName) {
         message: c.commit?.message,
       }
     }
-    teamPushed.value = personPushed(log, res.ok && Array.isArray(res.data) ? res.data[0] : null)
+    teamPushed.value = personPushed(log, res.ok && Array.isArray(res.data) ? res.data[0] : null, { createdAt: repo?.ok ? repo.data?.created_at : undefined })
   } catch (e) {
     console.error('Failed to fetch team latest commit:', e)
   }

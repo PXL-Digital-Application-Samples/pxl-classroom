@@ -28,7 +28,7 @@ import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
-import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
+import { APP_SLUG, CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
   addressFormatAllowed,
@@ -1301,7 +1301,7 @@ async function main() {
           // hand - could be judged untouched and deleted. A team whose record
           // names no repository is kept vacant: a seeded team is the
           // lecturer's plan, and whoever enters it makes the repository.
-          const state = recordedRepo ? await repoTouched((path) => gh("GET", path), `${org}/${recordedRepo}`) : "unrecorded";
+          const state = recordedRepo ? await repoTouched((path) => gh("GET", path), `${org}/${recordedRepo}`, { appLogin: `${APP_SLUG}[bot]` }) : "unrecorded";
           // ONLY a repository that is there and holds nothing. A 404 is not
           // "there is none": it is also what an App that cannot see the
           // repository is told (an owner's "Only select repositories",
