@@ -79,9 +79,9 @@ async function openEditor(page, a = assignment(), extra = {}) {
   await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toHaveValue(a.title, { timeout: 15000 });
 }
 
-// ============================================ §4.1 one block, one truth
+// ============================================ WS2.1 one block, one truth
 
-test.describe('34 - §4.1 The share block says what a student would see', () => {
+test.describe('34 - WS2.1 The share block says what a student would see', () => {
   test('A live assignment is Live, with the deadline it is live until', async ({ page }) => {
     await openEditor(page);
     await openInvitePopover(page);
@@ -156,9 +156,9 @@ test.describe('34 - §4.1 The share block says what a student would see', () => 
   });
 });
 
-// ============================================ §4.2 four surfaces
+// ============================================ WS2.2 four surfaces
 
-test.describe('34 - §4.2 The link is reachable without opening the editor', () => {
+test.describe('34 - WS2.2 The link is reachable without opening the editor', () => {
   // The Admin page's list carried it on every published row, and two tests
   // here held that. The list is gone (BETA-UX.md, 2026-10-02): assignments are
   // listed once, as the dashboard's cards, which carry it below, and every tab
@@ -229,9 +229,9 @@ test.describe('34 - §4.2 The link is reachable without opening the editor', () 
   });
 });
 
-// ============================================ §4.3 the page stops collapsing
+// ============================================ WS2.3 the page stops collapsing
 
-test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page', () => {
+test.describe('34 - WS2.3 A cohort of nobody is a row of the page, not the page', () => {
   async function detailWithNoReport(page, over = {}) {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, {
@@ -324,9 +324,9 @@ test.describe('34 - §4.3 A cohort of nobody is a row of the page, not the page'
   });
 });
 
-// ============================================ §4.4 one toolbar, one kind of menu
+// ============================================ WS2.4 one toolbar, one kind of menu
 
-test.describe('34 - §4.4 The Invite link menu is built like Export and More', () => {
+test.describe('34 - WS2.4 The Invite link menu is built like Export and More', () => {
   // Reported 2026-09-30: Export and More beside it were rows with an icon, a
   // title and a line saying what each does, and the Invite link menu was a
   // small form - a heading, a paragraph, two buttons and a text link. Asked for

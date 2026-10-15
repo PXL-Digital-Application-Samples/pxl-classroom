@@ -1,16 +1,17 @@
-// 32 - WS3: the first-run wall (ARCHITECTURE §10.4-§5.4)
+// 32 - WS3: the first-run wall (ARCHITECTURE §10.4; WS3.1 to WS3.4 are the
+// numbering of the UX plan these were written against, since removed)
 //
 // Four ways the Admin Panel stopped a lecturer on their first assignment and
 // then declined to say what to do about it:
 //
-//   §5.1  zero template repositories - "Create one and mark it as a template in
+//   WS3.1  zero template repositories - "Create one and mark it as a template in
 //         repo Settings", which assumes you know what a template repository is
 //         and buries the checkbox that is the actual reason the list is empty
-//   §5.2  roster_mode: enforced makes students/roster.yml load-bearing, and the
+//   WS3.2  roster_mode: enforced makes students/roster.yml load-bearing, and the
 //         form named a tab it did not link to and a count it did not show
-//   §5.3  "Copy teams from…", permanently disabled on the create form,
+//   WS3.3  "Copy teams from…", permanently disabled on the create form,
 //         explaining its own impossibility
-//   §5.4  raw AJV: /autograde/tests/0/id must match pattern "^[a-z0-9]..."
+//   WS3.4  raw AJV: /autograde/tests/0/id must match pattern "^[a-z0-9]..."
 //
 // The roster count is the interesting one to test end to end: it is read by
 // RosterTab (the next tab over) and rendered by AdminView, so a spec that
@@ -69,9 +70,9 @@ const student = (n) => ({
   github_login: `student-${n}`,
 });
 
-// =========================================================== §5.1 templates
+// =========================================================== WS3.1 templates
 
-test.describe('32 - §5.1 An organization with no template repositories', () => {
+test.describe('32 - WS3.1 An organization with no template repositories', () => {
   // The org search returns nothing when the org has no `is:template` repos.
   async function noTemplates(page) {
     await page.route('**/search/repositories*', async (route) => {
@@ -147,9 +148,9 @@ test.describe('32 - §5.1 An organization with no template repositories', () => 
   });
 });
 
-// ============================================================== §5.2 roster
+// ============================================================== WS3.2 roster
 
-test.describe('32 - §5.2 The roster gate says whether anyone can accept', () => {
+test.describe('32 - WS3.2 The roster gate says whether anyone can accept', () => {
   test('No roster file at all is "nobody can accept", with a way to fix it', async ({ page }) => {
     // The fixture 404s students/roster.yml unless one is passed, which is the
     // state of every freshly scaffolded control repo.
@@ -234,9 +235,9 @@ test.describe('32 - §5.2 The roster gate says whether anyone can accept', () =>
   });
 });
 
-// ========================================================== §5.3 seed teams
+// ========================================================== WS3.3 seed teams
 
-test.describe('32 - §5.3 A control that cannot work is not on the screen', () => {
+test.describe('32 - WS3.3 A control that cannot work is not on the screen', () => {
   test('Copy teams is absent from the create form and present on a saved one', async ({ page }) => {
     const saved = {
       schema_version: 1,
@@ -267,9 +268,9 @@ test.describe('32 - §5.3 A control that cannot work is not on the screen', () =
   });
 });
 
-// ========================================================== §5.4 validation
+// ========================================================== WS3.4 validation
 
-test.describe('32 - §5.4 Validation speaks to lecturers', () => {
+test.describe('32 - WS3.4 Validation speaks to lecturers', () => {
   // The modal refuses a bad check id before it can be saved (ARCHITECTURE §11.6), so
   // this state now only arrives from a YAML someone edited by hand. That is
   // exactly when the raw AJV mattered most: there is no control to point at.

@@ -52,6 +52,7 @@
       </div>
 
       <div class="toolbar-actions flex items-center gap-sm">
+        <HelpButton topic="group-assignments" label="teams" />
         <button class="btn btn-sm btn-secondary btn-with-icon" @click="showSeedModal = true" title="Carry an existing grouping into this assignment">
           <Icon name="users" :size="14" />
           <span>Copy teams</span>
@@ -540,6 +541,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { membersWithRecords, planTeamRename, renameBlocker, renameRefusalAt, teamSlug } from '../../../lib/team-rename.mjs'
 import { teamNameProblem } from '../../../lib/public-text.mjs'
 import { changedSinceRead, contentsAt as contentsAtCommit, unseedRefusalAt } from '../../../lib/team-write-guard.mjs'

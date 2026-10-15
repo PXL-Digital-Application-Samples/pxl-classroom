@@ -77,9 +77,9 @@ const draftAssignment = (over = {}) => ({
   ...over,
 });
 
-// ============================================================ §3.1 roster gate
+// ============================================================ WS1.1 roster gate
 
-test.describe('31 - §3.1 What a new assignment is saved with', () => {
+test.describe('31 - WS1.1 What a new assignment is saved with', () => {
   test('A new assignment is committed as roster_mode: open, with a cap, and validates', async ({ page }) => {
     // Reversed on 2026-08-24. WS1 chose `enforced` because the broker repo is
     // public and the roster was the only thing between any GitHub account and

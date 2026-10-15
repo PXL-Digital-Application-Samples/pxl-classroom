@@ -484,8 +484,8 @@ test("script: a PARTICIPATING org that has not approved still fails, beside a th
 });
 
 test("script: a participating org with NO installation is an error", () => {
-  // Nothing else in the system notices this; RUNBOOK section 11 carried it as a
-  // manual checklist item.
+  // Nothing else in the system notices this; it used to be a manual checklist
+  // item in an older RUNBOOK.
   const res = runScript({
     participating: ["OrgA", "Forgotten"],
     pages: [[installation("OrgA", { ...DECLARED })]],

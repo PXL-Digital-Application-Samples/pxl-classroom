@@ -2,7 +2,7 @@
   <div class="modal-overlay" @click.self="close">
     <div class="modal promote-modal" role="dialog" aria-modal="true" aria-labelledby="promote-modal-title">
       <header class="modal-head">
-        <h3 id="promote-modal-title">Add students who accepted — {{ assignment.id }}</h3>
+        <h3 id="promote-modal-title">Add students who accepted: {{ assignment.id }}</h3>
         <button class="modal-close" type="button" @click="close" aria-label="Close">×</button>
       </header>
 
@@ -25,7 +25,7 @@
             username only, because this assignment did not ask for one</template>.
           </template>
           <template v-else>
-            They will arrive as GitHub usernames only — no name, student number or email, because this
+            They will arrive as GitHub usernames only: no name, student number or email, because this
             assignment never collected one. Under <em>{{ ACCEPT_IDENTITY_QUESTION }}</em>, choose
             <em>{{ REQUIRE_CLAIM_LABEL }}</em> on the assignment to change that.
           </template>
@@ -97,7 +97,7 @@
             <div v-if="plan.added.length" class="promote-preview">
               <div class="promote-preview-head">
                 <span class="text-secondary text-sm">Students to add</span>
-                <span class="text-muted text-xs">GitHub login only — see below</span>
+                <span class="text-muted text-xs">What arrives is said below</span>
               </div>
               <ul class="promote-preview-list">
                 <li v-for="s in plan.added" :key="s.github_login" class="promote-preview-row">
@@ -108,11 +108,11 @@
             </div>
 
             <p v-if="plan.added.length" class="promote-footnote">
-              These entries carry a GitHub login and nothing else — GitHub never tells us a name or
-              a student number, and guessing one would put a fabricated value in a field you grade
-              from. They are marked <code>source: accepted</code> so you can spot which rows still
-              need identifying, and a later CSV import fills them in. Students already on the roster
-              are left exactly as they are.
+              These entries carry a GitHub login, and the address the student confirmed where there
+              is one. GitHub never tells us a name or a student number, and guessing one would put a
+              made-up value in a field you grade from. On the Roster page their Name cell says it is
+              not known yet, so you can spot which rows still need identifying, and a later CSV import
+              fills them in. Students already on the roster are left exactly as they are.
             </p>
           </template>
         </template>

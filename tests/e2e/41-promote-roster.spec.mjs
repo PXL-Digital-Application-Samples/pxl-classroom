@@ -130,14 +130,19 @@ test.describe('41 - the modal shows the plan before anything is written', () => 
     await expect(page.getByRole('button', { name: 'Add 2 students' })).toBeEnabled();
   });
 
-  test('it says out loud that the entries carry a login and nothing else', async ({ page }) => {
+  test('it says out loud that the entries carry no name or number, and where they can be found', async ({ page }) => {
     // The lecturer is about to add rows with no name and no student number. If
     // the modal does not say so, the roster silently grows a second class of
-    // entry that looks like a broken import.
+    // entry that looks like a broken import. It said "a GitHub login and
+    // nothing else" beside its own line about the confirmed address, and
+    // quoted the stored `source: accepted`, a value no screen shows (help
+    // audit, 2026-10-15).
     await openDetail(page);
     await openModal(page);
     await expect(modal(page)).toContainText('GitHub never tells us a name or a student number');
-    await expect(modal(page)).toContainText('source: accepted');
+    await expect(modal(page)).toContainText('their Name cell says it is not known yet');
+    await expect(modal(page)).not.toContainText('source: accepted');
+    await expect(modal(page)).not.toContainText('nothing else');
   });
 
   test('a student already on the roster is counted, not re-added', async ({ page }) => {

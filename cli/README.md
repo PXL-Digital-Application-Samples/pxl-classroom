@@ -93,7 +93,7 @@ pxl-classroom teams unseed --org PXLAutomation --assignment linux-networking-202
 It deletes, in one commit, only the teams that came from a seed, own no
 repository, and have no member with an acceptance record - anything a student
 has already joined is listed as kept. The removability rule is the same
-`planUnseed` the web UI's "Undo seed" button uses.
+`planUnseed` the Teams tab's **Undo copy** button uses.
 
 ## Configuration
 

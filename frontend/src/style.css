@@ -1,4 +1,4 @@
-/* PXL Classroom — Global Styles
+/* PXL Classroom - Global Styles
  * Dual-theme (system default / light / dark) GitHub Primer-inspired palette.
  * Human-crafted, high-density developer ergonomics.
  * See DESIGN.md §2 for the token tables and §5 for theming rules. */
@@ -12,7 +12,7 @@
 }
 
 /* ==========================================================================
-   THEME TOKENS — the only place in the codebase a colour literal may appear.
+   THEME TOKENS - the only place in the codebase a colour literal may appear.
    Every colour is declared once as light-dark(<light>, <dark>) and resolves
    against the computed `color-scheme` of :root (see the switch block below).
    Dark values are byte-identical to the pre-theme palette; light values come
@@ -42,7 +42,7 @@
   --bg-btn-hover:  light-dark(#eef0f3, #30363d);
   --bg-btn-active: light-dark(#e4e8ec, #282e33);
 
-  /* Legacy aliases — identical values, retained so the Phase 4 sweep can be
+  /* Legacy aliases - identical values, retained so the Phase 4 sweep can be
      mechanical. Prefer the semantic names above in new code. */
   --bg-primary:   var(--bg-canvas);
   --bg-secondary: var(--bg-surface);
@@ -57,7 +57,7 @@
   --overlay-muted:  light-dark(rgba(31, 35, 40, 0.07), rgba(255, 255, 255, 0.08));
   --table-stripe:   light-dark(rgba(31, 35, 40, 0.025), rgba(255, 255, 255, 0.015));
 
-  /* ---- Borders — soft & muted to prevent a 1px wireframe cage ---- */
+  /* ---- Borders - soft & muted to prevent a 1px wireframe cage ---- */
   --border-default: light-dark(#d1d9e0, #30363d);
   --border-muted:   light-dark(#d1d9e0b3, #21262d);
   --border-subtle:  light-dark(rgba(31, 35, 40, 0.08), rgba(240, 246, 252, 0.1));
@@ -104,7 +104,7 @@
 
   /* ---- Tints ----
      Collapses 62 distinct rgba() literals into 5 hues x 3 steps. Dark stays an
-     alpha wash over the dark canvas; light uses Primer's SOLID muted colours —
+     alpha wash over the dark canvas; light uses Primer's SOLID muted colours -
      a 10% wash tuned for #0d1117 reads as nothing on white.
        subtle   = background wash        (was 0.05-0.12)
        muted    = filled chip / tag      (was 0.15-0.25)
@@ -132,7 +132,7 @@
   /* ---- Shadows ----
      light-dark() returns a <color>, so it CANNOT wrap a whole box-shadow.
      Only the colour is themed; the geometry is shared. Never write
-     `box-shadow: light-dark(0 4px 12px ..., ...)` — it is invalid CSS. */
+     `box-shadow: light-dark(0 4px 12px ..., ...)`: it is invalid CSS. */
   --shadow-color-sm:    light-dark(rgba(31, 35, 40, 0.10), rgba(0, 0, 0, 0.25));
   --shadow-color-md:    light-dark(rgba(140, 149, 159, 0.30), rgba(0, 0, 0, 0.35));
   --shadow-color-lg:    light-dark(rgba(140, 149, 159, 0.40), rgba(0, 0, 0, 0.50));
@@ -206,7 +206,7 @@
      at widths where the header is one row. */
   --sticky-top: 88px;
 
-  /* ---- Border radius — tight & consistent ---- */
+  /* ---- Border radius - tight & consistent ---- */
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -228,7 +228,7 @@
    dark, which stopped being true when DEFAULT_MODE became 'system' - a stale
    comment 175 lines from the declaration that contradicts it.) light-dark()
    reads the *computed* color-scheme, so flipping this one property re-resolves
-   every token above — and it simultaneously themes native scrollbars, form
+   every token above - and it simultaneously themes native scrollbars, form
    controls and autofill for free. */
 :root[data-theme="light"]  { color-scheme: light; }
 :root[data-theme="dark"]   { color-scheme: dark; }
@@ -251,7 +251,7 @@ body {
   min-height: 100vh;
 }
 
-/* Focus styles — accessibility */
+/* Focus styles - accessibility */
 :focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
@@ -344,7 +344,7 @@ a:hover {
   flex-shrink: 0;
 }
 
-/* Primary CTA — Reserved for 1 main action per view */
+/* Primary CTA - Reserved for 1 main action per view */
 .btn-primary {
   background: var(--accent-blue-emphasis);
   border-color: var(--border-on-emphasis);

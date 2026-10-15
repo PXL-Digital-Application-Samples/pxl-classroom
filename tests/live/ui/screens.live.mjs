@@ -80,7 +80,7 @@ test.describe("an assignment before its deadline", () => {
     for (const name of ["Download Manifest", "Copy CLI Download"]) {
       const row = page.locator(".export-dropdown-item", { hasText: name });
       await expect(row).toHaveAttribute("aria-disabled", "true");
-      await expect(row).toContainText("Available after deadline lockdown");
+      await expect(row).toContainText("Available once the deadline's lock has run");
       await row.focus();
       await expect(row).toBeFocused();
       expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.55");

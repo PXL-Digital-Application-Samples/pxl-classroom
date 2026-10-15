@@ -116,10 +116,13 @@ test("the hub's own student-facing text reads it too", () => {
 });
 
 test("MANUAL.md names no institution at all", () => {
-  // Product documentation, rendered in the help drawer, and a static file that
-  // cannot interpolate - so it is generic rather than templated. It said "their
-  // school email address" and "no school address", which is the same defect
-  // worded vaguely: a fork's reader is not at a "school" either.
+  // Product documentation, rendered in the help drawer. It said "their school
+  // email address" and "no school address", which is the same defect worded
+  // vaguely: a fork's reader is not at a "school" either. And "institutional"
+  // was not the form's answer either, which reads "confirm their PXL email
+  // address" (help audit, 2026-10-15): so the manual's build fills the
+  // institution in from deployment.yml (`{{institution_short}}`,
+  // scripts/build-manual.mjs), and the file itself still names none.
   const text = prose("MANUAL.md");
   assert.ok(!text.includes(LONG), `MANUAL.md names "${LONG}"; it should say "institutional"`);
   assert.ok(
@@ -129,8 +132,8 @@ test("MANUAL.md names no institution at all", () => {
   for (const domain of DOMAINS) {
     assert.ok(!text.includes(domain), `MANUAL.md names this deployment's domain "${domain}"`);
   }
-  // And it must still be talking about the right thing.
-  assert.match(read("MANUAL.md"), /institutional email address/, "the Claim mode description");
+  // And it must still be talking about the right thing, in the form's words.
+  assert.match(read("MANUAL.md"), /confirm their \{\{institution_short\}\} email address/, "the Claim mode description");
 
   // The product name IS allowed, and is expected to still be there - otherwise
   // the strip above is exempting something absent and the assertions are weaker

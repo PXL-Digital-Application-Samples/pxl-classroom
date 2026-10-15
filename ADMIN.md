@@ -56,7 +56,7 @@ Measured 2026-09-07 across the registry: four of the twelve readable participati
 
 | | On Team | On Free |
 |---|---|---|
-| Deadline freeze | A repository ruleset blocks pushes to the submission ref and nothing else | Falls back to demoting the student to `pull`, which also removes Actions, secrets, environments, runners and settings until the repository is reopened |
+| Deadline freeze | A ruleset (one organization ruleset per assignment by default) blocks pushes to the submission ref and nothing else | Falls back to demoting the student to `pull`, which also removes Actions, secrets, environments, runners and settings until the repository is reopened |
 | Feedback PR baseline | Protected against force-push and deletion | Created unprotected; the student is admin on their own repo and can rewrite or delete it |
 | Actions minutes | 3,000/month | 2,000/month |
 
@@ -218,7 +218,7 @@ When the check does report a genuine excess, fix it in **one** of two ways, both
   **This costs nobody a click.** GitHub's own wording: *"If you remove permissions or webhooks from your GitHub App, the changes will take effect immediately"* - whereas adding one means *"each account where the app is installed will need to approve the new permissions"*. So a reduction lands on every installation at once with no approval round; org owners may receive an informational email, but there is nothing for them to action and nothing breaks while they ignore it. Account-level permissions clear the same way, and need no owner at all.
 
   This asymmetry is worth remembering in the other direction: the day something genuinely needs a NEW permission, every org owner has to click *Review request* before that org works again, and the feature is dead on the ones nobody chases. That is what `check-installation-approvals.mjs` exists to see (§6.6).
-- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by the five broker variables `publish-assignment.yml` writes, and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
+- **Or add it to `MANIFEST_APP_PERMISSIONS`** in `lib/audit.mjs` with a comment naming the caller, if something really does use it. This is what happened to `actions_variables: write` - genuinely required by the five broker variables `publish-assignment.yml` writes (and since 2026-10-15 by `PXL_DEADLINE`, which provisioning writes on a student repository), and simply never written down. The check is what forces that constant to be a truthful inventory instead of a partial one.
 
 ---
 
@@ -278,7 +278,7 @@ A bot fires many brokers from many accounts. A migrated broker triggers on an **
 
 ### 5.4 Hub workflow file was modified by a fork PR
 
-**Branch protection is not what stops this.** §1.5 deliberately configures no PR-review and no status-check requirement - verified live: `required_pull_request_reviews` and `required_status_checks` are both null, and what is enforced is force-push and deletion blocking. What actually stands in the way is that merging needs **write access** on the hub repo, and GitHub holds workflow runs from a first-time fork contributor until someone approves them. If such a PR did merge, assume compromise:
+**Branch protection is not what stops this.** INSTALL.md §5 deliberately configures no PR-review and no status-check requirement - verified live: `required_pull_request_reviews` and `required_status_checks` are both null, and what is enforced is force-push and deletion blocking. What actually stands in the way is that merging needs **write access** on the hub repo, and GitHub holds workflow runs from a first-time fork contributor until someone approves them. If such a PR did merge, assume compromise:
 
 1. Revert the malicious commit.
 2. Force-rotate the App key (§5.1) on the assumption the workflow exfiltrated it.
@@ -304,6 +304,23 @@ git push origin participating-orgs
 ```
 
 Verify: `file participating-orgs.yml` reports `ASCII text` or `UTF-8 Unicode text`, no `BOM`. `setup-org.yml` now normalises automatically going forward - this recovery is only needed once.
+
+### 5.7 A broker the nightly could not close
+
+Symptom: the nightly's *Find finalizable* step says `<id>: the broker is still not closed after 3 attempts - not retrying`. Finalizing an assignment sets its broker's `INVITE_ENABLED` to `false` and then deletes the broker App's key from it (`scripts/close-acceptance.mjs`); three nights of failing to do that, and it stops trying, because a broker key on a public repository is not something to retry quietly for ever.
+
+Close it by hand, in this order - the door first, then the key, or the broker still accepts and can no longer dispatch:
+
+1. On the broker repository (`<org>/broker-<id>`): **Settings → Secrets and variables → Actions → Variables**, set `INVITE_ENABLED` to `false`.
+2. Same page, **Secrets**: delete `PXL_BROKER_PRIVATE_KEY` and `PXL_BROKER_CLIENT_ID`.
+3. In the org's control repository, delete `lockdowns/<id>/broker-closed.json`. The next nightly then finalizes once more, finds both done, and records it.
+
+```bash
+gh api "repos/<org>/broker-<id>/actions/variables/INVITE_ENABLED" --jq .value
+gh api "repos/<org>/broker-<id>/actions/secrets" --jq '.secrets[].name'
+```
+
+`false` and no secret is closed.
 
 ---
 
@@ -409,7 +426,7 @@ Run periodically, especially after touching workflows or App settings.
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.
 - [ ] `participating-orgs.yml` matches the set of orgs where the App is installed.
-- [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` matches §1.5: force-pushes and deletions blocked (incl. admins), no PR/status-check requirements.
+- [ ] `gh api /repos/PXL-Digital-Application-Samples/pxl-classroom/branches/main/protection` matches INSTALL.md §5: force-pushes and deletions blocked (incl. admins), no PR/status-check requirements.
 - [ ] No `.github/workflows/` directory exists in any `<org>/pxl-classroom-control` repo.
 - [ ] The two device-flow URLs are never fetched outside the proxy helper - `git grep "github.com/login" frontend/src/` shows them only as the `DEVICE_CODE_TARGET` / `TOKEN_TARGET` constants `proxiedPost` appends to a proxy. (This item used to read "`git grep corsproxy.io` in `frontend/src/` returns no matches", which could never pass: `auth.js` has always carried the default proxy. `tests/cors.test.mjs` and `tests/cors-proxy-config.test.mjs` cover the real invariant.)
 - [ ] `git grep '@v[0-9]\+ ' .github/workflows/` returns no matches (all third-party actions SHA-pinned).

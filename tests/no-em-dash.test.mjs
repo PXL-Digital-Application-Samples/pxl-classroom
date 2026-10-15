@@ -11,11 +11,9 @@ import { dirname, join } from "node:path";
 // and often in the same paragraph. 758 of them were replaced in one pass on
 // 2026-09-09; this is what stops the next one arriving.
 //
-// SCOPED TO MARKDOWN, deliberately. The SPA uses `—` as a GLYPH - `{{
-// s.student_number || '—' }}` is the dash that means "no value" in a table
-// cell, which is a display convention and not prose. Telling those apart from a
-// sentence needs judgement this test does not have, so it does not try: the
-// documents are unambiguous and are where the prose lives.
+// The documents first. The SPA uses `—` as a GLYPH - `{{ s.student_number ||
+// '—' }}` is the dash that means "no value" in a table cell, which is a display
+// convention and not prose - so its test, below, exempts exactly that form.
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("no top-level document contains an em dash", () => {
@@ -44,6 +42,28 @@ test("no top-level document contains an em dash", () => {
     "Use a spaced hyphen, a comma, a colon or parentheses instead of an em dash:\n" +
       offenders.join("\n"),
   );
+});
+
+// THE SPA TOO, since 2026-10-15: the help audit found eleven in UI copy - a
+// dialog title, a footnote, a filter warning - and ten in style.css comments.
+// The glyph has one form, the character alone inside quotes (`'—'`, `"—"`,
+// `empty-text="—"`), and that is what a table cell's "no value" is; anything
+// else is prose and refused.
+test("no em or en dash in the SPA's source, except the no-value glyph", () => {
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== "generated") walk(path); continue; }
+      if (!/\.(vue|js|mjs|css)$/.test(entry.name)) continue;
+      readFileSync(path, "utf-8").split("\n").forEach((line, i) => {
+        const rest = line.replace(/(['"])[—–]\1/g, "");
+        if (/[—–]/.test(rest)) offenders.push(`${path.slice(root.length + 1)}:${i + 1}: ${line.trim().slice(0, 90)}`);
+      });
+    }
+  };
+  walk(join(root, "frontend", "src"));
+  assert.deepEqual(offenders, [], "Use a spaced hyphen, a comma, a colon or parentheses:\n" + offenders.join("\n"));
 });
 
 test("the guard can actually fail - it is reading the files", () => {

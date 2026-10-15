@@ -3,7 +3,10 @@
     <div class="modal card modal-wide starter-sync-modal" role="dialog" aria-modal="true" aria-labelledby="starter-sync-title">
       <header class="modal-head flex justify-between items-center">
         <div>
-          <h3 id="starter-sync-title">Sync Starter Code: <code>{{ assignment.id }}</code></h3>
+          <div class="flex items-center gap-xs">
+            <h3 id="starter-sync-title">Sync Starter Code: <code>{{ assignment.id }}</code></h3>
+            <HelpButton topic="sync-starter-code" label="Sync Starter Code" />
+          </div>
           <span class="text-secondary text-sm">
             Template: <code>{{ templateFullName }}</code>
           </span>
@@ -338,6 +341,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { config } from '../lib/config.js'
 import { getToken } from '../lib/auth.js'
 import { ghApi, getRepoContent, dispatchWorkflowRun } from '../lib/api.js'

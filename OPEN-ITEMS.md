@@ -61,47 +61,19 @@ If that account is lost, sign-in does not break - it fails over to the third-par
 
 ---
 
-## 3. Lock-down is per repository, and a student can delete their own ruleset
+## 3. Organization-scoped lock-down holds real cohorts, and no real cohort has been reopened from it
 
-**Status: open - BUILT, and drilled end to end on a throwaway org; never run on real students.** Verified 2026-08-31, built and drilled 2026-09-08.
+**Status: open - the default, on real cohorts since 2026-10-12; a reopen on one has not been done.** PXL-Systems-Expert's `2627-systemsexp-pe1-groepsindeling` (31 students, 2026-10-12) and PXL-Automation-II's `pxl-2627-autii-pe1` (38, 2026-10-13) are held by `lock_method: org-ruleset`, with `reopened_count: 0` and no reopen record. **Reopen** and **Lock again** were clicked in the real dialog on the testbed on 2026-10-15 (`tests/live/ui/relock.live.mjs`), each checked on GitHub, over an organization ruleset that listed a deleted repository.
 
-**What changed.** `org_scoped_lock: true` on an assignment now covers the whole cohort with one organization ruleset targeted by `repository_id` (ARCHITECTURE §11.2.1), with the matching inverse in `lib/repo-unlock.mjs`, cleanup on delete, and `scripts/migrate-org-lock.mjs` to move an existing cohort. The API limits it rests on were measured against a live Team organization rather than assumed - the `repository_ids` cap, `PUT` replacing rather than merging, and the 422 any write gets while a deleted repository is in the list.
+**What it is.** Under `late_policy: block`, an assignment that does not say otherwise is covered by one organization ruleset targeted by `repository_id` (ARCHITECTURE §11.2.1). A student who is admin of their own repository cannot delete, disable or leave it (measured 2026-09-08: 404 on each, 409 on a push) and keeps their Actions and secrets. Reopen removes one id (`lib/repo-unlock.mjs`), Lock again adds it back (`lib/repo-relock.mjs`), and every write recovers from a deleted repository in the list (`withoutGoneRepos`). `org_scoped_lock: false` opts an assignment back to one repository ruleset per student, which such a student can switch off in their own settings; `scripts/migrate-org-lock.mjs` moves a cohort the other way.
 
-Corrected 2026-09-08, found by re-reading RUNBOOK §3.4 against the code rather than by a test: the migration changed GitHub and told the control repo nothing. The rows kept saying `lock_method: "ruleset"`, so Reopen would have flipped a ruleset that was no longer the lock and reported success over a student the organization ruleset still held - the exact failure `lock_method` per row exists to prevent, reached from the side nobody guarded. `org_scoped_lock` stayed unset too, so the next finalize would have re-locked per repository, and a finalize run is not once. The migration writes both now, *before* it disables anything, and `lib/repo-unlock.mjs` guards the other direction as well, because that write is not committed until the run ends.
+**What is still open.** A reopen, and Lock again, on a real cohort's lock. The testbed proves the mechanism with accounts the operator controls; a real course is the first time it meets a real lecturer and real students.
 
-**Exercised live on 2026-09-08**, on `PXL-Systems-Advanced-II` (Team plan, one member, no students), with three test accounts through the real publish → accept → deadline → finalize → reopen chain. What was measured, rather than argued: the organization ruleset covers the cohort by repository id and each student's repository lists it as `source_type: "Organization"`; a student who is **admin of their own repository** gets 404 trying to delete it, disable it, or remove it from their own repository, and 409 trying to push; they keep `admin`, Actions and secrets throughout, which is the configuration `late_policy: block` with `lock_down_enabled: false` exists to give. A late push was excluded and the archive holds the on-time tree while the live repository still holds the late file. A reopen removed one repository id and left the rest of the cohort locked, and a second finalize pass - triggered by *another* student's extension - did not re-lock it. The migration moved a repository-scoped cohort to organization scope, wrote the control repo back, disabled the repository rulesets without deleting them, and a reopen afterwards released both. On the **free** testbed org the same configuration degraded to demotion exactly as `assignmentFreezePlanFinding` warns, with GitHub answering `403 Upgrade to GitHub Team` for the organization ruleset and `403 Upgrade to GitHub Pro` for the repository one.
-
-**What is still open after that.** The reopen was driven through `unlockability` + `applyUnlock` with the arguments `AssignmentDetailView.vue` passes, not by clicking the button - the SPA's own wiring is covered only by `tests/e2e`. And no *real* cohort has run on it: the drill was three accounts the operator controls, on an organization with nothing at stake.
-
-The paragraph below is what this entry said before any of that, and its argument still stands on its own.
-
-**No cohort of actual students has ever been locked this way.** The ruleset path *itself* has run in production exactly once - `PXL-2TIN-CloudEssentials-2627/test-groepsopdracht-2`, two repositories - and every real exam so far used `late_policy: report` with a demotion, which is a different mechanism with a different inverse. Until an assignment runs `late_policy: block` + `org_scoped_lock: true` through a real deadline and a real reopen, this is unexercised code, and OPEN-ITEMS §5 is the standing reminder of what unexercised code is worth.
-
-The paragraphs below are what the entry said before the work, kept because they are still the argument for whether to *use* it.
-
-At a deadline under *late work does not count*, `lib/submission-lock.mjs` creates one repository ruleset named `pxl-classroom-deadline` on **each** student's repository, blocking `update`, `non_fast_forward` and `deletion` on the submission ref, with the Provisioner App in `bypass_actors` so the system can still write.
-
-That has two consequences:
-
-- **The ruleset lives in the student's own repository and they are its admin**, so they can delete it. Preservation has already pushed a copy to the archive they cannot touch, and disabling deadline enforcement on your own repository is a deliberate, visible act in a way *"I committed at 22:31"* is not. That is why [ARCHITECTURE §11.2.1](ARCHITECTURE.md) argues the repository ruleset is enough. It is still a hole.
-- **It is one API call per student**, against a ~80 writes/min secondary limit. That is why lock-down stops the whole cohort first and records afterwards: done per student, the last of a 200-person cohort would be frozen minutes after the first.
-
-An **organization** ruleset closes both. Measured live: one org ruleset with `conditions.repository_name.include: ["<pattern>-*"]` locks a whole cohort and leaves other repositories alone; `PUT /orgs/{org}/rulesets/{id}` flips all of them in **one** call regardless of cohort size; and each student's repository lists it as `source_type: "Organization"` - visible to them, manageable only by an org owner, so being repository admin does not help.
-
-**It is not blocked.** It needs `organization_administration: write`, which the App declares and every participating org has already approved:
+**How to tell it is closed:** a real course's assignment has a reopen record, and that student's repository is out of its organization ruleset:
 
 ```bash
-gh api apps/pxl-classroom-provisioner --jq .permissions
-```
-
-The awkward half was the **inverse**, and it turned out smaller than feared. An organization ruleset cannot be flipped for one student, so reopening one repository ([ARCHITECTURE §11.2.4](ARCHITECTURE.md)) is removing one entry from an object covering everybody else. It targets `repository_id` rather than a name pattern, so that entry is an integer read off the lockdown row, and `PUT` replaces conditions rather than merging them (measured). Two lecturers reopening two students inside the same read-modify-write window would lose one exclusion; on cohorts of six that is vanishingly rare, the ruleset is re-read immediately before the write, and the student notices at once.
-
-**Whether to USE it is a judgement, not a defect.** The position on record is that the repository ruleset suffices *for the way these courses run today* - every real exam demotes rather than blocking, and a demoted student cannot restore themselves, so the hole this closes is not open on them. It becomes worth using the moment an exam moves to `late_policy: block` with the demotion off, which is the configuration that keeps a student their Actions and secrets: they then keep admin by design, and a repository ruleset is one click in their own settings.
-
-**How to tell it is closed:** a REAL cohort's repository shows `pxl-classroom-deadline-<assignment-id>` with `source_type: "Organization"` after the deadline, and a reopen has been done **through the Admin Panel** against that lock. The 2026-09-08 drill satisfied the first half on a throwaway org and drove the second through the library rather than the button.
-
-```bash
-gh api "repos/<org>/<student-repo>/rulesets" --jq '.[] | select(.source_type=="Organization") | .name'
+gh api "repos/<org>/pxl-classroom-control/contents/lockdowns/<assignment-id>/unlocked" --jq '.[].name'
+gh api "orgs/<org>/rulesets?per_page=100" --jq '.[] | select(.name|startswith("pxl-classroom-deadline-")) | .name'
 ```
 
 ---
@@ -173,14 +145,14 @@ printing nothing is that trap still open.
 
 **It was exercised end to end on 2026-09-08, and it was broken in four places.** A drill assignment on `pxl-classroom-testbed` - three checks, ten points, a template with a deliberate bug - provisioned, graded and read back. What it found, in the order it was hit ([LESSONS.md](LESSONS.md), *"The unexercised path was broken in four places"*):
 
-1. **The workflow injection races template population**, because `POST /generate` returns before the repository has content and `provision.mjs` writes immediately after it. Two students provisioned two minutes apart got two *different* broken repositories - one with the starter code and no workflow, one with the workflow and no starter code - and both runs logged `[ok] inject-autograding` and exited `created`. **Still open**; a retry against the populated repository repairs it.
+1. **The workflow injection races template population**, because `POST /generate` returns before the repository has content and `provision.mjs` writes immediately after it. Two students provisioned two minutes apart got two *different* broken repositories - one with the starter code and no workflow, one with the workflow and no starter code - and both runs logged `[ok] inject-autograding` and exited `created`. **Fixed**: provisioning waits for the copy to be filled (`await-template`) and fails the run (`fail:template-not-populated`) if it never is.
 2. **The reporter's environment variable was renamed by the generator**, so every hyphenated check id was invisible to it: all graders green, grading job red, no score. **Fixed** - the key is derived the way `autograding-grading-reporter@v1` derives it.
 3. **Two tests asserted the broken spelling**, having been written from the generator's output rather than the reporter's rule. **Fixed** - both derive it now.
 4. **`autograding-python-grader@v1` cannot build its Docker image** (`apt-get install jq` exits 100), and a Docker action that fails to build takes the whole job down before `Checkout code`. So **no `type: python` check can run on Actions today**, and it is upstream, not ours.
 
 A fifth thing is a defect in the *reading* half rather than this path: a `failure` conclusion with no score annotation is recorded as a real zero, and item 2 above is one way to produce exactly that. See the register's sibling note in LESSONS.md; both callers guard "could not finish reading the annotations" and neither guards "read them all, no score in them".
 
-**`visibility: private` has never been able to work at all.** It generates `uses: <org>/pxl-classroom-control/.github/workflows/grade.yml@main`, and nothing in this repository ever creates that file - ARCHITECTURE §3.1 says control repos contain no workflows, which is load-bearing. The Admin Panel's modal **defaults to it** (`props.config.visibility || 'private'`) and offers it as *"No - the checks stay in the control repository and run from there"*. That is a control describing behaviour the system does not have. Undecided: build it, or withdraw the option.
+**`visibility: private` has never been able to work at all.** It generates `uses: <org>/pxl-classroom-control/.github/workflows/grade.yml@main`, and nothing in this repository ever creates that file - ARCHITECTURE §3.1 says control repos contain no workflows, which is load-bearing. **Withdrawn**: the option is gone from the panel, checks that run on Actions are always committed to the student's repository, and the schema keeps the field only as vestigial so an older document validates.
 
 **How to tell it is closed:** an assignment in some organization carries an `autograde` block, and a student repository under it has a grading run that came from `provisioning/provision.mjs` rather than from the template. For the first half:
 
@@ -308,7 +280,7 @@ Dispatching needs `contents: write` on the hub, which means the broker App's pri
 
 **Three constraints already measured, so nobody re-derives them:**
 
-- `tests/broker-injection.test.mjs` pins **exactly two** steps reading `github.event.issue.title`. A third read fails it, so the title must be emitted as an output of the verifier that already holds it, canonicalised from its base64url segments (a raw title in `GITHUB_OUTPUT` is the newline-forgery hazard §4.3.1 records).
+- `tests/broker-injection.test.mjs` pins **exactly two** steps reading `github.event.issue.title`. A third read fails it, so the title must be emitted as an output of the verifier that already holds it, canonicalised from its base64url segments (a raw title in `GITHUB_OUTPUT` is the newline-forgery hazard ARCHITECTURE §4.3.1 records).
 - The dispatch already sends **9 of GitHub's 10** permitted `client_payload` top-level properties. Adding `title` means dropping `kind` and deriving the purpose from the signature, which `verifyAcceptanceTitle` already returns.
 - `INVITE_NONCE` is consulted on the **legacy token path only**. On the signed path retirement is keypair regeneration (`scripts/set-assignment-invite.mjs`), so verifying against `invite_pubkey` already honours it and a nonce comparison would check nothing.
 

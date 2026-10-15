@@ -108,7 +108,7 @@ test.describe('04 - Lecturer Assignment Admin Panel (CRUD & Validation)', () => 
   });
 
   // ARCHITECTURE §11.6 - the panel refuses what the schema refuses, in a sentence.
-  // The checks live in a modal now (§6), so the refusal is on the row.
+  // The checks live in a modal now (the removed UX plan's WS4), so the refusal is on the row.
   test('A python check with no script cannot be saved, and says why', async ({ page }) => {
     await injectAuth(page, LECTURER);
     await setupStandardMockRoutes(page, { currentUser: LECTURER, assignments: {} });

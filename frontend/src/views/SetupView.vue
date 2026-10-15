@@ -61,7 +61,7 @@
         <li>Re-run the <code>deploy-frontend.yml</code> workflow so the SPA rebuilds with the client ID.</li>
         <li>
           Install the App twice, with different scopes. On the <strong>hub organization</strong>, choose
-          <em>Only select repositories</em> and tick the hub repository alone — it needs nothing else there.
+          <em>Only select repositories</em> and tick the hub repository alone: it needs nothing else there.
           On <strong>each participating organization</strong>, choose <em>All repositories</em>, or provisioning
           fails the moment a student accepts.
         </li>
@@ -187,7 +187,7 @@
             You store the credentials. <strong>Where each one goes is part of its protection:</strong>
             <code>PXL_APP_PRIVATE_KEY</code> and <code>PXL_INVITE_SIGNING_KEY</code> are
             <strong>environment</strong> secrets on the hub's <code>provisioning</code> environment, with no
-            repository-level copy — a job that does not name that environment then cannot read them at all.
+            repository-level copy, so a job that does not name that environment cannot read them at all.
             <code>PXL_APP_CLIENT_ID</code> is a repository secret, deliberately: a client id is not secret and
             already ships in this page's bundle.
           </li>

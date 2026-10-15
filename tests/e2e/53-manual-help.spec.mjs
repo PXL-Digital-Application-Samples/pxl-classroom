@@ -89,7 +89,7 @@ test.describe('53 - the manual page', () => {
     // Same source as the drawer, so if these disagree one of the two surfaces
     // has stopped rendering the compiled manual.
     await expect(page.locator('#who-may-accept')).toContainText('Only students on the roster');
-    await expect(page.locator('#archiving')).toContainText('cannot be changed afterwards');
+    await expect(page.locator('#archiving')).toContainText('never overwrites a copy once it is made');
     // Derived, not counted by hand: the page renders one topic per `## ` in
     // MANUAL.md, and a hand-kept number goes stale the moment one is added.
     await expect(page.locator('.manual-topic')).toHaveCount(MANUAL_TOPICS.length);

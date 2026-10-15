@@ -42,6 +42,7 @@
             </template>
           </div>
         </div>
+        <HelpButton topic="the-assignments-status" label="the assignment's status" />
         <div class="assignment-head-deadline">
           <span class="text-secondary text-sm">Deadline</span>
           <strong :class="{ 'stat-red': deadlinePassed }">{{ deadlineRelative || '-' }}</strong>
@@ -50,7 +51,7 @@
       </div>
 
       <!-- HANDING THE LINK TO STUDENTS IS WHAT THIS PAGE IS FOR before anyone
-           has accepted, and ARCHITECTURE §10.6 requires it never to vanish.
+           has accepted, and ARCHITECTURE §11.3 requires it never to vanish.
            DESIGN.md §1.2 names it the view's one solid button; the Copy inside
            the popover is secondary. On Settings it steps down only while Save
            is the solid one: once a field is edited, or wherever saving is the
@@ -125,6 +126,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import InvitationShare from './InvitationShare.vue'
 import { assignmentStatus } from '../lib/status-labels.js'
 import { formatDate, formatRelative } from '../lib/format.js'

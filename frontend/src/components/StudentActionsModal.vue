@@ -9,7 +9,7 @@
       @keydown="onKeydown"
     >
       <header class="modal-head">
-        <h3>Actions: <code>{{ student.github_login }}</code></h3>
+        <h3>Actions: <code>{{ student.github_login }}</code> <HelpButton topic="one-students-actions" label="what you can do for one student" /></h3>
         <button class="modal-close" type="button" @click="requestClose" :disabled="busy" aria-label="Close">×</button>
       </header>
 
@@ -126,7 +126,7 @@
 
       <section class="modal-section">
         <h4>Retry acceptance</h4>
-        <p class="text-secondary">Wipes the half-done state and re-runs the full pipeline. Use when a student's acceptance got stuck (e.g. rate-limit during a burst).</p>
+        <p class="text-secondary">Runs their acceptance again from the start, for one that failed or got stuck. A repository they already have is kept, with their work in it.</p>
         <button class="btn" type="button" @click="emit('retry')" :disabled="retrying">
           {{ retrying ? 'Triggering…' : 'Retry acceptance' }}
         </button>
@@ -343,6 +343,7 @@
 // implementation that rule exists to prevent.
 import { computed, reactive, ref } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { formatDate } from '../lib/format.js'
 import { config } from '../lib/config.js'
 import { dateReadout } from '../lib/date-readout.js'

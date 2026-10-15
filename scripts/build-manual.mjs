@@ -27,6 +27,25 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { INSTITUTION_SHORT } from "../lib/deployment.mjs";
+
+/**
+ * What MANUAL.md may name that deployment.yml decides. A control's label
+ * carries the institution ("confirm their PXL email address", lib/claim.js),
+ * and a manual that quotes it as "institutional" sends a lecturer looking for
+ * a control that is not there - while writing "PXL" into MANUAL.md would put
+ * an institution in a file a fork does not edit. An unknown `{{...}}` fails
+ * the build rather than reaching the help drawer.
+ */
+const PLACEHOLDERS = Object.freeze({ institution_short: INSTITUTION_SHORT });
+
+/** @param {string} src */
+export function fillPlaceholders(src) {
+  return src.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (whole, name) => {
+    if (!Object.hasOwn(PLACEHOLDERS, name)) throw new Error(`build-manual: MANUAL.md names {{${name}}}, which is not one of ${Object.keys(PLACEHOLDERS).join(", ")}`);
+    return PLACEHOLDERS[name];
+  });
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = join(ROOT, "MANUAL.md");
@@ -149,7 +168,7 @@ export function parseManual(src) {
 }
 
 function main() {
-  const src = readFileSync(SOURCE, "utf8");
+  const src = fillPlaceholders(readFileSync(SOURCE, "utf8"));
   const doc = parseManual(src);
 
   if (doc.topics.length === 0) {

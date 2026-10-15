@@ -499,7 +499,7 @@ export function buildAutogradingWorkflow(assignment, org) {
           // `normalize(stdout) === normalize(expected_stdout)` - equality after
           // trailing whitespace - and the grader trims its own output before
           // comparing, so `exact` is the same test on both paths. A substring
-          // rule would not be, and this file's own §11.6 rule is that one test
+          // rule would not be, and ARCHITECTURE §11.6's rule is that one test
           // definition means one thing.
           //
           // It was `included`, which autograding-io-grader@v1 DOCUMENTS in its

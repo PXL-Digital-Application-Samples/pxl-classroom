@@ -149,7 +149,7 @@ Drop `--dry-run` to apply. `--from-roster` uses the roster columns instead; `--y
 
 Under self-service, a carried-over group is a strong default rather than a lock: the student can still use **Choose a different group**. Under pre-assigned, they cannot, and a request naming another team is rejected server-side.
 
-**A student in the wrong team, or with a typo in its name, fixes it themselves.** Under self-service, until their deadline, their assignment page says *Wrong team, or a typo in the name?* right under the team name, with **Switch team**. That opens the team list: they join another team (with its code, where codes are on) or start a new one with the right name. Tell them: *open your assignment page and press Switch team*. When the switch leaves their old team empty and nobody pushed anything to its repository, the team and its repository are removed by themselves, so the name is free again. A team with work in it stays, empty, until you delete it. On an assignment with feedback pull requests, or one that gives students the template's full history, the repository always holds more than GitHub's own starting commit, so an emptied team there always stays: delete it on the Teams tab. You only need **Move to…** on the Teams tab after the deadline, under pre-assigned teams, or for a student who will not do it. A student you move gets a GitHub invitation to the new team's repository; until they accept it, their page names the team and its members and links to that invitation (`https://github.com/<org>/<repository>/invitations`), which is also what to send them if they ask.
+**A student in the wrong team, or with a typo in its name, fixes it themselves.** Under self-service, until their deadline, their assignment page says *Wrong team, or a typo in the name?* right under the team name, with **Switch team**. That opens the team list: they join another team (with its code, where codes are on) or start a new one with the right name. Tell them: *open your assignment page and press Switch team*. When the switch leaves their old team empty and nobody pushed anything to its repository, the team and its repository are removed by themselves, so the name is free again. A team with work in it stays, empty, until you delete it on the Teams tab. That holds with feedback pull requests and with the template's full history too: what decides is who pushed, by GitHub's push log, and where the log does not go back to the repository's creation the team stays rather than risk someone's work. You only need **Move to…** on the Teams tab after the deadline, under pre-assigned teams, or for a student who will not do it. A student you move gets a GitHub invitation to the new team's repository; until they accept it, their page names the team and its members and links to that invitation (`https://github.com/<org>/<repository>/invitations`), which is also what to send them if they ask.
 
 **Join codes.** With **Joining a team needs a code from someone in it** ticked (on by default for a new group assignment), a team a student creates gets a six-character code such as `K7P-4QX`. The creator sees it on their page at once, while the repository is still being made, and gives it to their teammates; joining that team, or switching into it, asks for it. Without it nobody can join, so strangers stay out of a team.
 
@@ -165,7 +165,7 @@ In the editor -> click **Save & publish** in the bar at the bottom of the window
 
 Once it is published, its **Settings** tab - the last tab of the assignment's page - is the same form, with a list of its sections on the left to jump between them, and a *Broker* section at the end holds **Republish broker**. Save, Cancel and Troubleshoot are the bar at the bottom of the window; Cancel undoes what you changed and stays on Settings.
 
-**Is it saved?** Nothing you change is saved until you press **Save**. While something is waiting, the bar says *Unsaved changes* and the Settings tab has a yellow dot, also when you are looking at Progress or Grading; your edits stay there until you come back. A new assignment's bar says *Not saved yet* until its first save. (*Draft* is something else: a saved assignment that students cannot open yet.) Leaving the assignment, switching organization or signing out with unsaved changes asks first, and *Cancel* in that question keeps you where you were with your edits. **Stop accepting**, **Back to draft** and **Archive** will not run while changes are unsaved - save or cancel them first - so a state change never saves something you did not mean to save. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (the button showing *Accepting*, *Closed*, *Draft* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline.
+**Is it saved?** Nothing you change is saved until you press **Save**. While something is waiting, the bar says *Unsaved changes* and the Settings tab has a yellow dot, also when you are looking at Progress or Grading; your edits stay there until you come back. A new assignment's bar says *Not saved yet* until its first save. (*Draft* is something else: a saved assignment that students cannot open yet.) Leaving the assignment, switching organization or signing out with unsaved changes asks first, and *Cancel* in that question keeps you where you were with your edits. **Stop accepting**, **Back to draft** and **Archive** will not run while changes are unsaved - save or cancel them first - so a state change never saves something you did not mean to save. Every change of state - Stop accepting, Back to draft, Archive, Reopen, Delete, Lock everyone out now - is the **state button** at the top of every tab of the assignment (it shows *Draft*, *Not open yet*, *Accepting*, *Deadline passed*, *Closed* or *Archived*). Past the deadline it offers **Move the deadline…** instead of Reopen, because nobody can accept after the deadline; **Stop accepting** then only marks the assignment closed, and **Lock everyone out now** is offered until the deadline's lock has run.
 
 **Editing it once it is published.** **Save** commits the change and rebuilds the page students open. The acceptance check uses the change immediately; students see it a few minutes later (the regeneration and frontend deploy from §1.5), usually 3 to 4. The page tells you when: it compares the page students open with what you saved, every time the assignment opens, so it is right after a refresh too.
 
@@ -174,7 +174,7 @@ Once it is published, its **Settings** tab - the last tab of the assignment's pa
 - *… and nothing is updating it now*, with **Update the student page now**: ten minutes on, students still have the old version and nothing is running. Press it; if it comes back, tell your administrator.
 - *Saved, but starting the student page update failed*, with **Try again**: the save did land, the rebuild did not start.
 
-So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait until the page says students see it before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Re-open Acceptance** and raising the cap behave the same way.
+So after changing who may accept or what they are asked, such as choosing *confirm their PXL email address*, wait until the page says students see it before testing the link yourself, or you will be refused for a field the page has not shown you yet. **Stop accepting**, **Reopen for acceptance** and raising the cap behave the same way.
 
 The date boxes are drawn by your browser in its own language, so a browser in US English shows *AM/PM* and month first. The line under each box gives the same moment in 24-hour time; to change the boxes themselves, put English (United Kingdom) or Nederlands first in your browser's language settings.
 
@@ -209,7 +209,7 @@ The student-facing URL is the invitation link: `https://<pages-host>/pxl-classro
 | The **Invite link** button at the top of every tab of the assignment | The link and its status (the live accepted count feeds it), then **Copy invite link**, **Open invite link**, **Copy confirm-email link** and, on a published assignment, **Regenerate link…** |
 | Each published card on the dashboard | A copy button |
 
-The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§6.8).
+The link is shown shortened to the host and the organization, then `/i/…`: the rest is a secret key, so it is never on screen or on hover. Copy puts the full URL on the clipboard and Open follows it. The status line underneath is what a **student** would see if they opened it right now: `Live`, `Opens <date>`, `Closed`, or `Cap reached`. If it says `Published, but no link`, the invitation was never minted - republish (§1.4).
 
 That's the only URL students need. They open it, sign in, click Accept, wait ~30 seconds, get a repo link.
 
@@ -228,7 +228,7 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 | `collection-failed` | The nightly collect step couldn't reach a student's repo. Usually transient. |
 | `deadline-gap` | An observation gap straddles a deadline. Reduces evidence quality; mention in grading. |
 | `missing-access` | The reconcile step found a repo where the student's admin grant has been revoked. |
-| `unexpected-deletion` | A managed repo was deleted. See §3 (Student deleted their repo). |
+| `unexpected-deletion` | A managed repo was deleted. See §3.1 (Student deleted their repository). |
 | `late-activity` | Activity observed after the deadline. Reports include details. |
 | `preservation-failed` | The archive copy of the deadline SHA didn't succeed. |
 | `run-failed` | The nightly run itself did not finish, so collection, lock-down, preservation and reporting may all be incomplete and the dashboard is stale. Every other row here is the system reporting about a student; this one is the system reporting about itself, and it exists because a run that died before reaching its notify step used to say nothing at all. One comment per organization, updated rather than repeated. Nothing is lost - a failed leg retries on the next run - so act on it if it appears twice. |
@@ -269,17 +269,9 @@ On a **group** assignment an extension granted to one member applies to the whol
 
 To see who is deferred, open `lockdowns/<id>/lockdown-record.json` in the control repo: deferred students carry `deferred_until` and a null `snapshot_sha`, and `deferred_count` sits beside `locked_count`.
 
-## 3.3 An extension granted after lock-down may not reopen the repository
+## 3.3 An extension granted after lock-down does not reopen the repository
 
-**Grant extensions before the deadline wherever possible.** Afterwards, whether the student can push again depends on how they were frozen, and only one of the three answers is automatic.
-
-| How they were frozen | An extension granted afterwards |
-|---|---|
-| **Organization ruleset** | Reopens them at the next finalize pass. The ruleset is rebuilt from the students it still covers, and a student whose own deadline has moved into the future is no longer one of them. Measured on a live drill, 2026-09-08. |
-| **Repository ruleset** | Does **not** reopen them. Nothing revisits a ruleset that is already on their repository. |
-| **Demotion** | Does **not** reopen them. The permission change is not reversed by an extension. |
-
-In the two cases that do not reopen, the override is still recorded and the report classifies their submission against their own deadline - they simply cannot push to it. Use **Reopen** (§6.15) rather than GitHub: it picks the right inverse and records who did it and why.
+**Grant extensions before the deadline wherever possible.** Granted afterwards, the override is recorded and the report classifies their submission against their own deadline, but the lock that holds them stays, whichever it is: a student whose submission was already frozen is not deferred, and nothing queues a pass for them. To let them push, use **Reopen** (§6.15) rather than GitHub: it picks the right inverse and records who did it and why.
 
 To see who is deferred, `lockdowns/<id>/lockdown-record.json` gives deferred students a `deferred_until` and a null `snapshot_sha`.
 
@@ -319,10 +311,10 @@ The run says which mechanism it used and why, so a lecturer reading it can tell 
 
 **To go back to a repository-scoped lock**, put `org_scoped_lock: false` on the assignment document. It survives later edits in the editor; nothing in the form can set it again, which is why it is carried rather than rebuilt.
 
-Two things to know before turning it on:
+Two things to know about it:
 
-- **There is no control on the assignment form.** The field is set on the assignment document, or by the migration below. That is deliberate while item 3 in `OPEN-ITEMS.md` is open: the path has never held a real cohort through a deadline and a reopen.
-- **An existing cohort can be moved** with the **Migrate to organization-scoped lock** workflow (`workflow_dispatch`; `dry_run` defaults to true - run it that way and read what it says first). It creates and verifies the organization ruleset *before* disabling any repository one, then records in the control repo that the organization ruleset is now the lock. Both halves matter: an unrecorded migration leaves Reopen flipping a repository ruleset that no longer holds anything, and the next finalize re-locking per repository.
+- **There is no control on the assignment form for either answer.** The field is set on the assignment document, or by the migration below. Organization scope has held real cohorts since 2026-10-12; a reopen on one is what `OPEN-ITEMS.md` item 3 still waits for.
+- **An existing repository-scoped cohort can be moved** with the **Migrate to organization-scoped lock** workflow (`workflow_dispatch`; `dry_run` defaults to true - run it that way and read what it says first). It creates and verifies the organization ruleset *before* disabling any repository one, then records in the control repo that the organization ruleset is now the lock. Both halves matter: an unrecorded migration leaves Reopen flipping a repository ruleset that no longer holds anything, and the next finalize re-locking per repository.
 
 Measured against a live Team organization before any of this was built: an organization ruleset blocks pushes to the repositories it targets and leaves the rest of the org alone, `PUT` **replaces** the targeted id list rather than merging into it, and any write that leaves a deleted repository's id in the list is refused `422`. A student deleting their repository therefore stops nothing: the lock, **Reopen** and **Lock again** leave that id out and try once more.
 
@@ -358,7 +350,7 @@ The page only offers a "look for a repository invitation" link when it could **n
 Possible causes:
 
 - **They accepted but signed out before the SPA could detect the repo.** Ask them to re-open their invitation link. The SPA polls `/repos/<org>/<expected-name>` and `/user/repository_invitations` - if the repo exists, they'll see the link.
-- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can simply accept again from their invitation link. Alternatively, a lecturer can trigger **Retry acceptance** from the student's row on the assignment's roster & progress page (the **···** action).
+- **`provisioning-failed` is in the tracking issue.** Likely a rate-limit during a burst. The student can simply accept again from their invitation link. Alternatively, a lecturer can trigger **Retry acceptance** from the student's row on the assignment's **Progress** tab (the **⋯** button).
 - **GitHub never ran it.** GitHub sometimes accepts a request and starts it late, or not at all. That blocks nobody else: every attempt runs on its own, so the student simply accepts (or joins their team) again from their link, and an older attempt that runs later does nothing. Find their run in the hub's Actions tab by its name, `acceptance <org>/broker-<id>#<issue number>`, where the issue number is on their broker issue. The broker issue says how far it got: still titled `pxl-accept:…` means the broker never ran; **Acceptance (not delivered)** means the broker could not pass it on; **Acceptance (processed)** means it was passed on. The nightly lists every attempt from the last day that got no answer on the tracking issue (*"A student's acceptance got no answer"*). **Retry cannot join a team for a student who is in none** - it has no team to put them in - so for a group assignment ask the student to join again from their link.
 - **A student says the Accept button does nothing.** If the page reports "GitHub is blocking your request", their GitHub account has been flagged and its content is hidden from everyone but themselves - the acceptance issue is created and removed before the broker sees it. Confirm with `gh api users/<login>`: a flagged account returns 404 to everyone else and 200 to itself. Only GitHub Support can lift it; provision the student manually in the meantime.
   - *Lecturer Retry Flow:* the student comes from the report row, so there is no login to validate; the SPA checks whether the assignment window is closed and warns the lecturer (asking to confirm bypass), triggers `retry-acceptance.yml` with `bypass_window: "true"`, and initiates a background watch (4-minute timeout, polling every 5s) for the workflow run to complete successfully. The toast notifications include a direct link to the running workflow run. A retry the gates refuse (a locked repository after the deadline, a student not on the roster) changes nothing: the student's acceptance and report row stay as they were.
@@ -370,7 +362,7 @@ Possible causes:
 
 Check which step failed in the `Daily Activity & Deadline Check` run - the matrix runs one leg per (org, assignment).
 
-- **`3. Preserve` -> `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived - the next nightly run retries automatically (see below); preservation is idempotent (`push --force` to a per-student ref).
+- **`3. Preserve` -> `remote unpack failed: index-pack failed`.** The archive push sent an incomplete object graph. Fixed by fetching full history before pushing; if it reappears, verify `preserve/preserve.mjs` is not fetching with `--depth`. Submissions for that assignment were **not** archived - the next nightly run retries automatically (see below); preservation is idempotent (a plain push of the frozen commit to a per-student ref, never `--force`; one already in the archive is skipped).
 
 **Failed finalizes retry themselves.** An assignment counts as finalized only once every locked-down student has a verified `preservation.json`, so a leg that locked down but failed to archive is re-queued on the next nightly run, and the workflow will not self-disable while a leg is failing. Retried snapshots are frozen - a student's late commit can never replace their on-time submission.
 
@@ -380,7 +372,7 @@ Retries stop after 3 attempts (`finalize_attempts` in `lockdowns/<id>/lockdown-r
 gh workflow run daily-activity.yml
 ```
 - **`1. Collect` -> `fail:no-repos`.** An assignment nobody accepted. No longer fails the run; if you still see it, the hub is on an older commit.
-- **Weekly usage 403 `Resource not accessible by integration`.** Organization `organization_administration: read` is missing/unapproved, or Enhanced Billing is unavailable (§10.6). The report skips that org; System Health reports the permission drift and probes the live billing endpoint.
+- **Weekly usage 403 `Resource not accessible by integration`.** Organization `organization_administration: read` is missing/unapproved, or Enhanced Billing is unavailable (ADMIN.md §6.6). The report skips that org; System Health reports the permission drift and probes the live billing endpoint.
 
 ### 3.8 The nightly workflow is disabled and a student needs the dashboard updated
 
@@ -391,7 +383,7 @@ Expected: `daily-activity.yml` disables itself when no assignments are active. A
 For a forced nightly run:
 
 1. Actions -> `daily-activity.yml` -> enable, then Run workflow.
-2. Or from the SPA: an assignment's detail page offers **Run daily activity now** while no report exists yet (dispatches the same workflow scoped to the org and watches for the report to land).
+2. Or from the SPA: while nobody has accepted, an assignment's Progress tab says *No one has accepted yet* with **Refresh now** (dispatches the same workflow scoped to the org and watches for the report to land).
 
 (The publish workflow also enables it, so publishing any assignment also wakes it up.)
 
@@ -413,7 +405,7 @@ yq -i 'if has("template_owner") then .template.owner = .template_owner | .templa
 
 **Check the rate limit first, and expect it to be fine** - a near-full quota is what rules out the cause the wording implies and points at a permission instead.
 
-The cause is the same shape as §6.7 and the fix is the same two steps. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The dashboard authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
+The cause is an App permission, and the fix is the re-approval flow of ADMIN.md §6.6. Reading a grade out of CI uses two endpoints, `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` and `GET /repos/{owner}/{repo}/check-runs/{id}/annotations`, and GitHub gates **both** behind the **Checks** repository permission. The dashboard authenticates with a *user-to-server* token from the App, which is capped by what the App declares - so without `checks: read` declared and approved, the sync cannot work anywhere, for anyone, and the message is about a state that will never change on its own.
 
 1. **App owner**: `https://github.com/organizations/PXL-Digital-Application-Samples/settings/apps/pxl-classroom-provisioner/permissions` -> **Repository permissions** -> **Checks: Read-only** -> **Save changes**. Confirm with `gh api apps/pxl-classroom-provisioner --jq .permissions.checks` (must print `read`).
 2. **Each org owner**: `https://github.com/organizations/<org>/settings/installations` -> **pxl-classroom-provisioner** -> **Review request** -> approve.
@@ -503,7 +495,7 @@ The timeline lands in `lockdowns/<id>/sentinel-<key>.json` in the control repo, 
 
 The reason archives are per assignment (ARCHITECTURE §11.3.1): retiring a cohort is one gesture, and nothing else is in the blast radius.
 
-**Delete assignment** does the PXL Classroom half of this. It is offered on the state button once an assignment is **closed or archived** - never while it is still accepting - and asks you to type the assignment id.
+**Delete assignment** does the PXL Classroom half of this. It is offered on the state button once an assignment is **closed or archived**, or a draft that was published before (a draft that never was gets **Delete draft**) - never while it is still accepting - and asks you to type the assignment id.
 
 What it does, in this order, because the order is the safety property:
 
@@ -781,7 +773,7 @@ What a promoted entry does and does not carry:
 | `source: accepted` | Yes | Marks it as not-yet-identified so a later CSV import can reconcile it |
 | `promoted_from` | Yes | `assignment_id`, `accepted_at`, `promoted_at`, `promoted_by` |
 | `student_number`, `full_name`, `email`, `class_group` | **No** | GitHub never learns them. A guessed name lands in a graded field; a synthesised student number collides with real SIS numbering |
-| `team_slug` / `team_name` | **No** | Membership belongs to the assignment, and a CSV re-import would wipe it (§5.6) |
+| `team_slug` / `team_name` | **No** | Membership belongs to the assignment, and a CSV re-import would wipe it (ARCHITECTURE.md §5.6) |
 
 Rules worth knowing before you run it:
 
@@ -952,7 +944,7 @@ pxl-classroom feedback list --assignment linux-processes-2026                  #
 
 The operation is idempotent - re-runs skip students whose record already has `feedback_pr_number`, and a student who has an open PR the record does not know about is **adopted** rather than given a second one. The summary counts opened and adopted separately, and a run that failed for any student **exits non-zero**: check the count before assuming a green tick means the whole cohort. Records for the PRs that did open are committed either way, so a re-run only picks up what is genuinely missing. The assignment page shows a **Feedback PR** column when the assignment opts in: **Not opened** is a student who handed in and has no pull request yet, a dash is a student with nothing past the starting point to review.
 
-`feedback list`'s answer is in the app too: **··· More → Refresh feedback PR status** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
+`feedback list`'s answer is in the app too: on the **Grading** tab, **More → Refresh feedback PRs** fills the same column with each PR's state (Draft / Open / Merged / Closed) and its inline review-comment count. It is an on-demand read - one request per open PR - so nothing is fetched until you ask, and it reports how many it could not read rather than quietly showing fewer.
 
 Lecturer workflow: leave inline review comments on the PR like any GitHub PR. Comments persist as the student keeps pushing - the PR head tracks the submission branch. The student cannot delete `pxl-baseline` (App-level protection outranks repo admin).
 
@@ -969,7 +961,7 @@ pxl-classroom download --org PXLAutomation \
 
 - Resumable: a re-run skips students whose checkout already matches the archive SHA.
 - Writes `./submissions/_manifest.json` with `{login, archive_sha, archive_branch, archive_branch_url, downloaded_at}` rows for plagiarism tools / local CI.
-- **Preservation Summary Banner:** When an assignment's deadline has passed, `AssignmentDetailView` renders a top banner with live preserved counts vs eligible students, the lockdown timestamp, and the **lock-down delay** - `lockdown_delay_seconds`, which is `lockdown_at - deadline_at` from the lockdown record, shown as the **maximum** across the cohort, because one student frozen late is what the number is for. Quick buttons give 1-click targeted retries, the SHA manifest, the archive repo, and the CLI download command.
+- **Preservation Summary Banner:** Once an assignment's deadline has passed and it is closed, or anything has been archived, the assignment page shows a top banner with live preserved counts vs eligible students, the lockdown timestamp, and the **lock-down delay** - `lockdown_delay_seconds`, which is `lockdown_at - deadline_at` from the lockdown record, shown as the **maximum** across the cohort, because one student frozen late is what the number is for. Quick buttons give 1-click targeted retries, the SHA manifest, the archive repo, and the CLI download command.
 
   > [!IMPORTANT]
   > **Do not read this as `uncertainty_interval_seconds`.** That field measures the *other* side of the deadline - how stale the evidence was going in, which with a nightly collect is routinely hours. Quoting it in a dispute understates a cohort the sentinel froze at the instant. The banner reads `lockdown_delay_seconds`; the report carries both.
@@ -983,7 +975,7 @@ pxl-classroom download --org PXLAutomation \
 
 **The nightly's own `reports/<id>.csv` does not carry them**, and that is a column decision rather than an oversight: grades are not report-row fields, they live in `grading/<id>/summary.json` and are joined by login at render time (`RENDER_JOIN_COLUMNS` in `lib/report-csv.mjs`). Export from the assignment's page to get a spreadsheet with the scores in it.
 
-It never replaces a reading **you** made. A summary carrying your login, or one produced by `pxl-classroom grade` on your machine, is left alone and the run log says so; only its own earlier reading is replaced. To overrule it, re-grade.
+It never replaces scores you ran on your own machine (`pxl-classroom grade --runner docker` or `host`): that summary is left alone and the run log says so. A reading from GitHub Actions, yours from the page included, is read again; a commit you chose or a score you set by hand, in the student's **⋯** dialog, is kept and outranks the reading.
 
 **The assignment's Grading tab** is laid out like Progress:
 
@@ -1000,7 +992,7 @@ It never replaces a reading **you** made. A summary carrying your login, or one 
 
 | | Where | What it does |
 |---|---|---|
-| **One student** | Roster & progress → their row → **⋯** → **Grading** → *Read score again* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
+| **One student** | **Progress** or **Grading** tab → their row → **⋯** → **Grading** → *Read score again* | Reads that student's run again and replaces their row. Nobody else's score moves. This is the one to reach for - chasing one student is the ordinary case. |
 | **The whole cohort** | **Grading** tab → *Read all scores again (N)* | Reads every student again and replaces the results. Slow on a large cohort, and it is not on Refresh for that reason: Refresh is a cheap read of commit state. |
 
 A student whose commit has **no grading run** is a row with the reason, under *Needs a look*, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
@@ -1068,7 +1060,7 @@ Results land in `<org>/pxl-classroom-control:grading/<assignment-id>/<login>.jso
 
 If the template repository already contains `.github/workflows/autograding.yml` or `classroom.yml`, provisioning **preserves it** and injects nothing. That is what makes a GitHub Classroom template work unchanged, and it is why the panel offers to write one only when it finds none.
 
-Where it does inject: a `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is what the CLI runners do, which is what makes a test definition mean one thing on both paths. The generated workflow carries `timeout-minutes: 10` and `concurrency: { cancel-in-progress: true }`. **Checks that run on Actions are committed to the student's repository and they can read them** - keeping checks out of a student's view is what *on your machine* is for, and there is no third arrangement. A `visibility: private` setting used to promise one and generated a workflow calling a reusable workflow in the control repository, which nothing creates and §3.1 forbids; it is withdrawn.
+Where it does inject: a `python` test becomes **two** steps - one that writes its `script` to `.pxl-autograde/<test-id>.py` (the source travels in `env:`, so a quote in it cannot break the workflow) and the grader step that runs `python3` over that file. That is what the CLI runners do, which is what makes a test definition mean one thing on both paths. The generated workflow carries `timeout-minutes: 10` and `concurrency: { cancel-in-progress: true }`. **Checks that run on Actions are committed to the student's repository and they can read them** - keeping checks out of a student's view is what *on your machine* is for, and there is no third arrangement. A `visibility: private` setting used to promise one and generated a workflow calling a reusable workflow in the control repository, which nothing creates and ARCHITECTURE.md §3.1 forbids; it is withdrawn.
 
 Each grader step's result reaches the reporter through an environment variable **the reporter names, not us**: `<RUNNER-ID-UPPERCASED>_RESULTS`, with the hyphens kept. Getting that name wrong is silent - every grader step goes green and the job fails at the reporter with a message blaming its `runners` input.
 
@@ -1198,7 +1190,7 @@ PXL Classroom features an automated diagnostic and self-healing engine (`lib/dia
    - **Pages deployment propagating:** Click **[Deploy to GitHub Pages]** to trigger `deploy-frontend.yml`.
    - **Enforced roster missing:** Click **[Open Roster Editor]** to navigate directly to the roster editor tab.
    - **Dashboard data stale:** Click **[Regenerate Dashboard]** to dispatch `regenerate-dashboard.yml`.
-   - **Central Hub pipeline run stuck:** Click **[Cancel Stuck Run #...]** to immediately cancel deadlocked Actions runs (`status=waiting` over 15m or `status=in_progress` over 45m) on the hub.
+   - **Central Hub pipeline run stuck:** Click **[Cancel Stuck Run #...]** to immediately cancel deadlocked Actions runs on the hub: waiting over 15 minutes, or running or pending past its limit (`lib/stuck-runs.mjs`: 45 minutes, or a long job's own `timeout-minutes` plus 15 for the Deadline Sentinel and starter sync).
    - **Organization not enrolled:** Click **[Run Setup Organization]** - an administrator's action ([ADMIN.md §1.2](ADMIN.md#12-run-setup-organization)), offered here because this is where the gap shows up.
 
 #### Option B: CLI Audit Companion
@@ -1223,7 +1215,7 @@ Exit codes:
 
 The deadline stops writes to every repository in the cohort. Sometimes one of them should not stay stopped: a medical certificate that arrives after the freeze, an appeal upheld, a resit taken in the same repository, or a repository frozen by a run that should not have included it.
 
-**Roster & progress → the student's row → Actions → Reopen the repository.**
+**Progress tab → the student's row → ⋯ → Reopen repository.**
 
 It appears only once the deadline has actually frozen something, and only for a student the deadline run saw - a student who accepted after the freeze has nothing to reopen.
 
@@ -1239,13 +1231,13 @@ It appears only once the deadline has actually frozen something, and only for a 
 | Ruleset, and the repository became read-only as well | Both: switches the ruleset off, then puts the student back to the assignment's **Student permission**. If the second half fails the dialog says the student is still read-only, and trying again finishes it. |
 | Reduced access (the fallback, per repository) | Puts the student back to the assignment's **Student permission**. |
 
-**A reopened repository stays open.** A finalize run is not once - the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. It used to re-lock the whole cohort, so reopening one student's repository was undone by granting somebody else more time. It now skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`).
+**A reopened repository stays open.** A finalize run is not once - the nightly re-runs one when preservation is still incomplete, and again when *any other* student's extension expires. Each pass skips a repository with a reopen record on it, says so in the run, and counts it (`reopened_count`), so another student's extension never locks a reopened one again.
 
 **To close it again, use Lock again.** Once a repository is reopened, the student's **⋯** dialog says when, by whom and why, and offers **Lock again** where Reopen was. It puts back the lock the deadline put on that repository - into the organization ruleset, the repository ruleset switched back on (made again, with PXL Classroom able to bypass it, if it was deleted on GitHub), read-only again where that was the lock - for every member of a team, and removes the reopen record, so later runs treat the repository like everyone else's. It never makes the organization ruleset: if that was deleted on GitHub, it says so, because making one would lock the whole cohort.
 
-**The record keeps a row for them**, carrying `reopened_at` and the snapshot that was frozen, with `lock_method: null` because nothing is holding the repository now. They used to be dropped from it entirely - counted in `reopened_count` and then written about nowhere - so the document a grade dispute is read from lost the fact that they had ever been locked. The report says `lock_down_outcome: reopened` and exports `reopened_at` beside `lock_down_at`, which is the pair that answers *could this student have pushed after the deadline, and from when*.
+**The record keeps a row for them**, carrying `reopened_at` and the snapshot that was frozen, with `lock_method: null` because nothing is holding the repository now, so the document a grade dispute is read from keeps the fact that they were locked. The report says `lock_down_outcome: reopened` and exports `reopened_at` beside `lock_down_at`, which is the pair that answers *could this student have pushed after the deadline, and from when*.
 
-**What it does not do:** it does not change the deadline, the report, or the grade. The preserved snapshot is immutable and stays exactly as it was, so anything the student pushes afterwards is *after* what you graded. If you mean to give them more time rather than access, grant a deadline extension instead (§6.13) - that changes what the report says; this does not.
+**What it does not do:** it does not change the deadline, the report, or the grade. The preserved snapshot is immutable and stays exactly as it was, so anything the student pushes afterwards is *after* what you graded. If you mean to give them more time rather than access, grant a deadline extension instead (§3.2) - that changes what the report says; this does not.
 
 **On a group assignment there is one repository and one lock on it,** so reopening for one member reopens it for the team. The record notes the team slug.
 
@@ -1261,7 +1253,7 @@ Central deployment and regeneration workflows (`deploy-frontend.yml`, `regenerat
 
 2. **Automated Pipeline Watchdog (pipeline-watchdog.yml):**
    - A scheduled sentinel runs every 30 minutes (`*/30 * * * *`) on the hub repository.
-   - Inspects hub Actions runs for zombie runs: waiting over 15 minutes, running over 45 minutes, or a Pages deploy queued over 15 minutes without a runner.
+   - Inspects hub Actions runs for zombie runs: waiting over 15 minutes, running or pending past its limit (45 minutes, or a long job's own `timeout-minutes` plus 15 for the Deadline Sentinel and starter sync), or a Pages deploy queued over 15 minutes without a runner.
    - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A queued acceptance is never cancelled, and neither is a Deadline Sentinel: it is alerted, and you decide.
    - Posts deduplicated alert comments with `@<login>` mentions on open tracking issues (`[NOTICE] PXL Classroom - Pipeline Watchdog Alerts`), triggering immediate email notifications through GitHub.
 

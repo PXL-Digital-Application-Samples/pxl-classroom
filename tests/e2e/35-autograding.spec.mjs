@@ -51,9 +51,9 @@ async function fillMinimum(page, title) {
   await page.getByPlaceholder('Type or select a template repository').fill(`${ORG}/starter-template`);
 }
 
-// ================================================ §6.1 one line in the form
+// ================================================ WS4.1 one line in the form
 
-test.describe('35 - §6.1 The form shows a summary, never the configuration', () => {
+test.describe('35 - WS4.1 The form shows a summary, never the configuration', () => {
   test('A new assignment says Off, and offers Set up', async ({ page }) => {
     await openNewForm(page);
     await expect(summaryText(page)).toHaveText('Off');
@@ -105,9 +105,9 @@ test.describe('35 - §6.1 The form shows a summary, never the configuration', ()
   });
 });
 
-// ================================================ §6.2 the modal
+// ================================================ WS4.2 the modal
 
-test.describe('35 - §6.2 The modal explains the decision, not the mechanism', () => {
+test.describe('35 - WS4.2 The modal explains the decision, not the mechanism', () => {
   async function open(page, opts = {}) {
     await openNewForm(page, opts);
     await openAutogradeModal(page);
@@ -274,9 +274,9 @@ test.describe('35 - §6.2 The modal explains the decision, not the mechanism', (
   });
 });
 
-// ================================================ §6.3 unsaveable states
+// ================================================ WS4.3 unsaveable states
 
-test.describe('35 - §6.3 The modal cannot produce a document the schema rejects', () => {
+test.describe('35 - WS4.3 The modal cannot produce a document the schema rejects', () => {
   async function open(page, opts = {}) {
     await openNewForm(page, opts);
     await openAutogradeModal(page);

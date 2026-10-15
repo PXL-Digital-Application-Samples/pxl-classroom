@@ -1,4 +1,5 @@
-// 33 - WS3 edge cases (ARCHITECTURE §10.4-§5.4)
+// 33 - WS3 edge cases (ARCHITECTURE §10.4; WS3.1 to WS3.4 are the removed UX
+// plan's numbering)
 //
 // 32-first-run-wall.spec.mjs covers the happy shape of each of the four fixes.
 // This file covers the states around them - the ones where an empty result, a
@@ -129,9 +130,9 @@ const groupAssignment = (over = {}) => ({
   ...over,
 });
 
-// ================================================ §5.1 what "no templates" means
+// ================================================ WS3.1 what "no templates" means
 
-test.describe('33 - §5.1 An empty list, a failed request and an empty org are three different things', () => {
+test.describe('33 - WS3.1 An empty list, a failed request and an empty org are three different things', () => {
   test('When neither template route answers, the panel says so instead of claiming the org is empty', async ({ page }) => {
     // The regression this file was written to find. `listOrgTemplates` falls
     // back to `listOrgRepos` when the search fails, and that used to `break`
@@ -315,9 +316,9 @@ test.describe('33 - §5.1 An empty list, a failed request and an empty org are t
   });
 });
 
-// ============================================== §5.2 what the roster count means
+// ============================================== WS3.2 what the roster count means
 
-test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => {
+test.describe('33 - WS3.2 The roster count answers "can anyone accept?"', () => {
   test('Importing a roster on the Roster page updates the count on the form', async ({ page }) => {
     // The count crosses a page boundary: the Roster page writes the file, the
     // Admin Panel reads it again and renders the number. They were one page
@@ -438,9 +439,9 @@ test.describe('33 - §5.2 The roster count answers "can anyone accept?"', () => 
   });
 });
 
-// ================================================== §5.3 the seed control
+// ================================================== WS3.3 the seed control
 
-test.describe('33 - §5.3 The seed control appears exactly when it can work', () => {
+test.describe('33 - WS3.3 The seed control appears exactly when it can work', () => {
   test('Saving a new group assignment brings it in, without a reload', async ({ page }) => {
     await openNewForm(page);
     await page.locator('input[type="radio"][value="group"]').check();
@@ -489,9 +490,9 @@ test.describe('33 - §5.3 The seed control appears exactly when it can work', ()
   });
 });
 
-// ================================================ §5.4 validation messages
+// ================================================ WS3.4 validation messages
 
-test.describe('33 - §5.4 Nothing in the summary is addressed to a schema author', () => {
+test.describe('33 - WS3.4 Nothing in the summary is addressed to a schema author', () => {
   // The modal refuses every one of these before Save (ARCHITECTURE §11.6), so they
   // arrive from a YAML someone edited by hand - which is exactly when raw AJV
   // was worst: there is no control on screen to point the JSON Pointer at.

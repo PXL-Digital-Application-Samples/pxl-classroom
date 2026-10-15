@@ -152,7 +152,7 @@ test.describe('15 - Admin Lifecycle Transitions, Manifest/CLI Exports & Group Te
     await exportBtn.click();
     for (const name of ['Download Manifest', 'Copy CLI Download']) {
       const row = exportMenu.locator('.export-dropdown-item', { hasText: name });
-      await expect(row).toContainText('Available after deadline lockdown');
+      await expect(row).toContainText("Available once the deadline's lock has run");
       await expect(row).toHaveAttribute('aria-disabled', 'true');
       await row.focus();
       await expect(row).toBeFocused();

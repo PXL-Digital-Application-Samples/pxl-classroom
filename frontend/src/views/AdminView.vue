@@ -808,7 +808,7 @@
                 >. Students see times in {{ studentTimeZone }}</template>.
               </small>
               <small v-if="deadlineInPast" class="text-warning">
-                This deadline is in the past; the next nightly run will finalize (lock down + report) immediately.
+                This deadline is in the past: the next nightly check treats it as passed straight away, archiving every student's work and applying what you chose under After the deadline.
               </small>
             </div>
             <!-- ONE QUESTION, AND ITS ANSWERS ARE WHAT HAPPENS (2026-10-02).
@@ -1223,7 +1223,7 @@
                    1TIN-A" while it is still open to the whole roster. Said
                    where it is true, not left to a count in the corner. -->
               <p v-if="cohortFilteredButEmpty" class="cohort-hint text-warning">
-                Showing <strong>{{ cohortFilterLabel }}</strong> — but nothing is selected yet, so
+                Showing <strong>{{ cohortFilterLabel }}</strong>, but nothing is selected yet, so
                 every student on the roster may accept. Tick the box above to take this class.
               </p>
 
@@ -1327,7 +1327,7 @@
               </div>
               <small>
                 Gives you a page per student where you comment on their code line by line.
-                Switch it on now: it cannot be added later.
+                Switch it on before students accept: a student who accepted earlier gets one only after Retry acceptance.
               </small>
             </div>
             <!-- One line, never the configuration (ARCHITECTURE §11.6). This was an

@@ -37,7 +37,7 @@
             <br />
             Optional: <code>student_number</code>, <code>class_group</code>,
             <code>github_id</code>, <code>active</code>, <code>team_slug</code>,
-            <code>team_name</code> — leave out any column you do not have.
+            <code>team_name</code>. Leave out any column you do not have.
             <button class="btn-link" type="button" @click="downloadSampleCsv">Download sample CSV</button>
           </small>
         </div>
@@ -174,7 +174,7 @@
               <span class="status-dot dot-warning"></span>
               <strong>{{ heldClaims.length }} need{{ heldClaims.length === 1 ? 's' : '' }} your decision</strong>
               <span class="text-secondary text-sm">
-                — everything else linked automatically
+                (everything else linked automatically)
               </span>
             </div>
             <ul class="claim-review-list">
@@ -184,7 +184,7 @@
                   <span v-if="row.full_name" class="text-secondary"> · {{ row.full_name }}</span>
                 </span>
                 <span class="claim-review-why text-secondary text-sm">
-                  <template v-if="row.login">@{{ row.login }} — </template>{{ row.reason }}
+                  <template v-if="row.login">@{{ row.login }}: </template>{{ row.reason }}
                 </span>
                 <button
                   v-if="row.canLink"

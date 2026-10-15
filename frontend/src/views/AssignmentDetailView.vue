@@ -367,7 +367,7 @@
                       <span v-if="preservedCount > 0" class="badge-count">({{ preservedCount }})</span>
                     </span>
                     <span class="dropdown-item-sub">
-                      {{ preservedCount > 0 ? 'JSON index of frozen archive SHAs' : 'Available after deadline lockdown' }}
+                      {{ preservedCount > 0 ? 'A file listing the commit archived for each student' : 'Available once the deadline\'s lock has run' }}
                     </span>
                   </div>
                 </button>
@@ -396,8 +396,8 @@
                     <span class="dropdown-item-title">Copy CLI Download</span>
                     <span class="dropdown-item-sub">
                       {{ preservedCount > 0
-                        ? 'Command to bulk-clone preserved repos'
-                        : 'Available after deadline lockdown' }}
+                        ? 'A command that downloads every archived submission'
+                        : 'Available once the deadline\'s lock has run' }}
                     </span>
                   </div>
                 </button>
@@ -1104,6 +1104,7 @@
                 </div>
               </div>
               <div class="flex gap-xs items-center flex-wrap actions-bar-end">
+                <HelpButton topic="autograding" label="reading the scores" />
                 <!-- When these scores were read, and from where, beside the
                      button that reads them again (as on Progress). -->
                 <InfoBlock

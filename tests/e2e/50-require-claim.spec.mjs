@@ -140,7 +140,7 @@ test.describe('50 - the lecturer side', () => {
     // The topic covers BOTH ways an address is collected now. This answer is
     // the acceptance-time one; the standalone link is the other, and a lecturer
     // opening this drawer should meet it rather than discover it by accident.
-    await expect(drawer).toContainText('Confirm-email link');
+    await expect(drawer).toContainText('Copy confirm-email link');
   });
 
   test('under the roster, the same question chooses what the roster is matched on', async ({ page }) => {

@@ -12,6 +12,7 @@
         <div class="flex items-center gap-xs">
           <Icon name="alert-triangle" :size="18" class="stat-red" />
           <h3 class="modal-consequences-title">Delete {{ assignmentId }}</h3>
+          <HelpButton topic="retiring-an-assignment" label="what deleting keeps" />
         </div>
         <button class="modal-close" type="button" @click="requestClose" :disabled="busy" aria-label="Close">×</button>
       </header>
@@ -144,6 +145,7 @@
 // (DESIGN.md §6).
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
+import HelpButton from './HelpButton.vue'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
 
 const props = defineProps({

@@ -351,7 +351,7 @@ test("runAudit - missing scaffold", async () => {
   assert.ok(check.message.includes("Scaffold paths missing: assignments"));
 });
 
-test("runAudit - missing org from participating-orgs.yml (regression §2.1)", async () => {
+test("runAudit - missing org from participating-orgs.yml (a regression)", async () => {
   const req = createMockRequest({ orgsYaml: "orgs:\n  - login: OtherOrg" });
   const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
   assert.equal(res.overall, "fail");

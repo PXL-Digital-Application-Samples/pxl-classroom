@@ -307,7 +307,7 @@
           <h3>{{ myGroupHeading }}</h3>
           <p class="text-secondary">
             <template v-if="seededFromLabel">
-              Carried over from <strong>{{ seededFromLabel }}</strong> — you are in
+              Carried over from <strong>{{ seededFromLabel }}</strong>: you are in
               <code>{{ myCurrentTeam.team_slug }}</code>.
             </template>
             <template v-else-if="isPreAssignedMode">
