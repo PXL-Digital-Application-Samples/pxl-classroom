@@ -1006,6 +1006,12 @@ async function refreshStudentSubmissionMeta(org, repoName) {
 async function checkExistingState() {
   const token = getToken()
   if (!token || !assignment.value) return
+  // A team assignment is the team card's (GroupAcceptanceCard), which reads the
+  // team's repository. Asked here with the login, `{team_slug}` became the
+  // student's login: a request for a repository no team assignment makes, and
+  // a team slugged like a student's login would have read as theirs (live UI,
+  // 2026-10-15).
+  if (assignment.value.assignment_type === 'group') return
 
   const org = props.org
   const expectedName = repositoryNameFor(assignment.value.repository_name_pattern, { login: user.value.login })
