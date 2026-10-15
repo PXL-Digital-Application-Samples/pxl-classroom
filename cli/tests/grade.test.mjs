@@ -205,7 +205,7 @@ autograde:
     if (u === "https://api.github.com/repos/TestOrg/pxl-classroom-control/contents/reports%2Fa1.json") {
       return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u === "https://api.github.com/repos/TestOrg/a1-student_no_ci/commits/noci_sha/check-runs") {
+    if (u === "https://api.github.com/repos/TestOrg/a1-student_no_ci/commits/noci_sha/check-runs?filter=all&per_page=100") {
       return new Response(JSON.stringify({ check_runs: [] }), { status: 200, headers: { "content-type": "application/json" } });
     }
     console.error("UNHANDLED FETCH in new test", u);
@@ -304,7 +304,7 @@ autograde:
     if (u === "https://api.github.com/repos/TestOrg/pxl-classroom-control/contents/reports%2Fcloud-pe-1.json") {
       return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u === `https://api.github.com/repos/TestOrg/cloud-pe-1-alice/commits/${aliceSha}/check-runs`) {
+    if (u === `https://api.github.com/repos/TestOrg/cloud-pe-1-alice/commits/${aliceSha}/check-runs?filter=all&per_page=100`) {
       return new Response(JSON.stringify({
         check_runs: [
           {
@@ -678,10 +678,10 @@ submission_marker:
     if (u === "https://api.github.com/repos/TestOrg/pxl-classroom-control/contents/reports%2Fproef-pe1.json") {
       return new Response(JSON.stringify({ content: Buffer.from(JSON.stringify(reportJson)).toString("base64") }), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u === `https://api.github.com/repos/TestOrg/proef-pe1-alice/commits/${headSha}/check-runs`) {
+    if (u === `https://api.github.com/repos/TestOrg/proef-pe1-alice/commits/${headSha}/check-runs?filter=all&per_page=100`) {
       return new Response(JSON.stringify(skippedRun), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u === `https://api.github.com/repos/TestOrg/proef-pe1-alice/commits/${handInSha}/check-runs`) {
+    if (u === `https://api.github.com/repos/TestOrg/proef-pe1-alice/commits/${handInSha}/check-runs?filter=all&per_page=100`) {
       return new Response(JSON.stringify(gradedRun), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (u.startsWith("https://api.github.com/repos/TestOrg/proef-pe1-alice/commits?")) {

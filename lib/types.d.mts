@@ -342,6 +342,7 @@ export type Observation = {
   author_name?: string;
   author_email?: string;
   observer_run?: string;
+  head_provided?: boolean;
   collection_type?: "scheduled" | "manual" | "deadline" | "lockdown" | "preservation";
 };
 

@@ -12,6 +12,9 @@ import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { commitAuthor, snapshotObservation } from "../lib/observation.mjs";
+import { headIsProvided } from "../lib/untouched-repo.mjs";
+import { starterFor } from "../lib/starter-commit.mjs";
+import { APP_SLUG } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -269,6 +272,19 @@ async function main() {
           log(`late-count ${login}`, { ok: true, note: `not counted: ${e.message}` });
         }
 
+        // Still only what it was given? Judged here, where the commit is in
+        // hand, because the report has no network (R6-9). A failed read on the
+        // way is not judged: the report falls back to the old rule.
+        let headProvided = null;
+        try {
+          headProvided = await headIsProvided((p) => gh("GET", p), `${cfg.org}/${repoName}`, latestCommit, {
+            starterSha: starterFor(rec, records).sha,
+            appLogin: `${APP_SLUG}[bot]`,
+          });
+        } catch (e) {
+          log(`head ${login}`, { ok: true, note: `not judged: ${e.message}` });
+        }
+
         const now = new Date().toISOString();
         const observation = snapshotObservation({
           assignmentId,
@@ -282,6 +298,7 @@ async function main() {
           observedAt: now,
           observerRun: cfg.runUrl,
           collectionType: env("COLLECTION_TYPE", "scheduled"),
+          headProvided,
         });
 
         // Validate before writing. This sits inside the per-student try, so a

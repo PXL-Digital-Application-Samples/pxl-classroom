@@ -354,6 +354,11 @@ async function main() {
     // a count the API would not answer - and is deliberately distinct from 0.
     let latestLateCommitCount = null;
     let lateCountSha = null;
+    // Whether the head is still only what the repository was given, as the
+    // look that saw it judged (`head_provided`, R6-9) - a judgement AT ONE
+    // COMMIT, carried only while the observed commit is that one.
+    let latestHeadProvided = null;
+    let headProvidedSha = null;
     let latestCommitMessage = null;
     let latestAuthorName = null;
     let latestAuthorEmail = null;
@@ -385,6 +390,13 @@ async function main() {
       } else if (obs.sha && lateCountSha && obs.sha !== lateCountSha) {
         latestLateCommitCount = null;
         lateCountSha = null;
+      }
+      if (typeof obs.head_provided === "boolean") {
+        latestHeadProvided = obs.head_provided;
+        headProvidedSha = obs.sha ?? null;
+      } else if (obs.sha && headProvidedSha && obs.sha !== headProvidedSha) {
+        latestHeadProvided = null;
+        headProvidedSha = null;
       }
       if (obs.commit_message) {
         latestCommitMessage = obs.commit_message;
@@ -489,6 +501,7 @@ async function main() {
       starterSha: given.sha,
       latestSha: latestObservedSha,
       commitCount: latestCommitCount,
+      headProvided: headProvidedSha && headProvidedSha === latestObservedSha ? latestHeadProvided : null,
     });
     // A full-history copy's latest commit can be the template's - at the start,
     // and after a fast-forward or a rebase of a prepared branch - and so its

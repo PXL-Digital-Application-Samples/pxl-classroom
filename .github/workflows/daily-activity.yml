@@ -604,25 +604,65 @@ jobs:
       # refuses to run over a modified tracked file, and a new untracked report
       # the remote also added stops it too ("would be overwritten").
       #
-      # `git add a/ b/ c/` with ANY of them missing exits 128 and stages
-      # NOTHING, and `|| true` would turn that into a green "no changes" - so
-      # mkdir -p first. `grading/` is not scaffolded (nothing creates it until
-      # something grades), which makes its mkdir load-bearing.
+      # `git add a/ b/` with ANY of them missing exits 128 and stages NOTHING,
+      # and `|| true` would turn that into a green "no changes" - so mkdir -p
+      # first.
+      #
+      # THE SCORES ARE NOT IN THIS COMMIT (review 2026-10-15, R6-8). A
+      # lecturer's Read all scores again at the deadline writes
+      # grading/<id>/summary.json too, and one conflict on it failed the push of
+      # the lock record, the observations and the preservation with it: the
+      # deadline red, none of it on record. They are set aside here and
+      # committed by the next step, which yields to a save made meanwhile.
       - name: Commit + push
+        id: commit
         if: always() && steps.control.outcome == 'success'
         env:
           ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
         run: |
           set -e
+          echo "start=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
-          mkdir -p control/observations control/lockdowns control/grading
-          git -C control add observations/ lockdowns/ grading/
+          rm -rf "$RUNNER_TEMP/scores"
+          mkdir -p "$RUNNER_TEMP/scores"
+          if [ -d control/grading ]; then cp -R control/grading/. "$RUNNER_TEMP/scores/"; fi
+          git -C control restore --staged --worktree -- grading/ 2>/dev/null || true
+          git -C control clean -fdq -- grading/
           # A pathspec that matches nothing tracked is not a failure here.
           git -C control restore --staged --worktree -- reports/ 2>/dev/null || true
           git -C control clean -fdq -- reports/
+          mkdir -p control/observations control/lockdowns
+          git -C control add observations/ lockdowns/
           if git -C control diff --cached --quiet; then exit 0; fi
           git -C control commit -m "Finalize deadline for ${ASSIGNMENT_ID}"
+          scripts/git-push-with-retry.sh control
+
+      # The scores read at the deadline, in a commit of their own. A summary
+      # someone saved since this job checked out is THEIRS to keep: a
+      # lecturer's read of the same runs, made with overrides this checkout may
+      # not have. So is any change to this assignment's overrides: a read made
+      # without a decision would be written over it. Kept, and said; reading
+      # again on the Grading tab reads them with everything.
+      - name: Commit + push the scores
+        if: always() && steps.commit.outcome == 'success'
+        env:
+          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
+          START: ${{ steps.commit.outputs.start }}
+        run: |
+          set -e
+          SUMMARY="grading/${ASSIGNMENT_ID}/summary.json"
+          if [ ! -f "$RUNNER_TEMP/scores/${ASSIGNMENT_ID}/summary.json" ]; then exit 0; fi
+          git -C control pull -q --rebase
+          if ! git -C control diff --quiet "$START" HEAD -- "$SUMMARY" "overrides/${ASSIGNMENT_ID}/"; then
+            echo "::notice::The scores or a grading decision for ${ASSIGNMENT_ID} were saved while this ran, so those are kept and this reading is not written. Read all scores again on the Grading tab to read them with everything."
+            exit 0
+          fi
+          mkdir -p "control/grading/${ASSIGNMENT_ID}"
+          cp "$RUNNER_TEMP/scores/${ASSIGNMENT_ID}/summary.json" "control/${SUMMARY}"
+          git -C control add -- "$SUMMARY"
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Scores at the deadline for ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
 
       # Per assignment here, not just per organization: this matrix is over

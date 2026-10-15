@@ -829,6 +829,32 @@ test("a late count belongs to the commit it was counted at: a Refresh that saw a
   assert.equal(run([nightly, obs("aaaaaaa", "2026-09-12T10:00:00.000Z", null)]).late_commit_count, 0, "the same commit keeps its count");
 });
 
+test("R6-9: the report reads 'still what it was given' from the look that judged it, at that commit only", async () => {
+  const { snapshotObservation } = await import("../lib/observation.mjs");
+  const obs = (sha, commitCount, headProvided, observedAt = "2026-09-05T10:30:00.000Z") => snapshotObservation({
+    assignmentId: "test-asgn", login: "tom", repoId: 7, ref: "refs/heads/main",
+    commit: { sha: sha.padEnd(40, "0"), commit: { message: "work", committer: { date: "2026-09-05T10:00:00Z" }, author: { name: "Tom" } } },
+    commitCount, observedAt, collectionType: "scheduled", headProvided,
+  });
+  const run = (observations) => runReport({
+    assignmentYaml: BASE_YAML,
+    acceptances: [{ github_login: "tom", status: "provisioned" }],
+    repositories: [{ github_login: "tom", repo_name: "TestOrg/test-asgn-tom", repo_id: 7 }],
+    observations: { tom: observations },
+  }).students.find((s) => s.github_login === "tom");
+  // A squashed one-commit history, judged work: handed in.
+  assert.equal(run([obs("aaaaaaa", 1, false)]).submission_status, "on-time");
+  // GitHub's copy plus provisioning's grading workflow, judged given: nothing.
+  assert.equal(run([obs("bbbbbbb", 2, true)]).submission_status, "no-submission");
+  // Not judged: one commit is nothing, as before.
+  assert.equal(run([obs("aaaaaaa", 1, null)]).submission_status, "no-submission");
+  // A judgement at an OLDER commit says nothing about a new one: carried, the
+  // older "work" would make this unjudged single commit handed in.
+  assert.equal(run([obs("aaaaaaa", 1, false), obs("ccccccc", 1, null, "2026-09-05T11:00:00.000Z")]).submission_status, "no-submission");
+  // ...and a later look at the SAME commit that did not judge keeps it.
+  assert.equal(run([obs("aaaaaaa", 1, false), obs("aaaaaaa", 1, null, "2026-09-05T11:00:00.000Z")]).submission_status, "on-time");
+});
+
 test("a tagged-submission observation left in a control repo is ignored, not read as a snapshot", async () => {
   // Submit tags were removed 2026-10-14. A file the collector wrote before
   // that stays in observations/ and must change nothing: not the commit, not

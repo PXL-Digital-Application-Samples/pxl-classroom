@@ -1523,7 +1523,7 @@ import PromoteRosterModal from '../components/PromoteRosterModal.vue'
 import AutogradeResultsModal from '../components/AutogradeResultsModal.vue'
 import StudentActionsModal from '../components/StudentActionsModal.vue'
 import RegradeCommitModal from '../components/RegradeCommitModal.vue'
-import { decodeBase64, withoutDispatchedRuns } from '../../../lib/grade-dispatch.mjs'
+import { countedRunAtCommit, decodeBase64 } from '../../../lib/grade-dispatch.mjs'
 import { MANUAL_SCORE, decisionEntry, decisionProblem, gradeDecisionFor } from '../../../lib/grade-override.mjs'
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
@@ -1557,7 +1557,7 @@ import { validateAgainst } from '../lib/validate.js'
 // `findMarkedCommit` were imported here to drive the score reading inline. That
 // orchestration is lib/grade-cohort.mjs now - the workflow needs the same
 // answers - and this view only asks it questions.
-import { readSubmissionMarker, submissionBranch, pickAutogradeCheckRun, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
 import { FAILED_READ_VERDICTS, failedKind, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
@@ -1577,7 +1577,8 @@ import {
   resolveClaimDomains,
 } from '../lib/claim.js'
 import { BINDING_STATES as _BINDING_STATES, indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
-import { CLAIM_DOMAINS, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
+import { APP_SLUG, CLAIM_DOMAINS, CLAIM_ADDRESS_FORMAT } from '../lib/deployment.js'
+import { headIsProvided } from '../../../lib/untouched-repo.mjs'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
 import {
   allowanceEntry, allowanceFrom, allowanceProblem, handInLimitFor,
@@ -4100,9 +4101,12 @@ async function fetchBreakdownForStudent(token, s) {
   if (s.repo_name && sha) {
     try {
       const repoFullName = s.repo_name.includes('/') ? s.repo_name : `${props.org}/${s.repo_name}`
-      const checkRes = await ghApi(token, 'GET', `/repos/${repoFullName}/commits/${sha}/check-runs`)
-      if (checkRes.ok && Array.isArray(checkRes.data?.check_runs)) {
-        const run = pickAutogradeCheckRun(checkRes.data.check_runs)
+      // The run that is scored, not merely the newest (lib/grade-dispatch.mjs).
+      const counted = await countedRunAtCommit((m, p, b) => ghApi(token, m, p, b), {
+        repoFullName, sha, students: teamMembersOf(s).map((m) => m.github_login).filter(Boolean), onlyWhenAmbiguous: true,
+      })
+      if (counted.ok) {
+        const run = counted.run
         if (run) {
           // A. Try reading the job logs to extract status check output or summary transcript
           try {
@@ -4378,6 +4382,12 @@ async function refreshOne(token, s) {
     if (res.ok && res.data && res.data.length > 0) {
       const commit = res.data[0]
       const sha = commit.sha
+      // Still only what it was given, judged as the collector judges it
+      // (lib/untouched-repo.mjs); a read that failed on the way is not judged.
+      const headProvided = await headIsProvided((p) => ghApi(token, 'GET', p), s.repo_name, commit, {
+        starterSha: givenSha,
+        appLogin: `${APP_SLUG}[bot]`,
+      }).catch(() => null)
       // Evidence the next rebuild of the report reads, exactly as the
       // collector writes it (lib/observation.mjs). Without a repository id
       // there is no valid observation, and the report keeps the row as seen.
@@ -4391,6 +4401,7 @@ async function refreshOne(token, s) {
           commitCount: observedCount,
           observedAt: new Date().toISOString(),
           collectionType: 'manual',
+          headProvided,
         }))
       }
       const commitDate = commitDateOf(commit)
@@ -4433,7 +4444,7 @@ async function refreshOne(token, s) {
 
       // On time, late or nothing, by the commit's own time (lib/refresh-status.mjs).
       Object.assign(s, refreshStatus({
-        unstarted: unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount }),
+        unstarted: unstartedRepo({ starterSha: givenSha, latestSha: sha, commitCount: observedCount, headProvided }),
         sha,
         committedAt: commitDate,
         deadline: deadline ? deadline.toISOString() : null,
@@ -4452,16 +4463,14 @@ async function refreshOne(token, s) {
       // column is not worth that. Reading the scores fills it, and that is a
       // deliberate action a lecturer takes once.
       if (isGitHubActionsAutograde.value) {
-        const checkRes = await ghApi(token, 'GET', `/repos/${s.repo_name}/commits/${sha}/check-runs`)
-        // Without dispatched runs: one started for an older commit is listed
-        // on this one (lib/grade-dispatch.mjs).
-        const own = checkRes.ok && checkRes.data?.check_runs
-          ? await withoutDispatchedRuns((m, p, b) => ghApi(token, m, p, b), { repoFullName: s.repo_name, sha, checkRuns: checkRes.data.check_runs, onlyWhenAmbiguous: true })
-          : { ok: false }
-        if (own.ok) {
-          // Shared picker: this had its own `includes('grade')` variant, which
-          // misses the `classroom` naming the other copy matched.
-          const run = pickAutogradeCheckRun(own.checkRuns)
+        // The run that is scored (lib/grade-dispatch.mjs): without dispatched
+        // runs, one started for an older commit being listed on this one, and
+        // without a student's re-run, which does not count.
+        const counted = await countedRunAtCommit((m, p, b) => ghApi(token, m, p, b), {
+          repoFullName: s.repo_name, sha, students: teamMembersOf(s).map((m) => m.github_login).filter(Boolean), onlyWhenAmbiguous: true,
+        })
+        if (counted.ok) {
+          const run = counted.run
           if (run) {
             s.ci_status = run.conclusion || run.status
             s.ci_run_url = run.html_url || run.details_url || s.ci_run_url || null

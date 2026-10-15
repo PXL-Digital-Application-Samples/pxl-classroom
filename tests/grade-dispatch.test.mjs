@@ -228,7 +228,7 @@ test("THE MEASURED CASE: a run dispatched for an old commit is listed on the TIP
   const reads = [];
   const request = async (_m, path) => {
     reads.push(path);
-    if (path === `/repos/Org/r/commits/${TIP}/check-runs`) {
+    if (path === `/repos/Org/r/commits/${TIP}/check-runs?filter=all&per_page=100`) {
       return { ok: true, status: 200, data: { check_runs: [
         { id: 2, name: "run-autograding-tests", status: "completed", conclusion: "success", check_suite: { id: 98 }, output: { title: "Points 10/10", annotations_count: 0 } },
         { id: 1, name: "run-autograding-tests", status: "completed", conclusion: "failure", check_suite: { id: 97 }, output: { title: "Points 0/10", annotations_count: 0 } },
@@ -250,7 +250,7 @@ test("a tip whose ONLY suite is a dispatched run reads nothing by the rules, not
   // one suite - the dispatched run's - which a "two suites or more" shortcut kept.
   const { readScoreAtCommit } = await import("../lib/grade-cohort.mjs");
   const request = async (_m, path) => {
-    if (path === `/repos/Org/r/commits/${TIP}/check-runs`) {
+    if (path === `/repos/Org/r/commits/${TIP}/check-runs?filter=all&per_page=100`) {
       return { ok: true, status: 200, data: { check_runs: [
         { id: 2, name: "run-autograding-tests", status: "completed", conclusion: "success", check_suite: { id: 98 }, output: { title: "Points 10/10", annotations_count: 0 } },
       ] } };

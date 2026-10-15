@@ -35,6 +35,10 @@
         "author_name": { "type": ["string", "null"] },
         "author_email": { "type": ["string", "null"] },
         "observer_run": { "type": "string", "format": "uri" },
+        "head_provided": {
+          "type": "boolean",
+          "description": "Whether `sha` is still only what the repository was given: the commit GitHub generated or the recorded start, with only PXL Classroom's own verified commits on top (lib/untouched-repo.mjs headIsProvided). Absent where it was not judged; no default, because absent and false are different answers."
+        },
         "collection_type": {
           "type": "string",
           "enum": ["scheduled", "manual", "deadline", "lockdown", "preservation"]

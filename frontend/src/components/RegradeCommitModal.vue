@@ -172,6 +172,8 @@ const get = async (path) => {
   return { status: r.status, data: r.data, headers: r.headers }
 }
 const repo = computed(() => props.student.repo_name)
+// Whose re-run of a grading run does not count (lib/grading-attempt.mjs).
+const students = computed(() => [props.student.github_login, ...props.teamLogins].filter(Boolean))
 
 const loading = ref(true)
 const loadError = ref('')
@@ -280,7 +282,7 @@ async function readResults(list) {
 
 async function readOne(row) {
   try {
-    const out = await readScoreAtCommit(request, { repoFullName: repo.value, sha: row.sha, marker: props.marker, fallbackTotal: props.fallbackTotal })
+    const out = await readScoreAtCommit(request, { repoFullName: repo.value, sha: row.sha, marker: props.marker, fallbackTotal: props.fallbackTotal, students: students.value })
     if (out.verdict === 'graded') {
       row.result = { state: 'graded', earned: out.parsed.earned, total: out.parsed.total > 0 ? out.parsed.total : props.fallbackTotal }
       row.rerun = null
@@ -393,7 +395,7 @@ async function gradeNow(row) {
     return
   }
   whenDone(res.runId, async () => {
-    const out = await readRunScore(request, { repoFullName: repo.value, runId: res.runId, sha: row.sha, fallbackTotal: props.fallbackTotal })
+    const out = await readRunScore(request, { repoFullName: repo.value, runId: res.runId, sha: row.sha, fallbackTotal: props.fallbackTotal, students: students.value })
     if (out.verdict === 'graded') {
       row.result = { state: 'graded', earned: out.parsed.earned, total: out.parsed.total > 0 ? out.parsed.total : props.fallbackTotal }
       row.runId = res.runId

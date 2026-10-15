@@ -40,7 +40,7 @@ import {
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
 import { readRunScore } from "../../../lib/grade-dispatch.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
-import { FAILED_READ_VERDICTS, NO_SUBMISSION_REASON, archiveGradeQueue, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
+import { FAILED_READ_VERDICTS, noSubmissionOutcome, archiveGradeQueue, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { gradesInCi } from "../../../lib/autograde-source.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
 import { archiveBranchName, resolveArchiveRepo } from "../../../lib/archive-repo.mjs";
@@ -270,8 +270,10 @@ export function registerGradeCommand(program) {
       // had its own copy, which answered a gone commit (422) and a deleted or
       // unreachable repository (404) with a thrown error where the shared one
       // names the student (review 2026-10-14, P2-9). Never a guessed score.
+      // Whose re-run of a grading run does not count (lib/grading-attempt.mjs).
+      const studentsOf = (s) => [s.github_login, ...(teamOf(s, eligible)?.members || [])].filter(Boolean);
       const readScoreAtCommit = (s, sha) =>
-        readScoreShared(readRequest, { repoFullName: s.repo_name, sha, marker, fallbackTotal: totalFallback });
+        readScoreShared(readRequest, { repoFullName: s.repo_name, sha, marker, fallbackTotal: totalFallback, students: studentsOf(s) });
       await withConcurrency(queue, Math.max(1, opts.concurrency), async (s) => {
         let result;
         // The check run this grade was read from, on the Actions path only.
@@ -305,8 +307,9 @@ export function registerGradeCommand(program) {
         // preserved commit is the starter - whose grading run, or whose tests
         // on the local runner, gave them a score (review 2026-10-14, P2-1).
         if (!decision && s.submission_status === "no-submission" && !(isGitHubActions && marker)) {
-          process.stdout.write(`  - ${s.github_login}: ${NO_SUBMISSION_REASON}\n`);
-          summary.failed.push({ login: s.github_login, reason: NO_SUBMISSION_REASON, kind: "not-handed-in" });
+          const none = noSubmissionOutcome(s);
+          process.stdout.write(`  - ${s.github_login}: ${none.reason}\n`);
+          summary.failed.push({ login: s.github_login, reason: none.reason, kind: none.kind });
           return;
         }
         if (s.team_slug && !decision && teamResultsCache.has(s.team_slug)) {
@@ -337,7 +340,7 @@ export function registerGradeCommand(program) {
               // "Grade this commit now": that run is the result, read through
               // the same lib function the page and the nightly use.
               if (decision.runId) {
-                outcome = await readRunScore(readRequest, { repoFullName: s.repo_name, runId: decision.runId, sha: decision.sha, fallbackTotal: totalFallback });
+                outcome = await readRunScore(readRequest, { repoFullName: s.repo_name, runId: decision.runId, sha: decision.sha, fallbackTotal: totalFallback, students: studentsOf(s) });
               } else {
                 outcome = await readScoreAtCommit(s, decision.sha);
               }
@@ -564,11 +567,11 @@ export function registerGradeCommand(program) {
               carried = true;
               continue;
             }
-            const nothing = s.submission_status === "no-submission";
+            const none = s.submission_status === "no-submission" ? noSubmissionOutcome(s) : null;
             merged.failed.push({
               login: l,
-              reason: nothing ? NO_SUBMISSION_REASON : "nothing was preserved for them at the deadline, and this grader reads the archive",
-              kind: nothing ? "not-handed-in" : "no-result",
+              reason: none ? none.reason : "nothing was preserved for them at the deadline, and this grader reads the archive",
+              kind: none ? none.kind : "no-result",
             });
           }
         }

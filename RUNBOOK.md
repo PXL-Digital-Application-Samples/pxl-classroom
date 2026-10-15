@@ -997,6 +997,10 @@ It never replaces scores you ran on your own machine (`pxl-classroom grade --run
 
 A student whose commit has **no grading run** is a row with the reason, under *Needs a look*, never counted as a zero. Nothing at all is written when no student could be read - a summary of nobody would replace real marks with none.
 
+**Reading the scores again at the deadline is safe.** The nightly reads them too, after the lock; if you saved yours first, or changed a grading decision while it ran, yours are kept and the nightly's reading is not written.
+
+**A run a student re-ran themselves does not count.** GitHub lets anyone who can push press Re-run, so the score stays the one their push produced (or the last re-run you started). To count a new result, re-run it yourself, from GitHub or from **Choose the commit that counts…**, then read the score again.
+
 #### Grading one student differently from the rules
 
 The same **Grading** section of the student's **⋯** dialog has two decisions that overrule the rules for that student. Both need a reason, are recorded with who and when, show on the score badge (*· chosen*, *· by hand*) on both tabs, and are kept by every later *Read score again*, *Read all scores again*, the nightly and `pxl-classroom grade` - until you undo them with **Go back to the rules** / **Remove the score set by hand**, which asks for its own reason.

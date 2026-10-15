@@ -111,7 +111,7 @@ function fakeApi({ runsStatus = 200 } = {}) {
     if (req.url.startsWith(`/repos/${REPO}/activity?`)) {
       return send(200, handIns.map((n) => ({ activity_type: "push", ref: "refs/heads/main", after: sha(n), timestamp: at(n * 10) })).reverse());
     }
-    const cr = req.url.match(/\/commits\/(\w+)\/check-runs$/);
+    const cr = req.url.match(/\/commits\/(\w+)\/check-runs\?filter=all&per_page=100$/);
     if (cr) {
       const n = handIns.find((x) => sha(x) === cr[1]);
       return send(200, {

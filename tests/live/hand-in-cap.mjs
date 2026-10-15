@@ -24,8 +24,8 @@
 //                  it, and hand-in 2 is still graded
 //   8 no cap, late the case-4 deadline without a cap: hand-in 2, not 4 - the
 //                  uncapped path times by the push too, not the commit date
-//   9 log only     hand-in 5, deadline 40s before its logged push: on time
-//                  with its runs (allowance), late once they are deleted
+//   9 the log      hand-in 5, deadline 40s before its logged push: late with
+//                  its runs (the log is the push), and once they are deleted
 //  10 dispatches   student1 dispatches the grading workflow with
 //                  grade_sha=main: counted, never graded; the lecturer's
 //                  dispatch and the student's dispatch of a non-grading
@@ -33,9 +33,9 @@
 //
 // Commit dates are set explicitly one minute apart, hours in the past. The
 // late case does NOT use them: lateness is when GitHub recorded the push (the
-// run's created_at, lib/submission-marker.mjs `handInTime`), so the deadline
-// is placed between the runs of hand-ins 2 and 3 - which also proves that a
-// commit DATED before the deadline but pushed after it is late.
+// push log's time, lib/submission-marker.mjs `handInTime`), so the deadline
+// is placed between the logged pushes of hand-ins 2 and 3 - which also proves
+// that a commit DATED before the deadline but pushed after it is late.
 
 import { resolveHandIn, readScoreAtCommit } from "../../lib/grade-cohort.mjs";
 import { PUSH_TO_RUN_ALLOWANCE_MS, listHandIns, readSubmissionMarker } from "../../lib/submission-marker.mjs";
@@ -300,12 +300,12 @@ async function main() {
   await expectGraded("2 exception +5", { cap: 2, overrides: [overrideDoc([grant(1, at(10)), grant(5, at(11))])], want: h4, used: 4, ignored: [], score: 4 });
   // 3 revoked
   await expectGraded("3 revoked", { cap: 2, overrides: [overrideDoc([grant(1, at(10)), grant(5, at(11)), grant(0, at(12))])], want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
-  // 4 late: deadline between hand-in 2's push and hand-in 3's, as GitHub
-  // recorded them (the earliest run of each), less the allowance for a run
-  // starting after its push.
-  const pushedAt = (h) => Math.min(...runs.filter((x) => x.head_sha === h.sha).map((x) => Date.parse(x.created_at)));
-  const between = (pushedAt(h2) + pushedAt(h3)) / 2 - PUSH_TO_RUN_ALLOWANCE_MS;
-  if (!(pushedAt(h3) > pushedAt(h2))) r.bad(`4 late: hand-in 3's run did not start after hand-in 2's - cannot place a deadline between them`);
+  // 4 late: deadline between hand-in 2's push and hand-in 3's, as GitHub's
+  // push log recorded them - the time a hand-in is judged by wherever the log
+  // names it (R6-7, 2026-10-15; it was the earliest run less the allowance).
+  const pushedAt = async (h) => loggedPushAt(h.sha);
+  const between = ((await pushedAt(h2)) + (await pushedAt(h3))) / 2;
+  if (!((await pushedAt(h3)) > (await pushedAt(h2)))) r.bad(`4 late: hand-in 3's push was not logged after hand-in 2's - cannot place a deadline between them`);
   await expectGraded("4 late + exception", {
     cap: 2, overrides: [overrideDoc([grant(5, at(11))])], deadline: new Date(between).toISOString(), want: h2, used: 2,
     ignored: [[h3, "late"], [h4, "late"]], score: 2,
@@ -331,7 +331,7 @@ async function main() {
   // every commit date is no hand-in at all, with the late one named.
   await expectGraded("8 no cap, late by push", { cap: null, deadline: new Date(between).toISOString(), want: h2, score: 2 });
   {
-    const before = new Date(pushedAt(h1) - PUSH_TO_RUN_ALLOWANCE_MS - 60_000).toISOString();
+    const before = new Date((await pushedAt(h1)) - 60_000).toISOString();
     if (!(Date.parse(h4.date) < Date.parse(before))) r.bad("8 no cap: the commit dates are not before the deadline - the case proves nothing");
     const res = await resolveHandIn(get, { row: row({ effective_deadline_at: before }), marker: markerFor(null) });
     if (res.verdict === "no-commit" && /after the deadline/.test(res.reason)) r.ok(`8 no cap, all pushed late: no hand-in (${res.reason})`);
@@ -351,11 +351,12 @@ async function main() {
   else r.ok(`7 runs deleted: ${h1Runs.length} run(s) of hand-in 1 are gone`);
   await expectGraded("7 runs deleted", { cap: 2, want: h2, used: 4, ignored: [[h3, "over-limit"], [h4, "over-limit"]], score: 2 });
 
-  // 9 timed by the push log alone: hand-in 5 is pushed, the deadline set 40s
-  // BEFORE the log's record of that push. With its runs it is on time - a run
-  // is a push plus GitHub's latency, so it gets PUSH_TO_RUN_ALLOWANCE_MS. Its
-  // runs deleted, only the log times it, and the log's time is the push: late.
-  // Before ba970d4 the allowance came off the log's time too, on time again.
+  // 9 timed by the push log: hand-in 5 is pushed, the deadline set 40s BEFORE
+  // the log's record of that push. The log's time is the push, so it is late
+  // WITH its runs too (R6-7, 2026-10-15: the run's time used to come first, and
+  // its PUSH_TO_RUN_ALLOWANCE_MS made a push 40s late on time). Its runs
+  // deleted, the log still times it: late. Before ba970d4 the allowance came
+  // off the log's time too, on time again.
   files = { ...files, "score.txt": "5\n" };
   const h5 = { n: 5, sha: await commit(files, h4.sha, MARKER, at(30)), date: at(30) };
   await push(h5.sha);
@@ -364,8 +365,9 @@ async function main() {
   const runAt = Math.min(...h5Runs.map((x) => Date.parse(x.created_at)));
   const justAfter = new Date(logAt - 40_000).toISOString();
   r.note(`9: push log ${new Date(logAt).toISOString()}, first run ${new Date(runAt).toISOString()} (+${(runAt - logAt) / 1000}s), deadline ${justAfter}`);
-  if (!(runAt - PUSH_TO_RUN_ALLOWANCE_MS <= logAt - 40_000)) r.bad("9: the run started over 80s after the push - the control below cannot pass");
-  await expectGraded("9 log only, control with runs", { cap: null, deadline: justAfter, want: h5, score: 5 });
+  // The case R6-7 is about: the run's time alone, less its allowance, is on time.
+  if (!(runAt - PUSH_TO_RUN_ALLOWANCE_MS <= logAt - 40_000)) r.bad("9: the run started over 80s after the push - the case below is not the one it tests");
+  await expectGraded("9 the log first, with its runs", { cap: null, deadline: justAfter, want: h4, score: 4 });
   for (const run of h5Runs) {
     const del = await api(`/repos/${FULL}/actions/runs/${run.id}`, { token, method: "DELETE" });
     if (del.status !== 204) r.bad(`9: could not delete run ${run.id} (HTTP ${del.status})`);

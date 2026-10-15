@@ -44,8 +44,8 @@ import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } 
 import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
-import { generatedFromTemplate } from "../lib/starter-sync-cohort.mjs";
-import { CONTROL_REPO } from "../lib/deployment.mjs";
+import { headIsProvided } from "../lib/untouched-repo.mjs";
+import { APP_SLUG, CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -739,6 +739,22 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
  * An empty list is not an error: it means everything on this branch was
  * committed after the deadline, so under `block` there is no submission.
  */
+/**
+ * Is this commit still only what the repository was given (lib/untouched-repo.mjs
+ * `headIsProvided`)? The recorded start, GitHub's generated commit, or either
+ * with only PXL Classroom's own commits on top - the grading workflow
+ * provisioning added before starts were recorded made an untouched repository
+ * two commits, which was archived as the student's work (R6-9). A read that
+ * failed on the way is not "at the start": the commit is archived as before.
+ */
+async function providedOnly(t, row) {
+  const verdict = await headIsProvided((p) => gh("GET", p), `${cfg.org}/${t.repoName}`, row, {
+    starterSha: t.starterSha ?? null,
+    appLogin: `${APP_SLUG}[bot]`,
+  }).catch(() => null);
+  return verdict === true;
+}
+
 async function submissionAsOf({ repoName, branch, deadline }) {
   const q = `sha=${encodeURIComponent(branch)}&until=${encodeURIComponent(deadline)}&per_page=1`;
   const res = await gh("GET", `/repos/${cfg.org}/${repoName}/commits?${q}`);
@@ -824,7 +840,7 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
             // reconstructed to the starter, which was archived as their work
             // and read On time. The recorded start, or GitHub's generated
             // first commit where none was recorded.
-            const atStart = Boolean(asOf.sha) && ((t.starterSha && asOf.sha === t.starterSha) || generatedFromTemplate(asOf.row));
+            const atStart = Boolean(asOf.sha) && (await providedOnly(t, asOf.row ?? { sha: asOf.sha }));
             snapshotSha = atStart ? null : asOf.sha;
             reconstructed = true;
             noSubmission = snapshotSha === null;
@@ -860,7 +876,7 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
           // student who never pushed was archived here as their own work with
           // the starter in it. One rule for both, so a push after the deadline
           // is not what decides whether nothing was handed in.
-          const atStart = (t.starterSha && commitRes.data.sha === t.starterSha) || generatedFromTemplate(commitRes.data);
+          const atStart = await providedOnly(t, commitRes.data);
           snapshotSha = atStart ? null : commitRes.data.sha;
           noSubmission = Boolean(atStart);
           if (atStart) log(`record ${t.login}`, { ok: true, note: `${branch} holds only what the repository was given - no submission` });

@@ -401,16 +401,20 @@ test("the workflow runs it, after the report and before the commit", () => {
   // which put the commit before the grading step and failed for the wrong
   // reason. An anchor that matches prose is the same defect as one whose
   // heading was renamed.
-  const commit = wf.indexOf("- name: Commit + push");
-  assert.ok(report > -1 && grade > -1 && commit > -1, "all three steps must be present");
+  const commit = wf.indexOf("- name: Commit + push\n");
+  // R6-8: the summary is carried by a commit of its own, after the sources.
+  const scores = wf.indexOf("- name: Commit + push the scores");
+  assert.ok(report > -1 && grade > -1 && commit > -1 && scores > -1, "all four steps must be present");
   assert.ok(report < grade, "the report is read before the scores");
-  assert.ok(grade < commit, "and the summary is written before the commit that carries it");
+  assert.ok(grade < commit && commit < scores, "and the summary is written before the commits, the sources' first");
 
-  // `grading/` is not a scaffolded directory, so `git add grading/` on the
-  // first assignment an org ever grades would exit 128 and stage NOTHING -
-  // including the paths that did match.
-  const step = wf.slice(commit);
-  assert.match(step, /mkdir -p [^\n]*control\/grading/);
-  assert.match(step, /git -C control add[^\n]*grading\//);
-  assert.ok(step.indexOf("mkdir -p") < step.indexOf("git -C control add"));
+  // `grading/` is not a scaffolded directory: the summary's directory is made
+  // before it is copied back and staged, and the sources' commit stages no
+  // grading/ at all.
+  const commitStep = wf.slice(commit, scores);
+  assert.doesNotMatch(commitStep, /git -C control add[^\n]*grading/);
+  const step = wf.slice(scores);
+  assert.match(step, /mkdir -p "control\/grading\/\$\{ASSIGNMENT_ID\}"/);
+  assert.match(step, /git -C control add -- "\$SUMMARY"/);
+  assert.ok(step.indexOf('mkdir -p "control/grading/') < step.indexOf("git -C control add"));
 });

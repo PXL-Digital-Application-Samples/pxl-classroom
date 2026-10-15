@@ -97,7 +97,7 @@ test("A CHOSEN COMMIT skips the rules - deadline, cap, which hand-in - and reads
   const out = await gradeStudent(fakeGitHub(reads), { row, marker, overrides: [doc("kim", [commit(SHA_A)])] });
   assert.equal(out.verdict, "graded");
   assert.equal(out.sha, SHA_A);
-  assert.deepEqual(reads, [`/repos/Org/r-kim/commits/${SHA_A}/check-runs`], "no hand-in listing, no run history - the rules were not consulted");
+  assert.deepEqual(reads, [`/repos/Org/r-kim/commits/${SHA_A}/check-runs?filter=all&per_page=100`], "no hand-in listing, no run history - the rules were not consulted");
   const { graded } = rowFromOutcome("kim", out, 10);
   assert.equal(graded.earned_points, 7);
   assert.equal(graded.graded_sha, SHA_A);

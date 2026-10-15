@@ -27,6 +27,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const workflow = (name) => parse(readFileSync(join(root, ".github/workflows", name), "utf8"));
 
 const finalizeCommit = workflow("daily-activity.yml").jobs.finalize.steps.find((s) => s.name === "Commit + push");
+const scoresCommit = workflow("daily-activity.yml").jobs.finalize.steps.find((s) => s.name === "Commit + push the scores");
 
 const git = (args, cwd) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -89,14 +90,40 @@ function finalizeWrites({ control }) {
   put(control, "reports/dashboard.json", '{"generated_at":"2026-09-27T01:38:30Z"}\n');
 }
 
-function runCommitStep({ dir }) {
-  const script = join(dir, "step.sh");
-  writeFileSync(script, finalizeCommit.run);
+/** The runner's own files, shared by every step of the job. */
+function runnerEnv({ dir }) {
+  const temp = join(dir, "runner-temp");
+  mkdirSync(temp, { recursive: true });
+  return { RUNNER_TEMP: temp, GITHUB_OUTPUT: join(dir, "github-output") };
+}
+
+function runStep(fx, step, name, extra = {}) {
+  const script = join(fx.dir, name);
+  writeFileSync(script, step.run);
   return spawnSync("sh", [script], {
-    cwd: dir,
+    cwd: fx.dir,
     encoding: "utf8",
-    env: { ...process.env, ASSIGNMENT_ID: "a1", MAX_RETRIES: "2" },
+    env: { ...process.env, ...runnerEnv(fx), ASSIGNMENT_ID: "a1", MAX_RETRIES: "2", ...extra },
   });
+}
+
+const runCommitStep = (fx) => runStep(fx, finalizeCommit, "step.sh");
+
+/** The scores step, given the `start` output the commit step wrote. */
+function runScoresStep(fx) {
+  const out = readFileSync(runnerEnv(fx).GITHUB_OUTPUT, "utf8");
+  const start = out.match(/^start=([0-9a-f]{40})$/m)?.[1];
+  assert.ok(start, `the commit step wrote its start: ${out}`);
+  return runStep(fx, scoresCommit, "scores.sh", { START: start });
+}
+
+/** Someone else's commit landing on the remote meanwhile (a lecturer's save). */
+function otherCommits({ regen }, path, body) {
+  git(["pull", "-q", "--rebase"], regen);
+  put(regen, path, body);
+  git(["add", path], regen);
+  git(["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", `Save ${path}`], regen);
+  git(["push", "-q", "origin", "main"], regen);
 }
 
 const atRemote = ({ remote }, path) => git(["show", `main:${path}`], remote);
@@ -121,8 +148,18 @@ test("finalize pushes its sources over a report regenerate-dashboard rewrote mea
     assert.equal(atRemote(fx, "lockdowns/a1/lockdown-record.json"), '{"outcome":"locked"}');
     assert.equal(atRemote(fx, "observations/a1/ann/preservation.json"), '{"verified":true}');
     assert.equal(atRemote(fx, "observations/a1/ann/2026-09-27T01-38-00Z.json"), '{"final":true}');
-    assert.equal(atRemote(fx, "grading/a1/summary.json"), "{}");
     assert.match(git(["log", "-1", "--format=%s", "main"], fx.remote), /^Finalize deadline for a1$/);
+    assert.deepEqual(
+      git(["show", "--name-only", "--format=", "main"], fx.remote).split("\n").filter((p) => p.startsWith("grading/")),
+      [],
+      "the scores are not in the finalize commit (R6-8)",
+    );
+
+    // ...and the scores follow, in a commit of their own.
+    const scores = runScoresStep(fx);
+    assert.equal(scores.status, 0, `${scores.stdout}\n${scores.stderr}`);
+    assert.equal(atRemote(fx, "grading/a1/summary.json"), "{}");
+    assert.match(git(["log", "-1", "--format=%s", "main"], fx.remote), /^Scores at the deadline for a1$/);
 
     // And nothing under reports/ came from finalize: the regeneration's copy
     // stands until the one trigger-dashboard dispatches rebuilds it.
@@ -153,6 +190,71 @@ test("with no concurrent writer, finalize still commits no report", () => {
     assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
     assert.match(atRemote(fx, "reports/a1.json"), /01:30:00Z/);
     assert.equal(atRemote(fx, "lockdowns/a1/lockdown-record.json"), '{"outcome":"locked"}');
+  } finally {
+    rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("R6-8: a lecturer's score save at the deadline no longer fails the lock record's push, and it is kept", () => {
+  // The case: Read all scores again pressed at the deadline wrote
+  // grading/a1/summary.json while finalize ran. One commit carried both, the
+  // rebase conflicted, and nothing finalize knew reached the remote.
+  const fx = fixture();
+  try {
+    finalizeWrites(fx);
+    otherCommits(fx, "grading/a1/summary.json", '{"by":"lecturer"}\n');
+    const res = runCommitStep(fx);
+    assert.equal(res.status, 0, `the deadline is not red:\n${res.stdout}\n${res.stderr}`);
+    assert.equal(atRemote(fx, "lockdowns/a1/lockdown-record.json"), '{"outcome":"locked"}');
+    assert.equal(atRemote(fx, "observations/a1/ann/preservation.json"), '{"verified":true}');
+
+    const scores = runScoresStep(fx);
+    assert.equal(scores.status, 0, `${scores.stdout}\n${scores.stderr}`);
+    assert.match(scores.stdout, /::notice::The scores or a grading decision for a1 were saved while this ran/);
+    assert.equal(atRemote(fx, "grading/a1/summary.json"), '{"by":"lecturer"}', "the lecturer's read stands");
+  } finally {
+    rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("R6-8: a grading decision saved while finalize ran keeps this reading from being written over it", () => {
+  // The reading used the checkout's overrides/, minutes old: a score by hand
+  // set meanwhile would be replaced by the rules' score.
+  const fx = fixture();
+  try {
+    finalizeWrites(fx);
+    const res = runCommitStep(fx);
+    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+    otherCommits(fx, "overrides/a1/ann.json", '{"decision":"manual"}\n');
+    const scores = runScoresStep(fx);
+    assert.equal(scores.status, 0, `${scores.stdout}\n${scores.stderr}`);
+    assert.match(scores.stdout, /::notice::/);
+    assert.throws(() => atRemote(fx, "grading/a1/summary.json"), "nothing written");
+    // Another assignment's decision is not this one's.
+    const fy = fixture();
+    try {
+      finalizeWrites(fy);
+      assert.equal(runCommitStep(fy).status, 0);
+      otherCommits(fy, "overrides/a10/ann.json", "{}\n");
+      assert.equal(runScoresStep(fy).status, 0);
+      assert.equal(atRemote(fy, "grading/a1/summary.json"), "{}");
+    } finally {
+      rmSync(fy.dir, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("R6-8: no reading, no scores commit", () => {
+  const fx = fixture();
+  try {
+    put(fx.control, "lockdowns/a1/lockdown-record.json", '{"outcome":"locked"}\n');
+    assert.equal(runCommitStep(fx).status, 0);
+    const head = git(["rev-parse", "main"], fx.remote);
+    const scores = runScoresStep(fx);
+    assert.equal(scores.status, 0, `${scores.stdout}\n${scores.stderr}`);
+    assert.equal(git(["rev-parse", "main"], fx.remote), head);
   } finally {
     rmSync(fx.dir, { recursive: true, force: true });
   }

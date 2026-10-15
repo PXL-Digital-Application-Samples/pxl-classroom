@@ -67,12 +67,19 @@ const marker = (over = {}) => ({ type: "commit_message", value: MSG, multiple: t
  * Hand-in n is a commit at minute `min` whose grading run scores n/100. Other
  * commits (`noise`) sit between them the way real work does.
  */
-/** The push log a set of push runs implies: one entry per head on main, newest first. */
+/**
+ * The push log a set of push runs implies: one entry per head on main, newest
+ * first, at the EARLIEST of its runs - a push comes before the runs it starts,
+ * and the log is now read first wherever it knows a commit (R6-7).
+ */
 function pushLog(runs) {
   const seen = new Map();
   for (const r of runs) {
     if ((r.head_branch ?? "main") !== "main" || !r.head_sha) continue;
-    if (!seen.has(r.head_sha)) seen.set(r.head_sha, { activity_type: "push", ref: "refs/heads/main", after: r.head_sha, timestamp: r.created_at });
+    const prev = seen.get(r.head_sha);
+    if (!prev || Date.parse(r.created_at) < Date.parse(prev.timestamp)) {
+      seen.set(r.head_sha, { activity_type: "push", ref: "refs/heads/main", after: r.head_sha, timestamp: r.created_at });
+    }
   }
   return [...seen.values()];
 }
@@ -117,7 +124,7 @@ function world({ handIns = [], noise = 3, repo = REPO, runsStatus = 200, commits
       if (activityStatus !== 200) return { ok: false, status: activityStatus, data: null };
       return { ok: true, status: 200, data: pushLog(runs) };
     }
-    const cr = path.match(new RegExp(`^/repos/${repo}/commits/([0-9a-z]+)/check-runs$`));
+    const cr = path.match(new RegExp(`^/repos/${repo}/commits/([0-9a-z]+)/check-runs\\?filter=all&per_page=100$`));
     if (cr) {
       const h = handIns.find((x) => sha(x.n) === cr[1]);
       if (!h) return { ok: true, status: 200, data: { check_runs: [] } };
@@ -1094,12 +1101,15 @@ test("the push log's time IS the push: no allowance for GitHub's latency is take
 
 test("listHandIns says where each push time came from, and a log-timed hand-in pushed after the deadline is late", async () => {
   // Hand-in 2's runs were deleted, so only the push log times it - 40s late.
+  // Hand-in 1 is missing from the log (one it does not name), so its run does.
   const late = new Date(Date.parse(DEADLINE) + 40_000).toISOString();
   const base = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }, { n: 2, min: 20 }] });
   const get = async (path) => {
     const res = await base(path);
     if (path.includes("event=push")) return { ...res, data: { workflow_runs: res.data.workflow_runs.filter((r) => r.head_sha !== sha(2)) } };
-    if (path.includes("/activity?")) return { ...res, data: res.data.map((a) => (a.after === sha(2) ? { ...a, timestamp: late } : a)) };
+    if (path.includes("/activity?")) {
+      return { ...res, data: res.data.filter((a) => a.after !== sha(1)).map((a) => (a.after === sha(2) ? { ...a, timestamp: late } : a)) };
+    }
     return res;
   };
   const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
@@ -1107,6 +1117,33 @@ test("listHandIns says where each push time came from, and a log-timed hand-in p
   const r = selectHandIn(listed.handIns, { until: DEADLINE, limit: 5 });
   assert.equal(r.commit.sha, sha(1));
   assert.deepEqual(r.ignored.map((i) => [i.sha, i.reason]), [[sha(2), "late"]]);
+});
+
+test("R6-7: where the push log and a run both know a hand-in, the log's time is the push", async () => {
+  // Deadline 12:00. A push logged at 11:58 whose run GitHub created at 12:03
+  // (a queue) is on time; one logged at 12:01:45 whose run started at
+  // 12:01:50 is late - the run's two-minute allowance made it on time.
+  const iso = (ms) => new Date(Date.parse(DEADLINE) + ms).toISOString();
+  const cases = [
+    { log: iso(-120_000), run: iso(180_000), onTime: true },
+    { log: iso(105_000), run: iso(110_000), onTime: false },
+  ];
+  for (const c of cases) {
+    const base = dispatchWorld({ branchHandIns: [{ n: 1, min: 10 }] });
+    const get = async (path) => {
+      const res = await base(path);
+      if (path.includes("event=push")) {
+        return { ...res, data: { workflow_runs: res.data.workflow_runs.map((r) => (r.head_sha === sha(1) ? { ...r, created_at: c.run } : r)) } };
+      }
+      if (path.includes("/activity?")) return { ...res, data: res.data.map((a) => (a.after === sha(1) ? { ...a, timestamp: c.log } : a)) };
+      return res;
+    };
+    const listed = await listHandIns(get, { repoFullName: REPO, branch: "main", marker: marker() });
+    const h1 = listed.handIns.find((x) => x.sha === sha(1));
+    assert.deepEqual([h1.pushedAt, h1.pushedFrom], [c.log, "log"]);
+    const picked = selectHandIn(listed.handIns, { until: DEADLINE, limit: 5 });
+    assert.equal(picked.commit?.sha ?? null, c.onTime ? sha(1) : null, JSON.stringify(c));
+  }
 });
 
 test("UNCAPPED `multiple: false` takes the FIRST hand-in from the run history too, so a force-push cannot move it", async () => {
