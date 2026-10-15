@@ -1864,6 +1864,12 @@ Enforcing it is the standard recipe: commitlint, and husky to run it from `commi
 
 Two things worth keeping here. **A tool's `init` command optimises for the common repository, not for yours** - it scaffolded a `pre-commit` hook running the full 52-second test suite as well, which CI already runs on every push. And **the blast radius of a dev-tooling change is whatever shares the file it edits**: `package.json` is not a developer's file here, it is the thing fourteen production jobs install from.
 
+### A feature gets its own `feat:` commit, with a scope, and never rides inside a batch.
+
+v2.5.0 was cut from 35 commits, and the lecturer who asked for its most important change read the notes and could not find it. Copying a template with every branch and its full history was there, as the fifth Features line, unscoped, sharing one subject with "rename a team before anyone accepts", because both had gone into one `feat:` commit and the generator writes one line per commit from the subject alone. Reading every body of the release found the rest of the pattern: Lock again, three new help topics with their buttons, and `pxl-classroom download --history` were new things a person could do, committed inside `fix:` batches named after the review that found them ("third review batch, from archives and team switches to the CLI, sentinel and pages"), so they were in no Features list; the removal of submit tags was half of a `fix:` subject; and "Being graded" was listed as a feature while it corrected a message that had called a running exam grading abandoned. About ten Fixes lines were batch names that told a lecturer nothing.
+
+The commit-type hook guards the type, and the type was right in every one of these: a batch of fixes is a `fix:`. What no check can see is a feature inside a body, so the rule is about how work is committed: whatever a person can newly do is its own `feat:`, a removal its own commit, and a batch carries fixes only. The v2.5.0 notes needed rewriting by hand, from the bodies.
+
 ### The recommendation that survived being argued with, and the two costs that did not.
 
 Asked whether to build organization-scoped lockdown, the answer was no, on four grounds: a race when two lecturers reopen two students at once, repository-name globs colliding between assignments, the coexistence work, and free organizations gaining nothing.
