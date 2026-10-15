@@ -34,20 +34,48 @@ I built it for my own courses at first.
 
 ## Screenshots
 
-### Lecturer Dashboard Overview
-*Organization overview showing active assignments, submission metrics, and resource limit monitoring.*
+*A fictional course, made for these screenshots.*
 
-![Lecturer Dashboard Overview](assets/images/lecturer-dashboard.png)
+### Assignments at a glance
+*Every assignment in the course: how many accepted, and how many handed in on time, late or not at all.*
 
-### Assignment Submissions & Management
-*Student progress, live submission status badges, and starter code sync actions.*
+![Assignments at a glance](assets/images/readme-overview.png)
 
-![Assignment Submissions & Management](assets/images/assignment-submissions.png)
+### Progress
+*One assignment, student by student: their repository, last commit and score.*
 
-### Group Assignments & Team Management
-*Self-service team formation, capacity limits, under-capacity indicators, and team repository tracking.*
+![Progress of one assignment](assets/images/readme-progress.png)
 
-![Group Assignments & Team Management](assets/images/group-assignment.png)
+### Grading
+*Scores read from GitHub Actions, the average and median, and why a student has no score.*
+
+![Grading](assets/images/readme-grading.png)
+
+### Teams
+*Teams the students formed themselves, each sharing one repository.*
+
+![Teams](assets/images/readme-teams.png)
+
+### Roster
+*The class list, imported from a CSV, with each student's GitHub account.*
+
+![Roster](assets/images/readme-roster.png)
+
+### A new assignment
+*A template, a title and a deadline; everything else has a default.*
+
+![A new assignment](assets/images/readme-new-assignment.png)
+
+### What a student sees
+*After accepting: their repository, the deadline, and whether what they pushed is on time.*
+
+![What a student sees](assets/images/readme-student.png)
+
+The screenshots are taken by [`tests/screenshots/`](tests/screenshots/readme.shots.mjs), from the fictional course on a mocked GitHub. To take them again after the screens change:
+
+```bash
+npx playwright test --config tests/screenshots/playwright.shots.config.mjs
+```
 
 ---
 
@@ -65,11 +93,16 @@ I built it for my own courses at first.
 
 - **You decide who may accept, per assignment.**
   - open signup with a limit on how many places there are.
-  - a roster you import (by name and email, or by GitHub username)
+  - a roster you import from a CSV class list
   - a self-service email claim, where the student confirms their institutional address and it is matched against your roster
   
-- **Students hold Admin on their own repository.**
-  - They can manage secrets, environments, runners and OIDC
+- **Students can hold Admin on their own repository.**
+  - It is the default, and you can choose less per assignment.
+  - With Admin they manage secrets, environments, runners and OIDC
+
+- **Git exercises with prepared branches.**
+  - An assignment can give each student the template's whole history and every branch, rather than GitHub's single-commit copy.
+  - So the branches you prepared can be merged and rebased the way the exercise intends.
 
 - **Teams form and manage themselves.**
   - Students create or join a team within the size you set, and can move between teams until the deadline.
@@ -85,10 +118,12 @@ I built it for my own courses at first.
   - or locally in a sandboxed Docker container that costs no Actions minutes, for very large or complex workloads.
   - Scores come back into the dashboard either way
   - includes a template that already ships GitHub Classroom's own grading workflow.
+  - A commit message can mark the hand-in, with an optional limit on how many count; you can also choose the commit that counts, or set a score by hand.
 
 - **The deadline can be a real deadline.**
   - Choose per assignment: record late work, or stop writes at the deadline instant.
   - A watcher enforces this immediately; the nightly workflow is the fallback.
+  - Give one student more time, or reopen a locked repository and lock it again.
 
 - **Archival function.**
   - Every submission is archived in a private repository the student cannot access.
@@ -120,7 +155,7 @@ An owner installs the App there with access to **All repositories**, then runs *
 
 **The "Connect an organization" button in the web app walks you through both steps.**
 
-![Connect an organization button](assets/images/connect-org-button.png)
+![Connect an organization](assets/images/readme-connect-org.png)
 
 **Owning this organization is what makes you a lecturer in it.** There is no user list and no roles, so every owner can edit every assignment in the organization.
 
@@ -138,7 +173,7 @@ An owner installs the App there with access to **All repositories**, then runs *
 - Open `/dashboard/:org` and click **New assignment**.
 - Fill in the template repository, the title and deadline
 - Check settings for individual or group work, who may accept, and any automated checks.
-- Click Save & Publish.
+- Click **Save & publish**.
 
 ### 3. Student Acceptance
 
@@ -169,7 +204,7 @@ flowchart LR
 
     subgraph acc [" "]
         direction TB
-        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in under a minute"]
+        Accept["STUDENT<br/>opens the link,<br/>signs in"] -.-> Repo["a private repo appears,<br/>from your template,<br/>in a minute or two"]
     end
 
     acc --> Work["STUDENT<br/>works and pushes"]
@@ -181,7 +216,7 @@ flowchart LR
 
 At its core, this system is a **repository provisioner and a passive monitor**. It creates a private repository from your template for a student.
 
-*Once provisioned, the risk is negligible: the rest of the system is just monitoring commit timestamps and building reports. Even if the dashboard code had a bug, student repositories and git history remain safe and untouched, with the exception of a hard lockdown of student repos at the deadline.*
+*Once provisioned, the risk is small: the rest of the system mostly reads commits and builds reports. It writes to a student repository only when you ask it to (updating the starter code, opening a feedback pull request, reopening a locked repository) and at the deadline, when it locks the repository if you chose that. It never rewrites a student's history.*
 
 ### Public vs. Private Boundaries
 
@@ -217,7 +252,7 @@ Everything public is either code you can read or a doorbell that carries a reque
 | Component | Visibility | Where It Lives | Purpose |
 | :--- | :--- | :--- | :--- |
 | **Hub Repository (`pxl-classroom`)** | **PUBLIC** | Central Org | Holds all workflows, scripts, and the static Vue SPA frontend. **The only place code runs!** (Hub workflow minutes are 100% free). |
-| **Web App (GitHub Pages)** | **PUBLIC** | Central Hub Pages | Static SPA. Holds **no secret keys**. Talks to GitHub's REST/GraphQL API using the authenticated user's own token. |
+| **Web App (GitHub Pages)** | **PUBLIC** | Central Hub Pages | Static SPA. Holds **no secret keys**. Talks to GitHub's REST API using the authenticated user's own token. |
 | **Broker Repository (`broker-<id>`)** | **PUBLIC** | Your Course Org | **1 public repo per assignment.** Serves as a secure "doorbell" to catch student acceptance triggers at the edge. |
 | **Control Repository (`pxl-classroom-control`)** | **PRIVATE** | Your Course Org | **Data only.** Holds YAML configs, rosters, teams, reports, and observations. **Contains zero workflows.** |
 | **Student Repositories** | **PRIVATE** | Your Course Org | Private repos generated from your template where the student can be `Admin`. |
