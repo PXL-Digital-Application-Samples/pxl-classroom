@@ -160,7 +160,8 @@ function isPreserved(controlDir, assignmentId, login, snapshotSha) {
  * finished assignment is not re-run for it: every finalize since 2026-09-03
  * closed its broker (the nightly logs, read 2026-10-14: 93 closed, one broker
  * already deleted); the few finalized before the close step existed were
- * checked by hand with tests/live/broker-hygiene.mjs (REVIEW-TRACKER P2-41).
+ * checked by hand with tests/live/broker-hygiene.mjs; the two it cannot read
+ * are OPEN-ITEMS §15.
  */
 const BROKER_CLOSE_RECORDED_SINCE = '2026-10-15T00:00:00Z';
 function brokerOwed(controlDir, id, record) {

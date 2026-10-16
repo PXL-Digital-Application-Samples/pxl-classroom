@@ -133,7 +133,7 @@ The **⋯** button on a student's row, on **Progress** or **Grading**, opens wha
 - **Grant deadline extension** gives them a later deadline, with a reason. See [Deadlines and extensions](#deadlines-and-extensions).
 - **Hand-ins** gives them more hand-ins than the limit. See [Autograding](#autograding).
 - **Retry acceptance** runs their acceptance again, for a row that says it failed or got stuck. Their work is not touched.
-- **Reopen the repository**, after the deadline, lets them push again, with a reason that is kept. It is offered once their work is safely archived. Nothing else ever locks a reopened repository again: once it is reopened, the dialog says when, by whom and why, and offers **Lock again** instead.
+- **Reopen the repository**, after the deadline, lets them push again, with a reason that is kept. It is offered once their work is safely archived. Once it is reopened, the dialog says when, by whom and why, and offers **Lock again** instead. If their deadline is still ahead - you moved it later, or gave them an extension - they are locked, archived and graded again at that deadline, and the dialog says so before you press it; otherwise nothing locks them again until **Lock again**.
 - **Grading** shows their score now. **Read score again** reads their run again; **Choose the commit that counts…** grades another commit; **Set score by hand** replaces the score. A chosen commit or a score by hand outranks every later reading until you take it back with **Go back to the rules** or **Remove the score set by hand**.
 
 ## The assignment's status

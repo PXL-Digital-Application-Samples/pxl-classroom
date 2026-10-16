@@ -270,6 +270,8 @@ The others were the same shape smaller. Lockdown's own re-lock of a reopened stu
 
 And CI had been red since 55edad8 the morning before, on one assertion that Windows' case-insensitive filesystem satisfied and Linux did not. Every push and every Dependabot pull request since had failed it, and nothing in the session looked. A green local run on Windows is not CI's run; read CI after a push.
 
+That night every live test ran against the testbed, with a new one that takes a reopen with time through its whole life in the real dialogs. It passed. What it found was the gap the close-only fix had accepted when it chose a mark written at the moment over a rule of times: a broker switched on by a deadline moved before the mark existed was closed by nothing. The read-only broker check found one on the testbed, ten hours past its deadline with its key on the public broker, and PXL-2TIN-DevOps-2627/groepsindeling was another, due to close that evening. Publishing it again wrote the mark, and the real queue, run on a copy of its control repository after the deadline, then owed it the close. The run also found three live tests wrong rather than the system: one took an existing repository for finished provisioning, one asserted wording changed that morning, and two runs at once shared one output folder, so one deleted the other's trace and failed it after every check had passed. And the drill's own account check read GitHub's anonymous rate limit, spent by the night's runs, as a flagged account; it asks as another test account now.
+
 ### Anything that can run twice, or late, is idempotent - and a retry is a policy, not a loop.
 
 The watchdog's scheduled run at 17:08 UTC on 2026-10-15 went red with `npm ci` exit 152: `ECONNRESET` reading from the npm registry, eleven seconds in, before any of its code ran. A re-run passed at once, and for the watchdog the next run 30 minutes later is the retry anyway. For the Deadline Sentinel it is not: a watch that cannot install stops nothing at the instant, and the cohort can push until the nightly.
@@ -2946,6 +2948,16 @@ The first review asked what the new code assumed; this one asked what each fix l
 
 When the fixes for a feature have reduced it to "shown, decides nothing", ask whether anyone needs it shown before fixing it again.
 
+### The archive reviewed on its own found the finalize deciding by state, and an untouched student counted as on time.
+
+2026-10-14, a review of archiving alone. An assignment archived or sent back to draft before the nightly was never locked, preserved or its broker closed, because the queue chose assignments by their state. A preservation that partly failed let the nightly switch itself off with the retry still owed. Pushes into the archive ran the template's workflows there. And GitHub's copy plus the grading workflow provisioning commits started a repository at two commits, so every student who had done nothing read as handed in on time. The finalize goes by the records now (`inFinalizeScope`), owed work keeps the nightly on, the archive's Actions are off, and what a repository was given is recorded rather than counted.
+
+The state field says what a lecturer last chose; the records say who is in it. Ask the records.
+
+### Five reviewers over what the first rounds had not read found the CLI behind the page.
+
+2026-10-14, the fourth round. `pxl-classroom teams seed`, `teams unseed`, `feedback open` and the roster commands wrote back documents they had read minutes earlier, without the commit checks the Teams tab had been given the day before: a member's acceptance landing in between was undone by a write that never asked again. The page and the CLI write the same files, and a rule given to one writer is owed to every writer of that file.
+
 ### `pxl-classroom download` had never downloaded anything, and no test had ever run it.
 
 2026-10-14, the third round of the same review. A finding asked for `download` to fetch a full-history submission whole, and the first test that ran the command end to end, against a mocked API and a real archive repository, failed before it reached that line. It called `getReport(octokit, org, id)` where the function takes `{ org, assignmentId }`, so it read `reports/undefined.json`, found nothing and stopped with "Has the deadline finalized?"; and it handed git the stored sign-in object rather than its access token, so every fetch would have been refused too. Its tests covered the helpers it calls, each correct on its own. Nothing had called the command, so the two calls between them, which were wrong, ran nowhere. The same round found the sentinel's poll set only growing, a teammate given two minutes to wait for an eight-minute copy, and the copy's authentication header never exercised (`file://` sends no `http.*` config; the test now serves git over HTTP and refuses without it). Each was a path no test had walked from its entry point.
@@ -2969,6 +2981,10 @@ Every surface that opens a feedback pull request had been fixed to read the subm
 The same drill found the second half by accident. Its Retry ran after the student had pushed, met no baseline, and made one at the head - with the student's work inside it, so the pull request that exists to review that work would have shown nothing. A Retry is the documented repair for exactly this failure, so the repair was the defect. Where the baseline goes is what the student was given (`baselineStart`): the head when nobody but the App has pushed, GitHub's generated first commit when nothing was added on top of it, and otherwise nothing, said in the run. `baseline_sha` had also been the head over a baseline that already existed elsewhere; it is where the baseline is now.
 
 No provisioning test had a template whose default branch was not `main`, so the stub's generate response and the template always agreed. The new one answers it the way GitHub does - `main`, whatever the template says - and fails four of five cases against the old code.
+
+### Two audits of the documents and the help against the code found a manual written from documents.
+
+2026-10-15, two read-only audits: every document and every help topic, against the code it describes. The manual was wrong in 31 places, 17 section references pointed at nothing, and documents meant to describe the system as it is carried incident narrative. Most of the errors were controls named as they no longer are, copied from a document that had been right once. Three findings were code, not wording. A document is checked against the code it describes, never against the document it was copied from.
 
 ### A migration that changed GitHub and told the control repository nothing.
 

@@ -308,7 +308,12 @@ async function main() {
                 // The slugs it had before a rename (lib/team-rename.mjs): a page
                 // loaded before it sent the old one, the hub put the student in
                 // this team, and the page finds them here (review 2026-10-14).
-                // Names only, which were public before the rename.
+                // Names only. Usually they were published before the rename; a
+                // team renamed within minutes of being made, before any rebuild,
+                // publishes an old name that never was. Accepted: they are
+                // slug-shaped, behind the invitation digest, a name holding an
+                // address is refused, and telling the two apart would need the
+                // generator to remember what it published.
                 ...(Array.isArray(tdata.renamed_from) && tdata.renamed_from.length
                   ? { renamed_from: tdata.renamed_from.map(String) }
                   : {}),

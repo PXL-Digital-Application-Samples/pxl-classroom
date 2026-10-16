@@ -63,7 +63,7 @@ If that account is lost, sign-in does not break - it fails over to the third-par
 
 ## 3. Organization-scoped lock-down holds real cohorts, and no real cohort has been reopened from it
 
-**Status: open - the default, on real cohorts since 2026-10-12; a reopen on one has not been done.** PXL-Systems-Expert's `2627-systemsexp-pe1-groepsindeling` (31 students, 2026-10-12) and PXL-Automation-II's `pxl-2627-autii-pe1` (38, 2026-10-13) are held by `lock_method: org-ruleset`, with `reopened_count: 0` and no reopen record. **Reopen** and **Lock again** were clicked in the real dialog on the testbed on 2026-10-15 (`tests/live/ui/relock.live.mjs`), each checked on GitHub, over an organization ruleset that listed a deleted repository.
+**Status: open - the default, on real cohorts since 2026-10-12; a reopen on one has not been done.** Re-checked 2026-10-17: no `unlocked/` record in any course organization the hub account can read, and both cohorts below still at `reopened_count: 0`. On the testbed, Reopen, Lock again, and a reopen with time locked again at its end, were all run in the real dialogs that day (`relock.live.mjs`, `reopen-time.live.mjs`). PXL-Systems-Expert's `2627-systemsexp-pe1-groepsindeling` (31 students, 2026-10-12) and PXL-Automation-II's `pxl-2627-autii-pe1` (38, 2026-10-13) are held by `lock_method: org-ruleset`, with `reopened_count: 0` and no reopen record. **Reopen** and **Lock again** were clicked in the real dialog on the testbed on 2026-10-15 (`tests/live/ui/relock.live.mjs`), each checked on GitHub, over an organization ruleset that listed a deleted repository.
 
 **What it is.** Under `late_policy: block`, an assignment that does not say otherwise is covered by one organization ruleset targeted by `repository_id` (ARCHITECTURE §11.2.1). A student who is admin of their own repository cannot delete, disable or leave it (measured 2026-09-08: 404 on each, 409 on a push) and keeps their Actions and secrets. Reopen removes one id (`lib/repo-unlock.mjs`), Lock again adds it back (`lib/repo-relock.mjs`), and every write recovers from a deleted repository in the list (`withoutGoneRepos`). `org_scoped_lock: false` opts an assignment back to one repository ruleset per student, which such a student can switch off in their own settings; `scripts/migrate-org-lock.mjs` moves a cohort the other way.
 
@@ -167,42 +167,6 @@ done
 ```
 
 printing nothing is this item still open. It reads only organizations whose control repository you can see, so run it as an owner of each.
-
----
-
-## 6. The roster is organization-wide and lives inside one assignment's editor
-
-**Status: open.** Raised 2026-09-06. Not a defect: everything works, and the Roster tab already says which organization it belongs to. It is a question about where things sit, which no procedure can answer.
-
-Where the app puts things today:
-
-| Route | What it is | Scope |
-|---|---|---|
-| `/dashboard/:org` | the organization's assignments | organization |
-| `/dashboard/:org/:assignmentId` | one assignment, in detail | assignment |
-| `/dashboard/:org/admin` | the assignment **editor**, with a list of assignments down the left | assignment |
-| `/dashboard/:org/admin` → **Roster** tab | every student the organization teaches | **organization** |
-
-The last row is the mismatch. The roster is org-wide, and it is reached by opening a view whose other tab edits a single assignment. Going from the dashboard to an assignment, then to Admin, gives you a second detailed view of that same assignment - which is fine, and **New assignment** on the dashboard reaching the same place is fine too. The roster arriving there as a tab is the part that does not follow.
-
-Two arrangements were sketched when this was raised, and neither is chosen:
-
-- **Two tabs at the organization.** The dashboard becomes the organization view proper and carries the org-wide things side by side: **Assignments** and **Roster**. The assignment editor stays where it is, reached from an assignment or from **New assignment**.
-- **Three tabs, and you cycle through those for everything.** **Assignments** as the default, the editor as a second, and **Roster** as a third.
-
-**What is unresolved, and is the reason this is a register entry rather than a change:**
-
-- **The second tab has no good name.** It is called *Admin* today, which describes a mode rather than a thing, and reads as administration of the organization when it edits one assignment. A single word is wanted and none has been found.
-- **Whether the editor belongs in that strip at all**, given it is per assignment and the other two are per organization. Three tabs where one changes scope is arguably the same mismatch rearranged.
-- **What happens to `/dashboard/:org/admin`.** It is a bookmarkable URL, it carries `?edit=<id>`, and `tests/vue-route-safety.test.mjs` requires every route to be linked to from somewhere or not ship.
-
-**How to tell it is closed:** the roster is no longer rendered by the assignment editor, so
-
-```bash
-grep -c "RosterTab" frontend/src/views/AdminView.vue
-```
-
-returns `0` - or the arrangement was considered and kept, and this entry says so instead.
 
 ---
 
@@ -320,7 +284,7 @@ gh api "repos/pxl-classroom-testbed/pxl-grade-dispatch-probe/actions/runs/<delet
 
 ## 12. Claim bindings from before `claimed_through` count as gate-admitted
 
-**Status: open, accepted.** Found in the review of v1.5.0, 2026-09-27.
+**Status: open, accepted.** Found in the review of v1.5.0, 2026-09-27. Re-measured 2026-10-17: PXL-2TIN-NetAdv-26-27 still holds 95 files under `students/claims/` without the field (of 145, scaffold files included), PXL-Java-Essentials 3 of 207; the other readable organizations hold their scaffold files and nothing else.
 
 A refusal on a binding the claim gate admitted is not counted as a guess; a refusal on one the confirm link or open enrolment wrote is (`acceptance/accept.mjs`, `claimed_through`). A binding written before that field existed has none, and absent is read as gate-admitted - the permissive reading, against "Fail closed".
 
@@ -373,7 +337,7 @@ grep -n "newestRegen > lastOkAt\|r.conclusion === \"success\" || r.conclusion ==
 
 ## 15. Two brokers finalized before acceptance was closed at the deadline may still hold the broker App's key
 
-**Status: open.** Found 2026-10-14 (REVIEW-TRACKER P2-41); moved here 2026-10-15 because no nightly will ever retry it.
+**Status: open.** Found 2026-10-14 in a review of the finalize; moved here 2026-10-15 because no nightly will ever retry it. Re-checked 2026-10-16 with `tests/live/broker-hygiene.mjs`: both still unreadable to the hub account (HTTP 403 on the variable and the secrets).
 
 Six assignments were finalized before `scripts/close-acceptance.mjs` existed (2026-09-03). Four of their brokers are confirmed closed. The two `test-opdracht` brokers, `PXL-2TIN-CloudEssentials-2627/broker-test-opdracht` and `PXL-2TIN-DevOps-2627/broker-test-opdracht`, cannot be read by the account that checked (a member there, not an admin), and the finalize queue does not reach them: it re-runs a broker close only for a lock written since closing was recorded (`BROKER_CLOSE_RECORDED_SINCE`, `scripts/find-finalizable.mjs`). Every finalize since 2026-09-03 closed its broker (136 nightly logs: 93 closed, one broker already deleted).
 
@@ -399,6 +363,7 @@ Kept briefly so they are not reopened from memory. Each was verified against the
 
 | Item | Closed by | Evidence |
 |---|---|---|
+| **The roster was organization-wide and lived inside one assignment's editor** (closed 2026-10-17, raised 2026-09-06) | The organization got pages of its own, and the editor became a tab of the assignment it edits | `/dashboard/:org` lists the assignments, beside `/dashboard/:org/roster` (`RosterView.vue`), `/dashboard/:org/organization` and `/dashboard/:org/usage`; an assignment is edited at `/dashboard/:org/:assignmentId` (`tab=settings`) and a new one at `/dashboard/:org/new`. `/dashboard/:org/admin` is a redirect kept for links already handed out (`?edit=` lands on the assignment's settings). `grep -c "RosterTab" frontend/src/views/AdminView.vue` is `0`. |
 | **Most App tokens reached every repository with every permission** (2026-09-17) - *found by zizmor's `github-app` audit: 23 of 27 token steps minted with only `owner:`* | Every token step asks for its row in `lib/app-token-scopes.mjs`, narrowed in three stages the same day with no change to the App's own permissions, and each exam-path change proven with `tests/live/drill.mjs` on the testbed (moved to Team for it) as it landed | `grep -c "pending:" lib/app-token-scopes.mjs` is 0, and `tests/app-token-scopes.test.mjs` refuses a row with every permission or a broad row without a reason. On the narrowed tokens, drills `drill-20260917-1519` to `-1646` on `pxl-classroom-testbed` passed publish and republish, both acceptances with their labels, a refusal, a retry, the sentinel stopping writes at the instant, the lock by organization ruleset and by repository ruleset with demotion, a refused late push, preservation, the report, the closed broker, a retry refused over a locked repository, and `migrate-org-lock` run for real. Grading at the deadline (Checks read) is the one path no drill reached, because no drill assignment grades. |
 | **Nothing graded automatically, and grading was one button for a whole cohort** (2026-09-08) | `scripts/grade-at-deadline.mjs` as step 6 of the finalize job, plus a per-row re-grade | The nightly reads each student's grading run at the deadline and writes `grading/<id>/summary.json`, so the report and the CSV carry marks with nobody pressing anything. It refuses to replace a summary a person produced (`graded_by` set, or a docker/host runner) and refuses to fail the finalize, which by then has locked the cohort and archived its submissions. Grading on the student's PUSH stays unavailable for the reason the entry gave: it needs a credential in a repository the student administers. `lib/grade-cohort.mjs` is the one implementation - it was inside `AssignmentDetailView.vue`, where the workflow could not reach it. `tests/grade-at-deadline.test.mjs`, `tests/grade-cohort.test.mjs`, `tests/e2e/65`. |
 | **The two deadline controls read as one question and a footnote** (2026-09-08) - *filed as "they are one ladder", and that premise was wrong* | Asking them as two questions of the same shape, not merging them | `late_policy` decides what **counts** (lockdown.mjs passes `deadlineFor` to phase 2 only under `block`); `lock_down_enabled` decides **access**. All four combinations are distinct and *still counts* + read-only is what both 2026 exams ran on, so the three-way ladder this entry proposed would have made a live state unrepresentable. What was wrong was the wording: a grading verdict followed by a checkbox beginning "Also". DESIGN.md §1.9, `tests/e2e/29`. |
