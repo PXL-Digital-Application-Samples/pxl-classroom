@@ -173,6 +173,28 @@ test.describe('74 - saving a live assignment', () => {
     expect(named(dispatches, REGENERATE)).toHaveLength(0);
   });
 
+  // PXL-2TIN-DevOps-2627/groepsindeling, 2026-10-16: the deadline had passed
+  // and the nightly had switched the broker off; the lecturer moved it into
+  // the future and saved, the save only rebuilt the page, and every student's
+  // acceptance hung on a broker that skipped it.
+  const deadlineField = (page) =>
+    page.locator('.field', { has: page.locator('label', { hasText: /^Deadline/ }) }).locator('input[type="datetime-local"]');
+  const pastAssignment = () => liveAssignment({ deadline_at: new Date(Date.now() - 2 * 86400_000).toISOString() });
+
+  test('moving a passed deadline into the future publishes, so the broker the nightly switched off is on again', async ({ page }) => {
+    const { writes, dispatches } = await openLiveEditor(page, { assignment: pastAssignment() });
+    await deadlineField(page).fill(new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 16));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    const [publish] = named(dispatches, PUBLISH);
+    expect(publish.writesBefore, 'published from the document just saved').toBeGreaterThan(0);
+    expect(publish.inputs).toMatchObject({ org: ORG, assignment_id: ID, regenerate_invite: 'false' });
+    expect(Date.parse(parse(writes.filter((w) => w.path === `assignments/${ID}.yml`).at(-1).content).deadline_at)).toBeGreaterThan(Date.now());
+    // The publish regenerates the pages itself.
+    expect(named(dispatches, REGENERATE)).toHaveLength(0);
+  });
+
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page, { refuse: REGENERATE });
 

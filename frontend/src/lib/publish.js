@@ -32,6 +32,28 @@ export function needsBrokerDispatch(brokerExists) {
 }
 
 /**
+ * Whether a save moves the deadline from the past into the future, which is
+ * how a lecturer reopens an assignment (Move the deadline…, then Save).
+ *
+ * The nightly that finished it switched its broker off and took the broker's
+ * key away (scripts/close-acceptance.mjs), and only publishing puts them back.
+ * The broker REPOSITORY still exists, so the save rebuilt the student page and
+ * nothing else: the page offered the invitation again, and the broker skipped
+ * every attempt - students hung on "accepting" and nothing reached the hub
+ * (PXL-2TIN-DevOps-2627/groepsindeling, 2026-10-16). Publishing an open broker
+ * again changes nothing, so the rule does not ask whether it was closed.
+ *
+ * @param {string|null|undefined} before  the deadline as stored, ISO
+ * @param {string|null|undefined} after   the deadline being saved, ISO
+ * @param {number} [now]
+ */
+export function deadlineReopens(before, after, now = Date.now()) {
+  const was = Date.parse(before ?? '')
+  const will = Date.parse(after ?? '')
+  return Number.isFinite(was) && Number.isFinite(will) && was <= now && will > now
+}
+
+/**
  * Which workflow saving a published assignment must dispatch. Never neither.
  *
  * "Nothing to do" when the broker was found was only true of the broker. The
@@ -46,11 +68,15 @@ export function needsBrokerDispatch(brokerExists) {
  * The publish workflow ends by dispatching the regeneration itself, so only one
  * is ever needed.
  *
+ * And a save that reopens the assignment (`reopens`, deadlineReopens) is a
+ * publish whatever the broker: an existing broker may have been switched off.
+ *
  * @param {boolean|null|undefined} brokerExists
+ * @param {{ reopens?: boolean }} [opts]
  * @returns {'publish-assignment.yml'|'regenerate-dashboard.yml'}
  */
-export function publishedSaveWorkflow(brokerExists) {
-  return needsBrokerDispatch(brokerExists) ? 'publish-assignment.yml' : 'regenerate-dashboard.yml'
+export function publishedSaveWorkflow(brokerExists, { reopens = false } = {}) {
+  return reopens || needsBrokerDispatch(brokerExists) ? 'publish-assignment.yml' : 'regenerate-dashboard.yml'
 }
 
 /** The states `pages/generate.mjs` writes a student card for. */

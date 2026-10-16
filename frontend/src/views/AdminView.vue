@@ -1681,7 +1681,7 @@ import { syncRefusal } from '../lib/starter-sync.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
-import { publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
+import { deadlineReopens, publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readMaxHandIns, submissionBranch } from '../../../lib/submission-marker.mjs'
@@ -4981,6 +4981,11 @@ async function saveAndPublish() {
 async function saveAndPublishSteps() {
   // Save current edits first (with state=published) then trigger publish workflow.
   if (form.value.state === 'published') {
+    // Read before the save, which may reload the form: does this save move the
+    // deadline out of the past? Then it reopens the assignment, and the broker
+    // the nightly switched off is switched on by publishing (deadlineReopens).
+    const local = form.value.deadline_at_local
+    const reopens = deadlineReopens(form.value._deadline_at_original, local ? localToUtc(local) : null)
     // Gated on the save actually landing: dispatching the publish workflow for
     // a YAML the commit failed to write runs it against the OLD document.
     if (!(await saveAssignment())) return false
@@ -5002,7 +5007,7 @@ async function saveAndPublishSteps() {
     // the card from the last regeneration. See publishedSaveWorkflow.
     // A finished one is not published again (the workflow would refuse it and
     // go red over a plain edit); its student page is rebuilt instead.
-    if (publishedSaveWorkflow(brokerExists.value) === 'publish-assignment.yml' && !(await finishedRefusal())) {
+    if (publishedSaveWorkflow(brokerExists.value, { reopens }) === 'publish-assignment.yml' && !(await finishedRefusal())) {
       await publishExisting()
     } else if (!(await republishStudentPages({
       token: getToken(),

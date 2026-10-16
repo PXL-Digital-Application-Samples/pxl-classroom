@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { hasStudentCard } from "../lib/student-card.mjs";
 
 import {
+  deadlineReopens,
   needsBrokerDispatch,
   publishedSaveWorkflow,
   writeReachesStudentPage,
@@ -53,6 +54,29 @@ test("nothing truthy-but-not-true counts as a sighting", () => {
 // the student page kept the old card, which never asked for an address.
 test("a save with the broker found still rebuilds the student page", () => {
   assert.equal(publishedSaveWorkflow(true), "regenerate-dashboard.yml");
+});
+
+// PXL-2TIN-DevOps-2627/groepsindeling, 2026-10-16: the nightly had switched the
+// broker off at the old deadline; moving the deadline found the broker
+// repository there and only rebuilt the page, so every acceptance hung.
+test("a save that moves a passed deadline into the future publishes, broker or not", () => {
+  assert.equal(publishedSaveWorkflow(true, { reopens: true }), "publish-assignment.yml");
+  assert.equal(publishedSaveWorkflow(true, { reopens: false }), "regenerate-dashboard.yml");
+});
+
+test("deadlineReopens: from the past into the future, and nothing else", () => {
+  const now = Date.parse("2026-10-16T10:00:00Z");
+  const past = "2026-10-14T21:59:00.000Z";
+  const future = "2026-10-16T21:59:00.000Z";
+  assert.equal(deadlineReopens(past, future, now), true);
+  assert.equal(deadlineReopens(past, "2026-10-15T21:59:00.000Z", now), false, "still in the past");
+  assert.equal(deadlineReopens(future, "2026-10-20T21:59:00.000Z", now), false, "it never passed");
+  assert.equal(deadlineReopens(past, past, now), false, "not moved");
+  assert.equal(deadlineReopens("2026-10-16T10:00:00.000Z", future, now), true, "a deadline at this very instant has passed");
+  for (const bad of ["", null, undefined, "garbage"]) {
+    assert.equal(deadlineReopens(bad, future, now), false);
+    assert.equal(deadlineReopens(past, bad, now), false);
+  }
 });
 
 test("a save that publishes does not also regenerate - the publish does that itself", () => {
