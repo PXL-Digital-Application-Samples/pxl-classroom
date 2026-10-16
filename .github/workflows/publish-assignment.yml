@@ -450,6 +450,17 @@ jobs:
             echo "::notice::Removed ${removed} legacy provisioning-App secret(s) from the public broker ${ORG}/${BROKER_REPO}. Treat the key as having been exposed on a public repository for as long as it was there and rotate it - INSTALL.md §10."
           fi
 
+      # A broker the nightly closed is on again from here (review 2026-10-16,
+      # R7-4): marked, so the nightly closes it once more after the deadline
+      # in force, and does nothing else (scripts/find-finalizable.mjs). Into
+      # the checkout only; committed with the state below.
+      - name: Mark a closed broker as on again
+        if: inputs.dry_run != true
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/mark-broker-reopened.mjs
+
       - name: Update assignment state
         if: inputs.dry_run != true
         env:
@@ -469,6 +480,12 @@ jobs:
           # Also carries invite_token / invite_nonce / invite_expires_at from the
           # Mint invitation token step - all of it stays in the private repo.
           git -C control add "$FILE"
+          # The mark above, where there is one. A file, never a directory: a
+          # pathspec that matches nothing is fatal to `git add`.
+          MARK="lockdowns/${ASSIGNMENT_ID}/broker-reopened.json"
+          if [ -f "control/$MARK" ]; then
+            git -C control add "$MARK"
+          fi
           git -C control diff --cached --quiet || git -C control commit -m "Publish assignment ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
 

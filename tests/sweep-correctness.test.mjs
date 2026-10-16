@@ -215,10 +215,12 @@ test("a draft past its deadline is never queued", () => {
   // It has no repositories and no lockdown record, so it looked "not-finalized"
   // forever - a four-step matrix leg every night, on a system whose whole point
   // is billing zero minutes when idle.
-  for (const state of ["draft", "archived"]) {
-    const queued = runFindFinalizable({ stale: { state, deadline_at: PAST } });
-    assert.deepEqual(queued, [], `${state} must not be finalizable`);
-  }
+  assert.deepEqual(runFindFinalizable({ stale: { state: "draft", deadline_at: PAST } }), [], "draft must not be finalizable");
+  // An archived one was published, so its broker is owed a close - once, as
+  // the close alone, and its record then says done (R7-11,
+  // tests/close-only.test.mjs). Never a finalize, and never every night.
+  const archived = runFindFinalizable({ stale: { state: "archived", deadline_at: PAST } });
+  assert.deepEqual(archived.map((e) => e.close_only), [true], "archived: the broker close alone");
 });
 
 test("a future deadline is never queued, whatever the state", () => {

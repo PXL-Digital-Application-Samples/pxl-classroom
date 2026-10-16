@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadYaml } from '../lib/yaml.mjs';
 import { latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
-import { brokerClosedPath } from '../lib/control-layout.mjs';
-import { inFinalizeScope } from '../lib/finalize-scope.mjs';
+import { brokerClosedPath, brokerReopenedPath } from '../lib/control-layout.mjs';
+import { FINALIZE_ANY_STATE_FROM, everPublished, inFinalizeScope } from '../lib/finalize-scope.mjs';
 import { normalizeLogin } from '../lib/github-login.mjs';
 import { preservesSnapshot } from '../lib/preservation-status.mjs';
 
@@ -118,6 +118,9 @@ function isPreserved(controlDir, assignmentId, login, snapshotSha) {
  */
 const BROKER_CLOSE_RECORDED_SINCE = '2026-10-15T00:00:00Z';
 function brokerOwed(controlDir, id, record) {
+  // A broker a publish switched on again is the close-only entry's to close
+  // and to retry (R7-4): owing a whole finalize for it is what was reverted.
+  if (fs.existsSync(path.join(controlDir, brokerReopenedPath(id)))) return null;
   let closed = null;
   try {
     closed = JSON.parse(fs.readFileSync(path.join(controlDir, brokerClosedPath(id)), 'utf8'));
@@ -136,6 +139,49 @@ function brokerOwed(controlDir, id, record) {
     return null;
   }
   return `broker-not-closed (attempt ${attempts + 1})`;
+}
+
+/**
+ * A BROKER OWED A CLOSE AND NOTHING ELSE (review 2026-10-16, R7-4 and R7-11).
+ * Queued as `close_only`, which the nightly's finalize leg reads to run the
+ * broker close and its commit alone - never the collect, the lock, the
+ * archive or the scores, because a whole finalize queued by a rule of times
+ * reached every assignment ever moved after its lock (`4ee1236`, reverted).
+ *
+ *  - A broker a publish switched on again after it was closed
+ *    (`broker-reopened.json`, scripts/mark-broker-reopened.mjs), once the
+ *    deadline in force has passed: closed again unless a close since did it.
+ *  - The broker of an assignment archived or sent back to draft with nobody
+ *    in it, which the finalize never reaches (`inFinalizeScope`): ever
+ *    published, its deadline passed and from FINALIZE_ANY_STATE_FROM on - the
+ *    same cutoff, so last year's courses are not swept - and not closed.
+ *
+ * Counted by the close record's `attempts`, up to the same ceiling.
+ */
+function closeOnlyReason(controlDir, id, assignment, { inScope }) {
+  const read = (p) => {
+    try { return JSON.parse(fs.readFileSync(path.join(controlDir, p), 'utf8')); } catch { return null; }
+  };
+  const closed = read(brokerClosedPath(id));
+  const done = closed?.closed === true && closed?.key_removed === true;
+  const ceiling = () => {
+    if ((Number(closed?.attempts) || 0) < MAX_FINALIZE_ATTEMPTS) return false;
+    console.error(`${id}: the broker is still not closed after ${closed.attempts} attempts - not retrying. Close it by hand, then remove lockdowns/${id}/broker-closed.json.`);
+    return true;
+  };
+  const reopened = read(brokerReopenedPath(id));
+  const reopenedAt = Date.parse(reopened?.reopened_at ?? '');
+  if (Number.isFinite(reopenedAt)) {
+    const closedSince = Date.parse(closed?.at ?? '') > reopenedAt;
+    if (closedSince && done) return null;
+    if (closedSince && ceiling()) return null;
+    return `broker-reopened (switched on again ${reopened.reopened_at}, closed again now its deadline has passed)`;
+  }
+  if (inScope || done || !everPublished(assignment)) return null;
+  const deadline = Date.parse(assignment?.deadline_at ?? '');
+  if (!(deadline >= Date.parse(FINALIZE_ANY_STATE_FROM))) return null;
+  if (closed && ceiling()) return null;
+  return `broker-not-closed (${assignment.state ?? 'no state'}, nobody accepted)`;
 }
 
 function finalizeReason(controlDir, lockdownsDir, id) {
@@ -234,17 +280,34 @@ async function main() {
           // kept the App's private key on a public repository for good. The
           // evidence is the repository records: a published or closed one
           // queues as before, any other only when students have repositories.
-          if (!mayHaveStudents(assignment, controlDir, id)) continue;
-
+          const inScope = mayHaveStudents(assignment, controlDir, id);
           const deadline = new Date(assignment.deadline_at).getTime();
           const now = Date.now();
+          // Not `deadline > now`: a deadline that does not parse is NaN, and is
+          // no deadline that has passed.
+          if (!(deadline <= now)) continue;
 
-          if (deadline <= now) {
-            const reason = finalizeReason(controlDir, lockdownsDir, id);
-            if (reason) {
-              console.error(`${id}: queueing finalize - ${reason}`);
-              finalizable.push({ org, assignment_id: id });
+          // Out of scope, an assignment may still owe its broker a close (R7-11).
+          if (!inScope) {
+            const close = closeOnlyReason(controlDir, id, assignment, { inScope });
+            if (close) {
+              console.error(`${id}: queueing the broker close alone - ${close}`);
+              finalizable.push({ org, assignment_id: id, close_only: true });
             }
+            continue;
+          }
+
+          const reason = finalizeReason(controlDir, lockdownsDir, id);
+          if (reason) {
+            console.error(`${id}: queueing finalize - ${reason}`);
+            finalizable.push({ org, assignment_id: id });
+            continue;
+          }
+          // Nothing else owed: a broker switched on again still is (R7-4).
+          const close = closeOnlyReason(controlDir, id, assignment, { inScope });
+          if (close) {
+            console.error(`${id}: queueing the broker close alone - ${close}`);
+            finalizable.push({ org, assignment_id: id, close_only: true });
           }
         } catch (e) {
           console.error(`Error processing ${file}:`, e.message);

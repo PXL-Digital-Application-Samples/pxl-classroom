@@ -80,15 +80,6 @@ export function stateActions({ state, deadlinePassed = false, everPublished = fa
   }
 }
 
-/**
- * Was this assignment ever published? Publishing writes the invitation fields
- * (`invite_*`, publish-assignment.yml) and nothing removes them, so a draft
- * that carries one went live at some point and may have a broker and students.
- *
- * @param {object|null|undefined} assignment the stored document
- */
-export function everPublished(assignment) {
-  const a = assignment || {}
-  return a.state === 'published' || a.state === 'closed' || a.state === 'archived'
-    || ['invite_key', 'invite_pubkey', 'invite_nonce', 'invite_token'].some((f) => typeof a[f] === 'string' && a[f] !== '')
-}
+// Was this assignment ever published? One rule with the finalize queue, which
+// closes the broker of one archived or sent back to draft (R7-11).
+export { everPublished } from '../../../lib/finalize-scope.mjs'

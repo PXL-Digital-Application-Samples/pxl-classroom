@@ -36,7 +36,7 @@ import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
 import { gh } from "../lib/gh.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
-import { assignmentPathsRead, brokerClosedPath } from "../lib/control-layout.mjs";
+import { assignmentPathsRead, brokerClosedPath, brokerReopenedPath } from "../lib/control-layout.mjs";
 import { deadlineAhead, readAssignmentNow } from "../lib/assignment-now.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 
@@ -176,7 +176,12 @@ async function recordClose({ dataDir, assignmentId, broker, closed, keyRemoved }
   const dir = dirname(file);
   let attempts = 0;
   try {
-    attempts = Number(JSON.parse(await readFile(file, "utf8")).attempts) || 0;
+    const prior = JSON.parse(await readFile(file, "utf8"));
+    attempts = Number(prior.attempts) || 0;
+    // A publish switched the broker on again since that record (R7-4): this
+    // is a new close, and its tries start again.
+    const reopened = JSON.parse(await readFile(join(dataDir, brokerReopenedPath(assignmentId)), "utf8").catch(() => "null"));
+    if (Date.parse(reopened?.reopened_at ?? "") > Date.parse(prior.at ?? "")) attempts = 0;
   } catch { /* the first pass */ }
   const done = closed && keyRemoved;
   await mkdir(dir, { recursive: true });

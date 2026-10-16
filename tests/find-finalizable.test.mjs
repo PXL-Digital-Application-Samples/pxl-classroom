@@ -468,10 +468,13 @@ test("archived or back to draft AFTER students accepted is still finalized at th
     mkdirSync(join(dir, "assignments"), { recursive: true });
     writeFileSync(join(dir, "assignments", "exam.yml"), `state: ${state}\ndeadline_at: "${past}"`);
     const run = () => JSON.parse(spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir }).stdout.trim());
-    assert.deepEqual(run(), [], `${state} with nobody accepted: nothing to finalize`);
+    // Nothing to finalize. An archived one was published, so its broker is
+    // owed a close and nothing else (R7-11, tests/close-only.test.mjs); this
+    // draft never went live, so it has no broker.
+    assert.deepEqual(run(), state === "archived" ? [{ org: "TestOrg", assignment_id: "exam", close_only: true }] : [], `${state} with nobody accepted: no finalize`);
     mkdirSync(join(dir, "repositories", "exam"), { recursive: true });
     writeFileSync(join(dir, "repositories", "exam", "alice.json"), "{}");
-    assert.deepEqual(run().map((f) => f.assignment_id), ["exam"], `${state} with a repository: finalized`);
+    assert.deepEqual(run(), [{ org: "TestOrg", assignment_id: "exam" }], `${state} with a repository: finalized, whole`);
   }
 });
 

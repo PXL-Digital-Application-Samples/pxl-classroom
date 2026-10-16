@@ -432,7 +432,12 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # A BROKER OWED A CLOSE AND NOTHING ELSE (review 2026-10-16, R7-4,
+      # R7-11; scripts/find-finalizable.mjs `close_only`): every step but 5 and
+      # the commit skips it. A whole finalize queued for one is how `4ee1236`
+      # reached every assignment ever moved after its lock.
       - name: 1. Collect
+        if: matrix.assignment.close_only != true
         uses: ./collect
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -451,7 +456,7 @@ jobs:
       # cascade. `!cancelled()` rather than always(): a run somebody cancels by
       # hand must not go on to lock a cohort.
       - name: 2. Lockdown
-        if: ${{ !cancelled() && steps.control.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.control.outcome == 'success' && matrix.assignment.close_only != true }}
         uses: ./lockdown
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -474,7 +479,7 @@ jobs:
       # preserve.mjs already skips a student with no verified snapshot, so this
       # archives what was frozen and nothing else.
       - name: 3. Preserve
-        if: always() && steps.control.outcome == 'success'
+        if: always() && steps.control.outcome == 'success' && matrix.assignment.close_only != true
         id: preserve_step
         uses: ./preserve
         with:
@@ -485,7 +490,7 @@ jobs:
           data-dir: control
 
       - name: 4. Report
-        if: always() && steps.control.outcome == 'success'
+        if: always() && steps.control.outcome == 'success' && matrix.assignment.close_only != true
         uses: ./report
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -545,7 +550,7 @@ jobs:
       # this read, which is already non-fatal and says why.
       - name: 6a. Token for reading scores
         id: gradetoken
-        if: always()
+        if: always() && matrix.assignment.close_only != true
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -566,7 +571,7 @@ jobs:
       # (HTTP 403), reports that as a permission and writes nothing: never a
       # hand-in taken from the branch alone.
       - name: 6. Read autograding scores
-        if: always() && steps.control.outcome == 'success'
+        if: always() && steps.control.outcome == 'success' && matrix.assignment.close_only != true
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ steps.gradetoken.outputs.token || steps.token.outputs.token }}

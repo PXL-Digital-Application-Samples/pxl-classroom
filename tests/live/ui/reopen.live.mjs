@@ -93,9 +93,10 @@ test("a finished drill's deadline moved into the future and saved: the save publ
 
 test("after the new deadline the broker is switched off again, and its key removed", async () => {
   test.skip(!target, "the reopen above did not run");
-  // The sentinel the publish armed stops writes at the instant and dispatches
-  // the finalize, which owes a close to a broker last closed before the
-  // deadline in force (scripts/find-finalizable.mjs `brokerOwed`).
+  // The publish marked the closed broker as on again (broker-reopened.json),
+  // so after the new deadline the queue owes it the close alone (`close_only`,
+  // scripts/find-finalizable.mjs, R7-4) - at the finalize the sentinel
+  // dispatches, or the nightly after it.
   test.setTimeout(Math.max(0, target.getTime() - Date.now()) + 50 * MINUTE);
   await expect.poll(inviteEnabled, { timeout: Math.max(0, target.getTime() - Date.now()) + 45 * MINUTE, intervals: [60_000] }).toBe("false");
   expect(await brokerHoldsKey(), "the broker's key is gone again").toBe(false);
