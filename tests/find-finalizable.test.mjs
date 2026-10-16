@@ -510,10 +510,10 @@ test("R6-4: an archived or draft assignment whose deadline passed before the wid
 
 test("P2-34: a broker the finalize left open is owed a pass, up to the ceiling; one closed, or finished before the record existed, is not", () => {
   const past = new Date(Date.now() - 3600_000).toISOString();
-  const run = (lockedAt, closed, deadline = past) => {
+  const run = (lockedAt, closed) => {
     const dir = mkdtempSync(join(tmpdir(), "pxl-ff-broker-"));
     mkdirSync(join(dir, "assignments"), { recursive: true });
-    writeFileSync(join(dir, "assignments", "exam.yml"), `state: closed\ndeadline_at: "${deadline}"`);
+    writeFileSync(join(dir, "assignments", "exam.yml"), `state: closed\ndeadline_at: "${past}"`);
     mkdirSync(join(dir, "lockdowns", "exam"), { recursive: true });
     writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({ locked_at: lockedAt, results: [] }));
     if (closed) writeFileSync(join(dir, "lockdowns", "exam", "broker-closed.json"), JSON.stringify(closed));
@@ -529,47 +529,7 @@ test("P2-34: a broker the finalize left open is owed a pass, up to the ceiling; 
   assert.deepEqual(atCeiling.queued, [], "not for ever");
   assert.match(atCeiling.stderr, /still not closed after 3 attempts/);
   assert.deepEqual(run("2026-10-16T09:00:00Z", null).queued, ["exam"], "locked since the record exists, and none written: owed");
-  // Its deadline before its lock, as a finished one's is: a lock before the
-  // deadline in force is a reopen (the test below).
-  assert.deepEqual(run("2026-09-01T00:00:00Z", null, "2026-08-31T21:59:00Z").queued, [], "finished before the record existed: not re-run for it");
-});
-
-test("a deadline moved past the close reopened the broker: it is owed a close at the new deadline, once", () => {
-  // PXL-2TIN-DevOps-2627/groepsindeling, 2026-10-16: finished and closed, then
-  // the deadline moved into the future and saved, which publishes and switches
-  // the broker on again. The record still said closed, so nothing closed it
-  // again and the key stayed on a public repository.
-  const H = 3600_000;
-  const iso = (ms) => new Date(Date.now() + ms).toISOString();
-  const run = ({ deadline, lockedAt, closed }) => {
-    const dir = mkdtempSync(join(tmpdir(), "pxl-ff-reopened-"));
-    mkdirSync(join(dir, "assignments"), { recursive: true });
-    writeFileSync(join(dir, "assignments", "grp.yml"), `state: published\ndeadline_at: "${deadline}"`);
-    mkdirSync(join(dir, "lockdowns", "grp"), { recursive: true });
-    writeFileSync(join(dir, "lockdowns", "grp", "lockdown-record.json"), JSON.stringify({ locked_at: lockedAt, results: [] }));
-    if (closed) writeFileSync(join(dir, "lockdowns", "grp", "broker-closed.json"), JSON.stringify(closed));
-    const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
-    return {
-      queued: JSON.parse(res.stdout.trim()).map((f) => f.assignment_id),
-      stderr: res.stderr,
-      active: JSON.parse(readFileSync(join(dir, "active-TestOrg.json"), "utf8")).active,
-    };
-  };
-  const firstClose = { closed: true, key_removed: true, attempts: 0, at: iso(-30 * H) };
-  // Reopened, the new deadline still ahead: not yet, and the nightly stays on.
-  const ahead = run({ deadline: iso(12 * H), lockedAt: iso(-31 * H), closed: firstClose });
-  assert.deepEqual(ahead.queued, []);
-  assert.equal(ahead.active, 1);
-  // The new deadline passed: owed a close, whatever the old record says.
-  const due = run({ deadline: iso(-1 * H), lockedAt: iso(-31 * H), closed: firstClose });
-  assert.deepEqual(due.queued, ["grp"], due.stderr);
-  assert.match(due.stderr, /broker-reopened \(last closed .*before the deadline now in force\)/);
-  // No close was recorded (finished before the record existed): the lock stands in.
-  assert.deepEqual(run({ deadline: iso(-1 * H), lockedAt: iso(-31 * H), closed: null }).queued, ["grp"]);
-  // Closed again after the new deadline: done, so once and not every night.
-  assert.deepEqual(run({ deadline: iso(-1 * H), lockedAt: iso(-31 * H), closed: { ...firstClose, at: iso(-0.5 * H) } }).queued, []);
-  // Never reopened - closed after its deadline, as every finished one is: nothing.
-  assert.deepEqual(run({ deadline: iso(-48 * H), lockedAt: iso(-47 * H), closed: { ...firstClose, at: iso(-46 * H) } }).queued, []);
+  assert.deepEqual(run("2026-09-01T00:00:00Z", null).queued, [], "finished before the record existed: not re-run for it");
 });
 
 test("P2-25: archived or back to draft BEFORE its deadline with students in it keeps the nightly on; with nobody in it, it does not", () => {

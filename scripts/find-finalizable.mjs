@@ -116,27 +116,12 @@ function isPreserved(controlDir, assignmentId, login) {
  * checked by hand with tests/live/broker-hygiene.mjs (REVIEW-TRACKER P2-41).
  */
 const BROKER_CLOSE_RECORDED_SINCE = '2026-10-15T00:00:00Z';
-function brokerOwed(controlDir, id, record, assignment) {
+function brokerOwed(controlDir, id, record) {
   let closed = null;
   try {
     closed = JSON.parse(fs.readFileSync(path.join(controlDir, brokerClosedPath(id)), 'utf8'));
   } catch {
     closed = null;
-  }
-  // REOPENED SINCE THE CLOSE (2026-10-16). Moving the deadline out of the past
-  // publishes, which switches the broker on and puts its key back
-  // (frontend/src/lib/publish.js `deadlineReopens`), while the record of the
-  // earlier close still says closed - so nothing closed it at the new deadline
-  // and the key stayed on a public repository. A close from before the
-  // deadline in force now was a close for another deadline; where no close was
-  // recorded, the lock stands in for it. Asked of the times alone, so a
-  // reopen made any way at all is caught; closing an already closed broker
-  // again is harmless (close-acceptance always acts and records).
-  const deadlineAt = Date.parse(assignment?.deadline_at || '');
-  const recordedClose = Date.parse(closed?.at || '');
-  const lastClose = Number.isFinite(recordedClose) ? recordedClose : Date.parse(record?.locked_at || record?.executed_at || '');
-  if (Number.isFinite(deadlineAt) && Number.isFinite(lastClose) && lastClose < deadlineAt) {
-    return `broker-reopened (last closed ${new Date(lastClose).toISOString()}, before the deadline now in force)`;
   }
   if (closed?.closed === true && closed?.key_removed === true) return null;
   if (!closed) {
@@ -152,7 +137,7 @@ function brokerOwed(controlDir, id, record, assignment) {
   return `broker-not-closed (attempt ${attempts + 1})`;
 }
 
-function finalizeReason(controlDir, lockdownsDir, id, assignment) {
+function finalizeReason(controlDir, lockdownsDir, id) {
   const lockdownFile = path.join(lockdownsDir, id, 'lockdown-record.json');
   if (!fs.existsSync(lockdownFile)) return 'not-finalized';
 
@@ -202,7 +187,7 @@ function finalizeReason(controlDir, lockdownsDir, id, assignment) {
     (r) => r.github_login && !r.reopened_at &&
       ((r.snapshot_sha && !isPreserved(controlDir, id, r.github_login)) || (!r.snapshot_sha && r.snapshot_unread))
   );
-  if (pending.length === 0) return brokerOwed(controlDir, id, record, assignment);
+  if (pending.length === 0) return brokerOwed(controlDir, id, record);
 
   const attempts = record.finalize_attempts ?? 1;
   if (attempts >= MAX_FINALIZE_ATTEMPTS) {
@@ -250,7 +235,7 @@ async function main() {
           const now = Date.now();
 
           if (deadline <= now) {
-            const reason = finalizeReason(controlDir, lockdownsDir, id, assignment);
+            const reason = finalizeReason(controlDir, lockdownsDir, id);
             if (reason) {
               console.error(`${id}: queueing finalize - ${reason}`);
               finalizable.push({ org, assignment_id: id });
