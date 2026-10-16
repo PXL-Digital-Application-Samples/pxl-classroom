@@ -319,6 +319,7 @@ export type LockdownRecord = {
     deferred_reason?: string;
     uncertainty_seconds?: number;
     reopened_at?: string;
+    relocked_after?: string;
   }>;
 };
 

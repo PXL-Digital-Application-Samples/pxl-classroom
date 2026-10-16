@@ -40,7 +40,7 @@ import { buildGradingSummary } from "../lib/grading-summary.mjs";
 import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../lib/submission-marker.mjs";
 import { gradesInCi } from "../lib/autograde-source.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
-import { assignmentPath, gradingSummaryPath, overridesDir } from "../lib/control-layout.mjs";
+import { assignmentPath, gradingSummaryPath, lockdownRecordPath, overridesDir } from "../lib/control-layout.mjs";
 
 const cfg = {
   dataDir: process.env.DATA_DIR || "control",
@@ -128,6 +128,12 @@ async function main() {
   const summaryPath = join(cfg.dataDir, gradingSummaryPath(cfg.assignmentId));
   const existing = await readJson(summaryPath);
   if (humanWrote(existing)) {
+    // Locked again after a reopen that gave them time (R7-3): their snapshot is
+    // newer than this summary, and a local runner's summary is never replaced
+    // here - so they are named, rather than graded on the old one in silence.
+    const record = await readJson(join(cfg.dataDir, lockdownRecordPath(cfg.assignmentId)));
+    const since = (record?.results || []).filter((r) => r?.relocked_after && r?.snapshot_sha && Date.parse(r.lockdown_at ?? "") > Date.parse(existing.generated_at ?? ""));
+    for (const r of since) console.log(`::notice::${r.github_login} was locked again at ${r.lockdown_at}, after this summary - grade them again with pxl-classroom grade --login ${r.github_login}.`);
     return log(
       true,
       `already graded by ${existing.graded_by ? `@${existing.graded_by}` : "a local runner"} ` +

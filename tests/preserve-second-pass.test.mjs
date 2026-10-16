@@ -43,7 +43,15 @@ function world() {
     schema_version: 1, assignment_id: "exam",
     results: [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 5, snapshot_sha: sha }],
   }));
-  return { srv, src, data, sha };
+  return { srv, src, data, sha, work };
+}
+
+/** A later snapshot in the lock record, as lockdown writes it after a re-lock (R7-3). */
+function relock(w, sha) {
+  writeFileSync(join(w.data, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
+    schema_version: 1, assignment_id: "exam",
+    results: [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 5, snapshot_sha: sha, relocked_after: new Date().toISOString() }],
+  }));
 }
 
 async function withApi(fn) {
@@ -195,6 +203,49 @@ test("TL-5: a git server that never answers fails each student inside the step l
     for (const s of sockets) s.destroy();
     await new Promise((r) => stall.close(r));
   }
+});
+
+test("R7-3: locked again on top of the first snapshot - the archive branch moves forward to it, the first still in its history", async () => {
+  const w = world();
+  await withApi(async (api) => {
+    assert.equal((await run(api, w)).status, 0);
+    git(["commit", "-q", "--allow-empty", "-m", "after the reopen"], w.work);
+    git(["push", "-q", w.src, "main"], w.work);
+    const later = git(["rev-parse", "HEAD"], w.work);
+    relock(w, later);
+    const res = await run(api, w);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.out, /preserved_count=1/, res.log);
+    const archive = join(w.srv, "TestOrg", `${ARCHIVE}.git`);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/alice"], archive), later);
+    git(["merge-base", "--is-ancestor", w.sha, later], archive);
+    const doc = JSON.parse(readFileSync(join(w.data, "observations", "exam", "alice", "preservation.json"), "utf8"));
+    assert.deepEqual([doc.source_sha, doc.preserved_ref, doc.verified], [later, "refs/heads/preserved/exam/alice", true]);
+  });
+});
+
+test("R7-3: locked again after a rewritten history - the first snapshot is kept, the second gets its own branch, nothing forced", async () => {
+  const w = world();
+  await withApi(async (api) => {
+    assert.equal((await run(api, w)).status, 0);
+    git(["checkout", "-q", "--orphan", "rewritten"], w.work);
+    git(["commit", "-q", "--allow-empty", "-m", "a new history"], w.work);
+    git(["push", "-q", "--force", w.src, "rewritten:main"], w.work);
+    const later = git(["rev-parse", "HEAD"], w.work);
+    relock(w, later);
+    const res = await run(api, w);
+    assert.equal(res.status, 0, res.log);
+    const archive = join(w.srv, "TestOrg", `${ARCHIVE}.git`);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/alice"], archive), w.sha, "the first snapshot is evidence, and stays");
+    const branch = `refs/heads/preserved/exam/alice-${later.slice(0, 12)}`;
+    assert.equal(git(["rev-parse", branch], archive), later);
+    const doc = JSON.parse(readFileSync(join(w.data, "observations", "exam", "alice", "preservation.json"), "utf8"));
+    assert.deepEqual([doc.source_sha, doc.preserved_ref], [later, branch], "the record names where the second one is");
+    // And the pass after that finds it there: nothing fetched or pushed again.
+    const again = await run(api, w);
+    assert.equal(again.status, 0, again.log);
+    assert.match(again.log, /already in the archive at/);
+  });
 });
 
 test("a record lost while the archive kept the commit is written again, from the archive's ref", async () => {

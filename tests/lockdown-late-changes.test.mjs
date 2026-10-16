@@ -54,6 +54,11 @@ async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demote
       }
       const ov = url.match(/\/contents\/overrides\/exam\/([^/]+)\.json$/);
       if (ov && remote.overrides?.[ov[1]]) return send(200, { content: b64(JSON.stringify(remote.overrides[ov[1]])) });
+      if (url === `${control}lockdowns/exam/unlocked` && remote.unlocked) {
+        return send(200, Object.keys(remote.unlocked).map((l) => ({ name: `${l}.json`, type: "file" })));
+      }
+      const un = url.match(/\/contents\/lockdowns\/exam\/unlocked\/([^/]+)\.json$/);
+      if (un && remote.unlocked?.[un[1]]) return send(200, { content: b64(JSON.stringify(remote.unlocked[un[1]])) });
       if (url === "/orgs/TestOrg/rulesets" && req.method === "POST") {
         ids = body?.conditions?.repository_id?.repository_ids ?? [];
         orgEnforcement = body?.enforcement ?? "active";
@@ -227,6 +232,97 @@ test("R7-8: a row an earlier pass locked keeps its figure when the deadline move
     assert.equal(alice.lockdown_at, LOCKED_AT, "history");
     assert.equal(alice.uncertainty_seconds, 12, "the figure the pass that locked her measured, not lock time minus the moved deadline");
   }, { remote: { assignment: assignmentYaml(MOVED) }, orgIds: [42] });
+});
+
+// R7-3: a reopen with time on it - the deadline in force after the reopen -
+// ends at that time: deferred until it, then locked again with a fresh snapshot.
+const OLD_SHA = "0".repeat(40);
+const reopenRecord = (at) => ({ schema_version: 1, assignment_id: "exam", github_login: "alice", unlocked_at: at, unlocked_by: "lecturer", reason: "more time", snapshot_sha: OLD_SHA, lock_method: "org-ruleset" });
+const reopenedRow = (at) => ({ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, snapshot_sha: OLD_SHA, snapshot_ref: "refs/heads/main",
+  lockdown_at: null, lock_method: null, reopened_at: at, permission_after: null, verified: false, uncertainty_seconds: null });
+function priorRecord(dir, rows) {
+  writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({ schema_version: 1, assignment_id: "exam", locked_at: DEADLINE, finalize_attempts: 1, results: rows }));
+}
+
+test("R7-3: reopened, and the deadline moved later: open until it, recorded as reopened and deferred to it", async () => {
+  const REOPENED = new Date(Date.now() - 300_000).toISOString();
+  await withApi(async (api, { writes }) => {
+    const dir = checkout();
+    priorRecord(dir, [reopenedRow(REOPENED)]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.deferred_until, new Date(LATER).toISOString(), "the queue comes back at their deadline");
+    assert.equal(alice.reopened_at, REOPENED, "and the row still says a lecturer reopened it");
+    assert.equal(alice.snapshot_sha, null);
+    assert.equal(writes.some((w) => /rulesets|collaborators\/alice$/.test(w.url) && w.method !== "GET" && w.body?.permission === "pull"), false, "nothing locks them now");
+    assert.match(res.log, /left open until .* locked again then/);
+  }, { remote: { assignment: assignmentYaml(LATER), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+test("R7-3: at that deadline they are locked again with a FRESH snapshot, not the one the reopen carried", async () => {
+  const REOPENED = new Date(Date.now() - 3600_000).toISOString();
+  const MOVED = new Date(Date.now() - 600_000).toISOString(); // after the reopen, and passed
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(MOVED));
+    priorRecord(dir, [{ ...reopenedRow(REOPENED), snapshot_sha: null, deferred_until: MOVED, deferred_reason: "reopened by lecturer until their deadline" }]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.snapshot_sha, HEAD_SHA, "what they did since the reopen");
+    assert.equal(alice.relocked_after, REOPENED);
+    assert.ok(alice.lock_method, "locked");
+    assert.equal(alice.reopened_at, undefined, "no longer open");
+    assert.match(res.log, /locked again - reopened at/);
+  }, { remote: { assignment: assignmentYaml(MOVED), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+test("R7-3: no pass in between - the reopened row's old snapshot is still not frozen over the new lock", async () => {
+  const REOPENED = new Date(Date.now() - 3600_000).toISOString();
+  const MOVED = new Date(Date.now() - 600_000).toISOString();
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(MOVED));
+    priorRecord(dir, [reopenedRow(REOPENED)]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    assert.equal(row(res.record, "alice").snapshot_sha, HEAD_SHA);
+  }, { remote: { assignment: assignmentYaml(MOVED), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+test("R7-3: once locked again, a later pass keeps that lock and its snapshot - no second re-lock", async () => {
+  const REOPENED = new Date(Date.now() - 3600_000).toISOString();
+  const MOVED = new Date(Date.now() - 1200_000).toISOString();
+  const RELOCKED_AT = new Date(Date.now() - 1100_000).toISOString();
+  const SECOND = "2".repeat(40);
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(MOVED));
+    priorRecord(dir, [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, snapshot_sha: SECOND, snapshot_ref: "refs/heads/main",
+      lockdown_at: RELOCKED_AT, lock_method: "org-ruleset", verified: true, uncertainty_seconds: 100, relocked_after: REOPENED }]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.snapshot_sha, SECOND, "frozen, as any lock");
+    assert.equal(alice.lockdown_at, RELOCKED_AT);
+    assert.equal(alice.relocked_after, REOPENED, "carried");
+  }, { remote: { assignment: assignmentYaml(MOVED), unlocked: { alice: reopenRecord(REOPENED) } }, orgIds: [42] });
+});
+
+test("R7-3: a reopen made after the deadline in force stays open, as it always has", async () => {
+  const REOPENED = new Date(Date.now() - 60_000).toISOString(); // after the deadline ten minutes ago
+  await withApi(async (api) => {
+    const dir = checkout();
+    priorRecord(dir, [reopenedRow(REOPENED)]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.lock_method, null);
+    assert.equal(alice.reopened_at, REOPENED);
+    assert.equal(alice.deferred_until, undefined);
+    assert.match(res.log, /left open - reopened by/);
+  }, { remote: { assignment: assignmentYaml(DEADLINE), unlocked: { alice: reopenRecord(REOPENED) } } });
 });
 
 test("without a fired sentinel a deferred student's repository is asked nothing, and nothing is written", async () => {

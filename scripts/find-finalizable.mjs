@@ -5,6 +5,7 @@ import { latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
 import { brokerClosedPath } from '../lib/control-layout.mjs';
 import { inFinalizeScope } from '../lib/finalize-scope.mjs';
 import { normalizeLogin } from '../lib/github-login.mjs';
+import { preservesSnapshot } from '../lib/preservation-status.mjs';
 
 // A finalize is only done when every locked-down student's submission is also
 // preserved. Lockdown alone used to be the idempotency key, so a run that
@@ -88,11 +89,11 @@ function joinedAfterLock(controlDir, id, record) {
   return late;
 }
 
-/** True when this student's submission is archived and hash-verified. */
-function isPreserved(controlDir, assignmentId, login) {
+/** True when this student's submission - THIS snapshot (R7-3) - is archived and hash-verified. */
+function isPreserved(controlDir, assignmentId, login, snapshotSha) {
   const p = path.join(controlDir, 'observations', assignmentId, login, 'preservation.json');
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8')).verified === true;
+    return preservesSnapshot(JSON.parse(fs.readFileSync(p, 'utf8')), snapshotSha);
   } catch {
     return false;
   }
@@ -163,8 +164,12 @@ function finalizeReason(controlDir, lockdownsDir, id) {
     (r) => r.github_login && !r.snapshot_sha && r.deferred_until &&
       new Date(r.deferred_until).getTime() <= Date.now()
   );
+  // ...and one a lecturer reopened with time on it (R7-3), deferred the same
+  // way to the deadline that reopen ends at, and locked again now.
   if (dueDeferred.length > 0) {
-    return `extension-expired (${dueDeferred.length} student(s) deferred past their extension)`;
+    const reopened = dueDeferred.filter((r) => r.reopened_at).length;
+    return `extension-expired (${dueDeferred.length} student(s) deferred past their extension` +
+      (reopened ? `, ${reopened} of them reopened until it` : "") + ")";
   }
 
   // A STUDENT WHO GOT A REPOSITORY AFTER THE LOCK (review 2026-10-15, R6-5): a
@@ -185,7 +190,7 @@ function finalizeReason(controlDir, lockdownsDir, id) {
   // preserved). A reopened student is owed nothing.
   const pending = (record.results || []).filter(
     (r) => r.github_login && !r.reopened_at &&
-      ((r.snapshot_sha && !isPreserved(controlDir, id, r.github_login)) || (!r.snapshot_sha && r.snapshot_unread))
+      ((r.snapshot_sha && !isPreserved(controlDir, id, r.github_login, r.snapshot_sha)) || (!r.snapshot_sha && r.snapshot_unread))
   );
   if (pending.length === 0) return brokerOwed(controlDir, id, record);
 

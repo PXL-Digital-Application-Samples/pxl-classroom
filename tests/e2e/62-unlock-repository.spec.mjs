@@ -185,6 +185,21 @@ test.describe('when the section appears at all', () => {
     await expect(unlockSection(page).getByRole('button', { name: /Reopen repository/ })).toBeVisible();
   });
 
+  // R7-3 (review 2026-10-16): what happens AFTER the reopen, in lockdown's own
+  // rule - a deadline still ahead ends it; a passed one leaves it open.
+  test('R7-3: with the deadline moved later, Reopen says they are locked, archived and graded again then', async ({ page }) => {
+    const later = new Date(Date.now() + 3 * 86400_000).toISOString()
+    await openTracking(page, { doc: assignment({ deadline_at: later }) });
+    await openActions(page);
+    await expect(unlockSection(page).locator('[data-reopen-until]')).toContainText(/they are locked, archived and graded again then/);
+  });
+
+  test('R7-3: with the deadline passed, Reopen says nothing locks them again', async ({ page }) => {
+    await openTracking(page);
+    await openActions(page);
+    await expect(unlockSection(page).locator('[data-reopen-until]')).toContainText(/nothing locks them again: use Lock again when they are done/);
+  });
+
   test('nothing is offered before the deadline has run', async ({ page }) => {
     // No lockdown record at all. A heading over "nothing has been locked" on
     // every student in a live cohort is noise, so the section does not render.

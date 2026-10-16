@@ -182,6 +182,16 @@
               </template>
             </template>
           </p>
+          <!-- What happens AFTER (review 2026-10-16, R7-3): a reopen with time
+               on it ends at that time, in lockdown's own rule. -->
+          <p class="text-secondary" data-reopen-until>
+            <template v-if="reopenUntil">
+              Their deadline is {{ formatDate(reopenUntil) }}: they are locked, archived and graded again then.
+            </template>
+            <template v-else>
+              Their deadline has passed, so nothing locks them again: use Lock again when they are done.
+            </template>
+          </p>
           <div class="field">
             <label>Reason (recorded beside the lockdown)</label>
             <textarea
@@ -379,6 +389,11 @@ const props = defineProps({
    */
   unlock: { type: Object, default: null },
   /**
+   * The deadline in force for this student (lib/effective-deadline.mjs, asked
+   * by the parent), so Reopen says whether a lock comes back at it (R7-3).
+   */
+  deadlineInForce: { type: String, default: null },
+  /**
    * Whether a reopened repository can be locked again, from its reopen record
    * (lib/repo-relock.mjs `relockability`): `{ can, demote, by, at, why, reason }`,
    * or null when it was not reopened.
@@ -472,6 +487,13 @@ const hand = reactive({
 // cannot disagree.
 const handProblem = computed(() => allowanceProblem({ extra: hand.extra, reason: hand.reason }))
 const ownLogin = computed(() => String(props.student.github_login || '').toLowerCase())
+
+// The deadline in force for this student, when it is still ahead: a reopen now
+// is then deferred to it and locked again there (lockdown's planTargets, R7-3).
+const reopenUntil = computed(() => {
+  const at = props.deadlineInForce
+  return at && Date.parse(at) > Date.now() ? at : null
+})
 
 // A computed, not a function: the template binds `:disabled="busy"`, and a bare
 // function reference there is an object - always truthy, so every control would

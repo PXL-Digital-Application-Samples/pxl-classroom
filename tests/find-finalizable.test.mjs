@@ -246,6 +246,7 @@ function runWithDeferrals(students, { id = "exam", attempts = 1, extensions = []
         repo_name: `TestOrg/${id}-${s.login}`,
         snapshot_sha: s.deferred_until || s.snapshot_sha === null ? null : (s.snapshot_sha ?? "a".repeat(40)),
         deferred_until: s.deferred_until,
+        reopened_at: s.reopened_at,
       })),
     }),
   );
@@ -256,7 +257,7 @@ function runWithDeferrals(students, { id = "exam", attempts = 1, extensions = []
     mkdirSync(obsDir, { recursive: true });
     writeFileSync(
       join(obsDir, "preservation.json"),
-      JSON.stringify({ github_login: s.login, verified: s.preserved }),
+      JSON.stringify({ github_login: s.login, verified: s.preserved, ...(s.preservedSha ? { source_sha: s.preservedSha } : {}) }),
     );
   }
 
@@ -317,6 +318,22 @@ test("an expired deferral re-queues the assignment", () => {
   );
   assert.equal(res.finalizable.length, 1, "bob's extension is over - finalize him");
   assert.match(res.stderr, /extension-expired/);
+});
+
+// R7-3 (review 2026-10-16): a reopen with time on it is a deferral to that
+// time, and the queue comes back for it like any other.
+test("R7-3: a student reopened until a deadline that has passed re-queues the assignment, and the log says so", () => {
+  const res = runWithDeferrals([{ login: "bob", deferred_until: AN_HOUR_AGO(), reopened_at: new Date(Date.now() - 86400_000).toISOString() }]);
+  assert.equal(res.finalizable.length, 1, "locked again at the deadline the reopen ends at");
+  assert.match(res.stderr, /1 of them reopened until it/);
+});
+
+test("R7-3: a snapshot whose archive is the FIRST one's is owed a preservation", () => {
+  const res = runWithDeferrals([{ login: "bob", snapshot_sha: "b".repeat(40), preserved: true, preservedSha: "a".repeat(40) }]);
+  assert.equal(res.finalizable.length, 1, "the archive holds the first lock's snapshot, not this one");
+  assert.match(res.stderr, /preservation-incomplete/);
+  const done = runWithDeferrals([{ login: "bob", snapshot_sha: "b".repeat(40), preserved: true, preservedSha: "b".repeat(40) }]);
+  assert.equal(done.finalizable.length, 0, "this one archived: nothing owed");
 });
 
 test("an expired extension stops keeping the assignment active", () => {

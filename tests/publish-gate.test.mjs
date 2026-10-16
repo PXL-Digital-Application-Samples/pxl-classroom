@@ -22,8 +22,32 @@ import {
   saveReopens,
   needsBrokerDispatch,
   publishedSaveWorkflow,
+  stillLockedCount,
+  stillLockedMessage,
   writeReachesStudentPage,
 } from "../frontend/src/lib/publish.js";
+
+// R7-3 (review 2026-10-16): a later deadline does not reach a student the lock
+// already holds, and the save says so, with the way to give them the time.
+test("stillLockedCount: students a lock still holds, each once", () => {
+  const record = { results: [
+    { github_login: "Alice", lock_method: "org-ruleset" },
+    { github_login: "alice", lock_method: "org-ruleset" },
+    { github_login: "bob", lock_method: "demotion" },
+    { github_login: "cleo", lock_method: null, reopened_at: "2026-10-16T10:00:00Z" },
+    { github_login: "dan", lock_method: "org-ruleset", reopened_at: "2026-10-16T10:00:00Z" },
+    { github_login: "eve", lock_method: null, deferred_until: "2030-01-01T00:00:00Z" },
+    { github_login: "finn", lock_method: "none" },
+  ] };
+  assert.equal(stillLockedCount(record), 2, "alice (one login, two spellings) and bob");
+  assert.equal(stillLockedCount(null), 0);
+  assert.equal(stillLockedCount({}), 0);
+});
+
+test("stillLockedMessage says who stays locked and how to give them time", () => {
+  assert.match(stillLockedMessage(1), /^Saved\. 1 student stays locked/);
+  assert.match(stillLockedMessage(3), /3 students stay locked.*Reopen those who need the time.*locked again at the new deadline/);
+});
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

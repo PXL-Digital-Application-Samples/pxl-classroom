@@ -205,6 +205,19 @@ test.describe('74 - saving a live assignment', () => {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
     expect(named(dispatches, REGENERATE)).toHaveLength(0);
+    await expect(page.getByText(/stay locked/), 'nobody is locked: nothing to say').toHaveCount(0);
+  });
+
+  test('R7-3: a later deadline over a lock says who stays locked, and how to give them the time', async ({ page }) => {
+    const { dispatches } = await openLiveEditor(page, { assignment: pastAssignment() });
+    const row = (login, extra = {}) => ({ github_login: login, repo_name: `${ORG}/x-${login}`, snapshot_sha: 'a'.repeat(40), lock_method: 'org-ruleset', verified: true, ...extra });
+    const record = { assignment_id: ID, locked_at: new Date().toISOString(), results: [row('alice'), row('bob'), row('cleo', { lock_method: null, reopened_at: new Date().toISOString() })] };
+    await page.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(record)).toString('base64'), encoding: 'base64', sha: 'lock-sha' }) }));
+    await deadlineField(page).fill(new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 16));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    await expect(page.getByText(/2 students stay locked: their work was taken at the old deadline\. Reopen those who need the time/)).toBeVisible();
   });
 
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {

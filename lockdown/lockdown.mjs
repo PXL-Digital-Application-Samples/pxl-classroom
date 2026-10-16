@@ -46,6 +46,7 @@ import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
 import { sentinelMayHaveStopped, sentinelStopFor, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { readSentinelTimelines as readSentinelTimelinesIn } from "../lib/sentinel-timelines.mjs";
+import { preservesSnapshot } from "../lib/preservation-status.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
@@ -336,12 +337,11 @@ async function readReopenedCheckout() {
 //
 // Stop-first makes that hazard structural rather than incidental - after phase 1
 // nothing can move - but the freeze stays as belt and braces.
-/** Whether this student's snapshot is archived and verified, by the record in the checkout. */
-function preservedOnRecord(login) {
+/** Whether this student's snapshot - THIS one (R7-3) - is archived and verified, by the record in the checkout. */
+function preservedOnRecord(login, snapshotSha) {
   if (!login) return false;
   try {
-    const doc = JSON.parse(readFileSync(join(cfg.dataDir, "observations", cfg.assignmentId, login, "preservation.json"), "utf8"));
-    return doc?.verified === true;
+    return preservesSnapshot(JSON.parse(readFileSync(join(cfg.dataDir, "observations", cfg.assignmentId, login, "preservation.json"), "utf8")), snapshotSha);
   } catch {
     return false;
   }
@@ -400,16 +400,6 @@ async function readSentinelStop() {
  */
 async function sentinelEverStopped() {
   return sentinelMayHaveStopped(await readSentinelTimelines());
-}
-
-/** Whether this student's submission is in the archive, verified (preserve/preserve.mjs writes it). */
-async function preservedVerified(login) {
-  try {
-    const doc = JSON.parse(await readFile(join(cfg.dataDir, "observations", cfg.assignmentId, login, "preservation.json"), "utf8"));
-    return doc?.verified === true;
-  } catch {
-    return false;
-  }
 }
 
 // Which timelines count, and the earliest - a cohort can be armed more than
@@ -481,6 +471,43 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     const alreadyRecorded = teamMembers.some((m) => priorByLogin.get(normalizeLogin(m))?.snapshot_sha);
 
     const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members: teamMembers } });
+
+    // A repository a lecturer deliberately reopened is not re-locked by a
+    // later pass. Matched over teamMembers, not the record's login: a group
+    // repository is ONE object with one lock on it, so reopening it for any
+    // member reopened it for the team, and re-locking it would shut out
+    // everybody on the strength of somebody else's expired extension.
+    // Asked BEFORE the deferral below, so a reopened student's deferral keeps
+    // the reopen it came from (R7-3).
+    const reopenedFor = teamMembers.map((m) => normalizeLogin(m)).find((m) => reopened.has(m));
+    if (reopenedFor) {
+      const record = reopened.get(reopenedFor);
+      // A REOPEN WITH TIME ON IT ENDS AT THAT TIME (review 2026-10-16, R7-3).
+      // Reopened after the deadline was moved later, or with an extension
+      // granted, the student was given until a deadline that is AFTER the
+      // reopen - and was then open for good, never locked, archived or graded
+      // on what they did with it. Until that deadline they are deferred like
+      // anyone with time left (the queue comes back at `deferred_until`); once
+      // it has passed they are locked again with a fresh snapshot, unless a
+      // lock made after the reopen already holds them. A reopen with no such
+      // time - made after the deadline in force - stays open, as it always has:
+      // Lock again is the way back.
+      const reopenedAt = Date.parse(record?.unlocked_at ?? "");
+      if (Number.isFinite(reopenedAt) && effective.deadline.getTime() > reopenedAt) {
+        const reopen = { reopenedFor, record };
+        if (effective.deadline > now) {
+          deferrals.push({ ...target, effective, reopen });
+          continue;
+        }
+        const prior = teamMembers.map((m) => priorByLogin.get(normalizeLogin(m))).find((p) => p?.snapshot_sha);
+        const lockedSince = Boolean(prior) && !prior.reopened_at && Date.parse(prior.lockdown_at ?? "") > reopenedAt;
+        targets.push(lockedSince ? target : { ...target, relock: { ...reopen, until: effective.deadline.toISOString() } });
+        continue;
+      }
+      reopenedTargets.push({ ...target, reopenedFor, record });
+      continue;
+    }
+
     // ANY DEADLINE STILL AHEAD DEFERS (review 2026-10-16, R7-1): a granted
     // extension, and the assignment's own deadline moved later after the stop.
     // Gated on `extended` alone, a deadline moved out while the finalize ran
@@ -489,17 +516,6 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     // finalize and "Lock everyone out now" after it.
     if (!alreadyRecorded && effective.deadline > now) {
       deferrals.push({ ...target, effective });
-      continue;
-    }
-
-    // A repository a lecturer deliberately reopened is not re-locked by a
-    // later pass. Matched over teamMembers, not the record's login: a group
-    // repository is ONE object with one lock on it, so reopening it for any
-    // member reopened it for the team, and re-locking it would shut out
-    // everybody on the strength of somebody else's expired extension.
-    const reopenedFor = teamMembers.map((m) => normalizeLogin(m)).find((m) => reopened.has(m));
-    if (reopenedFor) {
-      reopenedTargets.push({ ...target, reopenedFor, record: reopened.get(reopenedFor) });
       continue;
     }
 
@@ -1111,7 +1127,7 @@ async function main() {
   // third was never retried. A pass is a retry when the record it follows
   // still owed something: a snapshot not yet archived, or one not yet read.
   const retrying = Boolean(prior) && (prior.results || []).some(
-    (r) => r?.snapshot_unread || (r?.snapshot_sha && !r?.reopened_at && !preservedOnRecord(r.github_login)),
+    (r) => r?.snapshot_unread || (r?.snapshot_sha && !r?.reopened_at && !preservedOnRecord(r.github_login, r.snapshot_sha)),
   );
   const attempt = prior ? (prior.finalize_attempts ?? 1) + (retrying ? 1 : 0) : 1;
   if (prior) {
@@ -1162,10 +1178,19 @@ async function main() {
   for (const d of deferrals) {
     log(`lockdown ${d.displayKey}`, {
       ok: true,
-      note: d.effective.extended
+      note: d.reopen
+        ? `left open until ${d.effective.deadline.toISOString()} - reopened by ${d.reopen.record?.unlocked_by || "a lecturer"}, locked again then`
+        : d.effective.extended
         ? `deferred - extension granted to ${d.effective.grantedTo} runs to ${d.effective.deadline.toISOString()}`
         : `deferred - the deadline is now ${d.effective.deadline.toISOString()}, still ahead`,
     });
+  }
+  // LOCKED AGAIN, WITH WHAT THEY DID SINCE (R7-3): the row the reopen left -
+  // its old snapshot carried for the record - is not this lock's history, so
+  // it is not frozen over: a fresh snapshot is taken, at this lock's time.
+  for (const t of targets.filter((x) => x.relock)) {
+    for (const m of t.members) priorByLogin.delete(normalizeLogin(m));
+    log(`lockdown ${t.displayKey}`, { ok: true, note: `locked again - reopened at ${t.relock.record?.unlocked_at}, and their deadline ${t.relock.until} has passed` });
   }
 
   // --- Phase 1: STOP ---------------------------------------------------------
@@ -1461,7 +1486,9 @@ async function main() {
         snapshot_ref: submissionRef,
         lockdown_at: null,
         deferred_until: deferredUntil,
-        deferred_reason: d.effective.reason,
+        deferred_reason: d.reopen ? `reopened by ${d.reopen.record?.unlocked_by || "a lecturer"} until their deadline` : d.effective.reason,
+        // Reopened, with time on it (R7-3): open now, locked at `deferred_until`.
+        ...(d.reopen ? { reopened_at: d.reopen.record?.unlocked_at ?? null } : {}),
         permission_after: null,
         verified: false,
         uncertainty_seconds: null,
@@ -1496,7 +1523,7 @@ async function main() {
         // preserved stays out: nothing can preserve it now.
         for (const m of t.members) {
           const prior = priorByLogin.get(normalizeLogin(m));
-          if (prior?.snapshot_sha && (await preservedVerified(m))) lockdownResults.push(prior);
+          if (prior?.snapshot_sha && preservedOnRecord(m, prior.snapshot_sha)) lockdownResults.push(prior);
         }
         continue;
       }
@@ -1590,6 +1617,10 @@ async function main() {
             ? "org-owner"
             : undefined,
         uncertainty_seconds: uncertaintySec,
+        // Locked again after a reopen that gave them time (R7-3): when that
+        // reopen was. Carried by every later pass, so the grader at the
+        // deadline knows this snapshot is new since a lecturer read the scores.
+        relocked_after: t.relock?.record?.unlocked_at ?? priorByLogin.get(normalizeLogin(m))?.relocked_after ?? undefined,
       });
     }
 

@@ -1681,7 +1681,8 @@ import { syncRefusal } from '../lib/starter-sync.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
-import { publishedSaveWorkflow, saveReopens, writeReachesStudentPage } from '../lib/publish.js'
+import { publishedSaveWorkflow, saveReopens, stillLockedCount, stillLockedMessage, writeReachesStudentPage } from '../lib/publish.js'
+import { contentsText } from '../../../lib/contents-text.mjs'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readMaxHandIns, submissionBranch } from '../../../lib/submission-marker.mjs'
@@ -4775,8 +4776,7 @@ async function readPermissionPlan(id, doc = null) {
   if (lock.status !== 404) {
     if (!lock.ok || !lock.data?.content) return { ok: false }
     try {
-      const bin = atob(String(lock.data.content).replace(/\n/g, ''))
-      lockRecord = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))))
+      lockRecord = JSON.parse(contentsText(lock.data.content))
     } catch {
       return { ok: false }
     }
@@ -4985,10 +4985,11 @@ async function saveAndPublishSteps() {
     // the assignment? Then the broker the nightly switched off is switched on
     // by publishing. Asked of GitHub, never of what this tab loaded (saveReopens).
     const local = form.value.deadline_at_local
-    const reopens = await thisSaveReopens(local ? localToUtc(local) : null)
+    const { reopens, stillLocked } = await thisSaveReopens(local ? localToUtc(local) : null)
     // Gated on the save actually landing: dispatching the publish workflow for
     // a YAML the commit failed to write runs it against the OLD document.
     if (!(await saveAssignment())) return false
+    if (stillLocked > 0) toast.info(stillLockedMessage(stillLocked))
 
     // `!== true`, NOT `=== false`. brokerExists is a THREE-state flag and the
     // third state was being read as "fine": `null` means nobody has looked yet.
@@ -5196,7 +5197,8 @@ async function confirmRepublish(regenerate) {
  * Only asked when the deadline being saved is in the future.
  */
 async function thisSaveReopens(newDeadline) {
-  if (isNew.value || !form.value.id || !(Date.parse(newDeadline ?? '') > Date.now())) return false
+  const none = { reopens: false, stillLocked: 0 }
+  if (isNew.value || !form.value.id || !(Date.parse(newDeadline ?? '') > Date.now())) return none
   const token = getToken()
   const [text, lock] = await Promise.all([
     getRepoContent(token, props.org, config.controlRepo, assignmentPath(form.value.id)).catch(() => null),
@@ -5208,7 +5210,17 @@ async function thisSaveReopens(newDeadline) {
   } catch {
     storedDeadline = null
   }
-  return saveReopens({ storedDeadline: storedDeadline ?? form.value._deadline_at_original, newDeadline, lockStatus: lock?.status ?? null })
+  const reopens = saveReopens({ storedDeadline: storedDeadline ?? form.value._deadline_at_original, newDeadline, lockStatus: lock?.status ?? null })
+  // WHO A LATER DEADLINE DOES NOT REACH (review 2026-10-16, R7-3): a student
+  // the lock already holds keeps the submission it took. Said at the save,
+  // with the way to give them the time.
+  let record = null
+  try {
+    record = lock?.ok && lock.data?.content ? JSON.parse(contentsText(lock.data.content)) : null
+  } catch {
+    record = null
+  }
+  return { reopens, stillLocked: stillLockedCount(record) }
 }
 
 async function finishedRefusal() {
@@ -5224,7 +5236,7 @@ async function finishedRefusal() {
   // too (`lock_method: none`), and "its submissions are locked" was untrue there.
   let lockMethod = null
   try {
-    lockMethod = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(lock.data?.content || '').replace(/\n/g, '')), (c) => c.charCodeAt(0))))?.lock_method ?? null
+    lockMethod = JSON.parse(contentsText(lock.data?.content || ''))?.lock_method ?? null
   } catch {
     lockMethod = null
   }

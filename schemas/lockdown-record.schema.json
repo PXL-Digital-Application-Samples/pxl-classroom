@@ -267,6 +267,14 @@
               "null"
             ],
             "description": "When a lecturer reopened this repository, copied from lockdowns/<id>/unlocked/<login>.json at the pass that skipped it. A reopened student used to be DROPPED from this record entirely - the run counted them in reopened_count and then wrote nothing about them, so the document a grade dispute reads lost the fact that they were ever locked. A deferred student has always kept a row saying why; this is the same answer for the other reason a repository is not locked. lock_method is null on such a row, because nothing is holding it now."
+          },
+          "relocked_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the reopen this lock ENDED was made (review 2026-10-16, R7-3). A student reopened with time on it - their deadline in force after the reopen - is deferred until that deadline and then locked again with a fresh snapshot; this row is that second lock, and every later pass carries the field. The grader at the deadline reads it to grade this student again over a summary a lecturer read before."
           }
         }
       }

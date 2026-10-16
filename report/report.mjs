@@ -38,7 +38,7 @@ import { CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, CONTROL_REPO } from "../lib/deploy
 import { addressFormatAllowed, domainAllowed, resolveAddressFormat, resolveClaimDomains } from "../lib/claim.mjs";
 import { teamRepresentative } from "../lib/team-representative.mjs";
 import { addedCommits, starterFor, unstartedRepo } from "../lib/starter-commit.mjs";
-import { preservationStatus } from "../lib/preservation-status.mjs";
+import { preservationStatus, preservesSnapshot } from "../lib/preservation-status.mjs";
 import { classifySubmission } from "../lib/submission-status.mjs";
 
 async function setOutput(name, value) {
@@ -605,9 +605,11 @@ async function main() {
     // `preserved_sha` that has never existed in that document. Spelled once
     // here, and the fixture in tests/report.test.mjs is the shape preserve.mjs
     // actually writes rather than one the test invented.
+    // Of THIS lock's snapshot (R7-3): one locked again after a reopen has a
+    // second, and the first one's archive does not settle the second.
     const blocksLate = assignment?.late_policy === "block";
     const preservedOnTimeSha =
-      blocksLate && preservation?.verified === true
+      blocksLate && preservesSnapshot(preservation, lockdownByLogin.get(key)?.snapshot_sha)
         ? (preservation.source_sha ?? lockdownByLogin.get(key)?.snapshot_sha ?? null)
         : null;
 

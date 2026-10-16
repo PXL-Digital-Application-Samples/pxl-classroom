@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { gh } from "../lib/gh.mjs";
 import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
-import { archiveRepoName, archiveReadme } from "../lib/archive-repo.mjs";
+import { archiveRepoName, archiveReadme, laterSnapshotBranch } from "../lib/archive-repo.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 const cfg = {
@@ -310,7 +310,7 @@ async function main() {
       continue;
     }
     const workDir = await mkdtemp(join(tmpdir(), `pxl-preserve-${targetRefKey}-`));
-    const presRef = `refs/heads/preserved/${cfg.assignmentId}/${targetRefKey}`;
+    let presRef = `refs/heads/preserved/${cfg.assignmentId}/${targetRefKey}`;
     let verified = false;
 
     try {
@@ -319,6 +319,8 @@ async function main() {
       const cloneDir = join(workDir, "src");
       const presDir = join(cfg.dataDir, "observations", cfg.assignmentId, login);
       const presFile = join(presDir, "preservation.json");
+      let kept = null;
+      try { kept = JSON.parse(await readFile(presFile, "utf8")); } catch { kept = null; }
 
       // ALREADY IN THE ARCHIVE AT THIS COMMIT: nothing to fetch or push (review
       // 2026-10-14). Every finalize pass re-fetched and re-pushed every student,
@@ -326,10 +328,18 @@ async function main() {
       // preserved was lost; and a reopened student's force-push since made the
       // frozen commit unfetchable, failing a row whose archive was fine. The
       // archive's own ref is the evidence; the record is kept as it was.
-      const atArchive = git(["ls-remote", arcUrl, presRef], { cwd: workDir }).split(/\s/)[0] || "";
+      // ...at the student's branch, or at the branch a LATER snapshot was given
+      // (R7-3, `laterSnapshotBranch`), which the record names.
+      let atArchive = git(["ls-remote", arcUrl, presRef], { cwd: workDir }).split(/\s/)[0] || "";
+      if (atArchive !== sourceSha && kept?.source_sha === sourceSha && kept?.preserved_ref && kept.preserved_ref !== presRef
+        && /^refs\/heads\/preserved\/[^\s]+$/.test(kept.preserved_ref)) {
+        const atLater = git(["ls-remote", arcUrl, kept.preserved_ref], { cwd: workDir }).split(/\s/)[0] || "";
+        if (atLater === sourceSha) {
+          presRef = kept.preserved_ref;
+          atArchive = atLater;
+        }
+      }
       if (atArchive === sourceSha) {
-        let kept = null;
-        try { kept = JSON.parse(await readFile(presFile, "utf8")); } catch { kept = null; }
         if (!(kept?.verified === true && kept.source_sha === sourceSha && kept.preserved_ref === presRef)) {
           await mkdir(presDir, { recursive: true });
           await writeFile(presFile, JSON.stringify({
@@ -359,6 +369,29 @@ async function main() {
         git(["cat-file", "-e", sourceSha], { cwd: cloneDir });
       } catch {
         throw new Error(`SHA ${sourceSha} not found in ${cfg.org}/${sourceRepo}`);
+      }
+
+      // A LATER SNAPSHOT OF THE SAME STUDENT (review 2026-10-16, R7-3): locked
+      // again after a reopen that gave them time. On top of the first it is a
+      // fast-forward and goes on the same branch. A student who rewrote their
+      // history in between cannot be fast-forwarded, and nothing here forces:
+      // the first snapshot is evidence, so the second gets a branch of its own.
+      // Only where the record says the commit there IS that first snapshot,
+      // preserved by this system for this student: anything else at the ref is
+      // something we did not put there, and the push below refuses it (TL-5).
+      if (atArchive && kept?.verified === true && kept.source_sha === atArchive && kept.preserved_ref === presRef) {
+        let onTop = false;
+        try {
+          git(["fetch", "--no-tags", arcUrl, atArchive], { cwd: cloneDir });
+          git(["merge-base", "--is-ancestor", atArchive, sourceSha], { cwd: cloneDir });
+          onTop = true;
+        } catch {
+          onTop = false;
+        }
+        if (!onTop) {
+          presRef = laterSnapshotBranch(presRef, sourceSha);
+          log(`preserve ${login}`, { ok: true, note: `the archive holds ${atArchive.slice(0, 12)}, which ${sourceSha.slice(0, 12)} does not build on - kept, and this one goes to ${presRef}` });
+        }
       }
 
       // NOT --force. An organization is entitled to forbid force-push with a

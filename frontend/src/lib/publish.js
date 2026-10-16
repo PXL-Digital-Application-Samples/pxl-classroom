@@ -23,6 +23,9 @@
 // that no student can accept - and nothing surfaces it until somebody reopens
 // the panel and reads the banner.
 
+import { LOCKING_METHODS } from '../../../lib/repo-unlock.mjs'
+import { normalizeLogin } from '../../../lib/github-login.mjs'
+
 /**
  * @param {boolean|null|undefined} brokerExists
  * @returns {boolean} whether Save must also dispatch publish-assignment.yml
@@ -73,6 +76,28 @@ export function saveReopens({ storedDeadline = null, newDeadline = null, lockSta
   if (!Number.isFinite(will) || will <= now) return false
   if (deadlineReopens(storedDeadline, newDeadline, now)) return true
   return lockStatus !== 404
+}
+
+/**
+ * How many students a lock record still holds: a lock on their row
+ * (lib/repo-unlock.mjs `LOCKING_METHODS`), not reopened since. A later deadline
+ * does not reach them - their submission was taken (review 2026-10-16, R7-3),
+ * and Reopen is how one of them gets the time. Counted by login, once.
+ *
+ * @param {{ results?: Array<{ github_login?: string, lock_method?: string|null, reopened_at?: string|null }> } | null} record
+ */
+export function stillLockedCount(record) {
+  const held = new Set()
+  for (const r of record?.results || []) {
+    if (r?.github_login && LOCKING_METHODS.has(r.lock_method) && !r.reopened_at) held.add(normalizeLogin(r.github_login))
+  }
+  return held.size
+}
+
+/** What a save moving the deadline later says about them, in the lecturer's words. */
+export function stillLockedMessage(n) {
+  const who = n === 1 ? '1 student stays' : `${n} students stay`
+  return `Saved. ${who} locked: their work was taken at the old deadline. Reopen those who need the time on the Progress tab, and they are locked again at the new deadline.`
 }
 
 /**

@@ -1396,6 +1396,7 @@
         :extending="actionExtending"
         :retrying="actionRetrying"
         :unlock="actionUnlock"
+        :deadline-in-force="deadlineInForceFor(actionStudent)"
         :unlocking="actionUnlocking"
         :relock="actionRelock"
         :relocking="actionRelocking"
@@ -1565,7 +1566,7 @@ import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
-import { extensionFrom } from '../lib/deadline.js'
+import { effectiveDeadlineFor, extensionFrom } from '../lib/deadline.js'
 import { deadlineVariableValue, pageDeadlineState, readDeadlineVariable, writeDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 import {
   claimPath,
@@ -3082,6 +3083,18 @@ const tableColumnCount = computed(() =>
 function extensionFor(login) {
   const ext = extensionFrom(overridesByLogin.value.get(login))
   return ext ? { value: ext.at.toISOString(), reason: ext.reason } : null
+}
+
+/**
+ * The deadline in force for one student, from the assignment as this page
+ * read it and their team's extensions - lockdown's own rule, so Reopen can say
+ * whether it ends at a deadline still ahead (R7-3).
+ */
+function deadlineInForceFor(student) {
+  return effectiveDeadlineFor(assignment.value, student?.github_login, {
+    overrides: overridesByLogin.value,
+    team: { members: teamMembersOf(student).map((s) => s.github_login) },
+  }).deadline?.toISOString() ?? null
 }
 
 /** A student's override document, matched on the login lowercased
