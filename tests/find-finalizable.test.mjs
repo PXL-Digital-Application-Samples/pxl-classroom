@@ -227,9 +227,20 @@ test("unreadable lockdown record -> re-queued rather than assumed done", () => {
  * deferred students, plus the overrides that produced the deferrals.
  *   students: [{ login, snapshot_sha, preserved, deferred_until }]
  */
-function runWithDeferrals(students, { id = "exam", attempts = 1, extensions = [] } = {}) {
+function runWithDeferrals(students, { id = "exam", attempts = 1, extensions = [], deadline = null, reopens = [], teams = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-ff-defer-"));
-  const past = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const past = deadline ?? new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  if (reopens.length) {
+    mkdirSync(join(dir, "lockdowns", id, "unlocked"), { recursive: true });
+    for (const r of reopens) {
+      writeFileSync(join(dir, "lockdowns", id, "unlocked", `${r.login}.json`),
+        r.raw ?? JSON.stringify({ github_login: r.login, unlocked_at: r.unlocked_at, unlocked_by: "lecturer", reason: "let back in" }));
+    }
+  }
+  if (teams.length) {
+    mkdirSync(join(dir, "teams", id), { recursive: true });
+    for (const t of teams) writeFileSync(join(dir, "teams", id, `${t.slug}.json`), JSON.stringify({ team_slug: t.slug, members: t.members }));
+  }
 
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(join(dir, "assignments", `${id}.yml`), `state: published\ndeadline_at: "${past}"`);
@@ -247,6 +258,7 @@ function runWithDeferrals(students, { id = "exam", attempts = 1, extensions = []
         snapshot_sha: s.deferred_until || s.snapshot_sha === null ? null : (s.snapshot_sha ?? "a".repeat(40)),
         deferred_until: s.deferred_until,
         reopened_at: s.reopened_at,
+        lockdown_at: s.lockdown_at,
       })),
     }),
   );
@@ -326,6 +338,60 @@ test("R7-3: a student reopened until a deadline that has passed re-queues the as
   const res = runWithDeferrals([{ login: "bob", deferred_until: AN_HOUR_AGO(), reopened_at: new Date(Date.now() - 86400_000).toISOString() }]);
   assert.equal(res.finalizable.length, 1, "locked again at the deadline the reopen ends at");
   assert.match(res.stderr, /1 of them reopened until it/);
+});
+
+// R7-20 (review 2026-10-16): a reopen with time on it that no pass deferred -
+// the reopen came after the lock, the time ran out before the next pass - is
+// owed its re-lock all the same.
+const HOURS_AGO = (h) => new Date(Date.now() - h * 3600_000).toISOString();
+
+test("R7-20: a student reopened with an extension that has since run out re-queues the assignment", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", preserved: true, lockdown_at: HOURS_AGO(4.5) }],
+    { deadline: HOURS_AGO(5), reopens: [{ login: "bob", unlocked_at: HOURS_AGO(4) }], extensions: [{ login: "bob", value: HOURS_AGO(1) }] },
+  );
+  assert.equal(res.finalizable.length, 1, "locked, archived and graded again at the end of the extension");
+  assert.match(res.stderr, /reopen-ended \(1 student/);
+});
+
+test("R7-20: one locked again since the reopen is owed nothing more", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", preserved: true, preservedSha: "a".repeat(40), lockdown_at: HOURS_AGO(0.9) }],
+    { deadline: HOURS_AGO(5), reopens: [{ login: "bob", unlocked_at: HOURS_AGO(4) }], extensions: [{ login: "bob", value: HOURS_AGO(1) }] },
+  );
+  assert.equal(res.finalizable.length, 0, "the re-lock happened; the next pass would loop");
+});
+
+test("R7-20: a reopen made after the deadline in force has no end and queues nothing", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", preserved: true, lockdown_at: HOURS_AGO(4.5) }],
+    { deadline: HOURS_AGO(5), reopens: [{ login: "bob", unlocked_at: HOURS_AGO(4) }] },
+  );
+  assert.equal(res.finalizable.length, 0, "open until Lock again, as it always was");
+});
+
+test("R7-20: a reopen whose time is still running queues nothing yet and keeps the nightly on", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", preserved: true, lockdown_at: HOURS_AGO(4.5) }],
+    { deadline: HOURS_AGO(5), reopens: [{ login: "bob", unlocked_at: HOURS_AGO(4) }], extensions: [{ login: "bob", value: IN_A_WEEK() }] },
+  );
+  assert.equal(res.finalizable.length, 0);
+  assert.equal(res.activeCount, 1, "the nightly comes back at the extension's end");
+});
+
+test("R7-20: a teammate's extension is the repository's, so a reopened member's time ends with it", () => {
+  const students = [{ login: "alice", preserved: true, lockdown_at: HOURS_AGO(4.5) }, { login: "bob", preserved: true, lockdown_at: HOURS_AGO(4.5) }];
+  const opts = { deadline: HOURS_AGO(5), reopens: [{ login: "alice", unlocked_at: HOURS_AGO(4) }], extensions: [{ login: "bob", value: HOURS_AGO(1) }] };
+  assert.equal(runWithDeferrals(students, { ...opts, teams: [{ slug: "team-a", members: ["alice", "bob"] }] }).finalizable.length, 1, "one repository, one lock");
+  assert.equal(runWithDeferrals(students, opts).finalizable.length, 0, "not teammates: alice's own deadline is before her reopen");
+});
+
+test("R7-20: an unreadable reopen record has no end, as lockdown reads it", () => {
+  const res = runWithDeferrals(
+    [{ login: "bob", preserved: true, lockdown_at: HOURS_AGO(4.5) }],
+    { deadline: HOURS_AGO(5), reopens: [{ login: "bob", raw: "{not json" }], extensions: [{ login: "bob", value: HOURS_AGO(1) }] },
+  );
+  assert.equal(res.finalizable.length, 0);
 });
 
 test("R7-3: a snapshot whose archive is the FIRST one's is owed a preservation", () => {

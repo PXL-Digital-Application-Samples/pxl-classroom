@@ -35,6 +35,23 @@ test("lockRanFor: a lock record or a stop of THIS deadline, never one of an earl
   assert.equal(lockRanFor({ deadline, lockRecord: null, timelines: [{ ...stop(deadline.toISOString()), stop: "pending" }] }), true, "a stop that may have held counts");
 });
 
+// R7-23: a record of this deadline that locked nobody is a plan, not a lock.
+test("lockRanFor: a record that deferred everyone does not close the grace; one that locked somebody does", () => {
+  const deadline = new Date("2026-10-16T21:59:00Z");
+  const at = deadline.toISOString();
+  const deferred = { github_login: "a", snapshot_sha: null, deferred_until: at };
+  const locked = { github_login: "b", snapshot_sha: "f".repeat(40), lockdown_at: at };
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [deferred] }, timelines: [] }), false, "deferred is nobody locked");
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [] }, timelines: [] }), false);
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [deferred, locked] }, timelines: [] }), true);
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [{ github_login: "c", no_submission: true, verified: true }] }, timelines: [] }), true, "locked with nothing handed in is locked");
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [{ github_login: "c", snapshot_unread: "HTTP 502" }] }, timelines: [] }), true, "locked, snapshot unread");
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: at, results: [deferred] }, timelines: [stop(at)] }), true, "the sentinel's stop still counts");
+  assert.equal(lockRanFor({ deadline, lockRecord: { results: [deferred] }, timelines: [] }), true, "a record from before deadline_at counts, as it always did");
+});
+
+const stop = (deadline_at) => ({ outcome: "fired", deadline_at, stop: "done" });
+
 const who = { assignmentId: "groepsindeling", login: "SabriKatogluPXL" };
 
 test("a teammate admitted into this team makes the repository at its name ours", () => {

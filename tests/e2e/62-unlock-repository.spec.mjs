@@ -214,6 +214,24 @@ test.describe('when the section appears at all', () => {
     await expect(toast).not.toContainText('use the new deadline anyway');
   });
 
+  // R7-24: a student reopened with time and locked again at its end is locked
+  // like anyone else; the reopen record still on file does not make them open.
+  test('R7-24: an extension granted to a student locked again since their reopen says it does not reopen them', async ({ page }) => {
+    await openTracking(page, {
+      record: lockdownRecord({ lockdown_at: '2026-09-25T20:00:00Z', relocked_after: '2026-09-22T09:00:00Z' }),
+      unlocked: { github_login: STUDENT, unlocked_at: '2026-09-22T09:00:00Z', unlocked_by: LECTURER, reason: 'Appeal upheld', method: 'ruleset' },
+    });
+    await openActions(page);
+    const later = new Date(Date.now() + 3 * 86400_000)
+    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+    await modal(page).locator('input[type="datetime-local"]').first().fill(local);
+    await modal(page).getByPlaceholder(/Medical certificate/).first().fill('Medical certificate');
+    await modal(page).getByRole('button', { name: 'Grant extension' }).click();
+    const toast = page.locator('.toast', { hasText: `Extension granted to ${STUDENT}` });
+    await expect(toast).toContainText('already locked at the deadline, and more time does not reopen it');
+    await expect(toast).not.toContainText('stays open');
+  });
+
   test('nothing is offered before the deadline has run', async ({ page }) => {
     // No lockdown record at all. A heading over "nothing has been locked" on
     // every student in a live cohort is noise, so the section does not render.

@@ -14,6 +14,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { parse } from "yaml";
 import { staleStop } from "../scripts/release-stale-stop.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "scripts", "release-stale-stop.mjs");
@@ -37,7 +38,7 @@ test("staleStop: only a deadline ahead, no lock record and a sentinel that fired
  * (null: a free organization, 403), `repoLocked` with a repository ruleset on,
  * `demoted` at read, `gone` repositories deleted, `refuse` writes answered 403.
  */
-async function withApi(fn, { orgIds = [], repoLocked = [], demoted = [], gone = [], refuse = [] } = {}) {
+async function withApi(fn, { orgIds = [], repoLocked = [], demoted = [], gone = [], refuse = [], lockRecord = 404, controlRepo = 200 } = {}) {
   const writes = [];
   const calls = [];
   let ids = orgIds ? [...orgIds] : null;
@@ -52,6 +53,11 @@ async function withApi(fn, { orgIds = [], repoLocked = [], demoted = [], gone = 
       const body = raw ? JSON.parse(raw) : null;
       if (req.method !== "GET") writes.push({ method: req.method, url, body });
       if (refuse.some((r) => url.includes(r)) && req.method !== "GET") return send(403, { message: "Resource not accessible by integration" });
+      // The lock record as the control repository holds it now (R7-21).
+      if (url === `/repos/O/${CONTROL_REPO}/contents/lockdowns/exam/lockdown-record.json`) {
+        return lockRecord === 200 ? send(200, { content: Buffer.from("{}").toString("base64"), encoding: "base64" }) : send(lockRecord, { message: "Not Found" });
+      }
+      if (url === `/repos/O/${CONTROL_REPO}`) return send(controlRepo, controlRepo === 200 ? { name: CONTROL_REPO } : { message: "Not Found" });
       if (url === "/orgs/O/rulesets") {
         return ids === null ? send(403, { message: "Upgrade to GitHub Team to enable this feature." }) : send(200, [{ id: 7, name: "pxl-classroom-deadline-exam" }]);
       }
@@ -195,6 +201,29 @@ test("release: a stop that will not come off fails the run and names it; running
   }, { orgIds: [], demoted: ["alice"] });
 });
 
+// R7-21 (review 2026-10-16): the finalize commits its record minutes after it
+// locks; a publish over a checkout from in between released what the record
+// then said held.
+test("release: a lock record the finalize wrote since this checkout keeps every stop", async () => {
+  await withApi(async (api, { writes }) => {
+    const res = await run(checkout({ records: cohort }), api, "release");
+    assert.equal(res.status, 0, res.log);
+    assert.deepEqual(writes, [], "nothing let go");
+    assert.match(res.log, /wrote its lock record after this checkout/);
+  }, { orgIds: [1, 2], demoted: ["alice"], lockRecord: 200 });
+});
+
+test("release: whether it was locked meanwhile, unread, releases nothing and fails the run", async () => {
+  for (const opts of [{ lockRecord: 502 }, { controlRepo: 404 }]) {
+    await withApi(async (api, { writes }) => {
+      const res = await run(checkout({ records: cohort }), api, "release");
+      assert.equal(res.status, 1, res.log);
+      assert.deepEqual(writes, [], JSON.stringify(opts));
+      assert.match(res.log, /could not be read, so no stop was let go.*Publish again to retry/);
+    }, { orgIds: [1, 2], demoted: ["alice"], ...opts });
+  }
+});
+
 test("the workflow runs it last, mints its token only when stale, and the token row exists", () => {
   const wf = parse(readFileSync(join(root, ".github/workflows/publish-assignment.yml"), "utf8"));
   const steps = wf.jobs.publish.steps;
@@ -203,4 +232,5 @@ test("the workflow runs it last, mints its token only when stale, and the token 
   const mint = steps.find((s) => s.id === "release_token");
   assert.match(mint.if, /steps\.stale_stop\.outputs\.stale == 'true'/);
   assert.equal(steps.find((s) => s.name === "Release the stop").env.GITHUB_TOKEN, "${{ steps.release_token.outputs.token }}");
+  assert.equal(steps.find((s) => s.name === "Release the stop").env.READ_TOKEN, "${{ steps.token.outputs.token }}", "the control repository is read with a token that can");
 });

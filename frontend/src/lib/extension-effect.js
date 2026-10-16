@@ -12,18 +12,24 @@
 //             a reopen with time on it ends at it (lockdown's planTargets).
 //   reopened  a lecturer reopened them: they stay open until the new deadline,
 //             and are locked again then.
+//
+// Locked is lockdown's own answer (lib/lock-rows.mjs, R7-24): a lock taken by
+// a locking method, and a lock made SINCE a reopen is a lock like any other -
+// called "reopened", a student locked again at the end of their reopen was
+// told they would be let in by more time, which lockdown does not do.
 
+import { lockTaken, lockedSinceReopen } from '../../../lib/lock-rows.mjs'
 import { LOCKING_METHODS, lockdownRowFor } from '../../../lib/repo-unlock.mjs'
 
 /**
- * @param {{ record?: object|null, login: string, reopened?: boolean }} p
- *   `record` the lockdown record; `reopened` whether a reopen record exists
+ * @param {{ record?: object|null, login: string, reopen?: {unlocked_at?: string|null}|null }} p
+ *   `record` the lockdown record; `reopen` the reopen record, when one exists
  * @returns {'open'|'locked'|'reopened'}
  */
-export function extensionEffect({ record = null, login, reopened = false }) {
-  if (reopened) return 'reopened'
+export function extensionEffect({ record = null, login, reopen = null }) {
   const row = lockdownRowFor(record, login)
-  if (row && LOCKING_METHODS.has(row.lock_method) && !row.reopened_at) return 'locked'
+  if (reopen && !lockedSinceReopen(row, reopen)) return 'reopened'
+  if (row && lockTaken(row) && LOCKING_METHODS.has(row.lock_method) && !row.reopened_at) return 'locked'
   return 'open'
 }
 

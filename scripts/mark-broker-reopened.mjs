@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// A publish switched a closed broker on again: say so, where the nightly looks
-// (review 2026-10-16, R7-4).
+// A publish switches the broker on: say so, where the nightly looks (review
+// 2026-10-16, R7-4).
 //
 // The finalize closed this assignment's broker - INVITE_ENABLED off, the broker
 // App's key off a public repository (scripts/close-acceptance.mjs) - and wrote
@@ -14,26 +14,28 @@
 // queue owes that broker a close and nothing else (`close_only`,
 // scripts/find-finalizable.mjs) once the deadline in force has passed.
 //
-// Writes `lockdowns/<id>/broker-reopened.json` into the checkout only when a
-// close record is there; publish-assignment.yml commits it with the state.
+// EVERY PUBLISH, not only one over a close record (review 2026-10-16, R7-21).
+// The close record is committed by the finalize after its close step, minutes
+// later: a lecturer who moved the deadline in those minutes published over a
+// checkout with no close record, so nothing was marked, and the commit that
+// landed after said closed while the broker was on - for good. A mark the
+// close then outdates (`at` after `reopened_at`) owes nothing.
+//
+// Writes `lockdowns/<id>/broker-reopened.json` into the checkout;
+// publish-assignment.yml commits it with the state.
 //
 // Env: ASSIGNMENT_ID, DATA_DIR (the control checkout).
 
-import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseYaml } from "../lib/yaml.mjs";
-import { assignmentPathsRead, brokerClosedPath, brokerReopenedPath } from "../lib/control-layout.mjs";
+import { assignmentPathsRead, brokerReopenedPath } from "../lib/control-layout.mjs";
 
 export async function main({ assignmentId = process.env.ASSIGNMENT_ID, dataDir = process.env.DATA_DIR || ".", now = new Date() } = {}) {
   if (!assignmentId) {
     console.log("::error::ASSIGNMENT_ID is required");
     return 1;
-  }
-  if (!existsSync(join(dataDir, brokerClosedPath(assignmentId)))) {
-    console.log(`[ok] ${assignmentId}: the broker was never closed - nothing to mark`);
-    return 0;
   }
   let deadlineAt = null;
   for (const path of assignmentPathsRead(assignmentId)) {
@@ -46,6 +48,7 @@ export async function main({ assignmentId = process.env.ASSIGNMENT_ID, dataDir =
   const run = process.env.GITHUB_RUN_ID
     ? `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
     : null;
+  await mkdir(dirname(join(dataDir, brokerReopenedPath(assignmentId))), { recursive: true });
   await writeFile(join(dataDir, brokerReopenedPath(assignmentId)), JSON.stringify({
     schema_version: 1,
     assignment_id: assignmentId,
@@ -53,7 +56,7 @@ export async function main({ assignmentId = process.env.ASSIGNMENT_ID, dataDir =
     deadline_at: deadlineAt,
     observer_run: run,
   }, null, 2) + "\n");
-  console.log(`[ok] ${assignmentId}: its closed broker is on again - the nightly closes it after ${deadlineAt ?? "the deadline"}`);
+  console.log(`[ok] ${assignmentId}: its broker is on - the nightly closes it after ${deadlineAt ?? "the deadline"}`);
   return 0;
 }
 

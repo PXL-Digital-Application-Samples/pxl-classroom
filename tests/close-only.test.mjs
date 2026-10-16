@@ -56,7 +56,7 @@ test("R7-4: a broker switched on again after its close, once the deadline in for
     closed: closedAt(iso(-30 * HOUR)), reopened: { reopened_at: iso(-5 * HOUR), deadline_at: iso(-HOUR) } });
   const { list, log, active } = scan(dir);
   assert.deepEqual(list, [{ org: "O", assignment_id: "exam", close_only: true }]);
-  assert.match(log, /queueing the broker close alone - broker-reopened/);
+  assert.match(log, /queueing the broker close alone - broker-on \(switched on by a publish/);
   assert.equal(active, 1, "the nightly stays on until it is done");
 });
 
@@ -78,6 +78,27 @@ test("R7-4: a close since the mark that did not finish is tried again, up to the
   const res = scan(spent);
   assert.deepEqual(res.list, []);
   assert.match(res.log, /not retrying\. Close it by hand/);
+});
+
+test("R7-21: a publish made before the close record landed - the mark older than nothing - is closed after the deadline", () => {
+  // The publish switched the broker on and marked it; the finalize's commit,
+  // which closed it before that publish, landed after with its close record.
+  const dir = control({ yaml: published(iso(-HOUR)), lock: finished(iso(-30 * HOUR)), students: true,
+    closed: closedAt(iso(-5.1 * HOUR)), reopened: { reopened_at: iso(-5 * HOUR) } });
+  const { list, log } = scan(dir);
+  assert.deepEqual(list, [{ org: "O", assignment_id: "exam", close_only: true }]);
+  assert.match(log, /broker-on \(switched on by a publish at .*, not closed since\)/);
+});
+
+test("R7-21: a first publish's mark, the finalize's close since, owes nothing; a close since that failed is tried again", () => {
+  const done = control({ yaml: published(iso(-HOUR)), lock: finished(iso(-0.5 * HOUR)), students: true,
+    closed: closedAt(iso(-0.5 * HOUR)), reopened: { reopened_at: iso(-50 * HOUR) } });
+  assert.deepEqual(scan(done).list, []);
+  const failed = control({ yaml: published(iso(-HOUR)), lock: finished(iso(-0.5 * HOUR)), students: true,
+    closed: closedAt(iso(-0.5 * HOUR), { closed: false, key_removed: false, attempts: 1 }), reopened: { reopened_at: iso(-50 * HOUR) } });
+  const res = scan(failed);
+  assert.deepEqual(res.list, [{ org: "O", assignment_id: "exam", close_only: true }]);
+  assert.match(res.log, /broker-not-closed \(attempt 2\)/);
 });
 
 test("R7-4: other owed work queues the whole finalize, which closes the broker too - never both entries", () => {
@@ -105,10 +126,12 @@ test("a deadline that does not parse queues nothing", () => {
   assert.deepEqual(scan(control({ yaml: `state: published\ndeadline_at: "soon"\ninvite_key: k\n`, students: true })).list, []);
 });
 
-test("mark-broker-reopened: written only where a close record is, with the deadline it was reopened to", async () => {
+// R7-21: the close record is committed minutes after the close, so a publish
+// in between saw none and marked nothing - every publish marks.
+test("mark-broker-reopened: written on every publish, with the deadline it was published to", async () => {
   const never = control({ yaml: published(iso(HOUR)) });
   assert.equal(await markReopened({ assignmentId: "exam", dataDir: never }), 0);
-  assert.equal(existsSync(join(never, "lockdowns", "exam", "broker-reopened.json")), false);
+  assert.equal(existsSync(join(never, "lockdowns", "exam", "broker-reopened.json")), true, "no close record in this checkout is no evidence of none");
   const deadline = iso(HOUR);
   const closed = control({ yaml: published(deadline), closed: closedAt(iso(-30 * HOUR)) });
   const now = new Date();
@@ -133,7 +156,7 @@ test("the nightly's finalize leg skips every step but the close and its commit f
 test("the publish marks the broker before the state commit, and the commit carries the mark", () => {
   const wf = parse(readFileSync(join(root, ".github/workflows/publish-assignment.yml"), "utf8"));
   const names = wf.jobs.publish.steps.map((s) => s.name);
-  assert.equal(names.indexOf("Mark a closed broker as on again") + 1, names.indexOf("Update assignment state"));
+  assert.equal(names.indexOf("Mark the broker as on") + 1, names.indexOf("Update assignment state"));
   const update = wf.jobs.publish.steps.find((s) => s.name === "Update assignment state").run;
   assert.match(update, /MARK="lockdowns\/\$\{ASSIGNMENT_ID\}\/broker-reopened\.json"/);
   assert.match(update, /if \[ -f "control\/\$MARK" \]; then\s+git -C control add "\$MARK"\s+fi/);

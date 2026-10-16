@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadYaml } from '../lib/yaml.mjs';
-import { latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
+import { effectiveDeadlineFor, latestEffectiveDeadline } from '../lib/effective-deadline.mjs';
+import { lockedSinceReopen, reopenEndsAt } from '../lib/lock-rows.mjs';
 import { brokerClosedPath, brokerReopenedPath } from '../lib/control-layout.mjs';
 import { FINALIZE_ANY_STATE_FROM, everPublished, inFinalizeScope } from '../lib/finalize-scope.mjs';
 import { normalizeLogin } from '../lib/github-login.mjs';
@@ -89,6 +90,51 @@ function joinedAfterLock(controlDir, id, record) {
   return late;
 }
 
+/** Every JSON document in a directory of the control repository, by file name. Unreadable ones are null. */
+function readJsonDir(dir) {
+  let files;
+  try { files = fs.readdirSync(dir); } catch { return []; }
+  return files.filter((f) => f.endsWith('.json')).map((f) => {
+    try { return { name: f, doc: JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; } catch { return { name: f, doc: null }; }
+  });
+}
+
+/**
+ * Students a lecturer reopened with time on it whose time has run out, and whom
+ * no lock since the reopen holds (review 2026-10-16, R7-20). lockdown defers a
+ * reopened student to the deadline the reopen ends at and locks them again
+ * after it (`planTargets`, the same lib/lock-rows.mjs predicates) - but only a
+ * pass made between the reopen and that deadline writes the deferral row that
+ * `extension-expired` comes back for, and nothing queued one: a deadline ahead
+ * is not past, and once it was, nothing was owed. So the student was graded on
+ * the old snapshot, or open for good. Matched over the team, as lockdown does:
+ * one repository, one lock. An unreadable reopen record has no end, as there.
+ */
+function reopensEnded(controlDir, id, assignment, record) {
+  const reopens = readJsonDir(path.join(controlDir, 'lockdowns', id, 'unlocked'));
+  if (!reopens.length) return [];
+  const overrides = readOverrides(controlDir, id);
+  const teams = readJsonDir(path.join(controlDir, 'teams', id)).map((t) => t.doc?.members).filter(Array.isArray);
+  const repos = new Map(readJsonDir(path.join(controlDir, 'repositories', id))
+    .map((r) => [normalizeLogin(r.doc?.github_login), r.doc]).filter(([l]) => l));
+  const now = Date.now();
+  const owed = [];
+  for (const { name, doc } of reopens) {
+    const login = normalizeLogin(name.slice(0, -'.json'.length));
+    if (!login || !doc) continue;
+    const own = repos.get(login)?.members;
+    const members = [...new Set([login, ...(Array.isArray(own) ? own : []),
+      ...teams.filter((m) => m.some((x) => normalizeLogin(x) === login)).flat()].map(normalizeLogin).filter(Boolean))];
+    const { deadline } = effectiveDeadlineFor(assignment, login, { overrides, team: { members } });
+    const ends = reopenEndsAt(doc, deadline);
+    if (!ends || ends.getTime() > now) continue;
+    const rows = (record.results || []).filter((r) => members.includes(normalizeLogin(r?.github_login)));
+    if (rows.some((r) => lockedSinceReopen(r, doc))) continue;
+    owed.push(login);
+  }
+  return owed;
+}
+
 /** True when this student's submission - THIS snapshot (R7-3) - is archived and hash-verified. */
 function isPreserved(controlDir, assignmentId, login, snapshotSha) {
   const p = path.join(controlDir, 'observations', assignmentId, login, 'preservation.json');
@@ -148,9 +194,9 @@ function brokerOwed(controlDir, id, record) {
  * archive or the scores, because a whole finalize queued by a rule of times
  * reached every assignment ever moved after its lock (`4ee1236`, reverted).
  *
- *  - A broker a publish switched on again after it was closed
- *    (`broker-reopened.json`, scripts/mark-broker-reopened.mjs), once the
- *    deadline in force has passed: closed again unless a close since did it.
+ *  - A broker a publish switched on (`broker-reopened.json`, written by every
+ *    publish since R7-21, scripts/mark-broker-reopened.mjs), once the
+ *    deadline in force has passed: closed unless a close since did it.
  *  - The broker of an assignment archived or sent back to draft with nobody
  *    in it, which the finalize never reaches (`inFinalizeScope`): ever
  *    published, its deadline passed and from FINALIZE_ANY_STATE_FROM on - the
@@ -175,7 +221,9 @@ function closeOnlyReason(controlDir, id, assignment, { inScope }) {
     const closedSince = Date.parse(closed?.at ?? '') > reopenedAt;
     if (closedSince && done) return null;
     if (closedSince && ceiling()) return null;
-    return `broker-reopened (switched on again ${reopened.reopened_at}, closed again now its deadline has passed)`;
+    // Every publish marks it (R7-21), so a mark is "on since", not "on again".
+    if (closedSince) return `broker-not-closed (attempt ${(Number(closed.attempts) || 1) + 1})`;
+    return `broker-on (switched on by a publish at ${reopened.reopened_at}, not closed since)`;
   }
   if (inScope || done || !everPublished(assignment)) return null;
   const deadline = Date.parse(assignment?.deadline_at ?? '');
@@ -184,7 +232,7 @@ function closeOnlyReason(controlDir, id, assignment, { inScope }) {
   return `broker-not-closed (${assignment.state ?? 'no state'}, nobody accepted)`;
 }
 
-function finalizeReason(controlDir, lockdownsDir, id) {
+function finalizeReason(controlDir, lockdownsDir, id, assignment) {
   const lockdownFile = path.join(lockdownsDir, id, 'lockdown-record.json');
   if (!fs.existsSync(lockdownFile)) return 'not-finalized';
 
@@ -216,6 +264,11 @@ function finalizeReason(controlDir, lockdownsDir, id) {
     const reopened = dueDeferred.filter((r) => r.reopened_at).length;
     return `extension-expired (${dueDeferred.length} student(s) deferred past their extension` +
       (reopened ? `, ${reopened} of them reopened until it` : "") + ")";
+  }
+  // ...and one reopened with time on it that no pass deferred (R7-20).
+  const ended = reopensEnded(controlDir, id, assignment, record);
+  if (ended.length > 0) {
+    return `reopen-ended (${ended.length} student(s) reopened until a deadline that has passed, not locked again yet)`;
   }
 
   // A STUDENT WHO GOT A REPOSITORY AFTER THE LOCK (review 2026-10-15, R6-5): a
@@ -297,7 +350,7 @@ async function main() {
             continue;
           }
 
-          const reason = finalizeReason(controlDir, lockdownsDir, id);
+          const reason = finalizeReason(controlDir, lockdownsDir, id, assignment);
           if (reason) {
             console.error(`${id}: queueing finalize - ${reason}`);
             finalizable.push({ org, assignment_id: id });

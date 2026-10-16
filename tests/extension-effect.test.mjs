@@ -6,17 +6,29 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extensionEffect, extensionGrantedMessage } from "../frontend/src/lib/extension-effect.js";
 
-const record = (row) => ({ results: [{ github_login: "Alice", ...row }] });
+const SHA = "f".repeat(40);
+const record = (row) => ({ results: [{ github_login: "Alice", snapshot_sha: SHA, lockdown_at: "2026-10-15T22:00:00Z", ...row }] });
+const reopen = { unlocked_at: "2026-10-16T08:00:00Z" };
 
 test("extensionEffect: a lock holds them, a reopen lets them in, otherwise the lock follows", () => {
   assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset" }), login: "alice" }), "locked");
   assert.equal(extensionEffect({ record: record({ lock_method: "demotion" }), login: "alice" }), "locked");
-  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset" }), login: "alice", reopened: true }), "reopened");
+  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset" }), login: "alice", reopen }), "reopened");
   assert.equal(extensionEffect({ record: record({ lock_method: null, reopened_at: "2026-10-16T10:00:00Z" }), login: "alice" }), "open");
   assert.equal(extensionEffect({ record: record({ deferred_until: "2030-01-01T00:00:00Z" }), login: "alice" }), "open", "deferred: not locked yet");
   assert.equal(extensionEffect({ record: record({ lock_method: "none" }), login: "alice" }), "open", "an assignment that locks nothing");
   assert.equal(extensionEffect({ record: null, login: "alice" }), "open", "before the lock");
   assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset" }), login: "bob" }), "open", "somebody else's row");
+});
+
+// R7-24: "locked" is lockdown's own predicate (lib/lock-rows.mjs).
+test("extensionEffect: locked since the reopen is locked, and any taken lock counts", () => {
+  const relocked = record({ lock_method: "org-ruleset", lockdown_at: "2026-10-16T12:00:00Z", relocked_after: reopen.unlocked_at });
+  assert.equal(extensionEffect({ record: relocked, login: "alice", reopen }), "locked", "the re-lock is not undone by more time");
+  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset", snapshot_sha: null, no_submission: true, verified: true }), login: "alice" }), "locked", "locked with nothing handed in");
+  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset", snapshot_sha: null, snapshot_unread: "HTTP 502" }), login: "alice" }), "locked", "locked, its snapshot unread");
+  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset", snapshot_sha: null }), login: "alice" }), "open", "no lock taken");
+  assert.equal(extensionEffect({ record: null, login: "alice", reopen }), "reopened", "reopened, nothing locked since");
 });
 
 test("extensionGrantedMessage says what the time does, then whether their page was told", () => {

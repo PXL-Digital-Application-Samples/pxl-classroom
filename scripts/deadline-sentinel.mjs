@@ -211,9 +211,16 @@ async function listControlDir(dir) {
 /**
  * The extension in force for each member this sentinel watches for an
  * extension's end (R7-12), read again every poll as the deadlines are: the
- * latest end among its students. Withdrawn for all of them (404) is no
- * extension, so the member follows its own deadline; a read that fails keeps
- * the end read last.
+ * latest end among its students. A read that fails keeps the end read last.
+ *
+ * WITHOUT AN END, THE INSTANT IT WAS ARMED FOR (review 2026-10-16, R7-25).
+ * Withdrawn for all of them (404), or unread before any end was read, the
+ * member followed the assignment's own deadline, hours past: the sentinel
+ * fired at once and wrote a timeline of a stop AT that deadline, which
+ * lockdown credits as the state there - and HEAD, with every push since, was
+ * the submission. The instant this sentinel was armed for is a time it can
+ * honestly stop at; the queue comes back for the student at the end they were
+ * deferred to either way.
  *
  * @param {Map<string, Date>} previous
  * @returns {Promise<Map<string, Date>>}
@@ -234,6 +241,7 @@ async function readExtensionDeadlines(previous) {
     }
     if (latest) out.set(id, latest);
     else if (unread && previous.has(id)) out.set(id, previous.get(id));
+    else out.set(id, new Date(cfg.armedAt));
   }
   return out;
 }

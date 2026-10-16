@@ -5974,7 +5974,7 @@ async function grantExtensionFor(student, ext) {
       const notTold = await sendPageDeadline(student)
       // What the extension does, from what holds them now (R7-16): a lock
       // already taken is not undone by more time, and the toast said it was.
-      const effect = extensionEffect({ record: actionLockdown.value, login: student.github_login, reopened: Boolean(actionReopen.value?.record) })
+      const effect = extensionEffect({ record: actionLockdown.value, login: student.github_login, reopen: actionReopen.value?.record ?? null })
       const message = extensionGrantedMessage({
         login: student.github_login, when: fmt(newExtValue), effect,
         notTold: notTold === NO_REPO_YET ? null : notTold, noRepoYet: notTold === NO_REPO_YET,

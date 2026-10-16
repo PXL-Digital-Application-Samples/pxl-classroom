@@ -295,6 +295,7 @@ async function withStubApi(fn, {
     if (override) {
       const end = extensionFor(override[1], override[2], polls);
       if (!end) return send(404, { message: "Not Found" });
+      if (end === "unreadable") return send(502, { message: "Bad Gateway" });
       const doc = { github_login: override[2], overrides: [{ type: "deadline_extension", value: end, reason: "r", overridden_by: "l", overridden_at: end }] };
       return send(200, { content: Buffer.from(JSON.stringify(doc)).toString("base64"), encoding: "base64" });
     }
@@ -500,19 +501,35 @@ test("R7-12: a sentinel armed for an extension's end waits for THAT, though the 
   );
 });
 
-test("R7-12: an extension withdrawn while it waits is no reason to wait: the student's deadline has passed", async () => {
+// R7-25 (review 2026-10-16): with no end to read - withdrawn, or not readable
+// yet - it stops at the instant it was armed for. Firing at once wrote a stop
+// AT the passed deadline, which lockdown read as the state there.
+test("R7-25: an extension withdrawn while it waits stops at the instant it was armed for, never at the passed deadline", async () => {
   const passed = new Date(Date.now() - 2 * HOUR).toISOString();
-  const end = new Date(Date.now() + 5 * 60_000).toISOString();
+  const end = new Date(Date.now() + 600).toISOString();
   await withStubApi(
     async (api) => {
-      const started = Date.now();
       const res = await runSentinel(makeControlDir(), api, { deadlineAt: end, extensions: { exam: ["alice"] } });
       assert.equal(res.status, 0, res.stderr);
       assert.match(res.outputs, /fired=true/);
-      assert.ok(Date.now() - started < 60_000, "did not wait for the withdrawn end");
-      assert.match(res.stdout, /deadline moved/);
+      assert.equal(res.timeline.deadline_at, new Date(end).toISOString(), "no timeline claims a stop at the passed deadline");
+      assert.doesNotMatch(res.stdout, /deadline moved/);
     },
     { deadlineFor: () => passed, extensionFor: () => null },
+  );
+});
+
+test("R7-25: an override that cannot be read before any end was read stops at the instant it was armed for", async () => {
+  const passed = new Date(Date.now() - 2 * HOUR).toISOString();
+  const end = new Date(Date.now() + 600).toISOString();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: end, extensions: { exam: ["alice"] } });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.equal(res.timeline.deadline_at, new Date(end).toISOString());
+    },
+    { deadlineFor: () => passed, extensionFor: () => "unreadable" },
   );
 });
 

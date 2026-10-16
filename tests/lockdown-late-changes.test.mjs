@@ -29,7 +29,7 @@ const b64 = (s) => Buffer.from(s).toString("base64");
  * or null for none. `repoLocked`: logins whose repository ruleset is on.
  * `demoted`: logins at read.
  */
-async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demoted = [] } = {}) {
+async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demoted = [], repoMeta = {}, asOf = null } = {}) {
   const calls = [];
   const writes = [];
   let ids = orgIds ? [...orgIds] : null;
@@ -85,7 +85,9 @@ async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demote
       if (perm) return send(200, { permission: demoted.includes(perm[1]) ? "read" : "write", role_name: demoted.includes(perm[1]) ? "read" : "write" });
       if (/\/collaborators\/[^/]+$/.test(url) && req.method === "GET") { res.writeHead(204); return res.end(); }
       if (/\/collaborators\/[^/]+$/.test(url) && req.method === "PUT") { res.writeHead(204); return res.end(); }
-      if (/^\/repos\/[^/]+\/[^/]+$/.test(url)) return send(200, { id: 42, default_branch: "main" });
+      if (/^\/repos\/[^/]+\/[^/]+$/.test(url)) return send(200, { id: 42, default_branch: "main", ...repoMeta });
+      // The newest commit as of a deadline (`?until=`), for a submission rebuilt.
+      if (/\/commits$/.test(url) && asOf) return send(200, [asOf]);
       if (/\/commits\/main$/.test(url)) return send(200, { sha: HEAD_SHA });
       return send(404, { message: `not stubbed: ${url}` });
     });
@@ -324,6 +326,65 @@ test("R7-3: a reopen made after the deadline in force stays open, as it always h
     assert.equal(alice.deferred_until, undefined);
     assert.match(res.log, /left open - reopened by/);
   }, { remote: { assignment: assignmentYaml(DEADLINE), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+test("R7-22: a student whose own stop failed is not given a LATER stop's HEAD as their submission", async () => {
+  // Their stop at the deadline failed; an extension's sentinel stopped the
+  // cohort ten minutes later. They pushed in between. The later stop is when
+  // they were stopped, not the state at their deadline.
+  const D = new Date(Date.now() - 1800_000).toISOString();
+  const E = new Date(Date.now() - 600_000).toISOString();
+  const ASOF = "3".repeat(40);
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(D));
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-k1.json"), JSON.stringify({
+      schema_version: 1, assignment_id: "exam", outcome: "fired", deadline_at: D, stop: "failed", samples: [{ observed_at: D, pushed_at: { "exam-alice": D } }] }));
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-k2.json"), JSON.stringify({
+      schema_version: 1, assignment_id: "exam", outcome: "fired", deadline_at: E, stop: "done", samples: [{ observed_at: E, pushed_at: { "exam-alice": E } }] }));
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.snapshot_sha, ASOF, "rebuilt as of her deadline, not HEAD");
+    assert.equal(alice.reconstructed, true);
+    assert.equal(alice.lockdown_at, E, "stopped at the later stop, which is true");
+  }, {
+    remote: { assignment: assignmentYaml(D) },
+    repoMeta: { pushed_at: new Date(Date.parse(E) - 60_000).toISOString(), created_at: new Date(Date.now() - 86400_000).toISOString() },
+    asOf: { sha: ASOF, parents: [{ sha: "4".repeat(40) }], commit: { committer: { date: new Date(Date.parse(D) - 3600_000).toISOString() }, author: { name: "a" } } },
+  });
+});
+
+test("R7-24: a student locked with nothing handed in is not deferred and released by a deadline moved later", async () => {
+  const LATER_D = new Date(Date.now() + 3600_000).toISOString();
+  await withApi(async (api, { writes }) => {
+    const dir = checkout();
+    priorRecord(dir, [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, snapshot_sha: null, snapshot_ref: "refs/heads/main",
+      no_submission: true, verified: true, lockdown_at: DEADLINE, lock_method: "org-ruleset", uncertainty_seconds: 0 }]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.deferred_until, undefined, "her lock was taken; more time does not undo it");
+    assert.equal(alice.lockdown_at, DEADLINE);
+    assert.equal(writes.some((w) => w.method === "PUT" && /rulesets\/7$/.test(w.url) && !(w.body?.conditions?.repository_id?.repository_ids ?? [42]).includes(42)), false, "not taken out of the stop");
+  }, { remote: { assignment: assignmentYaml(LATER_D) }, orgIds: [42] });
+});
+
+test("R7-24: a student locked again since the reopen, then given more time, stays locked", async () => {
+  const REOPENED = new Date(Date.now() - 7200_000).toISOString();
+  const RELOCKED_AT = new Date(Date.now() - 3600_000).toISOString();
+  const LATER_D = new Date(Date.now() + 3600_000).toISOString();
+  await withApi(async (api) => {
+    const dir = checkout();
+    priorRecord(dir, [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, snapshot_sha: "2".repeat(40), snapshot_ref: "refs/heads/main",
+      lockdown_at: RELOCKED_AT, lock_method: "org-ruleset", verified: true, uncertainty_seconds: 5, relocked_after: REOPENED }]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.deferred_until, undefined, "a lock since the reopen is a lock like any other");
+    assert.equal(alice.snapshot_sha, "2".repeat(40));
+    assert.equal(alice.lockdown_at, RELOCKED_AT);
+  }, { remote: { assignment: assignmentYaml(LATER_D), unlocked: { alice: reopenRecord(REOPENED) } }, orgIds: [42] });
 });
 
 test("R7-17: deleted while this ran - GitHub's listing no longer names it - nothing is locked and no record written", async () => {

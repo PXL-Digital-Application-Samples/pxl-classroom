@@ -21,9 +21,14 @@
 //
 // A lock record is NOT this script's: a cohort the finalize locked is
 // reopened student by student (Reopen), and the editor says who stays locked.
+// ASKED OF GITHUB before releasing (review 2026-10-16, R7-21): the finalize
+// commits its record minutes after it locks, so a publish over a checkout from
+// in between saw none and released every stop the record then said held. An
+// answer that is not "absent" from a repository it can see releases nothing.
 //
 // Env: ORG, ASSIGNMENT_ID, DATA_DIR (the control checkout), GITHUB_TOKEN
-// (release), GITHUB_OUTPUT (check), GITHUB_STEP_SUMMARY.
+// (release), READ_TOKEN (release: one that reads the control repository),
+// GITHUB_OUTPUT (check), GITHUB_STEP_SUMMARY.
 
 import { existsSync } from "node:fs";
 import { appendFile, readFile, readdir } from "node:fs/promises";
@@ -31,6 +36,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { assignmentPathsRead, lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { deadlineAhead } from "../lib/assignment-now.mjs";
 import { sentinelMayHaveStopped } from "../lib/sentinel-window.mjs";
@@ -97,6 +103,22 @@ async function readCheckoutAssignment(dataDir, assignmentId) {
   return null;
 }
 
+/**
+ * Whether the lock record exists on the control repository now: `absent` only
+ * where the repository itself answers, so a token that cannot see it (a 404
+ * either way) is `unread`, never "no record".
+ *
+ * @returns {Promise<"exists"|"absent"|"unread">}
+ */
+export async function lockRecordOnGitHub(org, assignmentId, token) {
+  const opts = token ? { token } : {};
+  const file = await gh("GET", `/repos/${org}/${CONTROL_REPO}/contents/${lockdownRecordPath(assignmentId)}`, undefined, opts).catch(() => null);
+  if (file?.ok) return "exists";
+  if (file?.status !== 404) return "unread";
+  const repo = await gh("GET", `/repos/${org}/${CONTROL_REPO}`, undefined, opts).catch(() => null);
+  return repo?.ok ? "absent" : "unread";
+}
+
 async function setOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
@@ -130,6 +152,17 @@ export async function main(mode = process.argv[2]) {
     return 0;
   }
   if (!verdict.stale) return 0;
+
+  const recorded = await lockRecordOnGitHub(org, assignmentId, process.env.READ_TOKEN);
+  if (recorded === "exists") {
+    console.log(`[ok] ${assignmentId}: the finalize wrote its lock record after this checkout - the cohort is locked, and Reopen gives a student more time. Nothing is released.`);
+    await summary("### Stop kept\n\nThe finalize locked this cohort while the publish ran; Reopen gives a student more time.");
+    return 0;
+  }
+  if (recorded === "unread") {
+    console.log(`::error::Published, but whether ${assignmentId}'s cohort was locked meanwhile could not be read, so no stop was let go - students stopped at the old deadline still cannot push. Publish again to retry.`);
+    return 1;
+  }
 
   const request = (method, path, body) => gh(method, path, body);
   const stop = await orgStopIds(request, { org, assignmentId });

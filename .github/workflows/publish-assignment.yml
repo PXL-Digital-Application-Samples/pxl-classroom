@@ -450,11 +450,13 @@ jobs:
             echo "::notice::Removed ${removed} legacy provisioning-App secret(s) from the public broker ${ORG}/${BROKER_REPO}. Treat the key as having been exposed on a public repository for as long as it was there and rotate it - INSTALL.md §10."
           fi
 
-      # A broker the nightly closed is on again from here (review 2026-10-16,
-      # R7-4): marked, so the nightly closes it once more after the deadline
-      # in force, and does nothing else (scripts/find-finalizable.mjs). Into
-      # the checkout only; committed with the state below.
-      - name: Mark a closed broker as on again
+      # The broker is on from here (review 2026-10-16, R7-4): marked, so the
+      # nightly closes it after the deadline in force unless a close since
+      # did (scripts/find-finalizable.mjs). Every publish, not only one over
+      # a close record (R7-21): a close the finalize has not committed yet is
+      # invisible to this checkout. Into the checkout only; committed with the
+      # state below.
+      - name: Mark the broker as on
         if: inputs.dry_run != true
         env:
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
@@ -626,10 +628,14 @@ jobs:
           permission-metadata: read
           permission-organization-administration: write
 
+      # READ_TOKEN: whether the finalize has written its lock record since this
+      # checkout is asked of the control repository, which the release token
+      # cannot read (R7-21); the publish's own token can.
       - name: Release the stop
         if: inputs.dry_run != true && steps.stale_stop.outputs.stale == 'true'
         env:
           GITHUB_TOKEN: ${{ steps.release_token.outputs.token }}
+          READ_TOKEN: ${{ steps.token.outputs.token }}
           ORG: ${{ inputs.org }}
           ASSIGNMENT_ID: ${{ inputs.assignment_id }}
           DATA_DIR: control

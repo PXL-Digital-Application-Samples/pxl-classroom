@@ -55,7 +55,7 @@ outputs:
     description: Maximum uncertainty interval (lockdown_at - deadline_at) across all repos
     value: ${{ steps.run.outputs.uncertainty_seconds }}
   outcome:
-    description: locked | partial | fail:*
+    description: locked | partial | stopped | deleted | fail:* (deleted - the assignment is gone, and the finalize's later steps skip it)
     value: ${{ steps.run.outputs.outcome }}
 
 runs:

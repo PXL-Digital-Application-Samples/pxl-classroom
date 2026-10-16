@@ -47,6 +47,7 @@ import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } 
 import { sentinelMayHaveStopped, sentinelStopFor, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { readSentinelTimelines as readSentinelTimelinesIn } from "../lib/sentinel-timelines.mjs";
 import { preservesSnapshot } from "../lib/preservation-status.mjs";
+import { lockTaken, lockedSinceReopen, reopenEndsAt } from "../lib/lock-rows.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
@@ -477,7 +478,11 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
 
     // Any member already holding a frozen snapshot means this repository's
     // submission is on record and must not be rewritten.
-    const alreadyRecorded = teamMembers.some((m) => priorByLogin.get(normalizeLogin(m))?.snapshot_sha);
+    // ...taken in any form (`lockTaken`, R7-24): a snapshot alone left a
+    // student locked with nothing handed in deferrable, so a later stop
+    // released them while the record still said locked.
+    const priors = teamMembers.map((m) => priorByLogin.get(normalizeLogin(m))).filter(Boolean);
+    const alreadyRecorded = priors.some(lockTaken);
 
     const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members: teamMembers } });
 
@@ -501,16 +506,21 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
       // lock made after the reopen already holds them. A reopen with no such
       // time - made after the deadline in force - stays open, as it always has:
       // Lock again is the way back.
-      const reopenedAt = Date.parse(record?.unlocked_at ?? "");
-      if (Number.isFinite(reopenedAt) && effective.deadline.getTime() > reopenedAt) {
+      const ends = reopenEndsAt(record, effective.deadline);
+      if (ends) {
+        // LOCKED AGAIN SINCE THE REOPEN, asked first (R7-24): from then on it
+        // is a lock like any other - frozen, and more time granted after it
+        // does not release it, as for anyone else locked.
+        if (priors.some((p) => lockedSinceReopen(p, record))) {
+          targets.push(target);
+          continue;
+        }
         const reopen = { reopenedFor, record };
-        if (effective.deadline > now) {
+        if (ends > now) {
           deferrals.push({ ...target, effective, reopen });
           continue;
         }
-        const prior = teamMembers.map((m) => priorByLogin.get(normalizeLogin(m))).find((p) => p?.snapshot_sha);
-        const lockedSince = Boolean(prior) && !prior.reopened_at && Date.parse(prior.lockdown_at ?? "") > reopenedAt;
-        targets.push(lockedSince ? target : { ...target, relock: { ...reopen, until: effective.deadline.toISOString() } });
+        targets.push({ ...target, relock: { ...reopen, until: ends.toISOString() } });
         continue;
       }
       reopenedTargets.push({ ...target, reopenedFor, record });
@@ -679,15 +689,6 @@ function stopTally(byRepo) {
  * Idempotent in every mode: re-running re-locks anyone who regained access.
  * Returns per-target outcomes plus the instant the phase fired.
  */
-/**
- * Whether an earlier pass locked this row: a snapshot taken, one it could not
- * read, or nothing handed in, verified. Its `lockdown_at` and its delay figure
- * are history from then on.
- */
-function lockedBefore(priorRec) {
-  return Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread || (priorRec?.no_submission && priorRec?.verified));
-}
-
 async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin, stopFor, deadlineFor }) {
   const lockedAt = new Date().toISOString();
   const byRepo = new Map();
@@ -773,7 +774,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // own time (review 2026-10-14, P2-31): the pass that reads it again kept
     // its own clock, which overstated how long the student could push.
     // ...and so was one a pass found had nothing handed in (TL-4).
-    let lockdownAt = lockedBefore(priorRec) ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+    let lockdownAt = lockTaken(priorRec) ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
     // before this run. Crediting it is what keeps `uncertainty_seconds` honest.
@@ -784,7 +785,9 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // effective deadline picks the stop that held them (`stopFor`, R7-8): the
     // earliest at or after it, so a second sentinel at their extended
     // deadline, or at a deadline moved later, is credited too.
-    const heldBy = !priorRec?.snapshot_sha ? stopFor?.(deadlineFor?.(t) ?? null) : null;
+    // A row an earlier pass locked keeps its own lock time (R7-22): a later
+    // stop must never move it.
+    const heldBy = !lockTaken(priorRec) ? stopFor?.(deadlineFor?.(t) ?? null) : null;
     if (heldBy) lockdownAt = heldBy.at;
 
     if (method === "none") {
@@ -988,8 +991,14 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         // fast, although the lock proves it was pushed in time. The same
         // per-student test that credits the stop (applySubmissionLock).
         // ...and only for a repository that EXISTED at the stop (P2-27, above).
-        // A stop at or after their deadline, by construction of `stopFor`.
-        const stoppedAtDeadline = Boolean(heldBy) && existedAtStop;
+        // A stop AT their own deadline (R7-22). `stopFor` finds the earliest at
+        // or after it, and an extension's sentinel is a later stop on the
+        // cohort: a student whose own stop failed or never ran was credited
+        // with it, and HEAD - pushes after their deadline included - became
+        // their submission. A later stop is when they were stopped; it is not
+        // the state at their deadline, which is rebuilt as of it.
+        const stoppedAtDeadline = Boolean(heldBy) && existedAtStop &&
+          (!deadline || Date.parse(heldBy.at) === Date.parse(deadline));
         const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline) && !stoppedAtDeadline;
 
         if (pushedLate) {
@@ -1594,7 +1603,7 @@ async function main() {
     const ownDeadline = deadlineFor(t) ?? deadlineAt;
     const priorRow = priorByLogin.get(normalizeLogin(t.login));
     let uncertaintySec = null;
-    if (lockedBefore(priorRow) && lockdownAt === priorRow.lockdown_at && Number.isFinite(priorRow.uncertainty_seconds)) {
+    if (lockTaken(priorRow) && lockdownAt === priorRow.lockdown_at && Number.isFinite(priorRow.uncertainty_seconds)) {
       uncertaintySec = Math.max(0, priorRow.uncertainty_seconds);
     } else if (ownDeadline && lockdownAt) {
       uncertaintySec = Math.max(0, Math.round((new Date(lockdownAt) - new Date(ownDeadline)) / 1000));
