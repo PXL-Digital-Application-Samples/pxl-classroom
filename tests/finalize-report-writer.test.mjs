@@ -17,7 +17,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,10 +67,13 @@ function fixture() {
   mkdirSync(join(dir, "scripts"));
   copyFileSync(join(root, "scripts/git-push-with-retry.sh"), join(dir, "scripts/git-push-with-retry.sh"));
   copyFileSync(join(root, "scripts/git-fetch-with-retry.sh"), join(dir, "scripts/git-fetch-with-retry.sh"));
+  copyFileSync(join(root, "scripts/assignment-on-branch.sh"), join(dir, "scripts/assignment-on-branch.sh"));
 
   const regen = join(dir, "regen");
   git(["clone", "-q", fileUrl(remote), regen], dir);
-  return { dir, remote, control: join(dir, "control"), regen };
+  // What `steps.start` records: the commit the job checked out.
+  const start = git(["rev-parse", "HEAD"], join(dir, "control"));
+  return { dir, remote, control: join(dir, "control"), regen, start };
 }
 
 /** The assignment deleted on the branch while finalize runs (R7-17). */
@@ -121,12 +124,9 @@ function runStep(fx, step, name, extra = {}) {
 
 const runCommitStep = (fx) => runStep(fx, finalizeCommit, "step.sh");
 
-/** The scores step, given the `start` output the commit step wrote. */
+/** The scores step, given the commit the job checked out (`steps.start`). */
 function runScoresStep(fx) {
-  const out = readFileSync(runnerEnv(fx).GITHUB_OUTPUT, "utf8");
-  const start = out.match(/^start=([0-9a-f]{40})$/m)?.[1];
-  assert.ok(start, `the commit step wrote its start: ${out}`);
-  return runStep(fx, scoresCommit, "scores.sh", { START: start });
+  return runStep(fx, scoresCommit, "scores.sh", { START: fx.start });
 }
 
 /** Someone else's commit landing on the remote meanwhile (a lecturer's save). */
@@ -222,7 +222,7 @@ test("R6-8: a lecturer's score save at the deadline no longer fails the lock rec
 
     const scores = runScoresStep(fx);
     assert.equal(scores.status, 0, `${scores.stdout}\n${scores.stderr}`);
-    assert.match(scores.stdout, /::notice::The scores, a grading decision or the assignment a1 were saved while this ran/);
+    assert.match(scores.stdout, /::notice::The scores or a grading decision for a1 were saved while this ran/);
     assert.equal(atRemote(fx, "grading/a1/summary.json"), '{"by":"lecturer"}', "the lecturer's read stands");
   } finally {
     rmSync(fx.dir, { recursive: true, force: true });
@@ -297,89 +297,91 @@ test("R7-26: a fetch that never answers commits the finalize as before, and says
   }
 });
 
-// R7-21: the lock planned again when the deadline or an extension changed on
-// the branch while the finalize ran.
-const replan = workflow("daily-activity.yml").jobs.finalize.steps.find((s) => s.id === "replan");
-const replanOut = (fx) => readFileSync(runnerEnv(fx).GITHUB_OUTPUT, "utf8").match(/^changed=(true|false)$/gm);
+// R7-31 (step-back review): the lock record is committed the moment lockdown
+// writes it, so the publish's release - which asks GitHub - finds it.
+const lockRecordStep = workflow("daily-activity.yml").jobs.finalize.steps.find((s) => s.name === "2b. Commit the lock record");
 
-test("R7-21: nothing changed on the branch: the plan stands", () => {
+test("R7-31: step 2b pushes the lock record alone, over collect's observations still in the checkout", () => {
   const fx = fixture();
   try {
-    finalizeWrites(fx);
-    otherCommits(fx, "overrides/a10/ann.json", "{}\n");
-    const res = runStep(fx, replan, "replan.sh");
-    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
-    assert.deepEqual(replanOut(fx), ["changed=false"], "another assignment's extension is not this one's");
-    assert.equal(readFileSync(join(fx.control, "lockdowns/a1/lockdown-record.json"), "utf8"), '{"outcome":"locked"}\n');
-  } finally {
-    rmSync(fx.dir, { recursive: true, force: true });
-  }
-});
-
-test("R7-21: the deadline moved or an extension granted meanwhile: the lock record goes back to the branch's and lockdown plans again", () => {
-  for (const [path, body] of [["assignments/a1.yml", "state: published\ndeadline_at: later\n"], ["overrides/a1/ann.json", "{}\n"]]) {
-    const fx = fixture();
-    try {
-      finalizeWrites(fx);
-      otherCommits(fx, path, body);
-      const res = runStep(fx, replan, "replan.sh");
-      assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
-      assert.deepEqual(replanOut(fx), ["changed=true"], path);
-      assert.match(res.stdout, /::notice::The deadline or an extension of a1 changed while this ran/);
-      assert.equal(existsSync(join(fx.control, "lockdowns/a1/lockdown-record.json")), false, "none on the branch: none to plan from");
-    } finally {
-      rmSync(fx.dir, { recursive: true, force: true });
-    }
-  }
-  // A record on the branch is the one planned from.
-  const fx = fixture();
-  try {
-    otherCommits(fx, "lockdowns/a1/lockdown-record.json", '{"outcome":"earlier pass"}\n');
+    // A reopen on the branch, which this lock ends (R7-29).
+    otherCommits(fx, "lockdowns/a1/unlocked/ann.json", '{"unlocked_at":"2026-10-16T10:00:00Z"}\n');
     git(["pull", "-q", "--rebase"], fx.control);
-    finalizeWrites(fx);
-    otherCommits(fx, "assignments/a1.yml", "state: published\ndeadline_at: later\n");
-    assert.equal(runStep(fx, replan, "replan.sh").status, 0);
-    assert.equal(readFileSync(join(fx.control, "lockdowns/a1/lockdown-record.json"), "utf8"), '{"outcome":"earlier pass"}\n');
+    rmSync(join(fx.control, "lockdowns/a1/unlocked/ann.json"));
+    // What collect and lockdown leave: a new observation, a changed tracked
+    // one, the lock record and the reopen it ended, kept.
+    put(fx.control, "observations/a1/ann/2026-10-16T17-00-00Z.json", '{"collect":true}\n');
+    put(fx.control, "observations/a1/ann/2026-09-27T01-00-00Z.json", '{"rewritten":true}\n');
+    put(fx.control, "lockdowns/a1/lockdown-record.json", '{"outcome":"locked"}\n');
+    put(fx.control, "lockdowns/a1/relocked/ann/2026-10-16T17-00-00Z.json", '{"relocked_by":"pxl-classroom[bot]"}\n');
+    otherCommits(fx, "students/roster.yml", "students: []\n");
+    const res = runStep(fx, lockRecordStep, "lock.sh");
+    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+    assert.equal(atRemote(fx, "lockdowns/a1/lockdown-record.json"), '{"outcome":"locked"}');
+    assert.match(git(["log", "-1", "--format=%s", "main"], fx.remote), /^Lock record for a1$/);
+    assert.deepEqual(git(["show", "--name-only", "--format=", "main"], fx.remote).split("\n").filter(Boolean).sort(),
+      ["lockdowns/a1/lockdown-record.json", "lockdowns/a1/relocked/ann/2026-10-16T17-00-00Z.json", "lockdowns/a1/unlocked/ann.json"], "the lock record and nothing of collect's");
+    assert.throws(() => atRemote(fx, "lockdowns/a1/unlocked/ann.json"), "the ended reopen is removed on the branch");
+    // Line endings aside: the autostash re-applies it through git's own checkout.
+    assert.equal(readFileSync(join(fx.control, "observations/a1/ann/2026-09-27T01-00-00Z.json"), "utf8").replace(/\r\n/g, "\n"), '{"rewritten":true}\n', "collect's change survives the rebase");
+    // ...and the commit after preserve carries the rest, over it.
+    const rest = runCommitStep(fx);
+    assert.equal(rest.status, 0, `${rest.stdout}\n${rest.stderr}`);
+    assert.equal(atRemote(fx, "observations/a1/ann/2026-10-16T17-00-00Z.json"), '{"collect":true}');
   } finally {
     rmSync(fx.dir, { recursive: true, force: true });
   }
 });
 
-test("R7-21: deleted meanwhile, or a branch that never answers: nothing is planned again", () => {
+test("R7-31: step 2b commits nothing for an assignment deleted meanwhile, nor where lockdown wrote no record", () => {
   const gone = fixture();
   try {
-    finalizeWrites(gone);
+    put(gone.control, "lockdowns/a1/lockdown-record.json", '{"outcome":"locked"}\n');
     deleteAssignment(gone);
-    assert.equal(runStep(gone, replan, "replan.sh").status, 0);
-    assert.deepEqual(replanOut(gone), ["changed=false"], "the commit says it was deleted");
+    const head = git(["rev-parse", "main"], gone.remote);
+    assert.equal(runStep(gone, lockRecordStep, "lock.sh").status, 0);
+    assert.equal(git(["rev-parse", "main"], gone.remote), head);
   } finally {
     rmSync(gone.dir, { recursive: true, force: true });
   }
-  const silent = fixture();
+  const none = fixture();
   try {
-    finalizeWrites(silent);
-    fetchNowhere(silent);
-    const res = runStep(silent, replan, "replan.sh", { FETCH_TRIES: "1" });
-    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
-    assert.deepEqual(replanOut(silent), ["changed=false"]);
-    assert.match(res.stdout, /::warning::Could not ask GitHub whether a1 changed while this ran/);
+    const head = git(["rev-parse", "main"], none.remote);
+    assert.equal(runStep(none, lockRecordStep, "lock.sh").status, 0);
+    assert.equal(git(["rev-parse", "main"], none.remote), head);
   } finally {
-    rmSync(silent.dir, { recursive: true, force: true });
+    rmSync(none.dir, { recursive: true, force: true });
   }
 });
 
-test("R7-21/R7-26: the plan is asked again just before the commit, and steps 3 to 6 skip an assignment lockdown found deleted", () => {
+// R7-39: deleted, the checkout is left clean and the scores step told so.
+test("R7-39: lockdown's deleted commits nothing even when the branch cannot be asked, and leaves the checkout clean", () => {
+  const fx = fixture();
+  try {
+    finalizeWrites(fx);
+    fetchNowhere(fx);
+    const head = git(["rev-parse", "main"], fx.remote);
+    const res = runStep(fx, finalizeCommit, "step.sh", { LOCKDOWN_OUTCOME: "deleted", FETCH_TRIES: "1" });
+    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+    assert.equal(git(["rev-parse", "main"], fx.remote), head, "nothing pushed");
+    assert.equal(git(["status", "--porcelain"], fx.control), "", "nothing left for a later pull to trip over");
+    assert.match(readFileSync(runnerEnv(fx).GITHUB_OUTPUT, "utf8"), /^deleted=true$/m);
+  } finally {
+    rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("R7-31/R7-26/R7-39: the step layout - 2b after lockdown, no second lockdown, steps 3 to 6 skip deleted, the scores skip a deleted exit", () => {
   const steps = workflow("daily-activity.yml").jobs.finalize.steps;
   const names = steps.map((s) => s.name);
-  const commit = names.indexOf("Commit + push");
-  assert.equal(steps[commit - 1].id, "lockdown_again");
-  assert.equal(steps[commit - 2].id, "replan");
-  assert.equal(steps[commit - 1].uses, "./lockdown");
-  assert.match(steps[commit - 1].if, /steps\.replan\.outputs\.changed == 'true'/);
+  assert.equal(names.indexOf("2b. Commit the lock record"), names.indexOf("2. Lockdown") + 1);
+  assert.equal(steps.filter((s) => s.uses === "./lockdown").length, 1, "one lockdown: it asks again itself before it writes");
   assert.equal(steps.find((s) => s.name === "2. Lockdown").id, "lockdown");
-  for (const name of ["3. Preserve", "4. Report", "5. Close acceptance on the broker", "6a. Token for reading scores", "6. Read autograding scores"]) {
+  for (const name of ["3. Preserve", "4. Report", "5. Close acceptance on the broker", "6a. Token for reading scores", "6. Read autograding scores", "2b. Commit the lock record"]) {
     assert.match(String(steps.find((s) => s.name === name)?.if), /steps\.lockdown\.outputs\.outcome != 'deleted'/, name);
   }
+  assert.match(String(scoresCommit.if), /steps\.commit\.outputs\.deleted != 'true'/);
+  assert.equal(scoresCommit.env.START, "${{ steps.start.outputs.sha }}", "a save is judged against the checkout, not the lock record's commit");
 });
 
 test("R6-8: no reading, no scores commit", () => {

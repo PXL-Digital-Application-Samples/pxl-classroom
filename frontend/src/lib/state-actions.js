@@ -26,7 +26,7 @@
 export function stateActions({ state, deadlinePassed = false, everPublished = false, lockRan = false }) {
   // Not "cannot be undone": a student can be let back in from their row.
   const freeze = deadlinePassed && !lockRan
-    ? [{ key: 'freeze', label: 'Lock everyone out now', sub: 'Takes away every student\'s write access and archives their work. Asks for confirmation first.', danger: true }]
+    ? [{ key: 'freeze', label: 'Lock everyone out now', sub: 'Runs the deadline\'s lock now for every student whose deadline has passed, and archives their work. Asks for confirmation first.', danger: true }]
     : []
   // REOPENING NEEDS A DEADLINE IN THE FUTURE. Past it, every acceptance is
   // refused as too late, and a publish of an assignment that was locked at its

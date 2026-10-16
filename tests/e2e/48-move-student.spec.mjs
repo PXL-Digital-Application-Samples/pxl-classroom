@@ -159,6 +159,28 @@ test.describe('48 - a move after the deadline and with extensions (review 2026-1
     expect(granted).toEqual(['pull']);
   });
 
+  // R7-44: unreadable is held - the safe answer - and said as unread, never as
+  // a lock that may not exist.
+  test('R7-44: with the lock record unreadable, the student gets read and the note says it could not be read', async ({ page }) => {
+    const captured = { blobs: [], trees: [], collab: [] };
+    await openManageAlpha(page, captured);
+    await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ message: 'Bad Gateway' }) }));
+    const granted = [];
+    await page.route(`**/repos/${ORG}/${ID}-beta/collaborators/stud2`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      granted.push(route.request().postDataJSON()?.permission ?? null);
+      return route.fulfill({ status: 204, body: '' });
+    });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
+    await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
+    const toast = page.locator('.toast', { hasText: /moved to "Beta"/i });
+    await expect(toast).toContainText(`read access to ${ID}-beta for now: whether the deadline's lock holds it could not be read`);
+    await expect(toast).not.toContainText('as the deadline\'s lock left it');
+    expect(granted).toEqual(['pull']);
+  });
+
   test('R7-14: both teams\' deadlines are written again from their members after the move', async ({ page }) => {
     const ext = '2027-01-05T22:00:00.000Z';
     const captured = { blobs: [], trees: [], collab: [] };

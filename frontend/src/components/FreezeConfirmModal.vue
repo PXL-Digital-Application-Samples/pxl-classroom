@@ -54,8 +54,9 @@
             <div>
               <strong>Who is left out</strong>
               <p class="text-xs text-secondary consequence-body" data-freeze-left-out>
-                Students with an extension still running, and students you reopened, are not locked now: they are locked at
-                their own deadline. An extension granted after this does not reopen anyone - Reopen does.
+                Students whose deadline is still ahead, by an extension or a deadline moved later, are not locked now: they
+                are locked at their own deadline. Students you reopened stay open, until their own deadline where it is
+                still ahead. An extension granted after this does not reopen anyone - Reopen does.
               </p>
             </div>
           </div>

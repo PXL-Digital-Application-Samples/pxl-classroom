@@ -30,9 +30,11 @@
 //
 // Continues on per-student errors. No npm dependencies (Node 18+ fetch).
 
-import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, readFile, readdir, writeFile, mkdir, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { relockedRecordPath } from "../lib/control-layout.mjs";
+import { relockHistoryDoc } from "../lib/repo-relock.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gh } from "../lib/gh.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
@@ -47,7 +49,7 @@ import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } 
 import { sentinelMayHaveStopped, sentinelStopFor, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { readSentinelTimelines as readSentinelTimelinesIn } from "../lib/sentinel-timelines.mjs";
 import { preservesSnapshot } from "../lib/preservation-status.mjs";
-import { lockTaken, lockedSinceReopen, reopenEndsAt } from "../lib/lock-rows.mjs";
+import { lockHeld, lockedSinceReopen, reopenEndsAt } from "../lib/lock-rows.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
@@ -336,6 +338,44 @@ async function readReopenedCheckout() {
   return byLogin;
 }
 
+/**
+ * END A REOPEN THE LOCK HAS TAKEN BACK (review 2026-10-16, R7-29), the way Lock
+ * again ends one: every member's `unlocked/<login>.json` removed from the
+ * checkout - the finalize commit carries the removal - and kept under
+ * `relocked/<login>/<when>.json` with `relocked_by`, the one statement that the
+ * student could push from the reopen to here. Left in place, every reader of
+ * that file took the re-locked repository to be open: a permission change
+ * undid the lock, a Retry or a Teams-tab move granted admin, and the dialog
+ * offered Lock again over a locked repository. Also for a repository that is
+ * gone, which nothing will lock again. An unreadable record is kept, and said.
+ */
+/** Who `relocked_by` names when the lock, not a lecturer, ended the reopen. */
+const RELOCKED_BY_LOCKDOWN = "pxl-classroom[bot]";
+
+async function endReopens(t, at) {
+  const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId, "unlocked");
+  let files;
+  try { files = await readdir(dir); } catch { return; }
+  const members = new Set((t.teamMembers?.length ? t.teamMembers : [t.login]).map(normalizeLogin).filter(Boolean));
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const login = f.slice(0, -".json".length);
+    if (!members.has(normalizeLogin(login))) continue;
+    let doc;
+    try {
+      doc = JSON.parse(await readFile(join(dir, f), "utf8"));
+    } catch (e) {
+      log(`reopen ${login}`, { ok: false, note: `${e.message} - the reopen record is kept; Lock again on their row ends it` });
+      continue;
+    }
+    const kept = join(cfg.dataDir, relockedRecordPath(cfg.assignmentId, login, at));
+    await mkdir(dirname(kept), { recursive: true });
+    await writeFile(kept, JSON.stringify(relockHistoryDoc(doc, { by: RELOCKED_BY_LOCKDOWN, at }), null, 2) + "\n");
+    await rm(join(dir, f), { force: true });
+    log(`reopen ${login}`, { ok: true, note: `ended - locked again at ${at}, the deadline the reopen ran to` });
+  }
+}
+
 // --- Read a previous lockdown record (retry path) ----------------------------
 //
 // A finalize run can be retried - e.g. preservation failed and find-finalizable
@@ -482,7 +522,9 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     // student locked with nothing handed in deferrable, so a later stop
     // released them while the record still said locked.
     const priors = teamMembers.map((m) => priorByLogin.get(normalizeLogin(m))).filter(Boolean);
-    const alreadyRecorded = priors.some(lockTaken);
+    // ...or held by a lecturer's Lock again with no snapshot yet (`lockHeld`,
+    // R7-30): deferred, the next pass took them out of the stop just put back.
+    const alreadyRecorded = priors.some(lockHeld);
 
     const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members: teamMembers } });
 
@@ -552,36 +594,56 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
  * student's page counted down to a deadline while every push was refused, and
  * with no lock on their row Reopen refused too.
  *
- * A deferred target has, by construction, no lock on record and no reopen
- * (planTargets), so whatever holds it now is a stop for an instant that is no
- * longer theirs: its id comes out of the organization ruleset, a repository
- * ruleset of this system is switched off, and a member left at read while the
- * assignment gives more gets that back - never re-invited, `onlyIfPresent`.
- * Each one is what Reopen's own inverse does, and each is idempotent. At their
- * deadline the queue comes back for them (`deferred_until`) and locks them.
+ * A deferred target has no lock on record (planTargets: `lockHeld`), so
+ * whatever holds it now is a stop for an instant that is no longer theirs: its
+ * id comes out of the organization ruleset, a repository ruleset of this
+ * system is switched off, and a member left at read while the assignment gives
+ * more gets that back - never re-invited, `onlyIfPresent`. Each one is what
+ * Reopen's own inverse does, and each is idempotent. At their deadline the
+ * queue comes back for them (`deferred_until`) and locks them.
+ *
+ * NOT A REOPEN'S DEFERRAL (R7-30): Reopen already let go of that student, so
+ * whatever holds them now is a Lock again a lecturer clicked since - released
+ * here, it was undone by the same pass.
+ *
+ * Returns what could not be let go: a student left stopped through the time
+ * they were given is an error of the run, never a line in its log (R7-32).
+ *
+ * @returns {Promise<string[]>}
  */
 async function releaseDeferredStops(deferrals, assignment, { probeRepos = false } = {}) {
-  if (!deferrals.length) return;
+  // ...unless this run locked them itself, then asked again (R7-31).
+  const toRelease = deferrals.filter((d) => !d.reopen || d.lockedThisRun);
+  // Nothing can hold them unless a sentinel stopped this assignment or this
+  // run locked them: a pass never locks a deferred student, nor a reopened one.
+  if (!toRelease.length || !(probeRepos || toRelease.some((d) => d.lockedThisRun))) return [];
+  const failed = [];
   const request = (method, path, body) => gh(method, path, body);
   const stop = await orgStopIds(request, { org: cfg.org, assignmentId: cfg.assignmentId });
-  if (!stop.ok) log("release", { ok: false, note: `the organization's stop could not be read (${stop.reason}) - deferred students may still be in it` });
+  if (!stop.ok) {
+    log("release", { ok: false, note: `the organization's stop could not be read (${stop.reason}) - deferred students may still be in it` });
+    failed.push(`the organization's stop could not be read (${stop.reason})`);
+  }
   // One repository once, however many of its members' records deferred it.
   const seen = new Set();
-  for (const d of deferrals) {
+  for (const d of toRelease) {
     const key = String(d.repoName ?? "").toLowerCase();
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    // A repository ruleset or a demotion on a deferred student can only be a
-    // sentinel's stop: without one, nothing is asked of their repository.
+    // A repository ruleset or a demotion on a deferred student is a sentinel's
+    // stop, or this run's own when it asked again before writing (R7-31):
+    // without either, nothing is asked of their repository.
     const steps = await releaseStop(request, {
       org: cfg.org, assignmentId: cfg.assignmentId, repo: d.repoName, repositoryId: d.rec?.repo_id,
       members: d.teamMembers.length ? d.teamMembers : d.members, permission: assignment.student_permission || "admin",
-      orgIds: stop.ids, probeRepo: probeRepos,
+      orgIds: stop.ids, probeRepo: probeRepos || Boolean(d.lockedThisRun),
     });
     for (const s of steps) {
       log(`release ${d.displayKey}`, { ok: s.ok, note: `${s.note} - their deadline ${d.effective.deadline.toISOString()} is still ahead` });
+      if (!s.ok) failed.push(`${d.displayKey}: ${s.note}`);
     }
   }
+  return failed;
 }
 
 // --- Phase 1: STOP -----------------------------------------------------------
@@ -773,8 +835,9 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // A row whose snapshot could not be read was LOCKED all the same, at its
     // own time (review 2026-10-14, P2-31): the pass that reads it again kept
     // its own clock, which overstated how long the student could push.
-    // ...and so was one a pass found had nothing handed in (TL-4).
-    let lockdownAt = lockTaken(priorRec) ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+    // ...and so was one a pass found had nothing handed in (TL-4), and one a
+    // lecturer locked again (`lockHeld`, R7-30): at the Lock again.
+    let lockdownAt = lockHeld(priorRec) ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
     // before this run. Crediting it is what keeps `uncertainty_seconds` honest.
@@ -785,9 +848,9 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // effective deadline picks the stop that held them (`stopFor`, R7-8): the
     // earliest at or after it, so a second sentinel at their extended
     // deadline, or at a deadline moved later, is credited too.
-    // A row an earlier pass locked keeps its own lock time (R7-22): a later
-    // stop must never move it.
-    const heldBy = !lockTaken(priorRec) ? stopFor?.(deadlineFor?.(t) ?? null) : null;
+    // A row an earlier pass or a lecturer locked keeps its own lock time
+    // (R7-22): a later stop must never move it.
+    const heldBy = !lockHeld(priorRec) ? stopFor?.(deadlineFor?.(t) ?? null) : null;
     if (heldBy) lockdownAt = heldBy.at;
 
     if (method === "none") {
@@ -919,7 +982,7 @@ async function submissionAsOf({ repoName, branch, deadline }) {
   return { ok: true, sha: row?.sha ?? null, row, reason: null };
 }
 
-async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, stopFor = () => null }) {
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, stopDeadlineFor = null, stopFor = () => null }) {
   const byRepo = new Map();
 
   // A group assignment has one repository record PER MEMBER, all naming the
@@ -962,7 +1025,10 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       // not covered by it, when its record arrived after. The stop that held
       // THIS student, from their deadline in force (R7-8).
       const deadline = deadlineFor?.(t) ?? null;
-      const heldBy = stopFor(deadline);
+      // The stop that held THEM, under every late policy (R7-41): `deadline`
+      // is null outside `block` (no late work is cut), and the cohort's
+      // earliest stop then disagreed with the one the lock step credited.
+      const heldBy = stopFor(stopDeadlineFor?.(t) ?? deadline);
       const existedAtStop = !heldBy || (
         (!createdAt || new Date(createdAt) <= new Date(heldBy.at)) &&
         heldBy.sampled.has(String(t.repoName).toLowerCase())
@@ -1054,7 +1120,10 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       }
 
       // Write the final observation (only for a fresh snapshot - re-recording a
-      // frozen one would fabricate a second observation of the same fact)
+      // frozen one would fabricate a second observation of the same fact).
+      // Where they went is kept: a student this run defers after asking again
+      // (R7-31) must not be left an observation that reads as their lock.
+      const obsWritten = [];
       if (snapshotSha && !frozen) {
         const now = new Date().toISOString();
         const safeTs = now.replace(/[:.]/g, "-");
@@ -1093,10 +1162,12 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
           const obsDir = join(cfg.dataDir, "observations", cfg.assignmentId, m);
           await mkdir(obsDir, { recursive: true });
           await writeFile(join(obsDir, `${safeTs}.json`), JSON.stringify(observation, null, 2) + "\n");
+          obsWritten.push(join(obsDir, `${safeTs}.json`));
         }
       }
 
       byRepo.set(t, {
+        obsWritten,
         ok: true,
         repoId: repoRes.data.id,
         branch,
@@ -1139,7 +1210,8 @@ async function main() {
   }
   if (!assignment) await fail("fail:assignment", `no assignment file for "${cfg.assignmentId}"`);
   const submissionRef = assignment.submission_ref || "refs/heads/main";
-  const deadlineAt = assignment.deadline_at || null;
+  // `let`: asked again before the record is written (R7-31).
+  let deadlineAt = assignment.deadline_at || null;
   log("assignment", { ok: true, note: `deadline_at=${deadlineAt} submission_ref=${submissionRef}` });
 
   // Prior lockdown (retry path) - frozen snapshots, keyed by login. Keyed
@@ -1298,7 +1370,7 @@ async function main() {
 
   // What the sentinel stopped for a deadline no longer in force is let go here
   // (R7-1, R7-2): a student whose deadline is still ahead may push until then.
-  await releaseDeferredStops(deferrals, assignment, { probeRepos: deferrals.length > 0 && (await sentinelEverStopped()) });
+  const releaseFailed = await releaseDeferredStops(deferrals, assignment, { probeRepos: deferrals.length > 0 && (await sentinelEverStopped()) });
 
   // Stop-only: the sentinel's job is the instant, not the bookkeeping. The
   // ordinary finalize follows minutes later and does phases 2-4 unhurried,
@@ -1330,7 +1402,7 @@ async function main() {
       unstoppable = missed.filter((t) => !loginsOfTarget(t).some((l) => isKnownOwner(owners, l)));
     }
     await setOutput("locked_count", stopped);
-    await setOutput("error_count", unstoppable.length);
+    await setOutput("error_count", unstoppable.length + releaseFailed.length);
     await setOutput("deferred_count", deferrals.length);
     await setOutput("lock_method", lock.method);
     await setOutput("outcome", "stopped");
@@ -1338,8 +1410,9 @@ async function main() {
       `### Deadline stop: \`${lock.method}\` at ${lock.lockedAt}\n\n` +
       `**${stopped}/${targets.length}** repositories stopped` +
       (gone ? `, **${gone}** no longer exist${gone === 1 ? "s" : ""}` : "") +
-      (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
-      `. No record written - the finalize run does phases 2-4.\n`
+      (deferrals.length ? `, **${deferrals.length}** deferred (their deadline is still ahead)` : "") +
+      `. No record written - the finalize run does phases 2-4.\n` +
+      (releaseFailed.length ? `\n**Not let go of the stop, though their deadline is ahead:** ${releaseFailed.join("; ")}\n` : "")
     );
     if (unstoppable.length) {
       log("stop-only", {
@@ -1347,6 +1420,15 @@ async function main() {
         note: `${stopped}/${targets.length} stopped - NOT stopped: ${unstoppable.map((t) => t.displayKey).join(", ")}`,
       });
       process.exit(1);
+    }
+    // A student whose deadline is ahead and who is still stopped cannot push
+    // through the time they were given (R7-32). Said as an error, NOT as this
+    // run's exit: the exit code is the stop's own verdict (`stop: done`), and
+    // a failed one withdraws the stop's credit from the whole cohort. The
+    // finalize minutes later lets go again, and fails its leg if it cannot.
+    if (releaseFailed.length) {
+      log("stop-only", { ok: false, note: `stopped, but NOT let go: ${releaseFailed.join("; ")}` });
+      console.log(`::error::Students whose deadline is still ahead were not let go of the stop, so they cannot push: ${releaseFailed.join("; ")}. The finalize tries again.`);
     }
     log("stop-only", { ok: true, note: `${stopped}/${targets.length} stopped${gone ? `, ${gone} no longer exist${gone === 1 ? "s" : ""}` : ""}; no lockdown record written` });
     process.exit(0);
@@ -1365,7 +1447,8 @@ async function main() {
     // discard exactly what the policy says to keep.
     deadlineFor: blockLate ? deadlineFor : null,
     // The stop that held each student, and which repositories it was
-    // watching (R6-25, R7-8).
+    // watching (R6-25, R7-8) - asked of their own deadline under every policy.
+    stopDeadlineFor: deadlineFor,
     stopFor,
   });
 
@@ -1452,6 +1535,46 @@ async function main() {
 
   /** Every login behind a target - a team repo has several. */
   const loginsOf = (t) => (t.teamMembers?.length ? t.teamMembers : [t.login]).filter(Boolean);
+
+  // --- ASKED AGAIN BEFORE IT IS WRITTEN (review 2026-10-16, R7-31) ----------
+  //
+  // The plan above is what GitHub said when this run read it, and the lock
+  // took the minutes since. The record is written now and committed straight
+  // after (daily-activity.yml), so a deadline moved later or an extension
+  // granted in those minutes was published over no lock record: the publish
+  // let go of the stop, and this record would then have said locked under a
+  // deadline no longer in force. So the deadline and the extensions are read
+  // again, and a student THIS run locked whose deadline in force is now ahead
+  // is deferred like any other - and let go of what this run put on them, the
+  // repository's own ruleset and a demotion included. A student an earlier pass
+  // or a lecturer locked is not touched (`lockHeld`): Reopen is how they get
+  // time. A read that fails keeps the plan, and says so.
+  const movedKeys = new Set();
+  if (targets.length) {
+    const fresh = await readAssignmentRemote();
+    if (fresh && fresh !== DELETED) {
+      const replan = planTargets(fresh, records, await readOverrides(), priorByLogin, new Date(), teamsBySlug, reopened);
+      const nowDeferred = new Map(replan.deferrals.map((d) => [String(d.repoName).toLowerCase(), d]));
+      const moved = targets.filter((t) => nowDeferred.has(String(t.repoName).toLowerCase()));
+      if (moved.length) {
+        deadlineAt = fresh.deadline_at || deadlineAt;
+        const movedDeferrals = [];
+        for (const t of moved) {
+          const key = String(t.repoName).toLowerCase();
+          movedKeys.add(key);
+          movedDeferrals.push({ ...nowDeferred.get(key), lockedThisRun: true });
+          // Its lock observation is not their lock any more.
+          for (const path of recorded.get(t)?.obsWritten ?? []) await rm(path, { force: true });
+          log(`lockdown ${t.displayKey}`, { ok: true, note: `deferred after all - their deadline is now ${nowDeferred.get(key).effective.deadline.toISOString()}, changed while this ran; let go of this run's lock` });
+        }
+        for (let i = targets.length - 1; i >= 0; i--) if (movedKeys.has(String(targets[i].repoName).toLowerCase())) targets.splice(i, 1);
+        deferrals.push(...movedDeferrals);
+        releaseFailed.push(...(await releaseDeferredStops(movedDeferrals, fresh, { probeRepos: true })));
+      }
+    } else {
+      log("asked again", { ok: false, note: "the assignment could not be read again before writing the record - the plan stands" });
+    }
+  }
 
   // --- Assemble the record ---------------------------------------------------
   let lockedCount = 0;
@@ -1603,7 +1726,7 @@ async function main() {
     const ownDeadline = deadlineFor(t) ?? deadlineAt;
     const priorRow = priorByLogin.get(normalizeLogin(t.login));
     let uncertaintySec = null;
-    if (lockTaken(priorRow) && lockdownAt === priorRow.lockdown_at && Number.isFinite(priorRow.uncertainty_seconds)) {
+    if (lockHeld(priorRow) && lockdownAt === priorRow.lockdown_at && Number.isFinite(priorRow.uncertainty_seconds)) {
       uncertaintySec = Math.max(0, priorRow.uncertainty_seconds);
     } else if (ownDeadline && lockdownAt) {
       uncertaintySec = Math.max(0, Math.round((new Date(lockdownAt) - new Date(ownDeadline)) / 1000));
@@ -1683,6 +1806,21 @@ async function main() {
     }
   }
 
+  // A reopen this run locked again is ended (R7-29), and one whose repository
+  // is gone, which nothing will lock again. At the lock time on its row.
+  for (const t of targets.filter((x) => x.relock)) {
+    const stop = lock.byRepo.get(t);
+    const state = recorded.get(t);
+    if (!(stop?.locked || stop?.gone || state?.gone)) continue;
+    const row = lockdownResults.find((r) => normalizeLogin(r.github_login) === normalizeLogin(t.login));
+    await endReopens(t, row?.lockdown_at ?? new Date().toISOString());
+  }
+
+  // A stop not let go, though their deadline is ahead (R7-32): an error of the
+  // run, named, and the leg fails below so the lecturer is told.
+  for (const f of releaseFailed) rows.push(`| ${f.split(":")[0]} | - | - | **still stopped, deadline ahead** |`);
+  errorCount += releaseFailed.length;
+
   // Write lockdown record
   const lockdownDir = join(cfg.dataDir, "lockdowns", cfg.assignmentId);
   await mkdir(lockdownDir, { recursive: true });
@@ -1753,7 +1891,7 @@ async function main() {
     `| student | SHA | uncertainty | status |\n|---|---|---|---|\n` +
     rows.join("\n") + "\n\n" +
     `**${lockedCount}** locked, **${errorCount}** errors` +
-    (deferrals.length ? `, **${deferrals.length}** deferred (extension still running)` : "") +
+    (deferrals.length ? `, **${deferrals.length}** deferred (their deadline is still ahead)` : "") +
     (noSubmissionCount ? `, **${noSubmissionCount}** with no submission before the deadline` : "") +
     (unfreezableCount ? `, **${unfreezableCount}** NOT FROZEN (organization owner - change their role to Member to freeze them)` : "") +
     (goneCount ? `, **${goneCount}** deleted before the lock` : "") +
@@ -1762,6 +1900,12 @@ async function main() {
   await setOutput("unfreezable_count", unfreezableCount);
   await setOutput("reopened_count", reopenedTargets.length);
   log("done", { ok: errorCount === 0, note: `${outcome} (${lockedCount} locked, ${deferrals.length} deferred, ${noSubmissionCount} no-submission, ${unfreezableCount} unfreezable, ${goneCount} gone, ${errorCount} err, ${maxUncertainty}s max uncertainty)` });
+  // The record is written, and every step after this one runs whatever this
+  // exit says; failing is what files the notice for the lecturer (R7-32).
+  if (releaseFailed.length) {
+    console.log(`::error::Students whose deadline is still ahead could not be let go of the stop, so they cannot push: ${releaseFailed.join("; ")}. Run the finalize again to retry.`);
+    process.exit(1);
+  }
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

@@ -608,8 +608,11 @@ async function main() {
     // Of THIS lock's snapshot (R7-3): one locked again after a reopen has a
     // second, and the first one's archive does not settle the second.
     const blocksLate = assignment?.late_policy === "block";
+    // Not for a row still deferred (R7-40): the copy it is owed is to come,
+    // and an older preservation is not it.
+    const deferredNow = Boolean(lockdownByLogin.get(key)?.deferred_until) && !lockdownByLogin.get(key)?.snapshot_sha;
     const preservedOnTimeSha =
-      blocksLate && preservesSnapshot(preservation, lockdownByLogin.get(key)?.snapshot_sha)
+      blocksLate && !deferredNow && preservesSnapshot(preservation, lockdownByLogin.get(key)?.snapshot_sha)
         ? (preservation.source_sha ?? lockdownByLogin.get(key)?.snapshot_sha ?? null)
         : null;
 

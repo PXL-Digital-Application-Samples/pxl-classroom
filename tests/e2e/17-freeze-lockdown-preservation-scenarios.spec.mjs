@@ -102,6 +102,9 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     await expect(modal).toContainText('The repository becomes read-only');
     await expect(modal).toContainText('Their work is archived');
     await expect(modal).toContainText('Who is left out');
+    // A reopen with no time on it stays open for good (R7-34): "they are
+    // locked at their own deadline" was untrue of it.
+    await expect(modal.locator('[data-freeze-left-out]')).toContainText('Students you reopened stay open, until their own deadline where it is still ahead');
     await expect(modal).toContainText('with its 2 student');
 
     // 4. Click Confirm Freeze & Lockdown button

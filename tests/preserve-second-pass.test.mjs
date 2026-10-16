@@ -248,6 +248,59 @@ test("R7-3: locked again after a rewritten history - the first snapshot is kept,
   });
 });
 
+// R7-43 (step-back review): the record named the second snapshot's branch, so
+// a third was pushed onto the base and refused every pass until the ceiling.
+test("R7-43: a third snapshot after another rewritten history gets a branch of its own too", async () => {
+  const w = world();
+  await withApi(async (api) => {
+    assert.equal((await run(api, w)).status, 0);
+    const archive = join(w.srv, "TestOrg", `${ARCHIVE}.git`);
+    const rewrite = (name, msg) => {
+      git(["checkout", "-q", "--orphan", name], w.work);
+      git(["commit", "-q", "--allow-empty", "-m", msg], w.work);
+      git(["push", "-q", "--force", w.src, `${name}:main`], w.work);
+      return git(["rev-parse", "HEAD"], w.work);
+    };
+    const second = rewrite("second", "a new history");
+    relock(w, second);
+    assert.equal((await run(api, w)).status, 0);
+    const third = rewrite("third", "and another");
+    relock(w, third);
+    const res = await run(api, w);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.out, /preserved_count=1/, res.log);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/alice"], archive), w.sha, "the first, kept");
+    assert.equal(git(["rev-parse", `refs/heads/preserved/exam/alice-${second.slice(0, 12)}`], archive), second, "the second, kept");
+    const branch = `refs/heads/preserved/exam/alice-${third.slice(0, 12)}`;
+    assert.equal(git(["rev-parse", branch], archive), third);
+    const doc = JSON.parse(readFileSync(join(w.data, "observations", "exam", "alice", "preservation.json"), "utf8"));
+    assert.deepEqual([doc.source_sha, doc.preserved_ref], [third, branch]);
+  });
+});
+
+test("R7-43: a third snapshot on top of the first goes onto the student's branch", async () => {
+  const w = world();
+  await withApi(async (api) => {
+    assert.equal((await run(api, w)).status, 0);
+    const archive = join(w.srv, "TestOrg", `${ARCHIVE}.git`);
+    git(["checkout", "-q", "--orphan", "second"], w.work);
+    git(["commit", "-q", "--allow-empty", "-m", "a new history"], w.work);
+    git(["push", "-q", "--force", w.src, "second:main"], w.work);
+    const second = git(["rev-parse", "HEAD"], w.work);
+    relock(w, second);
+    assert.equal((await run(api, w)).status, 0);
+    // Back on the first history, and on top of it.
+    git(["checkout", "-q", "main"], w.work);
+    git(["commit", "-q", "--allow-empty", "-m", "on top of the first"], w.work);
+    git(["push", "-q", "--force", w.src, "main:main"], w.work);
+    const third = git(["rev-parse", "HEAD"], w.work);
+    relock(w, third);
+    const res = await run(api, w);
+    assert.equal(res.status, 0, res.log);
+    assert.equal(git(["rev-parse", "refs/heads/preserved/exam/alice"], archive), third, "a fast-forward of the first");
+  });
+});
+
 test("a record lost while the archive kept the commit is written again, from the archive's ref", async () => {
   const w = world();
   await withApi(async (api) => {

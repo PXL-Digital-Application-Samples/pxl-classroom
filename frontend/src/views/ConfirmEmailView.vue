@@ -313,8 +313,10 @@ async function submit() {
     // promise is a UI that lies, and this one would tell a student they were
     // identified when nothing had been recorded.
     //
-    // THE POST IS AS FAR AS THIS PAGE CAN HONESTLY WAIT, and that is a decision
-    // rather than an omission - do not "fix" it by adding a poll.
+    // THE POST IS AS FAR AS THIS PAGE CAN WAIT FOR THE RECORD, and that is a
+    // decision rather than an omission - do not "fix" it with a poll of the
+    // record. The short watch below is of something else: the broker's own run,
+    // which is public (R7-6).
     //
     // The acceptance page polls because success is OBSERVABLE to a student: a
     // repository appears. A confirmation writes `students/claims/<id>.json` in
@@ -345,7 +347,7 @@ async function submit() {
     for (let waited = 0; waited < SKIP_WATCH_MS; waited += SKIP_POLL_MS) {
       const skipped = await readBrokerSkipped(ask, { org: props.org, broker: brokerRepo, title, sentAt })
       if (skipped === true) {
-        throw new Error('Confirming is switched off for this assignment right now, so nothing was recorded. Tell your lecturer: publishing the assignment again switches it back on.')
+        throw new Error('Confirming is switched off for this assignment right now, so nothing was recorded. Tell your lecturer, who can switch it back on.')
       }
       if (skipped === false) break
       await new Promise((r) => setTimeout(r, SKIP_POLL_MS))

@@ -35,6 +35,10 @@ test("locking everyone out is offered only after the deadline, and does not clai
   // A student can be let back in from their row, so "cannot be undone" would
   // be a lie on the most consequential entry in the menu.
   assert.doesNotMatch(freeze.sub, /cannot be undone/i);
+  // Not "every student's write access" (R7-34): false under "Nothing is
+  // locked", and for every student deferred or reopened.
+  assert.doesNotMatch(freeze.sub, /every student's write access/);
+  assert.match(freeze.sub, /every student whose deadline has passed/);
 });
 
 test("delete is offered only where nobody can still be accepting", () => {

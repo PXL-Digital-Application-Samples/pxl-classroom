@@ -5149,13 +5149,6 @@ async function confirmRepublish(regenerate) {
 }
 
 /**
- * Why publishing this assignment now would be refused as finished, or null.
- * The workflow's own judge (lib/finished-assignment.mjs), asked with the
- * deadline on screen - that is what the save is about to write, and moving it
- * into the future is how a finished assignment is reopened. A lock record that
- * cannot be read is null: the workflow asks again with its own checkout.
- */
-/**
  * Whether saving `newDeadline` reopens this assignment, from what GitHub holds
  * now: the stored deadline and the lock record (lib/publish.js saveReopens).
  * Only asked when the deadline being saved is in the future.
@@ -5164,9 +5157,21 @@ async function thisSaveReopens(newDeadline) {
   const none = { reopens: false, stillLocked: 0 }
   if (isNew.value || !form.value.id || !(Date.parse(newDeadline ?? '') > Date.now())) return none
   const token = getToken()
+  // NOTHING READ HERE CAN END THE SAVE (review 2026-10-16, R7-37): `ghApi`
+  // resolves `{ ok: false }` for an HTTP error but THROWS on a network error
+  // or a timeout (api.js, `HttpTimeoutError`), and the throw left the save
+  // undone with nothing said. An unread lock record is an unknown, which
+  // publishes. e2e 74 R7-37 aborts the request.
+  const readLock = async () => {
+    try {
+      return await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`)
+    } catch {
+      return null
+    }
+  }
   const [text, lock] = await Promise.all([
     getRepoContent(token, props.org, config.controlRepo, assignmentPath(form.value.id)).catch(() => null),
-    ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`),
+    readLock(),
   ])
   let storedDeadline = null
   try {
@@ -5174,25 +5179,63 @@ async function thisSaveReopens(newDeadline) {
   } catch {
     storedDeadline = null
   }
-  const reopens = saveReopens({ storedDeadline: storedDeadline ?? form.value._deadline_at_original, newDeadline, lockStatus: lock?.status ?? null })
+  const before = storedDeadline ?? form.value._deadline_at_original
+  const reopens = saveReopens({ storedDeadline: before, newDeadline, lockStatus: lock?.status ?? null })
   // WHO A LATER DEADLINE DOES NOT REACH (review 2026-10-16, R7-3): a student
-  // the lock already holds keeps the submission it took. Said at the save,
-  // with the way to give them the time.
+  // the lock already holds keeps the submission it took. Said at the save that
+  // MOVES the deadline, not at every save while a lock record exists, and
+  // without those already reopened (R7-35); where the reopens cannot be read,
+  // nothing is said rather than a count that may be wrong.
+  // To the minute: the form edits minutes, and a stored deadline with seconds
+  // would read as moved by every save.
+  if (Math.floor(Date.parse(before ?? '') / 60_000) === Math.floor(Date.parse(newDeadline) / 60_000)) return { reopens, stillLocked: 0 }
   let record = null
   try {
     record = lock?.ok && lock.data?.content ? JSON.parse(contentsText(lock.data.content)) : null
   } catch {
     record = null
   }
-  return { reopens, stillLocked: stillLockedCount(record) }
+  if (!record) return { reopens, stillLocked: 0 }
+  const reopenRecords = await readReopenRecordsFor(token, form.value.id)
+  return { reopens, stillLocked: reopenRecords ? stillLockedCount(record, reopenRecords) : 0 }
 }
 
+/** Every reopen record of an assignment, `[]` for none, or null when they could not all be read. */
+async function readReopenRecordsFor(token, id) {
+  let files
+  try {
+    files = await listRepoDir(token, props.org, config.controlRepo, unlockedDir(id))
+  } catch (e) {
+    return e?.status === 404 ? [] : null
+  }
+  try {
+    const texts = await Promise.all(files.filter((f) => f.type === 'file' && f.name.endsWith('.json'))
+      .map((f) => getRepoContent(token, props.org, config.controlRepo, f.path)))
+    return texts.map((t) => (t ? JSON.parse(t) : null)).filter(Boolean)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Why publishing this assignment now would be refused as finished, or null.
+ * The workflow's own judge (lib/finished-assignment.mjs), asked with the
+ * deadline on screen - that is what the save is about to write, and moving it
+ * into the future is how a finished assignment is reopened. A lock record that
+ * cannot be read is null: the workflow asks again with its own checkout.
+ */
 async function finishedRefusal() {
   if (isNew.value || !form.value.id) return null
   const local = form.value.deadline_at_local
   const deadlineAt = local ? localToUtc(local) : (form.value._deadline_at_original || null)
   if (!deadlineAt || !Number.isFinite(Date.parse(deadlineAt)) || Date.parse(deadlineAt) > Date.now()) return null
-  const lock = await ghApi(getToken(), 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`)
+  // A network error throws (api.js), and "cannot be read" includes it (R7-37).
+  let lock = null
+  try {
+    lock = await ghApi(getToken(), 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`)
+  } catch {
+    return null
+  }
   if (lock.status !== 200 && lock.status !== 404) return null
   if (!republishRefusal({ deadlineAt: new Date(deadlineAt).toISOString(), lockRan: lock.status === 200 })) return null
   // The judge's sentence is the workflow log's; this is the lecturer's - and

@@ -379,7 +379,16 @@ async function main() {
       // Only where the record says the commit there IS that first snapshot,
       // preserved by this system for this student: anything else at the ref is
       // something we did not put there, and the push below refuses it (TL-5).
-      if (atArchive && kept?.verified === true && kept.source_sha === atArchive && kept.preserved_ref === presRef) {
+      // ...or where the record names a LATER branch of this one (R7-43): a
+      // third snapshot after a rewritten history. That branch is only ever made
+      // when the base held this system's earlier snapshot, so the base's head
+      // is ours too; required to be the record's, every pass pushed onto the
+      // base and was refused until the ceiling.
+      const recordIsOurs = kept?.verified === true && (
+        (kept.source_sha === atArchive && kept.preserved_ref === presRef) ||
+        (typeof kept.preserved_ref === "string" && kept.preserved_ref.startsWith(`${presRef}-`))
+      );
+      if (atArchive && recordIsOurs) {
         let onTop = false;
         try {
           git(["fetch", "--no-tags", arcUrl, atArchive], { cwd: cloneDir });

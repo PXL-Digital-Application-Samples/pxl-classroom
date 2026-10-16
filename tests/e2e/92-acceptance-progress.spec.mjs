@@ -130,7 +130,9 @@ test.describe('92 - acceptance switched off (review 2026-10-16, R7-6)', () => {
     await accept(page);
     await settle(page);
     const state = page.locator('.timeout-state');
-    await expect(state).toContainText('Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer', { timeout: 15000 });
+    await expect(state).toContainText('Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer, who can switch it back on.', { timeout: 15000 });
+    // Publish refuses a finished assignment, so "publish it again" was untrue (R7-44).
+    await expect(state).not.toContainText('publishing it again');
     await expect(page.locator('.attempt-step-failed')).toContainText('Invitation checked');
     await expect(page.getByRole('button', { name: /Send it again/i })).toHaveCount(0);
     expect(sent.issues).toHaveLength(1);

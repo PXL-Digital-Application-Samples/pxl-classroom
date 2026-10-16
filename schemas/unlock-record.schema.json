@@ -68,7 +68,7 @@
     },
     "relocked_by": {
       "type": "string",
-      "description": "Only beside relocked_at: the GitHub login of the lecturer who locked it again."
+      "description": "Only beside relocked_at: the GitHub login of the lecturer who locked it again, or pxl-classroom[bot] where the lock itself did, at the deadline a reopen with time on it ran to (review 2026-10-16, R7-29)."
     }
   }
 }

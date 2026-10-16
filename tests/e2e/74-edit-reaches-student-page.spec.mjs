@@ -220,6 +220,51 @@ test.describe('74 - saving a live assignment', () => {
     await expect(page.getByText(/2 students stay locked: their work was taken at the old deadline\. Reopen those who need the time/)).toBeVisible();
   });
 
+  // R7-35 (step-back review): said by the save that moves the deadline, net of
+  // those already reopened, and never as a second "Saved".
+  const lockRecordWith = (rows) => ({ assignment_id: ID, locked_at: new Date().toISOString(), results: rows });
+  const lockedRow = (login, extra = {}) => ({ github_login: login, repo_name: `${ORG}/x-${login}`, snapshot_sha: 'a'.repeat(40), lockdown_at: new Date(Date.now() - 86400_000).toISOString(), lock_method: 'org-ruleset', verified: true, ...extra });
+  const serveLockRecord = (page, record) => page.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+    route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(record)).toString('base64'), encoding: 'base64', sha: 'lock-sha' }) }));
+
+  test('R7-35: a save that does not move the deadline says nothing about who stays locked', async ({ page }) => {
+    const { dispatches } = await openLiveEditor(page);
+    await serveLockRecord(page, lockRecordWith([lockedRow('alice'), lockedRow('bob')]));
+    await page.getByPlaceholder('e.g. Linux Processes 2026').fill('.NET Advanced Labs, renamed again');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    await expect(page.getByText(/stay locked|stays locked/)).toHaveCount(0);
+  });
+
+  test('R7-35: a student reopened since the lock is not counted as staying locked', async ({ page }) => {
+    const { dispatches } = await openLiveEditor(page, { assignment: pastAssignment() });
+    await serveLockRecord(page, lockRecordWith([lockedRow('alice'), lockedRow('bob'), lockedRow('cleo')]));
+    const reopen = { github_login: 'alice', repo_name: `${ORG}/x-alice`, unlocked_at: new Date(Date.now() - 3600_000).toISOString(), unlocked_by: LECTURER, reason: 'appeal' };
+    // `**`: a glob `*` stops at a slash, and the file is one level down.
+    await page.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/unlocked**`, (route) => {
+      if (/unlocked\/alice\.json/.test(route.request().url())) {
+        return route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(reopen)).toString('base64'), encoding: 'base64', sha: 'u1' }) });
+      }
+      return route.fulfill({ status: 200, body: JSON.stringify([{ name: 'alice.json', path: `lockdowns/${ID}/unlocked/alice.json`, type: 'file', sha: 'u1' }]) });
+    });
+    await deadlineField(page).fill(new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 16));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    await expect.poll(async () => (await page.locator('.toast').allTextContents()).join(' | '), { timeout: 10000 })
+      .toMatch(/2 students stay locked: their work was taken at the old deadline/);
+  });
+
+  // R7-37: the read before the save had no catch, so a network error ended the
+  // save with nothing committed and nothing said.
+  test('R7-37: the lock record failing to load does not end the save: it lands and publishes', async ({ page }) => {
+    const { writes, dispatches } = await openLiveEditor(page, { assignment: pastAssignment() });
+    await page.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) => route.abort('failed'));
+    await deadlineField(page).fill(new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 16));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    expect(writes.filter((w) => w.path === `assignments/${ID}.yml`).length).toBeGreaterThan(0);
+  });
+
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page, { refuse: REGENERATE });
 

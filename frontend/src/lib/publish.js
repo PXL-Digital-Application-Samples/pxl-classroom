@@ -24,7 +24,8 @@
 // the panel and reads the banner.
 
 import { LOCKING_METHODS } from '../../../lib/repo-unlock.mjs'
-import { normalizeLogin } from '../../../lib/github-login.mjs'
+import { lockHeld, lockedSinceReopen } from '../../../lib/lock-rows.mjs'
+import { normalizeLogin, sameLogin } from '../../../lib/github-login.mjs'
 
 /**
  * @param {boolean|null|undefined} brokerExists
@@ -79,25 +80,34 @@ export function saveReopens({ storedDeadline = null, newDeadline = null, lockSta
 }
 
 /**
- * How many students a lock record still holds: a lock on their row
- * (lib/repo-unlock.mjs `LOCKING_METHODS`), not reopened since. A later deadline
- * does not reach them - their submission was taken (review 2026-10-16, R7-3),
- * and Reopen is how one of them gets the time. Counted by login, once.
+ * How many students a lock record still holds: a lock held on their row by a
+ * locking method (lib/lock-rows.mjs `lockHeld`, lib/repo-unlock.mjs
+ * `LOCKING_METHODS`), and no reopen of their repository since it (R7-35: the
+ * row says reopened only after a later pass, so a student reopened a minute
+ * ago still counted). A later deadline does not reach them - their submission
+ * was taken (review 2026-10-16, R7-3), and Reopen is how one of them gets the
+ * time. Counted by login, once.
  *
- * @param {{ results?: Array<{ github_login?: string, lock_method?: string|null, reopened_at?: string|null }> } | null} record
+ * @param {{ results?: Array<{ github_login?: string, repo_name?: string, lock_method?: string|null, reopened_at?: string|null }> } | null} record
+ * @param {Array<{ github_login?: string, repo_name?: string, unlocked_at?: string }>} [reopens] the reopen records under `unlocked/`
  */
-export function stillLockedCount(record) {
+export function stillLockedCount(record, reopens = []) {
+  const repoKey = (name) => String(name ?? '').split('/').pop().toLowerCase()
   const held = new Set()
   for (const r of record?.results || []) {
-    if (r?.github_login && LOCKING_METHODS.has(r.lock_method) && !r.reopened_at) held.add(normalizeLogin(r.github_login))
+    if (!r?.github_login || !LOCKING_METHODS.has(r.lock_method) || r.reopened_at || !lockHeld(r)) continue
+    // A team's repository is one object: a reopen of it for one member is for all.
+    const reopen = reopens.find((o) => (o?.repo_name && repoKey(o.repo_name) === repoKey(r.repo_name)) || sameLogin(o?.github_login, r.github_login))
+    if (reopen && !lockedSinceReopen(r, reopen)) continue
+    held.add(normalizeLogin(r.github_login))
   }
   return held.size
 }
 
-/** What a save moving the deadline later says about them, in the lecturer's words. */
+/** What a save moving the deadline later says about them, in the lecturer's words. It follows the "Saved" toast. */
 export function stillLockedMessage(n) {
   const who = n === 1 ? '1 student stays' : `${n} students stay`
-  return `Saved. ${who} locked: their work was taken at the old deadline. Reopen those who need the time on the Progress tab, and they are locked again at the new deadline.`
+  return `${who} locked: their work was taken at the old deadline. Reopen those who need the time on the Progress tab, and they are locked again at the new deadline.`
 }
 
 /**

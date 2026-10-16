@@ -31,6 +31,15 @@ test("extensionEffect: locked since the reopen is locked, and any taken lock cou
   assert.equal(extensionEffect({ record: null, login: "alice", reopen }), "reopened", "reopened, nothing locked since");
 });
 
+// R7-36: a record that could not be read, or not yet, is not "nothing locked".
+test("extensionEffect: unread is unknown, and the toast says what to do if they are locked", () => {
+  assert.equal(extensionEffect({ record: null, login: "alice", known: false }), "unknown");
+  assert.equal(extensionEffect({ record: record({ lock_method: "org-ruleset" }), login: "alice", known: false }), "unknown");
+  const msg = extensionGrantedMessage({ login: "alice", when: "20/10/2026, 23:59", effect: "unknown" });
+  assert.match(msg, /^Extension granted to alice until 20\/10\/2026, 23:59\. Whether their repository is already locked could not be read: if it is, more time does not reopen it, and Reopen lets them push until then\./);
+  assert.doesNotMatch(msg, /follow it/);
+});
+
 test("extensionGrantedMessage says what the time does, then whether their page was told", () => {
   const when = "20/10/2026, 23:59";
   assert.equal(extensionGrantedMessage({ login: "alice", when, effect: "open" }),

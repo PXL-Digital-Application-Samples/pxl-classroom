@@ -12,6 +12,8 @@
 //             a reopen with time on it ends at it (lockdown's planTargets).
 //   reopened  a lecturer reopened them: they stay open until the new deadline,
 //             and are locked again then.
+//   unknown   the lock record or the reopen record could not be read (or was
+//             still being read): said so, with what to do if they are locked.
 //
 // Locked is lockdown's own answer (lib/lock-rows.mjs, R7-24): a lock taken by
 // a locking method, and a lock made SINCE a reopen is a lock like any other -
@@ -22,11 +24,15 @@ import { lockTaken, lockedSinceReopen } from '../../../lib/lock-rows.mjs'
 import { LOCKING_METHODS, lockdownRowFor } from '../../../lib/repo-unlock.mjs'
 
 /**
- * @param {{ record?: object|null, login: string, reopen?: {unlocked_at?: string|null}|null }} p
- *   `record` the lockdown record; `reopen` the reopen record, when one exists
- * @returns {'open'|'locked'|'reopened'}
+ * @param {{ record?: object|null, login: string, reopen?: {unlocked_at?: string|null}|null, known?: boolean }} p
+ *   `record` the lockdown record; `reopen` the reopen record, when one exists;
+ *   `known` false when either could not be read, or not yet - then nothing
+ *   above can be said, and "their lock follows it" read off a missing record
+ *   was the sentence R7-16 removed
+ * @returns {'open'|'locked'|'reopened'|'unknown'}
  */
-export function extensionEffect({ record = null, login, reopen = null }) {
+export function extensionEffect({ record = null, login, reopen = null, known = true }) {
+  if (!known) return 'unknown'
   const row = lockdownRowFor(record, login)
   if (reopen && !lockedSinceReopen(row, reopen)) return 'reopened'
   if (row && lockTaken(row) && LOCKING_METHODS.has(row.lock_method) && !row.reopened_at) return 'locked'
@@ -44,6 +50,7 @@ export function extensionGrantedMessage({ login, when, effect, notTold = null, n
     open: `Extension granted to ${login} until ${when}; their lock and grading follow it.`,
     locked: `Extension granted to ${login}, but their repository was already locked at the deadline, and more time does not reopen it. Reopen them to let them push until ${when}; they are locked again then.`,
     reopened: `Extension granted to ${login}; their repository stays open and is locked again at ${when}.`,
+    unknown: `Extension granted to ${login} until ${when}. Whether their repository is already locked could not be read: if it is, more time does not reopen it, and Reopen lets them push until then.`,
   }[effect]
   // Status moves on the nightly run or a Refresh, never at once (e2e 30).
   const progress = 'The Progress tab shows it after the next nightly run or a Refresh.'

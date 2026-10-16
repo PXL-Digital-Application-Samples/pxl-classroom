@@ -432,6 +432,13 @@ jobs:
           token: ${{ steps.token.outputs.token }}
           path: control
 
+      # The commit this job checked out, before step 2b commits on top of it:
+      # what the scores step compares a lecturer's save against.
+      - name: Where the checkout starts
+        id: start
+        if: steps.control.outcome == 'success'
+        run: echo "sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       # A BROKER OWED A CLOSE AND NOTHING ELSE (review 2026-10-16, R7-4,
       # R7-11; scripts/find-finalizable.mjs `close_only`): every step but 5 and
       # the commit skips it. A whole finalize queued for one is how `4ee1236`
@@ -465,6 +472,39 @@ jobs:
           org: ${{ matrix.assignment.org }}
           assignment-id: ${{ matrix.assignment.assignment_id }}
           data-dir: control
+
+      # THE LOCK RECORD, COMMITTED THE MOMENT IT IS WRITTEN (review 2026-10-16,
+      # R7-31). Committed with everything else after preserve, report and the
+      # scores, it was invisible for minutes after the lock, and a lecturer who
+      # moved the deadline later in those minutes published over a branch with
+      # no lock record: the publish let go of the stop, and the record then
+      # landed saying the cohort was locked under the old deadline. Lockdown
+      # asks the deadline again just before it writes (lockdown.mjs), and the
+      # publish asks GitHub for the record before it releases anything
+      # (release-stale-stop.mjs), so from here they agree. Allowed to fail:
+      # the commit below carries the record too. Autostash, because collect's
+      # observations are still in the checkout.
+      - name: 2b. Commit the lock record
+        if: ${{ !cancelled() && steps.control.outcome == 'success' && matrix.assignment.close_only != true && steps.lockdown.outputs.outcome != 'deleted' }}
+        continue-on-error: true
+        env:
+          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
+        run: |
+          set -e
+          DIR="lockdowns/${ASSIGNMENT_ID}"
+          if [ ! -f "control/${DIR}/lockdown-record.json" ]; then exit 0; fi
+          # Deleted meanwhile (R7-17): the commit below says so; nothing here.
+          on=0
+          scripts/assignment-on-branch.sh control "$ASSIGNMENT_ID" || on=$?
+          if [ "$on" = 1 ]; then exit 0; fi
+          git -C control config user.name "pxl-classroom[bot]"
+          git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
+          mkdir -p "control/${DIR}"
+          # A removed reopen record (R7-29) is staged too: a pathspec stages removals.
+          git -C control add -- "${DIR}/"
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -q -m "Lock record for ${ASSIGNMENT_ID}"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=rebase.autoStash GIT_CONFIG_VALUE_0=true scripts/git-push-with-retry.sh control
 
       # always(), for the reason Commit + push below already gives: lockdown
       # demotes permissions through the API before preserve runs, so those facts
@@ -584,61 +624,6 @@ jobs:
           DATA_DIR: control
         run: node scripts/grade-at-deadline.mjs
 
-      # THE LOCK PLANNED AGAIN when its inputs changed while this ran (review
-      # 2026-10-16, R7-21). Lockdown read the deadline and the extensions when
-      # it planned, minutes ago. A lecturer who moved the deadline later or
-      # granted an extension since published over a checkout with no lock
-      # record, so the publish let go of the stop - and the commit below then
-      # recorded the cohort locked under a deadline no longer in force. Asked
-      # of the branch right before the commit: changed, the lock record goes
-      # back to the branch's and lockdown plans again from it, with what GitHub
-      # says now (a student with time left is deferred and let go, as it would
-      # have been). A fetch that never answers plans nothing again, and the
-      # commit is what it was before this step existed.
-      - name: 7a. Did the deadline or an extension change while this ran?
-        id: replan
-        if: ${{ !cancelled() && steps.lockdown.outcome == 'success' && steps.lockdown.outputs.outcome != 'deleted' }}
-        env:
-          ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
-        run: |
-          set -e
-          if ! scripts/git-fetch-with-retry.sh control; then
-            echo "::warning::Could not ask GitHub whether ${ASSIGNMENT_ID} changed while this ran, so the lock is committed as planned."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          A="assignments/${ASSIGNMENT_ID}"
-          # Deleted meanwhile is the commit's to say.
-          if ! git -C control cat-file -e "FETCH_HEAD:${A}.yml" 2>/dev/null \
-            && ! git -C control cat-file -e "FETCH_HEAD:${A}.yaml" 2>/dev/null \
-            && ! git -C control cat-file -e "FETCH_HEAD:${A}.json" 2>/dev/null; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git -C control diff --quiet HEAD FETCH_HEAD -- "${A}.yml" "${A}.yaml" "${A}.json" "overrides/${ASSIGNMENT_ID}/"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          REC="lockdowns/${ASSIGNMENT_ID}/lockdown-record.json"
-          if git -C control cat-file -e "FETCH_HEAD:${REC}" 2>/dev/null; then
-            git -C control show "FETCH_HEAD:${REC}" > "control/${REC}"
-          else
-            rm -f "control/${REC}"
-          fi
-          echo "::notice::The deadline or an extension of ${ASSIGNMENT_ID} changed while this ran, so the lock is planned again from what GitHub says now."
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-
-      - name: 7b. Lockdown, planned again
-        id: lockdown_again
-        if: ${{ !cancelled() && steps.replan.outputs.changed == 'true' }}
-        uses: ./lockdown
-        with:
-          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
-          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
-          org: ${{ matrix.assignment.org }}
-          assignment-id: ${{ matrix.assignment.assignment_id }}
-          data-dir: control
-
       # always(): lockdown demotes permissions through the API before preserve
       # runs, so those facts are already true of the world - dropping them on a
       # preserve failure loses the frozen snapshot and the attempt counter that
@@ -684,9 +669,9 @@ jobs:
         if: always() && steps.control.outcome == 'success'
         env:
           ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
+          LOCKDOWN_OUTCOME: ${{ steps.lockdown.outputs.outcome }}
         run: |
           set -e
-          echo "start=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git -C control config user.name "pxl-classroom[bot]"
           git -C control config user.email "pxl-classroom[bot]@users.noreply.github.com"
           rm -rf "$RUNNER_TEMP/scores"
@@ -699,15 +684,19 @@ jobs:
           git -C control clean -fdq -- reports/
           # DELETED WHILE THIS RAN (review 2026-10-16, R7-17): committing would
           # put back the directories the delete removed, for an assignment
-          # nobody has any more. Asked of the branch, not the checkout, and
-          # retried (R7-26); a fetch that never answers commits as before.
-          A="assignments/${ASSIGNMENT_ID}"
-          if ! scripts/git-fetch-with-retry.sh control; then
-            echo "::warning::Could not ask GitHub whether ${ASSIGNMENT_ID} still exists, so it is committed as before."
-          elif ! git -C control cat-file -e "FETCH_HEAD:${A}.yml" 2>/dev/null \
-            && ! git -C control cat-file -e "FETCH_HEAD:${A}.yaml" 2>/dev/null \
-            && ! git -C control cat-file -e "FETCH_HEAD:${A}.json" 2>/dev/null; then
+          # nobody has any more. Lockdown's `deleted` settles it; otherwise
+          # the branch is asked, not the checkout, retried (R7-26), and a fetch
+          # that never answers commits as before. Gone, the checkout's changes
+          # are discarded and `deleted` said, so the scores step does not pull
+          # over them for an assignment that no longer exists (R7-39).
+          on=0
+          if [ "$LOCKDOWN_OUTCOME" = deleted ]; then on=1; else scripts/assignment-on-branch.sh control "$ASSIGNMENT_ID" || on=$?; fi
+          if [ "$on" = 2 ]; then echo "::warning::Could not ask GitHub whether ${ASSIGNMENT_ID} still exists, so it is committed as before."; fi
+          if [ "$on" = 1 ]; then
             echo "::notice::${ASSIGNMENT_ID} was deleted while this ran, so nothing of it is committed."
+            git -C control reset -q --hard HEAD
+            git -C control clean -fdq
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           mkdir -p control/observations control/lockdowns
@@ -720,23 +709,22 @@ jobs:
       # someone saved since this job checked out is THEIRS to keep: a
       # lecturer's read of the same runs, made with overrides this checkout may
       # not have. So is any change to this assignment's overrides: a read made
-      # without a decision would be written over it. And to the assignment
-      # (R7-21): a read under a deadline moved since is not the deadline's.
-      # Kept, and said; reading again on the Grading tab reads them with
-      # everything.
+      # without a decision would be written over it. Kept, and said; reading
+      # again on the Grading tab reads them with everything. "Since this job
+      # checked out" is the checkout's own commit (`steps.start`), not the
+      # branch after the lock record's commit, which may already carry a save.
       - name: Commit + push the scores
-        if: always() && steps.commit.outcome == 'success'
+        if: always() && steps.commit.outcome == 'success' && steps.commit.outputs.deleted != 'true'
         env:
           ASSIGNMENT_ID: ${{ matrix.assignment.assignment_id }}
-          START: ${{ steps.commit.outputs.start }}
+          START: ${{ steps.start.outputs.sha }}
         run: |
           set -e
           SUMMARY="grading/${ASSIGNMENT_ID}/summary.json"
           if [ ! -f "$RUNNER_TEMP/scores/${ASSIGNMENT_ID}/summary.json" ]; then exit 0; fi
           git -C control pull -q --rebase
-          A="assignments/${ASSIGNMENT_ID}"
-          if ! git -C control diff --quiet "$START" HEAD -- "$SUMMARY" "overrides/${ASSIGNMENT_ID}/" "${A}.yml" "${A}.yaml" "${A}.json"; then
-            echo "::notice::The scores, a grading decision or the assignment ${ASSIGNMENT_ID} were saved while this ran, so those are kept and this reading is not written. Read all scores again on the Grading tab to read them with everything."
+          if ! git -C control diff --quiet "$START" HEAD -- "$SUMMARY" "overrides/${ASSIGNMENT_ID}/"; then
+            echo "::notice::The scores or a grading decision for ${ASSIGNMENT_ID} were saved while this ran, so those are kept and this reading is not written. Read all scores again on the Grading tab to read them with everything."
             exit 0
           fi
           mkdir -p "control/grading/${ASSIGNMENT_ID}"

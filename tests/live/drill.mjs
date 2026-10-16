@@ -906,7 +906,11 @@ async function verify() {
       const repo = bareRepo(row.repo_name);
       const q = new URLSearchParams({ sha: doc.submission_ref.replace(/^refs\/heads\//, ""), until: doc.deadline_at, per_page: "1" });
       const head = (await api(`/repos/${ORG}/${repo}/commits?${q}`, { token: LECTURER.token })).data?.[0];
-      if (head?.commit?.message !== pushedMessage(doc, i)) bad(`${login}: the last commit before the deadline is not the drill's "${pushedMessage(doc, i)}" (start did not finish?)`);
+      // tests/live/stale-stop.mjs, run on a drill before its verify by design,
+      // proves STUDENT_A can push again by pushing: that commit is then theirs.
+      const lastMessage = head?.commit?.message ?? "";
+      if (lastMessage.startsWith("live stale-stop: ")) ok(`${login}: the last commit before the deadline is tests/live/stale-stop.mjs's own push, after the drill's`);
+      else if (lastMessage !== pushedMessage(doc, i)) bad(`${login}: the last commit before the deadline is not the drill's "${pushedMessage(doc, i)}" (start did not finish?)`);
       if (row.snapshot_sha && row.snapshot_sha === head?.sha) ok(`${login}: snapshot ${row.snapshot_sha.slice(0, 7)} is the last commit before the deadline`);
       else bad(`${login}: snapshot ${row.snapshot_sha} is not the last commit before the deadline (${head?.sha})`);
       late.set(login, { student, repo, onTime: head?.sha });

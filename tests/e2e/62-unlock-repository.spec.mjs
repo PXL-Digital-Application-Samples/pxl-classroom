@@ -103,6 +103,8 @@ async function openTracking(page, {
   doc = assignment(),
   // Its reopen record, lockdowns/<id>/unlocked/<login>.json, when it was reopened.
   unlocked = null,
+  // Override documents in the control repository: { [fileLogin]: doc }.
+  overrides = null,
 } = {}) {
   const contentWrites = [];
   const apiCalls = [];
@@ -116,6 +118,7 @@ async function openTracking(page, {
     contentWrites,
     gitCommits,
     controlUnlocked: unlocked ? { [ID]: { [STUDENT]: unlocked } } : {},
+    controlOverrides: overrides ? { [ID]: overrides } : {},
   });
   // The App, for a repository ruleset's bypass list (lib/submission-lock.mjs resolveAppId).
   await page.route('**/api.github.com/apps/*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 4242 }) }));
@@ -192,6 +195,36 @@ test.describe('when the section appears at all', () => {
     await openTracking(page, { doc: assignment({ deadline_at: later }) });
     await openActions(page);
     await expect(unlockSection(page).locator('[data-reopen-until]')).toContainText(/they are locked, archived and graded again then/);
+  });
+
+  // R7-28 (step-back review): the page's override Map is keyed by the file's
+  // own spelling, and the lookup lowercases - a login with a capital lost its
+  // extension, and Reopen said nothing would lock them again.
+  test('R7-28: an extension in a file that spells the login with capitals still ends the reopen', async ({ page }) => {
+    const later = new Date(Date.now() + 3 * 86400_000).toISOString()
+    await openTracking(page, { overrides: { [STUDENT]: {
+      schema_version: 1, assignment_id: ID, github_login: 'Student-Personal',
+      overrides: [{ type: 'deadline_extension', value: later, reason: 'Medical certificate', overridden_by: 'admin-panel', overridden_at: new Date().toISOString() }],
+    } } });
+    await openActions(page);
+    await expect(unlockSection(page).locator('[data-reopen-until]')).toContainText(/they are locked, archived and graded again then/);
+    await expect(unlockSection(page)).not.toContainText('so what you grade is unaffected');
+  });
+
+  // R7-36: a lock record that could not be read is not "nothing locked yet".
+  test('R7-36: an extension granted while the lock record cannot be read says so, not that their lock follows it', async ({ page }) => {
+    await openTracking(page);
+    await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ message: 'Bad Gateway' }) }));
+    await openActions(page);
+    const later = new Date(Date.now() + 3 * 86400_000)
+    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+    await modal(page).locator('input[type="datetime-local"]').first().fill(local);
+    await modal(page).getByPlaceholder(/Medical certificate/).first().fill('Medical certificate');
+    await modal(page).getByRole('button', { name: 'Grant extension' }).click();
+    const toast = page.locator('.toast', { hasText: `Extension granted to ${STUDENT}` });
+    await expect(toast).toContainText('Whether their repository is already locked could not be read');
+    await expect(toast).not.toContainText('follow it');
   });
 
   test('R7-3: with the deadline passed, Reopen says nothing locks them again', async ({ page }) => {

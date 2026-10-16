@@ -27,8 +27,13 @@ test("preservationStatus: locked again with a new snapshot is pending, not prese
   const preservation = { verified: true, source_sha: "a".repeat(40) };
   assert.equal(preservationStatus({ preservation, lockdownRow: { snapshot_sha: "b".repeat(40) } }), "pending");
   assert.equal(preservationStatus({ preservation, lockdownRow: { snapshot_sha: "a".repeat(40) } }), "preserved");
-  assert.equal(preservationStatus({ preservation, lockdownRow: { snapshot_sha: null, deferred_until: "2030-01-01T00:00:00Z", reopened_at: "2026-10-16T10:00:00Z" } }), "preserved",
-    "reopened and deferred to their deadline: the first snapshot is what is in the archive, and nothing new is owed yet");
+  // R7-40: reopened and deferred to their deadline, they are archived again
+  // then (R7-3), so a copy is still owed - "preserved" told the Progress strip
+  // and the delete dialog the work was kept while they were still working.
+  assert.equal(preservationStatus({ preservation, lockdownRow: { snapshot_sha: null, deferred_until: "2030-01-01T00:00:00Z", reopened_at: "2026-10-16T10:00:00Z" } }), "deferred",
+    "reopened and deferred to their deadline: owed the copy taken then");
+  assert.equal(preservationStatus({ preservation, lockdownRow: { snapshot_sha: null, deferred_until: "2030-01-01T00:00:00Z" } }), "deferred",
+    "deferred after an earlier snapshot was archived");
 });
 
 const SHA = "a".repeat(40);

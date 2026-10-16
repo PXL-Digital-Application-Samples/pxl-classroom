@@ -1760,6 +1760,8 @@ const actionRetrying = ref(false)
 // from "asked, and there is no record" - the second is a real answer that
 // changes what the dialog says.
 const actionLockdown = ref(null)
+// The record could not be read, which `null` alone cannot say.
+const actionLockdownUnread = ref(false)
 const actionUnlocking = ref(false)
 
 // "Run daily activity now" - dispatch + watch for the first report to land.
@@ -3083,7 +3085,7 @@ const tableColumnCount = computed(() =>
 // grant in the append-only history is the one in force. A local
 // `.filter(...).pop()` is how the SPA came to hold three different answers.
 function extensionFor(login) {
-  const ext = extensionFrom(overridesByLogin.value.get(login))
+  const ext = extensionFrom(overridesForLogin(login))
   return ext ? { value: ext.at.toISOString(), reason: ext.reason } : null
 }
 
@@ -5346,6 +5348,7 @@ async function syncDashboardAggregate(token) {
 function openActions(student) {
   actionStudent.value = student
   actionLockdown.value = null
+  actionLockdownUnread.value = false
   actionReopen.value = null
   loadLockdownRecord()
 }
@@ -5378,6 +5381,9 @@ async function loadLockdownRecord() {
     if (actionStudent.value !== opened) return
     console.error('Failed to read the lockdown record:', e)
     actionLockdown.value = null
+    // Null alone reads as "nothing locked yet"; the extension toast must not
+    // say their lock follows the new deadline over a record nobody read.
+    actionLockdownUnread.value = true
   }
   const reopen = await readReopenRecords(opened)
   if (actionStudent.value === opened) actionReopen.value = reopen
@@ -5974,13 +5980,16 @@ async function grantExtensionFor(student, ext) {
       const notTold = await sendPageDeadline(student)
       // What the extension does, from what holds them now (R7-16): a lock
       // already taken is not undone by more time, and the toast said it was.
-      const effect = extensionEffect({ record: actionLockdown.value, login: student.github_login, reopen: actionReopen.value?.record ?? null })
+      // Known only once both reads answered: the reopen records are read after
+      // the lock record, so a grant faster than they are is "unknown" too.
+      const known = !actionLockdownUnread.value && Boolean(actionReopen.value) && !actionReopen.value.unreadable
+      const effect = extensionEffect({ record: actionLockdown.value, login: student.github_login, reopen: actionReopen.value?.record ?? null, known })
       const message = extensionGrantedMessage({
         login: student.github_login, when: fmt(newExtValue), effect,
         notTold: notTold === NO_REPO_YET ? null : notTold, noRepoYet: notTold === NO_REPO_YET,
       })
       if (notTold && notTold !== NO_REPO_YET) toast.error(message)
-      else if (effect === 'locked') toast.info(message)
+      else if (effect === 'locked' || effect === 'unknown') toast.info(message)
       else toast.success(message)
       // An extension's end is a deadline the sentinel watches (R7-12): armed
       // now if it is close, rather than at the next 4-hourly firing.

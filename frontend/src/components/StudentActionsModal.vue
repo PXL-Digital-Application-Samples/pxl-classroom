@@ -167,8 +167,8 @@
         </template>
         <template v-else-if="unlock.can">
           <p class="text-secondary">
-            Lets this student push again. The deadline snapshot is already in the archive and does not
-            move, so what you grade is unaffected.
+            Lets this student push again. The deadline snapshot is already in the archive and stays there<template v-if="!reopenUntil">,
+            so what you grade is unaffected</template>.
             <template v-if="unlock.method === 'demotion'">
               They were frozen by having their access reduced, so this restores it to
               <code>{{ unlock.permission }}</code>.

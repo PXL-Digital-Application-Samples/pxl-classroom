@@ -1369,11 +1369,15 @@ async function grantablePermission(token, repoName) {
   const id = props.assignment.id
   const full = `${props.org}/${repoName}`
   let lockRecord = null
+  // Unread is held, the safe answer - and said as unread, never as "the
+  // deadline's lock left it", which blamed a lock that may not exist (R7-44).
+  let unread = false
   try {
     const text = await getRepoContent(token, props.org, config.controlRepo, lockdownRecordPath(id))
     lockRecord = text ? JSON.parse(text) : null
   } catch {
     lockRecord = { results: [{ repo_name: full, lock_method: 'demotion' }] }
+    unread = true
   }
   const reopenRecords = []
   if (lockRecord) {
@@ -1392,7 +1396,14 @@ async function grantablePermission(token, repoName) {
       }
     }
   }
-  return grantableAfterLock({ permission: studentPermission.value, repoName: full, lockRecord, reopenRecords })
+  return { ...grantableAfterLock({ permission: studentPermission.value, repoName: full, lockRecord, reopenRecords }), unread }
+}
+
+/** Why someone just added has read access only, in the lecturer's words. */
+function heldNoteFor(repoName, grant, who = 'those added') {
+  return grant.unread
+    ? `Whether the deadline's lock holds ${repoName} could not be read, so ${who} have read access for now; add them again once it can be read.`
+    : `The deadline's lock left ${repoName} read-only, so ${who} have read access; Reopen gives them more.`
 }
 
 /**
@@ -1587,7 +1598,9 @@ async function moveMemberTo(login, targetSlug) {
         const grant = await grantablePermission(token, targetRepo)
         const res = await addCollaborator(token, props.org, targetRepo, login, grant.permission)
         if (!res?.ok) problems.push(await grantProblem(token, targetRepo, login, res))
-        else if (grant.held) heldNotes.push(`@${login} has read access to ${targetRepo}, as the deadline's lock left it; Reopen gives them more`)
+        else if (grant.held) heldNotes.push(grant.unread
+          ? `@${login} has read access to ${targetRepo} for now: whether the deadline's lock holds it could not be read`
+          : `@${login} has read access to ${targetRepo}, as the deadline's lock left it; Reopen gives them more`)
       }
     }
     // Both teams' deadlines, from their members after the move (R7-14).
@@ -1834,7 +1847,7 @@ async function saveTeamMembers() {
         // 201 is "invitation created", 204 is "already a collaborator".
         if (!res?.ok) accessFailures.push(await grantProblem(token, repoName, m, res))
       }
-      if (grant?.held) heldNote = `The deadline's lock left ${repoName} read-only, so those added have read access; Reopen gives them more.`
+      if (grant?.held) heldNote = heldNoteFor(repoName, grant)
     }
 
     const res = await commitFiles(

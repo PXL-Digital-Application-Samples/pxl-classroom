@@ -243,12 +243,17 @@ test("the array shape wins over a stray flat field on the same document", () => 
 
 // --- indexing ----------------------------------------------------------------
 
-test("indexOverrides accepts an array or passes a Map through", () => {
+test("indexOverrides accepts an array or a Map, and keys both by the lowercased login", () => {
   const doc = overrideDoc("Alice", { value: "2026-09-17T22:00:00Z" });
   const index = indexOverrides([doc]);
   assert.equal(index.get("alice"), doc);
-  assert.equal(indexOverrides(index), index);
+  assert.deepEqual([...indexOverrides(index)], [...index], "an index already built is the same index");
   assert.equal(indexOverrides(undefined).size, 0);
+  // A Map keyed by the file's own spelling, as the assignment page builds it
+  // (review 2026-10-16): passed through as-is, every capitalised login missed.
+  const raw = new Map([["PXL-AnnDeWit", overrideDoc("PXL-AnnDeWit", { value: "2026-10-20T22:00:00Z" })]]);
+  assert.equal(indexOverrides(raw).get("pxl-anndewit")?.github_login, "PXL-AnnDeWit");
+  assert.equal(effectiveDeadlineFor(ASSIGNMENT, "PXL-AnnDeWit", { overrides: raw }).deadline.toISOString(), "2026-10-20T22:00:00.000Z");
 
   const eff = effectiveDeadlineFor(ASSIGNMENT, "alice", { overrides: index });
   assert.equal(eff.extended, true, "a prebuilt Map must work as the array does");

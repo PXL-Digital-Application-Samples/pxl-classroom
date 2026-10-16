@@ -202,7 +202,9 @@ export function progressMessage(step) {
     case 'link-refused':
       return 'Your invitation link was not accepted. Ask your lecturer for the current link.'
     case 'switched-off':
-      return 'Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer: publishing it again switches it back on.'
+      // Not "publishing it again switches it back on": publish refuses a
+      // finished assignment, and moving the deadline is how it reopens (R7-44).
+      return 'Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer, who can switch it back on.'
     default:
       return null
   }

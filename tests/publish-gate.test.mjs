@@ -29,23 +29,42 @@ import {
 
 // R7-3 (review 2026-10-16): a later deadline does not reach a student the lock
 // already holds, and the save says so, with the way to give them the time.
+const SHA = "a".repeat(40);
+const lockedRow = (login, extra = {}) => ({ github_login: login, repo_name: `O/exam-${login.toLowerCase()}`, snapshot_sha: SHA, lockdown_at: "2026-10-15T22:00:00Z", verified: true, lock_method: "org-ruleset", ...extra });
+
 test("stillLockedCount: students a lock still holds, each once", () => {
   const record = { results: [
-    { github_login: "Alice", lock_method: "org-ruleset" },
-    { github_login: "alice", lock_method: "org-ruleset" },
-    { github_login: "bob", lock_method: "demotion" },
+    lockedRow("Alice"),
+    lockedRow("alice"),
+    lockedRow("bob", { lock_method: "demotion" }),
     { github_login: "cleo", lock_method: null, reopened_at: "2026-10-16T10:00:00Z" },
-    { github_login: "dan", lock_method: "org-ruleset", reopened_at: "2026-10-16T10:00:00Z" },
-    { github_login: "eve", lock_method: null, deferred_until: "2030-01-01T00:00:00Z" },
-    { github_login: "finn", lock_method: "none" },
+    lockedRow("dan", { reopened_at: "2026-10-16T10:00:00Z" }),
+    { github_login: "eve", lock_method: null, deferred_until: "2030-01-01T00:00:00Z", snapshot_sha: null },
+    lockedRow("finn", { lock_method: "none" }),
+    // Locked with nothing handed in is locked (lib/lock-rows.mjs).
+    lockedRow("gil", { snapshot_sha: null, no_submission: true }),
   ] };
-  assert.equal(stillLockedCount(record), 2, "alice (one login, two spellings) and bob");
+  assert.equal(stillLockedCount(record), 3, "alice (one login, two spellings), bob and gil");
   assert.equal(stillLockedCount(null), 0);
   assert.equal(stillLockedCount({}), 0);
 });
 
-test("stillLockedMessage says who stays locked and how to give them time", () => {
-  assert.match(stillLockedMessage(1), /^Saved\. 1 student stays locked/);
+// R7-35: a student reopened is let in at once, while their row says locked
+// until a later pass - counted from the row alone, every save said they stayed.
+test("stillLockedCount: a student with a reopen record is not counted, unless locked again since", () => {
+  const record = { results: [lockedRow("alice"), lockedRow("bob"), lockedRow("cleo", { lockdown_at: "2026-10-16T12:00:00Z" }),
+    lockedRow("dan", { repo_name: "O/grp-a" }), lockedRow("eve", { repo_name: "O/grp-a" })] };
+  const reopens = [
+    { github_login: "alice", repo_name: "O/exam-alice", unlocked_at: "2026-10-16T09:00:00Z" },
+    { github_login: "cleo", repo_name: "O/exam-cleo", unlocked_at: "2026-10-16T09:00:00Z" },
+    // A team's repository is reopened for every member by the one clicked.
+    { github_login: "dan", repo_name: "O/grp-a", unlocked_at: "2026-10-16T09:00:00Z" },
+  ];
+  assert.equal(stillLockedCount(record, reopens), 2, "bob, and cleo who was locked again after her reopen");
+});
+
+test("stillLockedMessage says who stays locked and how to give them time, after the Saved toast rather than as a second one", () => {
+  assert.match(stillLockedMessage(1), /^1 student stays locked/);
   assert.match(stillLockedMessage(3), /3 students stay locked.*Reopen those who need the time.*locked again at the new deadline/);
 });
 

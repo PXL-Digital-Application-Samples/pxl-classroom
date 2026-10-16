@@ -14,7 +14,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const lockdownScript = join(dirname(fileURLToPath(import.meta.url)), "..", "lockdown", "lockdown.mjs");
@@ -29,7 +29,7 @@ const b64 = (s) => Buffer.from(s).toString("base64");
  * or null for none. `repoLocked`: logins whose repository ruleset is on.
  * `demoted`: logins at read.
  */
-async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demoted = [], repoMeta = {}, asOf = null } = {}) {
+async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demoted = [], repoMeta = {}, asOf = null, refuseOrgWrite = false } = {}) {
   const calls = [];
   const writes = [];
   let ids = orgIds ? [...orgIds] : null;
@@ -48,6 +48,13 @@ async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demote
       if (req.method !== "GET") writes.push({ method: req.method, url, body });
       const control = "/repos/TestOrg/pxl-classroom-control/contents/";
       if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
+      // `assignmentSeq`: what each read in turn answers, the last one from then on
+      // - the document as the lecturer changes it while the run goes (R7-31).
+      if (url === `${control}assignments/exam.yml` && remote.assignmentSeq) {
+        const seq = remote.assignmentSeq;
+        const answer = seq[Math.min((remote.reads = (remote.reads ?? 0) + 1) - 1, seq.length - 1)];
+        return answer === null ? send(502, { message: "Bad Gateway" }) : send(200, { content: b64(answer) });
+      }
       if (url === `${control}assignments/exam.yml` && remote.assignment) return send(200, { content: b64(remote.assignment) });
       if (url === `${control}assignments` && remote.listing) return send(200, remote.listing.map((name) => ({ name, type: "file" })));
       if (url === `${control}overrides/exam` && remote.overrides) {
@@ -71,6 +78,7 @@ async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demote
           conditions: { repository_id: { repository_ids: ids }, ref_name: { include: ["refs/heads/main"], exclude: [] } } });
       }
       if (url === "/orgs/TestOrg/rulesets/7" && req.method === "PUT") {
+        if (refuseOrgWrite) return send(403, { message: "Resource not accessible by integration" });
         if (body?.conditions?.repository_id) ids = body.conditions.repository_id.repository_ids;
         if (body?.enforcement) orgEnforcement = body.enforcement;
         return send(200, { id: 7, enforcement: orgEnforcement, conditions: { repository_id: { repository_ids: ids } } });
@@ -279,6 +287,128 @@ test("R7-3: at that deadline they are locked again with a FRESH snapshot, not th
     assert.equal(alice.reopened_at, undefined, "no longer open");
     assert.match(res.log, /locked again - reopened at/);
   }, { remote: { assignment: assignmentYaml(MOVED), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+// R7-29 (step-back review): the re-lock ends the reopen as Lock again does, so
+// no reader of `unlocked/` takes the locked repository to be open.
+test("R7-29: locked again at the reopen's end, the reopen record is removed and kept under relocked/", async () => {
+  const REOPENED = new Date(Date.now() - 3600_000).toISOString();
+  const MOVED = new Date(Date.now() - 600_000).toISOString();
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(MOVED));
+    priorRecord(dir, [reopenedRow(REOPENED)]);
+    mkdirSync(join(dir, "lockdowns", "exam", "unlocked"), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", "exam", "unlocked", "alice.json"), JSON.stringify(reopenRecord(REOPENED)));
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.ok(alice.lock_method, "locked again");
+    assert.equal(existsSync(join(dir, "lockdowns", "exam", "unlocked", "alice.json")), false, "no longer reads as open");
+    const keptDir = join(dir, "lockdowns", "exam", "relocked", "alice");
+    const kept = readdirSync(keptDir).map((f) => JSON.parse(readFileSync(join(keptDir, f), "utf8")));
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].unlocked_at, REOPENED, "the reopen, kept");
+    assert.equal(kept[0].relocked_at, alice.lockdown_at, "ended at the lock");
+    assert.equal(kept[0].relocked_by, "pxl-classroom[bot]");
+    assert.match(res.log, /ended - locked again at/);
+  }, { remote: { assignment: assignmentYaml(MOVED), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+// R7-30: Lock again on a student reopened with time - a row with a lock and
+// no snapshot - is a lock like any other: never deferred, never released.
+test("R7-30: a student a lecturer locked again before the reopen's end is not deferred or let go by the next pass", async () => {
+  const RELOCKED_AT = new Date(Date.now() - 300_000).toISOString();
+  const END = new Date(Date.now() + 3600_000).toISOString();
+  await withApi(async (api, { ids, writes }) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), assignmentYaml(END));
+    // What relockedRecord leaves on a reopen's deferral row.
+    priorRecord(dir, [{ github_login: "alice", repo_name: "TestOrg/exam-alice", repo_id: 42, snapshot_sha: null, snapshot_ref: "refs/heads/main",
+      lockdown_at: RELOCKED_AT, lock_method: "org-ruleset", verified: true, permission_after: null, deferred_until: END, uncertainty_seconds: null }]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.deferred_until, undefined, "the lecturer's lock holds");
+    assert.equal(alice.snapshot_sha, HEAD_SHA, "what the repository holds since it was locked again");
+    assert.equal(alice.lockdown_at, RELOCKED_AT, "locked when the lecturer locked it");
+    assert.ok(ids().includes(42), "still in the stop");
+    assert.equal(writes.some((w) => w.method === "PUT" && /rulesets\/7$/.test(w.url) && !(w.body?.conditions?.repository_id?.repository_ids ?? [42]).includes(42)), false);
+  }, { remote: { assignment: assignmentYaml(END) }, orgIds: [42] });
+});
+
+test("R7-30: a reopen's deferral lets go of nothing - Reopen already did, and what holds them now is a Lock again", async () => {
+  const REOPENED = new Date(Date.now() - 300_000).toISOString();
+  await withApi(async (api, { ids, writes }) => {
+    const dir = checkout();
+    priorRecord(dir, [reopenedRow(REOPENED)]);
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    assert.ok(row(res.record, "alice").deferred_until, "deferred to the reopen's end");
+    assert.deepEqual(writes.filter((w) => /rulesets/.test(w.url) || /\/collaborators\//.test(w.url)), [], "a Lock again clicked during the pass is not taken back out");
+    assert.ok(ids().includes(42));
+  }, { remote: { assignment: assignmentYaml(LATER), unlocked: { alice: reopenRecord(REOPENED) } }, orgIds: [42] });
+});
+
+// R7-31: the deadline asked again right before the record is written - the
+// minutes the lock took are minutes a lecturer could move it in.
+test("R7-31: the deadline moved later while this ran: a student it locked is deferred after all, and let go of its lock", async () => {
+  await withApi(async (api, { ids, enforcement }) => {
+    const dir = checkout();
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    const alice = row(res.record, "alice");
+    assert.equal(alice.snapshot_sha, null);
+    assert.equal(alice.deferred_until, new Date(LATER).toISOString(), "deferred to the deadline it was moved to");
+    assert.equal(res.record.deadline_at, new Date(LATER).toISOString(), "the record names the deadline in force");
+    // The last id out switches the ruleset off rather than empty it.
+    assert.ok(!(ids() ?? []).includes(42) || enforcement() === "disabled", "out of the stop this run put back");
+    const obsDir = join(dir, "observations", "exam", "alice");
+    const lockObs = existsSync(obsDir) ? readdirSync(obsDir).filter((f) => JSON.parse(readFileSync(join(obsDir, f), "utf8")).collection_type === "lockdown") : [];
+    assert.deepEqual(lockObs, [], "no observation left that reads as their lock");
+    assert.match(res.log, /deferred after all/);
+  }, { remote: { assignmentSeq: [assignmentYaml(DEADLINE), assignmentYaml(LATER)] }, orgIds: [42] });
+});
+
+test("R7-31: asked again and unread, the plan stands and the run says so", async () => {
+  await withApi(async (api) => {
+    const dir = checkout();
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    assert.equal(row(res.record, "alice").snapshot_sha, HEAD_SHA, "locked, as planned");
+    assert.match(res.log, /could not be read again before writing the record - the plan stands/);
+  }, { remote: { assignmentSeq: [assignmentYaml(DEADLINE), null] }, orgIds: [42] });
+});
+
+// R7-41: under a late policy other than `block` the record step judged the
+// cohort's earliest stop, the lock step the student's own.
+test("R7-41: under late_policy report, a student stopped by the later sentinel keeps that stop's time", async () => {
+  const OLD = new Date(Date.now() - 7200_000).toISOString();
+  const NEW = new Date(Date.now() - 600_000).toISOString();
+  const yaml = `state: published\ndeadline_at: "${NEW}"\nsubmission_ref: refs/heads/main\nlate_policy: report\nlock_down_enabled: true\n`;
+  await withApi(async (api) => {
+    const dir = checkout();
+    writeFileSync(join(dir, "assignments", "exam.yml"), yaml);
+    // The old instant's stop never saw alice's repository; the new one did.
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-k1.json"), JSON.stringify({
+      schema_version: 1, assignment_id: "exam", outcome: "fired", deadline_at: OLD, stop: "done", samples: [{ observed_at: OLD, pushed_at: {} }] }));
+    writeFileSync(join(dir, "lockdowns", "exam", "sentinel-k2.json"), JSON.stringify({
+      schema_version: 1, assignment_id: "exam", outcome: "fired", deadline_at: NEW, stop: "done", samples: [{ observed_at: NEW, pushed_at: { "exam-alice": NEW } }] }));
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    assert.equal(row(res.record, "alice").lockdown_at, NEW, "the stop that held them, not this run's clock");
+  }, { remote: { assignment: yaml }, demoted: ["alice"] });
+});
+
+// R7-32: a stop not let go is an error of the run, and fails it.
+test("R7-32: a student whose stop cannot be let go fails the finalize, named, with the record written", async () => {
+  await withApi(async (api) => {
+    const dir = checkout();
+    const res = await run(dir, api);
+    assert.equal(res.status, 1, res.log);
+    assert.ok(row(res.record, "alice").deferred_until, "the record is written all the same");
+    assert.match(res.log, /::error::Students whose deadline is still ahead could not be let go of the stop/);
+  }, { remote: { assignment: assignmentYaml(LATER) }, orgIds: [42], refuseOrgWrite: true });
 });
 
 test("R7-3: no pass in between - the reopened row's old snapshot is still not frozen over the new lock", async () => {
