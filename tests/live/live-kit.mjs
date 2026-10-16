@@ -107,13 +107,22 @@ export async function checkAccounts(ACCOUNTS, r) {
 
     // Visible to OTHERS, not just to itself. A flagged account authenticates
     // fine and is 404 to everyone else - which is what makes it unusable as a
-    // collaborator, and what made this check necessary.
-    const seen = await fetch(`https://api.github.com/users/${a.login}`);
-    if (!seen.ok) {
-      r.bad(`${role} (${a.login}): authenticates, but GET /users/${a.login} is ${seen.status} to anonymous - the account is flagged and cannot be provisioned for`);
+    // collaborator, and what made this check necessary. Asked as ANOTHER test
+    // account rather than anonymously: anonymous requests are 60 an hour, and
+    // a night of live runs spent them, so the 403 that answered was read as a
+    // flagged lecturer (2026-10-16).
+    const other = Object.values(ACCOUNTS).find((x) => x !== a && x.token);
+    const seen = await fetch(`https://api.github.com/users/${a.login}`,
+      other ? { headers: { Authorization: `Bearer ${other.token}`, Accept: "application/vnd.github+json" } } : {});
+    if (seen.status === 404) {
+      r.bad(`${role} (${a.login}): authenticates, but GET /users/${a.login} is 404 to another account - the account is flagged and cannot be provisioned for`);
       continue;
     }
-    r.ok(`${role}: ${a.login} #${a.id}, visible publicly`);
+    if (!seen.ok) {
+      r.bad(`${role} (${a.login}): whether others can see this account could not be read (HTTP ${seen.status}${seen.headers.get("x-ratelimit-remaining") === "0" ? ", rate limit spent" : ""})`);
+      continue;
+    }
+    r.ok(`${role}: ${a.login} #${a.id}, visible to others`);
   }
 }
 

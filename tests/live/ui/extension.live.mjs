@@ -41,7 +41,12 @@ test("the lecturer grants an extension in the real dialog, and their repository 
   await dialog.locator('input[type="datetime-local"]').first().fill(local);
   await dialog.getByPlaceholder(/Medical certificate/).fill("Live UI suite: extension delivery");
   await dialog.getByRole("button", { name: "Grant extension" }).click();
-  await expect(page.locator(".toast", { hasText: `Extension granted to ${STUDENT.login}; their own page shows it` })).toBeVisible({ timeout: 60_000 });
+  // The wording since R7-16: what the time does for the lock, then whether
+  // their page was told.
+  const toast = page.locator(".toast", { hasText: `Extension granted to ${STUDENT.login} until` });
+  await expect(toast).toBeVisible({ timeout: 60_000 });
+  await expect(toast).toContainText("their lock and grading follow it");
+  await expect(toast).toContainText("Their own page shows it.");
 
   // What GitHub holds now, as the lecturer reads it.
   const v = await api(`/repos/${repoName}/actions/variables/${DEADLINE_VARIABLE}`, { token: ACCOUNTS.LECTURER.token });

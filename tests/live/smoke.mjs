@@ -19,6 +19,7 @@
 
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
 import { normalizeLogin } from "../../lib/github-login.mjs";
+import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import {
   accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
   openAcceptanceIssue, reporter, signAcceptance, sleep,
@@ -98,12 +99,28 @@ async function submitAcceptance(title, student, { teamSlug = null, teamName = nu
   // "no repository after 120s" over a repository that had been created 30
   // seconds earlier, which is the `invited` state the SPA renders as "Accept
   // invitation", not a provisioning failure.
+  // THE HUB'S ANSWER, NOT THE REPOSITORY'S EXISTENCE (2026-10-16). The team
+  // repository of an assignment this test has run on before already exists,
+  // so "it exists" was true at once and the test went on to check access
+  // while the hub was still granting it: both students "not collaborators",
+  // over invitations created seconds later. The outcome label is the hub's
+  // own word that it decided, and what it decided.
+  const broker = `broker-${ASSIGNMENT}`;
+  let outcome = null;
+  for (let i = 1; i <= 30 && !outcome; i++) {
+    await sleep(6000);
+    const issue = await api(`/repos/${ORG}/${broker}/issues/${opened}`, { token: ACCOUNTS.LECTURER.token });
+    outcome = (issue.data?.labels || []).map((l) => l.name).find((n) => n === INVITED_LABEL || n === REJECTED_LABEL) ?? null;
+    if (outcome) ok(`the hub answered ${outcome} after ~${i * 6}s`);
+  }
+  if (!outcome) { bad(`no outcome on #${opened} after 180s - check the hub's acceptance-handler run`); return; }
+  if (outcome !== INVITED_LABEL) { bad(`#${opened}: ${outcome}`); return; }
   note(`polling for ${ORG}/${repoGuess} …`);
   for (let i = 1; i <= 20; i++) {
-    await sleep(6000);
     const repo = await api(`/repos/${ORG}/${repoGuess}`, { token: ACCOUNTS.LECTURER.token });
-    if (repo.ok) { ok(`repository exists after ~${i * 6}s: ${repo.data.html_url}`); break; }
+    if (repo.ok) { ok(`repository exists: ${repo.data.html_url}`); break; }
     if (i === 20) { bad(`no repository after 120s - check the hub's acceptance-handler run`); return; }
+    await sleep(6000);
   }
 
   await acceptInvitation({ student, repoName: repoGuess }, r);

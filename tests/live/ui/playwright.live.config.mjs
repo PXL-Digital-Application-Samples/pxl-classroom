@@ -18,6 +18,12 @@
 // real hub can never open.
 import { defineConfig } from '@playwright/test';
 
+const PORT = Number(process.env.LIVE_UI_PORT || 5198);
+// A run of its own, files of its own: Playwright empties its output folder
+// when it starts, and a second run beside a long one deleted the first one's
+// trace mid-test, which failed it after every check had passed.
+const OUTPUT = PORT === 5198 ? 'test-results' : `test-results/live-${PORT}`;
+
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.live.mjs',
@@ -25,13 +31,16 @@ export default defineConfig({
   timeout: 180_000,
   retries: 0,
   workers: 1,
+  outputDir: `${process.cwd()}/${OUTPUT}`,
+  // LIVE_UI_PORT: a second run beside a long one (reopen-time takes an hour)
+  // needs a server of its own.
   webServer: {
-    command: 'npm run --prefix ../../../frontend dev -- --port 5198',
-    port: 5198,
+    command: `npm run --prefix ../../../frontend dev -- --port ${PORT}`,
+    port: PORT,
     reuseExistingServer: false,
   },
   use: {
-    baseURL: 'http://localhost:5198/',
+    baseURL: `http://localhost:${PORT}/`,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
