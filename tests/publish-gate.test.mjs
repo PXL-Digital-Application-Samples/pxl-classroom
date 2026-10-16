@@ -19,6 +19,7 @@ import { hasStudentCard } from "../lib/student-card.mjs";
 
 import {
   deadlineReopens,
+  saveReopens,
   needsBrokerDispatch,
   publishedSaveWorkflow,
   writeReachesStudentPage,
@@ -62,6 +63,26 @@ test("a save with the broker found still rebuilds the student page", () => {
 test("a save that moves a passed deadline into the future publishes, broker or not", () => {
   assert.equal(publishedSaveWorkflow(true, { reopens: true }), "publish-assignment.yml");
   assert.equal(publishedSaveWorkflow(true, { reopens: false }), "regenerate-dashboard.yml");
+});
+
+test("saveReopens (F5): decided from what GitHub holds at the click, never the tab's loaded copy", () => {
+  const now = Date.parse("2026-10-16T10:00:00Z");
+  const past = "2026-10-14T21:59:00.000Z";
+  const future = "2026-10-16T21:59:00.000Z";
+  // The stored deadline passed: reopens, lock or not.
+  assert.equal(saveReopens({ storedDeadline: past, newDeadline: future, lockStatus: 404, now }), true);
+  // Two saves in one tab: the first moved it into the past, the nightly locked
+  // it, the second moves it out again. The STORED deadline (the past one) and
+  // the lock both say so, whatever the tab loaded.
+  assert.equal(saveReopens({ storedDeadline: past, newDeadline: future, lockStatus: 200, now }), true);
+  // Stored in the future but a lock record exists: finished and switched off.
+  assert.equal(saveReopens({ storedDeadline: future, newDeadline: "2026-10-17T21:59:00.000Z", lockStatus: 200, now }), true);
+  // An unreadable lock record publishes: an open broker published again changes nothing.
+  assert.equal(saveReopens({ storedDeadline: future, newDeadline: "2026-10-17T21:59:00.000Z", lockStatus: 502, now }), true);
+  // Never finished and still ahead: an ordinary edit.
+  assert.equal(saveReopens({ storedDeadline: future, newDeadline: "2026-10-17T21:59:00.000Z", lockStatus: 404, now }), false);
+  // A deadline that ends up in the past reopens nothing.
+  assert.equal(saveReopens({ storedDeadline: past, newDeadline: "2026-10-15T21:59:00.000Z", lockStatus: 200, now }), false);
 });
 
 test("deadlineReopens: from the past into the future, and nothing else", () => {

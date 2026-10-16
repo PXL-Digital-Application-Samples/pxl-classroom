@@ -1681,7 +1681,7 @@ import { syncRefusal } from '../lib/starter-sync.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { validateAgainst } from '../lib/validate.js'
-import { deadlineReopens, publishedSaveWorkflow, writeReachesStudentPage } from '../lib/publish.js'
+import { publishedSaveWorkflow, saveReopens, writeReachesStudentPage } from '../lib/publish.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readMaxHandIns, submissionBranch } from '../../../lib/submission-marker.mjs'
@@ -4981,11 +4981,11 @@ async function saveAndPublish() {
 async function saveAndPublishSteps() {
   // Save current edits first (with state=published) then trigger publish workflow.
   if (form.value.state === 'published') {
-    // Read before the save, which may reload the form: does this save move the
-    // deadline out of the past? Then it reopens the assignment, and the broker
-    // the nightly switched off is switched on by publishing (deadlineReopens).
+    // Read before the save, which may reload the form: does this save reopen
+    // the assignment? Then the broker the nightly switched off is switched on
+    // by publishing. Asked of GitHub, never of what this tab loaded (saveReopens).
     const local = form.value.deadline_at_local
-    const reopens = deadlineReopens(form.value._deadline_at_original, local ? localToUtc(local) : null)
+    const reopens = await thisSaveReopens(local ? localToUtc(local) : null)
     // Gated on the save actually landing: dispatching the publish workflow for
     // a YAML the commit failed to write runs it against the OLD document.
     if (!(await saveAssignment())) return false
@@ -5190,6 +5190,27 @@ async function confirmRepublish(regenerate) {
  * into the future is how a finished assignment is reopened. A lock record that
  * cannot be read is null: the workflow asks again with its own checkout.
  */
+/**
+ * Whether saving `newDeadline` reopens this assignment, from what GitHub holds
+ * now: the stored deadline and the lock record (lib/publish.js saveReopens).
+ * Only asked when the deadline being saved is in the future.
+ */
+async function thisSaveReopens(newDeadline) {
+  if (isNew.value || !form.value.id || !(Date.parse(newDeadline ?? '') > Date.now())) return false
+  const token = getToken()
+  const [text, lock] = await Promise.all([
+    getRepoContent(token, props.org, config.controlRepo, assignmentPath(form.value.id)).catch(() => null),
+    ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}/contents/${lockdownRecordPath(form.value.id)}`),
+  ])
+  let storedDeadline = null
+  try {
+    storedDeadline = text ? parseYaml(text)?.deadline_at ?? null : null
+  } catch {
+    storedDeadline = null
+  }
+  return saveReopens({ storedDeadline: storedDeadline ?? form.value._deadline_at_original, newDeadline, lockStatus: lock?.status ?? null })
+}
+
 async function finishedRefusal() {
   if (isNew.value || !form.value.id) return null
   const local = form.value.deadline_at_local

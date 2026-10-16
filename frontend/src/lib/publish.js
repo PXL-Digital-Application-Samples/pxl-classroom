@@ -54,6 +54,28 @@ export function deadlineReopens(before, after, now = Date.now()) {
 }
 
 /**
+ * Whether THIS save reopens the assignment, decided from what GitHub holds at
+ * the click (review 2026-10-16, F5): the deadline as stored and whether a lock
+ * record exists. Asked of the form's loaded copy, two saves in one tab - the
+ * first moving the deadline into the past, the nightly locking, the second
+ * moving it into the future - compared the second with a deadline the tab had
+ * loaded hours before and did not publish.
+ *
+ * Only a deadline that ends up in the future reopens anything. Then: stored in
+ * the past, or a lock record there (the nightly finished it and switched the
+ * broker off), or a lock record that could not be read - publishing an open
+ * broker again changes nothing, so an unknown publishes.
+ *
+ * @param {{ storedDeadline?: string|null, newDeadline?: string|null, lockStatus?: number|null, now?: number }} p
+ */
+export function saveReopens({ storedDeadline = null, newDeadline = null, lockStatus = null, now = Date.now() }) {
+  const will = Date.parse(newDeadline ?? '')
+  if (!Number.isFinite(will) || will <= now) return false
+  if (deadlineReopens(storedDeadline, newDeadline, now)) return true
+  return lockStatus !== 404
+}
+
+/**
  * Which workflow saving a published assignment must dispatch. Never neither.
  *
  * "Nothing to do" when the broker was found was only true of the broker. The

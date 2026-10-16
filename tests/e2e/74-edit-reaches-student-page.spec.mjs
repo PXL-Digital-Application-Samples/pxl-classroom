@@ -195,6 +195,18 @@ test.describe('74 - saving a live assignment', () => {
     expect(named(dispatches, REGENERATE)).toHaveLength(0);
   });
 
+  test('F5: with a lock record on GitHub, a save publishes - decided at the click, not from what the tab loaded', async ({ page }) => {
+    // The deadline is in the future and the tab loaded it so, but the nightly
+    // has finished the assignment (the lock record is there): its broker is off.
+    const { dispatches } = await openLiveEditor(page);
+    await page.route(`**/repos/${ORG}/pxl-classroom-control/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify({ assignment_id: ID, locked_at: new Date().toISOString(), results: [] })).toString('base64'), encoding: 'base64', sha: 'lock-sha' }) }));
+    await deadlineField(page).fill(new Date(Date.now() + 61 * 86400_000).toISOString().slice(0, 16));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => named(dispatches, PUBLISH).length, { timeout: 15000 }).toBe(1);
+    expect(named(dispatches, REGENERATE)).toHaveLength(0);
+  });
+
   test('a refused regeneration says the save landed and students cannot see it yet', async ({ page }) => {
     const { writes, dispatches } = await openLiveEditor(page, { refuse: REGENERATE });
 
