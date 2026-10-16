@@ -26,6 +26,7 @@ import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinC
 import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
 import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { readSentinelTimelines } from "../lib/sentinel-timelines.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
 import { APP_SLUG, CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
@@ -929,7 +930,7 @@ async function main() {
         // made after it was in no lock until a finalize happened to see its
         // record (review 2026-10-14). A stop that may have held counts.
         const lockRan = existsSync(join(dataDir, lockdownRecordPath(assignmentId))) ||
-          sentinelStoppedAt(await sentinelTimelines(join(dataDir, lockdownsDir(assignmentId)))) !== null;
+          sentinelStoppedAt(await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId)))) !== null;
         if (actedInTime({ deadline, now, actedAt, lockRan })) {
           log("window", {
             ok: true,
@@ -1860,22 +1861,6 @@ async function renamedTeamHolding(teamsDir, slug) {
     }
   }
   return null;
-}
-
-// The Deadline Sentinel's timelines for this assignment (`sentinel-*.json`
-// beside the lockdown record), for `sentinelStoppedAt`. An unreadable one is
-// left out, as lockdown leaves it out.
-async function sentinelTimelines(dir) {
-  const names = await readdir(dir).catch(() => []);
-  const docs = [];
-  for (const name of names.filter((n) => /^sentinel-.*\.json$/.test(n))) {
-    try {
-      docs.push(JSON.parse(await readFile(join(dir, name), "utf-8")));
-    } catch {
-      // Unreadable: not evidence of a stop.
-    }
-  }
-  return docs;
 }
 
 async function isFirstAcceptanceInTeam(dataDir, assignmentId, members, login) {

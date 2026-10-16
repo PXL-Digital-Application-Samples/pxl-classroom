@@ -577,3 +577,43 @@ jobs:
           # lib/github-api-version.mjs, which YAML cannot import; the test
           # tests/github-api-version.test.mjs holds this equal to it.
           GITHUB_API_VERSION: "2026-03-10"
+
+      # A STOP THE MOVED DEADLINE NO LONGER WANTS (review 2026-10-16, R7-1).
+      # The sentinel stopped the cohort at the old instant and the lecturer
+      # moved the deadline later before the finalize locked anyone: the
+      # finalize's queue reads the new deadline and queues nothing, so without
+      # this the stop held every push until the new deadline. LAST, so a failure
+      # here skips nothing above - the broker, the nightly and the page are
+      # already done - and turns the run red, which the editor shows, and a
+      # publish again retries it. Its own token, minted only when a stop is
+      # there to release: the organization ruleset needs a permission the
+      # publish itself does not (lib/app-token-scopes.mjs).
+      - name: Look for a stop the deadline no longer wants
+        id: stale_stop
+        if: inputs.dry_run != true
+        env:
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/release-stale-stop.mjs check
+
+      - name: Mint App token for the stop release
+        id: release_token
+        if: inputs.dry_run != true && steps.stale_stop.outputs.stale == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          permission-administration: write
+          permission-metadata: read
+          permission-organization-administration: write
+
+      - name: Release the stop
+        if: inputs.dry_run != true && steps.stale_stop.outputs.stale == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.release_token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/release-stale-stop.mjs release

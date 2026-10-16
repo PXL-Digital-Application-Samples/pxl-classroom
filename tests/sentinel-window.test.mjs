@@ -17,7 +17,34 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { SENTINEL_ARM_WINDOW_MS, deadlineIsImminent, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import {
+  SENTINEL_ARM_WINDOW_MS, deadlineIsImminent, sentinelMayHaveStopped, sentinelStopFor, sentinelStoppedAt,
+} from "../lib/sentinel-window.mjs";
+
+// R7-8 (review 2026-10-16): the stop that held ONE student is the earliest at
+// or after their own deadline - a stop at an earlier instant was for a deadline
+// that moved later, or one their extension ran past.
+test("sentinelStopFor: the earliest confirmed stop at or after the student's deadline", () => {
+  const t = (deadline_at, extra = {}) => ({ outcome: "fired", deadline_at, stop: "done", samples: [{ pushed_at: { [`r-${deadline_at.slice(11, 13)}`]: deadline_at } }], ...extra });
+  const tl = [t("2026-10-16T14:00:00Z"), t("2026-10-16T18:00:00Z"), t("2026-10-16T21:59:00Z")];
+  assert.equal(sentinelStopFor(tl, "2026-10-16T18:00:00.000Z").at, "2026-10-16T18:00:00.000Z", "the stop at their instant");
+  assert.equal(sentinelStopFor(tl, "2026-10-16T19:00:00Z").at, "2026-10-16T21:59:00.000Z", "the next one after it");
+  assert.equal(sentinelStopFor(tl, "2026-10-16T13:00:00Z").at, "2026-10-16T14:00:00.000Z", "a deadline before every stop: the first held them");
+  assert.equal(sentinelStopFor(tl, "2026-10-16T23:00:00Z"), null, "every stop was before their deadline: none held them");
+  assert.equal(sentinelStopFor(tl, null).at, "2026-10-16T14:00:00.000Z", "no deadline is the earliest, as sentinelStoppedAt");
+  assert.deepEqual([...sentinelStopFor(tl, "2026-10-16T18:00:00Z").sampled], ["r-18"], "what THAT stop watched");
+  // The same exclusions as the credit: a failed or (confirmed only) pending stop, a group member's due: false.
+  const odd = [t("2026-10-16T18:00:00Z", { stop: "failed" }), t("2026-10-16T19:00:00Z", { stop: "pending" }), t("2026-10-16T20:00:00Z", { due: false })];
+  assert.equal(sentinelStopFor(odd, "2026-10-16T17:00:00Z", { confirmedOnly: true }), null);
+  assert.equal(sentinelStopFor(odd, "2026-10-16T17:00:00Z").at, "2026-10-16T19:00:00.000Z", "pending counts where it may have held");
+});
+
+test("sentinelMayHaveStopped: any firing due for this assignment, a failed stop included", () => {
+  assert.equal(sentinelMayHaveStopped([{ outcome: "fired", stop: "failed" }]), true, "it may have stopped some before it failed");
+  assert.equal(sentinelMayHaveStopped([{ outcome: "fired", due: false }]), false);
+  assert.equal(sentinelMayHaveStopped([{ outcome: "gave-up:runtime" }]), false);
+  assert.equal(sentinelMayHaveStopped(null), false);
+});
 
 const NOW = Date.parse("2026-09-07T10:00:00.000Z");
 

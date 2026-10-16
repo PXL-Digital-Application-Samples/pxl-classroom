@@ -37,6 +37,8 @@ import { parse } from "yaml";
 import { gh } from "../lib/gh.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
 import { assignmentPathsRead, brokerClosedPath } from "../lib/control-layout.mjs";
+import { deadlineAhead, readAssignmentNow } from "../lib/assignment-now.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const env = (k, d) => process.env[k] ?? d;
 
@@ -68,9 +70,28 @@ async function main() {
   // 2026-10-15, R6-31): returning without one left the broker "not closed, no
   // record", which the nightly queues again every night with no ceiling. The
   // record counts the attempt, so the ceiling ends it and says so.
-  let assignment = null;
+  //
+  // ASKED OF GITHUB FIRST (review 2026-10-16, R7-1). This runs in the finalize,
+  // minutes after the deadline, on a checkout taken before them; a lecturer who
+  // moved the deadline later in those minutes saved, the save switched the
+  // broker on, and this switched it off a minute later - every acceptance hung
+  // until someone published again. Under a deadline that is still ahead it does
+  // nothing and records nothing: the finalize at that deadline closes it. An
+  // unreadable answer closes nothing either, and is counted so the nightly asks
+  // again (an unknown is not "nothing changed").
+  const now = await readAssignmentNow({ request: gh, org, controlRepo: CONTROL_REPO, assignmentId });
+  if (now.status === "unread") {
+    console.log(`::warning::Could not read ${assignmentId} from GitHub (${now.why}) - acceptance stays open until the next pass can.`);
+    await recordClose({ dataDir, assignmentId, broker: null, closed: false, keyRemoved: false });
+    return;
+  }
+  if (now.status === "read" && deadlineAhead(now.assignment)) {
+    console.log(`[ok] ${assignmentId}'s deadline is now ${now.assignment.deadline_at}, still ahead - acceptance stays open; the finalize at that deadline closes it.`);
+    return;
+  }
+  let assignment = now.status === "read" ? now.assignment : null;
   let readError = null;
-  for (const path of assignmentPathsRead(assignmentId)) {
+  for (const path of assignment ? [] : assignmentPathsRead(assignmentId)) {
     try {
       assignment = parse(await readFile(join(dataDir, path), "utf8"));
       break;

@@ -16,12 +16,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 
 const ORG = "PXL-Automation-II";
 const ID = "2526-examen-aut2-ek2";
 
 let dataDir;
 let calls;
+let reads;
 let realFetch;
 let logged;
 let realLog;
@@ -49,8 +51,12 @@ function stubFetch(routes) {
     const method = init.method || "GET";
     const path = String(url).replace("https://api.github.com", "");
     const key = `${method} ${path}`;
-    calls.push(key);
-    const hit = routes[key] ?? { status: 400, body: { message: `unrouted: ${key}` } };
+    // The assignment as GitHub holds it now (R7-1) is asked before anything
+    // else, and kept apart from `calls`, which are the broker's. Unrouted, it
+    // is absent on GitHub, so the checkout decides as it always did.
+    const isRead = key.startsWith(`GET ${CONTROL_CONTENTS}`);
+    (isRead ? reads : calls).push(key);
+    const hit = routes[key] ?? (isRead ? { status: 404, body: { message: "Not Found" } } : { status: 400, body: { message: `unrouted: ${key}` } });
     return {
       ok: hit.status >= 200 && hit.status < 300,
       status: hit.status,
@@ -60,6 +66,9 @@ function stubFetch(routes) {
   };
 }
 
+const CONTROL_CONTENTS = `/repos/${ORG}/${CONTROL_REPO}/contents/`;
+const ON_GITHUB = `GET ${CONTROL_CONTENTS}assignments/${ID}.yml`;
+const onGitHub = (yaml) => ({ status: 200, body: { content: Buffer.from(yaml).toString("base64") } });
 const VAR = `PATCH /repos/${ORG}/broker-${ID}/actions/variables/INVITE_ENABLED`;
 const KEY = `DELETE /repos/${ORG}/broker-${ID}/actions/secrets/PXL_BROKER_PRIVATE_KEY`;
 const CID = `DELETE /repos/${ORG}/broker-${ID}/actions/secrets/PXL_BROKER_CLIENT_ID`;
@@ -76,6 +85,7 @@ async function run({ org = ORG, id = ID, dir = dataDir } = {}) {
 
 beforeEach(() => {
   calls = [];
+  reads = [];
   logged = [];
   dataDir = controlDir();
   realFetch = globalThis.fetch;
@@ -215,6 +225,41 @@ test("R6-31: an assignment stored as .yaml is read, as the finalize queue reads 
   stubFetch({ [VAR]: { status: 204 }, [KEY]: { status: 204 }, [CID]: { status: 204 } });
   await run();
   assert.deepEqual(calls, [VAR, KEY, CID]);
+});
+
+test("R7-1: a deadline moved later on GitHub after the checkout keeps acceptance open, and records nothing", async () => {
+  // The finalize's checkout says the deadline passed; the lecturer moved it
+  // to tonight and the save switched the broker on. Closing it here hung every
+  // acceptance until someone published again (PXL-2TIN-DevOps-2627).
+  const later = new Date(Date.now() + 3600_000).toISOString();
+  stubFetch({ [ON_GITHUB]: onGitHub(`id: ${ID}\ntitle: Exam\nstate: published\ndeadline_at: "${later}"\n`) });
+  await run();
+  assert.deepEqual(reads, [ON_GITHUB]);
+  assert.deepEqual(calls, [], "the broker is not touched");
+  assert.ok(logged.some((l) => l.includes("still ahead")));
+  assert.throws(() => readFileSync(join(dataDir, "lockdowns", ID, "broker-closed.json")), "no record: the finalize at that deadline closes it");
+});
+
+test("R7-1: a deadline that has passed on GitHub too closes as before, and GitHub's copy names the broker", async () => {
+  const past = new Date(Date.now() - 600_000).toISOString();
+  stubFetch({
+    [ON_GITHUB]: onGitHub(`id: ${ID}\ntitle: Exam\ndeadline_at: "${past}"\nbroker_repo: acceptance-desk-42\n`),
+    [`PATCH /repos/${ORG}/acceptance-desk-42/actions/variables/INVITE_ENABLED`]: { status: 204 },
+    [`DELETE /repos/${ORG}/acceptance-desk-42/actions/secrets/PXL_BROKER_PRIVATE_KEY`]: { status: 204 },
+    [`DELETE /repos/${ORG}/acceptance-desk-42/actions/secrets/PXL_BROKER_CLIENT_ID`]: { status: 204 },
+  });
+  await run();
+  assert.equal(calls.length, 3);
+  assert.ok(calls.every((c) => c.includes("acceptance-desk-42")), "the document as it is now, not the checkout's");
+});
+
+test("R7-1: GitHub not answering closes nothing, and the attempt is counted so the nightly asks again", async () => {
+  stubFetch({ [ON_GITHUB]: { status: 403, body: { message: "rate limited" } } });
+  await run();
+  assert.deepEqual(calls, [], "an unknown is not 'nothing changed'");
+  assert.ok(logged.some((l) => l.includes("::warning::") && l.includes("from GitHub")));
+  const rec = JSON.parse(readFileSync(join(dataDir, "lockdowns", ID, "broker-closed.json"), "utf8"));
+  assert.deepEqual([rec.closed, rec.key_removed, rec.attempts], [false, false, 1]);
 });
 
 test("a missing org or assignment is a no-op, not a warning", async () => {

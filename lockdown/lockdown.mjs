@@ -39,9 +39,13 @@ import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
+import { orgStopIds, releaseStop } from "../lib/stop-release.mjs";
+import { readAssignmentNow } from "../lib/assignment-now.mjs";
+import { contentsText } from "../lib/contents-text.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
-import { sentinelSampledRepos, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { sentinelMayHaveStopped, sentinelStopFor, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
+import { readSentinelTimelines as readSentinelTimelinesIn } from "../lib/sentinel-timelines.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
@@ -94,7 +98,24 @@ function validate() {
 }
 
 // --- Read assignment definition ----------------------------------------------
+// ASKED OF GITHUB WHEN IT PLANS, as the reopen records are (review 2026-10-16,
+// R7-1): the checkout is minutes old by the time this acts, and a deadline the
+// lecturer moved later in between was locked against - the whole cohort shut
+// out under a deadline that was no longer in force. Only a read that fails
+// falls back to the checkout.
 async function readAssignment() {
+  const fresh = await readAssignmentRemote();
+  if (fresh) return fresh;
+  return readAssignmentCheckout();
+}
+
+/** The assignment as the control repository holds it now, or null when unread. */
+async function readAssignmentRemote() {
+  const now = await readAssignmentNow({ request: gh, org: cfg.org, controlRepo: CONTROL_REPO, assignmentId: cfg.assignmentId });
+  return now.status === "read" ? now.assignment : null;
+}
+
+async function readAssignmentCheckout() {
   for (const ext of ["yml", "yaml"]) {
     try {
       return await loadYaml(join(cfg.dataDir, "assignments", `${cfg.assignmentId}.${ext}`));
@@ -172,7 +193,45 @@ async function readTeams() {
 // until this was added lockdown never looked: an extended student was demoted to
 // `pull` at the assignment's own deadline while report.mjs told the lecturer
 // their extension was running. See lib/effective-deadline.mjs.
+//
+// Asked of GitHub first (review 2026-10-16, R7-2): an extension granted while
+// the finalize ran - the sentinel's stop dispatches it minutes after the
+// deadline, exactly when a forgotten extra-time student is remembered - was not
+// in the checkout. Overrides are only ever appended to, so where GitHub's
+// listing cannot be read or says none, the checkout's are no less true.
 async function readOverrides() {
+  const fresh = await readOverridesRemote();
+  if (fresh && fresh.length) return fresh;
+  return readOverridesCheckout();
+}
+
+/** The override documents as the control repository holds them now, or null when unread. */
+async function readOverridesRemote() {
+  const at = `/repos/${cfg.org}/${CONTROL_REPO}/contents/overrides/${cfg.assignmentId}`;
+  const listing = await gh("GET", at).catch(() => null);
+  if (!listing?.ok || !Array.isArray(listing.data)) return null;
+  const docs = [];
+  for (const f of listing.data) {
+    if (!String(f?.name ?? "").endsWith(".json")) continue;
+    const file = await gh("GET", `${at}/${encodeURIComponent(f.name)}`).catch(() => null);
+    try {
+      if (!file?.ok) throw new Error(`HTTP ${file?.status ?? "no answer"}`);
+      docs.push(JSON.parse(contentsText(file.data?.content ?? "")));
+    } catch (e) {
+      // This student's copy in the checkout, rather than none: an unread file
+      // must not lock them out of time they were granted.
+      try {
+        docs.push(JSON.parse(await readFile(join(cfg.dataDir, "overrides", cfg.assignmentId, f.name), "utf8")));
+        log(`override ${f.name}`, { ok: false, note: `${e.message} from GitHub - the checkout's copy is used` });
+      } catch {
+        log(`override ${f.name}`, { ok: false, note: e.message });
+      }
+    }
+  }
+  return docs;
+}
+
+async function readOverridesCheckout() {
   const dir = join(cfg.dataDir, "overrides", cfg.assignmentId);
   let files;
   try { files = await readdir(dir); } catch { return []; }
@@ -238,7 +297,7 @@ async function readReopenedRemote() {
     const file = await gh("GET", `${at}/${encodeURIComponent(f.name)}`).catch(() => null);
     try {
       if (!file?.ok) throw new Error(`HTTP ${file?.status ?? "no answer"}`);
-      byLogin.set(login, JSON.parse(Buffer.from(String(file.data?.content ?? ""), "base64").toString("utf8")));
+      byLogin.set(login, JSON.parse(contentsText(file.data?.content ?? "")));
     } catch (e) {
       log(`reopened ${f.name}`, { ok: false, note: `${e.message} - treating as reopened anyway` });
       byLogin.set(login, { reason: null });
@@ -315,12 +374,32 @@ async function readPriorLockdown() {
  * that actually reached its instant counts: `gave-up:runtime` means the nightly
  * really is what stopped the cohort.
  *
- * @returns an ISO instant, or null.
+ * PER STUDENT, FROM THEIR OWN DEADLINE (review 2026-10-16, R7-8): the stop
+ * that held them is the earliest at or after the deadline in force for them
+ * (`sentinelStopFor`). One at an earlier instant was for a deadline since moved
+ * later, or one their extension ran past, and was let go. CONFIRMED stops
+ * only: crediting the instant for a stop that failed understated how long
+ * writes stayed open.
+ *
+ * @returns {Promise<(deadlineIso: string|null) => {at: string, sampled: Set<string>}|null>}
  */
+async function readSentinelStops() {
+  const timelines = await readSentinelTimelines();
+  return (deadlineIso) => sentinelStopFor(timelines, deadlineIso, { confirmedOnly: true });
+}
+
+/** The earliest confirmed stop of the cohort, for the run log alone. */
 async function readSentinelStop() {
-  // CONFIRMED stops only: crediting the instant for a stop that failed
-  // understated how long writes stayed open.
   return sentinelStoppedAt(await readSentinelTimelines(), { confirmedOnly: true });
+}
+
+/**
+ * Whether a sentinel fired on this assignment at all - a stop that failed
+ * included, since it may have stopped some repositories before it did: then a
+ * stop may hold a deferred student.
+ */
+async function sentinelEverStopped() {
+  return sentinelMayHaveStopped(await readSentinelTimelines());
 }
 
 /** Whether this student's submission is in the archive, verified (preserve/preserve.mjs writes it). */
@@ -333,34 +412,14 @@ async function preservedVerified(login) {
   }
 }
 
-/** The repositories that credited stop was watching (lib/sentinel-window.mjs, R6-25). */
-async function readSentinelSampled() {
-  return sentinelSampledRepos(await readSentinelTimelines(), { confirmedOnly: true });
-}
-
+// Which timelines count, and the earliest - a cohort can be armed more than
+// once, and the earliest instant that actually fired is when writes first
+// stopped - is lib/sentinel-window.mjs `sentinelStoppedAt`, the judge the
+// Admin Panel's permission plan asks too.
 async function readSentinelTimelines() {
-  const dir = join(cfg.dataDir, "lockdowns", cfg.assignmentId);
-  let names;
-  try {
-    names = await readdir(dir);
-  } catch {
-    return [];
-  }
-
-  // Which timelines count, and the earliest - a cohort can be armed more than
-  // once, and the earliest instant that actually fired is when writes first
-  // stopped - is lib/sentinel-window.mjs `sentinelStoppedAt`, the judge the
-  // Admin Panel's permission plan asks too.
-  const timelines = [];
-  for (const name of names) {
-    if (!/^sentinel-.*\.json$/.test(name)) continue;
-    try {
-      timelines.push(JSON.parse(await readFile(join(dir, name), "utf8")));
-    } catch (e) {
-      console.error(`Unreadable sentinel timeline ${name}: ${e.message}`);
-    }
-  }
-  return timelines;
+  return readSentinelTimelinesIn(join(cfg.dataDir, "lockdowns", cfg.assignmentId), {
+    onUnreadable: (name, e) => console.error(`Unreadable sentinel timeline ${name}: ${e.message}`),
+  });
 }
 
 // --- Phase 0: plan -----------------------------------------------------------
@@ -422,10 +481,13 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     const alreadyRecorded = teamMembers.some((m) => priorByLogin.get(normalizeLogin(m))?.snapshot_sha);
 
     const effective = effectiveDeadlineFor(assignment, login, { overrides, team: { members: teamMembers } });
-    // Gated on `extended`, not on the deadline alone: a lecturer running a
-    // lockdown early still locks the cohort, exactly as before. Only a granted,
-    // still-running extension defers.
-    if (!alreadyRecorded && effective.extended && effective.deadline > now) {
+    // ANY DEADLINE STILL AHEAD DEFERS (review 2026-10-16, R7-1): a granted
+    // extension, and the assignment's own deadline moved later after the stop.
+    // Gated on `extended` alone, a deadline moved out while the finalize ran
+    // locked the whole cohort under a deadline no longer in force. Nothing runs
+    // this before a deadline on purpose: the sentinel fires at the instant, the
+    // finalize and "Lock everyone out now" after it.
+    if (!alreadyRecorded && effective.deadline > now) {
       deferrals.push({ ...target, effective });
       continue;
     }
@@ -444,6 +506,47 @@ function planTargets(assignment, records, overrides, priorByLogin = new Map(), n
     targets.push(target);
   }
   return { targets, deferrals, reopenedTargets };
+}
+
+/**
+ * LET GO OF A STOP THE DEADLINE IN FORCE NO LONGER WANTS (review 2026-10-16,
+ * R7-1 and R7-2). The sentinel stops the whole cohort at the instant and the
+ * finalize follows minutes later; an extension granted in between, or the
+ * deadline moved later, defers those students here - but the stop on them
+ * stayed: the organization ruleset only ever gains ids (`keepCurrent`), so the
+ * student's page counted down to a deadline while every push was refused, and
+ * with no lock on their row Reopen refused too.
+ *
+ * A deferred target has, by construction, no lock on record and no reopen
+ * (planTargets), so whatever holds it now is a stop for an instant that is no
+ * longer theirs: its id comes out of the organization ruleset, a repository
+ * ruleset of this system is switched off, and a member left at read while the
+ * assignment gives more gets that back - never re-invited, `onlyIfPresent`.
+ * Each one is what Reopen's own inverse does, and each is idempotent. At their
+ * deadline the queue comes back for them (`deferred_until`) and locks them.
+ */
+async function releaseDeferredStops(deferrals, assignment, { probeRepos = false } = {}) {
+  if (!deferrals.length) return;
+  const request = (method, path, body) => gh(method, path, body);
+  const stop = await orgStopIds(request, { org: cfg.org, assignmentId: cfg.assignmentId });
+  if (!stop.ok) log("release", { ok: false, note: `the organization's stop could not be read (${stop.reason}) - deferred students may still be in it` });
+  // One repository once, however many of its members' records deferred it.
+  const seen = new Set();
+  for (const d of deferrals) {
+    const key = String(d.repoName ?? "").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    // A repository ruleset or a demotion on a deferred student can only be a
+    // sentinel's stop: without one, nothing is asked of their repository.
+    const steps = await releaseStop(request, {
+      org: cfg.org, assignmentId: cfg.assignmentId, repo: d.repoName, repositoryId: d.rec?.repo_id,
+      members: d.teamMembers.length ? d.teamMembers : d.members, permission: assignment.student_permission || "admin",
+      orgIds: stop.ids, probeRepo: probeRepos,
+    });
+    for (const s of steps) {
+      log(`release ${d.displayKey}`, { ok: s.ok, note: `${s.note} - their deadline ${d.effective.deadline.toISOString()} is still ahead` });
+    }
+  }
 }
 
 // --- Phase 1: STOP -----------------------------------------------------------
@@ -551,7 +654,16 @@ function stopTally(byRepo) {
  * Idempotent in every mode: re-running re-locks anyone who regained access.
  * Returns per-target outcomes plus the instant the phase fired.
  */
-async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin, sentinelStoppedAt, deadlineFor }) {
+/**
+ * Whether an earlier pass locked this row: a snapshot taken, one it could not
+ * read, or nothing handed in, verified. Its `lockdown_at` and its delay figure
+ * are history from then on.
+ */
+function lockedBefore(priorRec) {
+  return Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread || (priorRec?.no_submission && priorRec?.verified));
+}
+
+async function applySubmissionLock({ targets, method, submissionRef, appId, priorByLogin, stopFor, deadlineFor }) {
   const lockedAt = new Date().toISOString();
   const byRepo = new Map();
   let orgRulesetId = null;
@@ -636,8 +748,7 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // own time (review 2026-10-14, P2-31): the pass that reads it again kept
     // its own clock, which overstated how long the student could push.
     // ...and so was one a pass found had nothing handed in (TL-4).
-    const lockedBefore = Boolean(priorRec?.snapshot_sha || priorRec?.snapshot_unread || (priorRec?.no_submission && priorRec?.verified));
-    let lockdownAt = lockedBefore ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
+    let lockdownAt = lockedBefore(priorRec) ? (priorRec.lockdown_at ?? lockedAt) : lockedAt;
 
     // The sentinel already stopped this cohort at the deadline instant, hours
     // before this run. Crediting it is what keeps `uncertainty_seconds` honest.
@@ -645,13 +756,11 @@ async function applySubmissionLock({ targets, method, submissionRef, appId, prio
     // Per target, NOT for the whole cohort: a student whose extension was still
     // running when the sentinel fired was deferred then and is only being
     // stopped now, so the sentinel's instant is not their history. Their own
-    // effective deadline is the discriminator - it is later than the instant
-    // precisely when they were deferred past it.
-    if (!priorRec?.snapshot_sha && sentinelStoppedAt) {
-      const own = deadlineFor?.(t);
-      const stoppedThen = !own || new Date(own) <= new Date(sentinelStoppedAt);
-      if (stoppedThen) lockdownAt = sentinelStoppedAt;
-    }
+    // effective deadline picks the stop that held them (`stopFor`, R7-8): the
+    // earliest at or after it, so a second sentinel at their extended
+    // deadline, or at a deadline moved later, is credited too.
+    const heldBy = !priorRec?.snapshot_sha ? stopFor?.(deadlineFor?.(t) ?? null) : null;
+    if (heldBy) lockdownAt = heldBy.at;
 
     if (method === "none") {
       byRepo.set(t, { locked: false, permissionAfter: null, lockdownAt: null, method: "none" });
@@ -782,7 +891,7 @@ async function submissionAsOf({ repoName, branch, deadline }) {
   return { ok: true, sha: row?.sha ?? null, row, reason: null };
 }
 
-async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, sentinelStoppedAt = null, sentinelSampled = new Set() }) {
+async function recordCohortState({ targets, submissionRef, priorByLogin, prior, deadlineFor, stopFor = () => null }) {
   const byRepo = new Map();
 
   // A group assignment has one repository record PER MEMBER, all naming the
@@ -822,10 +931,13 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
       // pushes, and the stop's instant is not when it was locked.
       const createdAt = repoRes.data.created_at ?? null;
       // ...and only one the stop was WATCHING (R6-25): created before it is
-      // not covered by it, when its record arrived after.
-      const existedAtStop = !sentinelStoppedAt || (
-        (!createdAt || new Date(createdAt) <= new Date(sentinelStoppedAt)) &&
-        sentinelSampled.has(String(t.repoName).toLowerCase())
+      // not covered by it, when its record arrived after. The stop that held
+      // THIS student, from their deadline in force (R7-8).
+      const deadline = deadlineFor?.(t) ?? null;
+      const heldBy = stopFor(deadline);
+      const existedAtStop = !heldBy || (
+        (!createdAt || new Date(createdAt) <= new Date(heldBy.at)) &&
+        heldBy.sampled.has(String(t.repoName).toLowerCase())
       );
       let snapshotSha;
       let reconstructed = false;
@@ -844,7 +956,6 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         // has to be filtered out - but only when a push actually happened
         // after the deadline. `pushed_at` is GitHub's own timestamp and it is
         // already in hand, so the usual case costs no extra call.
-        const deadline = deadlineFor?.(t) ?? null;
         // THE SENTINEL'S CONFIRMED STOP MADE HEAD THE DEADLINE STATE (review
         // 2026-10-14, LD4). `pushed_at` moves for a push to any branch or tag -
         // a full-history copy's prepared branches stay open - and rebuilding
@@ -852,7 +963,8 @@ async function recordCohortState({ targets, submissionRef, priorByLogin, prior, 
         // fast, although the lock proves it was pushed in time. The same
         // per-student test that credits the stop (applySubmissionLock).
         // ...and only for a repository that EXISTED at the stop (P2-27, above).
-        const stoppedAtDeadline = Boolean(sentinelStoppedAt) && existedAtStop && (!deadline || new Date(deadline) <= new Date(sentinelStoppedAt));
+        // A stop at or after their deadline, by construction of `stopFor`.
+        const stoppedAtDeadline = Boolean(heldBy) && existedAtStop;
         const pushedLate = deadline && pushedAt && new Date(pushedAt) > new Date(deadline) && !stoppedAtDeadline;
 
         if (pushedLate) {
@@ -1050,7 +1162,9 @@ async function main() {
   for (const d of deferrals) {
     log(`lockdown ${d.displayKey}`, {
       ok: true,
-      note: `deferred - extension granted to ${d.effective.grantedTo} runs to ${d.effective.deadline.toISOString()}`,
+      note: d.effective.extended
+        ? `deferred - extension granted to ${d.effective.grantedTo} runs to ${d.effective.deadline.toISOString()}`
+        : `deferred - the deadline is now ${d.effective.deadline.toISOString()}, still ahead`,
     });
   }
 
@@ -1117,15 +1231,21 @@ async function main() {
   // Null unless a sentinel actually reached this assignment's instant. Read
   // even under STOP_ONLY: a second sentinel armed by an overlapping firing must
   // not restamp the first one's work with its own clock.
+  // Which stop held each student is asked per student (`stopFor`, R7-8).
   const sentinelStoppedAt = await readSentinelStop();
+  const stopFor = await readSentinelStops();
   if (sentinelStoppedAt) {
-    log("sentinel", { ok: true, note: `writes already stopped at ${sentinelStoppedAt} - crediting it` });
+    log("sentinel", { ok: true, note: `writes already stopped at ${sentinelStoppedAt} - crediting each student with the stop at or after their own deadline` });
   }
 
   const lock = await applySubmissionLock({
     targets, method: lockMethod, submissionRef, appId, priorByLogin,
-    sentinelStoppedAt, deadlineFor,
+    stopFor, deadlineFor,
   });
+
+  // What the sentinel stopped for a deadline no longer in force is let go here
+  // (R7-1, R7-2): a student whose deadline is still ahead may push until then.
+  await releaseDeferredStops(deferrals, assignment, { probeRepos: deferrals.length > 0 && (await sentinelEverStopped()) });
 
   // Stop-only: the sentinel's job is the instant, not the bookkeeping. The
   // ordinary finalize follows minutes later and does phases 2-4 unhurried,
@@ -1191,9 +1311,9 @@ async function main() {
     // the submission and the report flags it - filtering it out here would
     // discard exactly what the policy says to keep.
     deadlineFor: blockLate ? deadlineFor : null,
-    sentinelStoppedAt,
-    // Which repositories that stop was watching (R6-25).
-    sentinelSampled: sentinelStoppedAt ? await readSentinelSampled() : new Set(),
+    // The stop that held each student, and which repositories it was
+    // watching (R6-25, R7-8).
+    stopFor,
   });
 
   // --- Phase 4: DEMOTE -------------------------------------------------------
@@ -1410,7 +1530,8 @@ async function main() {
 
     // Not the stop's instant for a repository made after it (P2-27): that
     // repository was locked by this run.
-    const lockdownAt = state.existedAtStop === false && sentinelStoppedAt && stop.lockdownAt === sentinelStoppedAt
+    const heldBy = stopFor(deadlineFor(t));
+    const lockdownAt = state.existedAtStop === false && heldBy && stop.lockdownAt === heldBy.at
       ? lock.lockedAt
       : stop.lockdownAt;
     // How long after THIS STUDENT'S deadline they could still push - not after
@@ -1418,12 +1539,21 @@ async function main() {
     // nightly after a seven-day extension expired was reported with seven days
     // of uncertainty, on the one number a lecturer would cite in a dispute.
     // `deadlineFor` is the same answer phases 1 and 2 already used.
+    //
+    // AGAINST THE DEADLINE THE ROW WAS LOCKED UNDER (review 2026-10-16, R7-8).
+    // A row an earlier pass locked keeps its lock time, so measured against a
+    // deadline moved later since, or an extension granted after the lock, it
+    // went negative by days. It keeps the figure that pass measured. And never
+    // below zero: locked before their deadline is no time at all.
     const ownDeadline = deadlineFor(t) ?? deadlineAt;
+    const priorRow = priorByLogin.get(normalizeLogin(t.login));
     let uncertaintySec = null;
-    if (ownDeadline && lockdownAt) {
-      uncertaintySec = Math.round((new Date(lockdownAt) - new Date(ownDeadline)) / 1000);
-      if (Math.abs(uncertaintySec) > maxUncertainty) maxUncertainty = Math.abs(uncertaintySec);
+    if (lockedBefore(priorRow) && lockdownAt === priorRow.lockdown_at && Number.isFinite(priorRow.uncertainty_seconds)) {
+      uncertaintySec = Math.max(0, priorRow.uncertainty_seconds);
+    } else if (ownDeadline && lockdownAt) {
+      uncertaintySec = Math.max(0, Math.round((new Date(lockdownAt) - new Date(ownDeadline)) / 1000));
     }
+    if (uncertaintySec !== null && uncertaintySec > maxUncertainty) maxUncertainty = uncertaintySec;
 
     for (const m of t.members) {
       lockdownResults.push({

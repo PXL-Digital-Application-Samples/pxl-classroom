@@ -271,6 +271,8 @@ To see who is deferred, open `lockdowns/<id>/lockdown-record.json` in the contro
 
 ## 3.3 An extension granted after lock-down does not reopen the repository
 
+**In the minutes between the deadline and the lock, it does.** With the deadline sentinel on, pushing stops at the deadline and the lock record is written 5 to 10 minutes later. An extension granted in those minutes, or the deadline moved later, is read from GitHub when the lock is written: those students are not locked, the stop is taken off them until their own deadline, and they are locked then. A deadline moved later before the lock is written takes the stop off the whole cohort when the save publishes; if that publish fails, its run says which students still cannot push, and **Republish** tries again.
+
 **Grant extensions before the deadline wherever possible.** Granted afterwards, the override is recorded and the report classifies their submission against their own deadline, but the lock that holds them stays, whichever it is: a student whose submission was already frozen is not deferred, and nothing queues a pass for them. To let them push, use **Reopen** (§6.15) rather than GitHub: it picks the right inverse and records who did it and why.
 
 To see who is deferred, `lockdowns/<id>/lockdown-record.json` gives deferred students a `deferred_until` and a null `snapshot_sha`.
