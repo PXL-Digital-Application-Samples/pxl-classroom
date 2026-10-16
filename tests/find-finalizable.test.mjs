@@ -557,9 +557,11 @@ test("R6-5: a repository created after the lock, for a student the lock record h
     writeFileSync(join(dir, "lockdowns", "exam", "lockdown-record.json"), JSON.stringify({
       locked_at: lockedAt, results: row ? [{ github_login: "Ann", snapshot_sha: "a".repeat(40), verified: true }] : [],
     }));
-    // Preserved and the broker closed, so nothing else is owed.
-    mkdirSync(join(dir, "observations", "exam", "ann"), { recursive: true });
-    writeFileSync(join(dir, "observations", "exam", "ann", "preservation.json"), JSON.stringify({ verified: true }));
+    // Preserved and the broker closed, so nothing else is owed. Under the
+    // row's own spelling, where preserve.mjs writes it: crossed with the
+    // record's, this passed on Windows and failed on Linux CI.
+    mkdirSync(join(dir, "observations", "exam", "Ann"), { recursive: true });
+    writeFileSync(join(dir, "observations", "exam", "Ann", "preservation.json"), JSON.stringify({ verified: true }));
     writeFileSync(join(dir, "lockdowns", "exam", "broker-closed.json"), JSON.stringify({ closed: true, key_removed: true }));
     const res = spawnSync("node", [scriptPath, dir, "TestOrg"], { encoding: "utf8", cwd: dir });
     return { queued: JSON.parse(res.stdout.trim()).map((f) => f.assignment_id), stderr: res.stderr };
