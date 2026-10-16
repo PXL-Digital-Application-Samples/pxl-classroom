@@ -1268,8 +1268,9 @@ async function cleanupLocked(named, request) {
 
     // The Admin Panel's gate, asked the same way: a report older than the lock
     // and preservation would be retired as out-of-date evidence, and the
-    // manifest would count nothing preserved (lib/report-freshness.mjs).
-    if (deleteWaitsForReport(doc.state)) {
+    // manifest would count nothing preserved (lib/report-freshness.mjs). The
+    // evidence is the report's rows with a repository, as the Admin Panel's.
+    if (deleteWaitsForReport(doc, { hasRepositories: students.some((s) => s?.repo_name) })) {
       if (!reportText.ok && reportText.status !== 404) {
         bad(`${id}: ${UNREADABLE_REPORT_REFUSAL}`);
         continue;
