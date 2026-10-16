@@ -23,9 +23,8 @@ import { ROSTER_PATH } from "../lib/roster-entries.mjs";
 import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
-import { SUPERSEDED, actedInTime, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
+import { SUPERSEDED, actedInTime, lockRanFor, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
 import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
-import { sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { readSentinelTimelines } from "../lib/sentinel-timelines.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
@@ -929,8 +928,22 @@ async function main() {
         // record: it locked the repositories it knew at the instant, so one
         // made after it was in no lock until a finalize happened to see its
         // record (review 2026-10-14). A stop that may have held counts.
-        const lockRan = existsSync(join(dataDir, lockdownRecordPath(assignmentId))) ||
-          sentinelStoppedAt(await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId)))) !== null;
+        // ...THE LOCK OF THE DEADLINE IN FORCE (R7-18): one for a deadline
+        // since moved later does not close this one's grace.
+        const recordFile = join(dataDir, lockdownRecordPath(assignmentId));
+        let lockRecord = null;
+        if (existsSync(recordFile)) {
+          try {
+            lockRecord = JSON.parse(await readFile(recordFile, "utf-8"));
+          } catch {
+            lockRecord = "unreadable";
+          }
+        }
+        const lockRan = lockRanFor({
+          deadline,
+          lockRecord,
+          timelines: await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId))),
+        });
         if (actedInTime({ deadline, now, actedAt, lockRan })) {
           log("window", {
             ok: true,

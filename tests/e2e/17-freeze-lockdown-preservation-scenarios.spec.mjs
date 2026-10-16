@@ -97,10 +97,12 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     await expect(modal.locator('h3')).toContainText('Confirm Immediate Freeze & Lockdown');
 
     // 3. Verify consequences list items
-    await expect(modal).toContainText('Demotes Student Permissions to Read-Only');
-    await expect(modal).toContainText('Snapshots Immutable Archive Commits');
-    await expect(modal).toContainText('Locks Deadline Classification');
-    await expect(modal).toContainText('across all 2 student repositories');
+    // What it actually does (R7-10).
+    await expect(modal).toContainText('runs the nightly check for the whole organization now');
+    await expect(modal).toContainText('The repository becomes read-only');
+    await expect(modal).toContainText('Their work is archived');
+    await expect(modal).toContainText('Who is left out');
+    await expect(modal).toContainText('with its 2 student');
 
     // 4. Click Confirm Freeze & Lockdown button
     const confirmBtn = modal.getByRole('button', { name: /Confirm Freeze/i });
@@ -116,6 +118,34 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     expect(dispatchedBody?.ref).toBe('main');
     expect(dispatchedBody?.inputs?.org).toBe(ORG);
   });
+
+  // R7-10 (review 2026-10-16): the dialog says the lock this assignment's own
+  // "After the deadline" answer takes, not a demotion on every assignment.
+  for (const [label, over, title, body] of [
+    ['Pushing stops', { late_policy: 'block', lock_down_enabled: false }, 'Pushing stops', /Students keep the repository and its tools/],
+    ['Nothing is locked', { late_policy: 'report', lock_down_enabled: false }, 'Nothing is locked', /students can still push, and late commits are flagged/],
+  ]) {
+    test(`R7-10: the dialog names the assignment's own lock - ${label}`, async ({ page }) => {
+      const assignmentId = 'lab-freeze-policy';
+      const assignment = {
+        id: assignmentId, title: 'Freeze policy', organization: ORG, assignment_type: 'individual', roster_mode: 'open',
+        state: 'published', deadline_at: new Date(Date.now() - 2 * 3600_000).toISOString(),
+        template: { owner: ORG, repository: 'freeze-template' }, repository_name_pattern: `${assignmentId}-{github_login}`, ...over,
+      };
+      const report = { schema_version: 1, assignment_id: assignmentId, assignment_title: 'Freeze policy', org: ORG, generated_at: new Date().toISOString(),
+        students: [{ github_login: 'student-dev1', repo_name: `${ORG}/${assignmentId}-student-dev1`, submission_status: 'on-time', commit_count: 1, preservation_status: 'pending' }] };
+      await injectAuth(page, LECTURER);
+      await setupStandardMockRoutes(page, { assignments: { [assignmentId]: assignment }, reports: { [assignmentId]: report }, currentUser: LECTURER });
+      await page.goto(`/dashboard/${ORG}/${assignmentId}`);
+      await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
+      await page.locator('[data-state-menu]').click();
+      await page.locator('button', { hasText: 'Lock everyone out now' }).click();
+      const modal = page.locator('.modal-consequences');
+      await expect(modal).toContainText(title);
+      await expect(modal.locator('[data-freeze-lock]')).toContainText(body);
+      await expect(modal).not.toContainText('Demotes Student Permissions');
+    });
+  }
 
   test('Scenario 2 (Retry Preservation Flow for Unpreserved Repositories): Dispatches targeted preservation retry', async ({ page }) => {
     const assignmentId = 'lab-preservation-retry';

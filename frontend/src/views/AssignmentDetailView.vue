@@ -1567,6 +1567,8 @@ import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { effectiveDeadlineFor, extensionFrom } from '../lib/deadline.js'
+import { extensionEffect, extensionGrantedMessage } from '../lib/extension-effect.js'
+import { armSentinelIfImminent } from '../lib/sentinel-arm.js'
 import { deadlineVariableValue, pageDeadlineState, readDeadlineVariable, writeDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 import {
   claimPath,
@@ -5970,13 +5972,19 @@ async function grantExtensionFor(student, ext) {
     if (ok) {
       student.effective_deadline_at = newExtValue
       const notTold = await sendPageDeadline(student)
-      if (notTold === NO_REPO_YET) {
-        toast.success(`Extension granted to ${student.github_login}; their page shows it once they accept (the Progress tab updates on the next nightly run or Refresh).`)
-      } else if (notTold) {
-        toast.error(`Extension granted to ${student.github_login}, but their own page could not be told: ${notTold}. Their lock and grading use the new deadline anyway; open their actions to send it again.`)
-      } else {
-        toast.success(`Extension granted to ${student.github_login}; their own page shows it (the Progress tab updates on the next nightly run or Refresh).`)
-      }
+      // What the extension does, from what holds them now (R7-16): a lock
+      // already taken is not undone by more time, and the toast said it was.
+      const effect = extensionEffect({ record: actionLockdown.value, login: student.github_login, reopened: Boolean(actionReopen.value?.record) })
+      const message = extensionGrantedMessage({
+        login: student.github_login, when: fmt(newExtValue), effect,
+        notTold: notTold === NO_REPO_YET ? null : notTold, noRepoYet: notTold === NO_REPO_YET,
+      })
+      if (notTold && notTold !== NO_REPO_YET) toast.error(message)
+      else if (effect === 'locked') toast.info(message)
+      else toast.success(message)
+      // An extension's end is a deadline the sentinel watches (R7-12): armed
+      // now if it is close, rather than at the next 4-hourly firing.
+      armSentinelIfImminent({ token: getToken(), org: props.org, doc: assignment.value, instant: newExtValue })
       actionStudent.value = null
     }
   } finally {

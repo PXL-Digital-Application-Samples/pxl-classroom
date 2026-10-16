@@ -66,6 +66,8 @@ test("a finished drill's deadline moved into the future and saved: the save publ
     await page.getByPlaceholder("e.g. Linux Processes 2026").waitFor({ timeout: 60_000 });
     await page.locator(".field", { has: page.locator("label", { hasText: /^Deadline/ }) }).locator('input[type="datetime-local"]').fill(local);
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    // R7-3: the lock still holds the drill's two students, and the save says so.
+    await expect(page.getByText(/students? stays? locked: their work was taken at the old deadline/)).toBeVisible({ timeout: 60_000 });
   }
 
   // The save published: the broker is on, and holds its key again.

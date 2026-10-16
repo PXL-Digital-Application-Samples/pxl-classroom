@@ -595,7 +595,7 @@ import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { recentAttempt } from '../lib/broker-teams.js'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, progressMessage, progressSteps, readBrokerSkipped,
 } from '../lib/acceptance-progress.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -1275,7 +1275,11 @@ async function readAttemptProgress() {
   } catch {
     // Unread: says nothing.
   }
-  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt: attemptSentAt.value })
+  // Still the signed title: did the broker skip it (its switch, R7-6)?
+  const brokerOff = issueStage(attemptTitle.value) === 'sent'
+    ? await readBrokerSkipped((method, path) => ghApi(getToken(), method, path), { org: props.org, broker, title: attemptTitle.value, sentAt: attemptSentAt.value })
+    : null
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt: attemptSentAt.value, brokerOff })
   return progress.value
 }
 

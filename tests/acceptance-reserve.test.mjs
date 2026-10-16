@@ -315,6 +315,33 @@ test("a request made before the deadline is decided as of the request, until the
   }
 });
 
+test("R7-18: after a moved deadline, the first deadline's lock and stop do not close the new deadline's grace", () => {
+  // The lecturer moved the deadline to tonight after the first one was locked.
+  // A student asks just before the NEW deadline; GitHub starts the run after it.
+  const deadline = new Date(Date.now() - 10 * 60_000);
+  const first = new Date(deadline.getTime() - 86400_000).toISOString();
+  const yaml = `${INDIVIDUAL_YAML}deadline_at: ${deadline.toISOString()}\n`;
+  const actedBefore = new Date(deadline.getTime() - 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const remote = remoteWith({
+    "students/roster.yml": ROSTER,
+    [`assignments/${ID}.yml`]: yaml,
+    [`lockdowns/${ID}/lockdown-record.json`]: { schema_version: 1, assignment_id: ID, deadline_at: first, results: [] },
+    [`lockdowns/${ID}/sentinel-old.json`]: { schema_version: 1, outcome: "fired", due: true, deadline_at: first, stop: "done" },
+  });
+  const res = reserve(checkout(remote), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
+  assert.equal(res.outputs.outcome, "accepted", res.log);
+
+  // Once the new deadline's own stop has run, the grace is over as before.
+  const stopped = remoteWith({
+    "students/roster.yml": ROSTER,
+    [`assignments/${ID}.yml`]: yaml,
+    [`lockdowns/${ID}/lockdown-record.json`]: { schema_version: 1, assignment_id: ID, deadline_at: first, results: [] },
+    [`lockdowns/${ID}/sentinel-new.json`]: { schema_version: 1, outcome: "fired", due: true, deadline_at: deadline.toISOString(), stop: "done" },
+  });
+  const after = reserve(checkout(stopped), { GITHUB_LOGIN: "bob", GITHUB_ID: "7", ISSUE_NUMBER: "3", ACTED_AT: actedBefore });
+  assert.equal(after.outputs.outcome, "rejected:past-deadline", after.log);
+});
+
 test("a duplicate of an accepted attempt is stamped as the one that decided", () => {
   const remote = remoteWith({
     "students/roster.yml": ROSTER,

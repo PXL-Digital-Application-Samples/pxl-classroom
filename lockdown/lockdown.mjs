@@ -40,7 +40,7 @@ import { indexByLogin, normalizeLogin } from "../lib/github-login.mjs";
 import { fetchOrgOwners, isKnownOwner } from "../lib/org-owners.mjs";
 import { ensureSubmissionLock, ensureOrgSubmissionLock, resolveAppId } from "../lib/submission-lock.mjs";
 import { orgStopIds, releaseStop } from "../lib/stop-release.mjs";
-import { readAssignmentNow } from "../lib/assignment-now.mjs";
+import { assignmentDeleted, readAssignmentNow } from "../lib/assignment-now.mjs";
 import { contentsText } from "../lib/contents-text.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { usesOrgScope, lockScopeNote, takesAccessAtDeadline, demotesAfterStop } from "../lib/lock-scope.mjs";
@@ -110,10 +110,19 @@ async function readAssignment() {
   return readAssignmentCheckout();
 }
 
-/** The assignment as the control repository holds it now, or null when unread. */
+/**
+ * The assignment as the control repository holds it now, or null when unread -
+ * or DELETED when GitHub's listing no longer names it (R7-17): deleted while
+ * this ran, which locked its students under an assignment nobody had any more
+ * and made again the organization ruleset its delete removed.
+ */
+const DELETED = Symbol("deleted");
 async function readAssignmentRemote() {
-  const now = await readAssignmentNow({ request: gh, org: cfg.org, controlRepo: CONTROL_REPO, assignmentId: cfg.assignmentId });
-  return now.status === "read" ? now.assignment : null;
+  const ask = { request: gh, org: cfg.org, controlRepo: CONTROL_REPO, assignmentId: cfg.assignmentId };
+  const now = await readAssignmentNow(ask);
+  if (now.status === "read") return now.assignment;
+  if (now.status === "absent" && (await assignmentDeleted(ask))) return DELETED;
+  return null;
 }
 
 async function readAssignmentCheckout() {
@@ -1109,6 +1118,16 @@ async function main() {
 
   // Read assignment
   const assignment = await readAssignment();
+  if (assignment === DELETED) {
+    // Nothing locked, nothing written: the delete took its records and its
+    // organization ruleset, and the finalize commit leaves it deleted (R7-17).
+    log("assignment", { ok: true, note: `${cfg.assignmentId} was deleted while this ran - nothing is locked` });
+    await setOutput("outcome", "deleted");
+    await setOutput("locked_count", 0);
+    await setOutput("error_count", 0);
+    await summary(`### Lockdown: \`deleted\`\n\n${cfg.assignmentId} was deleted while this ran, so nothing was locked.\n`);
+    return;
+  }
   if (!assignment) await fail("fail:assignment", `no assignment file for "${cfg.assignmentId}"`);
   const submissionRef = assignment.submission_ref || "refs/heads/main";
   const deadlineAt = assignment.deadline_at || null;

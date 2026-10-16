@@ -571,6 +571,11 @@ export async function setupStandardMockRoutes(page, {
   userRepos = [],
   invitations = [],
   brokerIssues = [],
+  // The broker's switch, INVITE_ENABLED (review 2026-10-16, R7-6). Off, every
+  // issue the SPA opens gets a broker run that is `skipped` and keeps the
+  // signed title it was opened with - what GitHub does when the job-level
+  // `if:` reads the variable as 'false'. On (the default), its run succeeds.
+  inviteEnabled = true,
   // LABELS on a broker acceptance issue. This is how the hub answers a student:
   // acceptance-handler.yml puts `outcome:invited` or `outcome:rejected` there,
   // and it is the only channel that can tell them an invitation is waiting -
@@ -703,6 +708,9 @@ export async function setupStandardMockRoutes(page, {
         }),
       }))
     : brokerIssues;
+
+  // The broker's runs, one per issue the SPA opens in this test (R7-6).
+  const brokerRuns = [];
 
   // Schema route mock
   await page.route('**/schemas/*.schema.json*', async (route) => {
@@ -1106,6 +1114,8 @@ export async function setupStandardMockRoutes(page, {
           state: 'open',
           locked: true,
           labels: brokerIssueLabels.map((name) => ({ name })),
+          // Switched off, the broker never renames it: the signed title stays (R7-6).
+          ...(!inviteEnabled && brokerRuns.length ? { title: brokerRuns.at(-1).display_title } : {}),
         }),
       });
     } else if (url.includes('/issues') && method === 'GET') {
@@ -1161,10 +1171,19 @@ export async function setupStandardMockRoutes(page, {
         });
         return;
       }
+      // The broker's run for this issue, as its run list will answer (R7-6).
+      brokerRuns.push({
+        id: 900 + brokerRuns.length, event: 'issues', display_title: check.title, status: 'completed',
+        conclusion: inviteEnabled ? 'success' : 'skipped', created_at: new Date().toISOString(),
+      });
       await route.fulfill({
         status: 201,
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),
       });
+    } else if (method === 'GET' && /\/repos\/[^/]+\/[^/]+\/actions\/runs\?/.test(url) && url.includes('event=issues')) {
+      // The broker's own run list (frontend/src/lib/acceptance-progress.js
+      // `brokerRunsPath`): the runs of the issues opened in this test.
+      await route.fulfill({ status: 200, body: JSON.stringify({ total_count: brokerRuns.length, workflow_runs: brokerRuns }) });
     } else if (url.includes('/repos/')) {
       // The push log (GET /repos/{o}/{r}/activity), which the hand-in count
       // reads beside the runs. Empty by default: a spec's runs already name

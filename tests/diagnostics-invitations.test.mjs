@@ -129,12 +129,23 @@ test("a broker with no nonce at all is a failure", async () => {
   assert.match(r["invite-nonce"].message, /no INVITE_NONCE/);
 });
 
-test("acceptance switched off is surfaced as a warning, not silence", async () => {
+test("acceptance switched off is surfaced, not silence - and whether it is wrong is the assignment's to say (R7-9)", async () => {
   // INVITE_ENABLED is read in the job-level `if`, so the run is skipped before a
   // runner is allocated - there is no failed run for anyone to notice.
-  const r = await run(healthy, { vars: { INVITE_NONCE: NONCE, INVITE_ENABLED: "false" } });
-  assert.equal(r["invite-enabled"].severity, "warn");
-  assert.match(r["invite-enabled"].message, /switched off/);
+  const off = { vars: { INVITE_NONCE: NONCE, INVITE_ENABLED: "false" } };
+  // Published, deadline ahead: every student waits on a link that does nothing.
+  const live = await run({ ...healthy, state: "published", deadline_at: new Date(Date.now() + 86400_000).toISOString() }, off);
+  assert.equal(live["invite-enabled"].severity, "fail");
+  assert.match(live["invite-enabled"].message, /published and its deadline is ahead/);
+  assert.equal(live["invite-enabled"].fixAction?.type, "publish_broker", "Republish, which restores the broker's key too");
+  assert.doesNotMatch(live["invite-enabled"].message, /set it to true/i, "by hand it would accept and could not pass the request on");
+  // Finished, or not published: what the nightly does to every one of them.
+  const done = await run({ ...healthy, state: "published", deadline_at: new Date(Date.now() - 86400_000).toISOString() }, off);
+  assert.equal(done["invite-enabled"].severity, "info");
+  assert.match(done["invite-enabled"].message, /as it should be: the assignment has passed its deadline/);
+  const closed = await run({ ...healthy, state: "closed" }, off);
+  assert.equal(closed["invite-enabled"].severity, "info");
+  assert.match(closed["invite-enabled"].message, /is not published/);
 });
 
 test("unreadable inputs degrade to info, never a false alarm", async () => {
@@ -186,7 +197,7 @@ test("and the checks below it still run", async () => {
   // The regression was not only the false fail - it was the early return. An
   // assignment with acceptance switched off would have gone unreported.
   const r = await run(migrated, migratedVars({ INVITE_ENABLED: "false" }));
-  assert.equal(r["invite-enabled"].severity, "warn");
+  assert.ok(r["invite-enabled"], "the acceptance switch is still reported");
 });
 
 test("a missing INVITE_PUBKEY fails - it does not degrade to the old path", async () => {

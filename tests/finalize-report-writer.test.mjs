@@ -56,6 +56,9 @@ function fixture() {
   put(seed, "reports/dashboard.json", "{}\n");
   put(seed, "observations/a1/ann/2026-09-27T01-00-00Z.json", "{}\n");
   put(seed, "lockdowns/a1/.gitkeep", "");
+  // The assignment itself: the commit step asks the branch whether it still
+  // exists before committing anything of it (R7-17).
+  put(seed, "assignments/a1.yml", "state: published\n");
   git(["add", "-A"], seed);
   git(["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-m", "seed"], seed);
   git(["push", fileUrl(remote), "main"], seed);
@@ -67,6 +70,14 @@ function fixture() {
   const regen = join(dir, "regen");
   git(["clone", "-q", fileUrl(remote), regen], dir);
   return { dir, remote, control: join(dir, "control"), regen };
+}
+
+/** The assignment deleted on the branch while finalize runs (R7-17). */
+function deleteAssignment({ regen }) {
+  git(["pull", "-q", "--rebase"], regen);
+  git(["rm", "-q", "-r", "assignments/a1.yml", "lockdowns/a1", "observations/a1"], regen);
+  git(["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Delete a1"], regen);
+  git(["push", "-q", "origin", "main"], regen);
 }
 
 /** regenerate-dashboard.yml landing a commit while finalize is still running. */
@@ -241,6 +252,22 @@ test("R6-8: a grading decision saved while finalize ran keeps this reading from 
     } finally {
       rmSync(fy.dir, { recursive: true, force: true });
     }
+  } finally {
+    rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("R7-17: an assignment deleted while finalize ran is not put back by its commit", () => {
+  const fx = fixture();
+  try {
+    finalizeWrites(fx);
+    deleteAssignment(fx);
+    const head = git(["rev-parse", "main"], fx.remote);
+    const res = runCommitStep(fx);
+    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+    assert.match(res.stdout, /a1 was deleted while this ran, so nothing of it is committed/);
+    assert.equal(git(["rev-parse", "main"], fx.remote), head, "nothing pushed");
+    assert.throws(() => git(["cat-file", "-e", "main:lockdowns/a1/lockdown-record.json"], fx.remote), "the directory stays deleted");
   } finally {
     rmSync(fx.dir, { recursive: true, force: true });
   }

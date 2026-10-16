@@ -18,7 +18,7 @@ const none = () => null;
 
 test("an attempt handed over and never answered is reported", () => {
   const out = unansweredAttempts({ issues: [issue(66, "Sabri", "Acceptance (processed)", 600)], acceptanceOf: none, now });
-  assert.deepEqual(out, [{ login: "Sabri", number: 66, created_at: ago(600), stage: "no-answer" }]);
+  assert.deepEqual(out, [{ login: "Sabri", number: 66, created_at: ago(600), stage: "no-answer", purpose: "accept" }]);
 });
 
 test("where it stopped is read off the title", () => {
@@ -88,7 +88,11 @@ test("too recent may still be running, too old was reported already", () => {
   assert.deepEqual(out.map((o) => o.login), ["inside"]);
 });
 
-test("an email confirmation and an unrelated issue are not acceptance attempts", () => {
+test("R7-6: an address confirmation is reported where its issue shows it went nowhere - never once handed over", () => {
+  // A confirmation's answer is in the private control repository, and the hub
+  // labels its issue only on a refusal: handed over, answered and unanswered
+  // read the same. One the broker never ran on (switched off) or could not
+  // pass on is evidence; an issue written by hand is nothing.
   const out = unansweredAttempts({
     issues: [
       issue(1, "a", "pxl-confirm:k1.AAAA.BBBB", 600),
@@ -99,7 +103,16 @@ test("an email confirmation and an unrelated issue are not acceptance attempts",
     acceptanceOf: none,
     now,
   });
-  assert.deepEqual(out, []);
+  assert.deepEqual(out.map((o) => [o.login, o.stage, o.purpose]), [["a", "not-started", "confirm"], ["c", "not-delivered", "confirm"]]);
+});
+
+test("R7-6: an acceptance and a confirmation by one student are separate questions", () => {
+  const out = unansweredAttempts({
+    issues: [issue(7, "ann", "pxl-accept:k1.AAAA.BBBB", 600), issue(8, "ann", "pxl-confirm:k1.AAAA.BBBB", 500)],
+    acceptanceOf: none,
+    now,
+  });
+  assert.deepEqual(out.map((o) => [o.number, o.purpose]), [[7, "accept"], [8, "confirm"]]);
 });
 
 test("a later issue that is not an acceptance does not hide the unanswered one before it", () => {

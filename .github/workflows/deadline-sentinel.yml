@@ -71,6 +71,12 @@ jobs:
     runs-on: ubuntu-latest
     # The install may retry for 8 minutes (./install).
     timeout-minutes: 15
+    # `actions: write` to switch the nightly on (R7-13, the step after the
+    # arming); a job-level block replaces the workflow's, so `contents: read`
+    # is restated.
+    permissions:
+      contents: read
+      actions: write
     steps:
       # A person dispatches this. The other thing that can reach
       # workflow_dispatch is an App installation token - what a stolen broker
@@ -129,6 +135,21 @@ jobs:
         env:
           ORG: ${{ matrix.org }}
         run: node scripts/find-armable.mjs control "$ORG" > "armable-${ORG}.json"
+      # WORK OWED KEEPS THE NIGHTLY ON (review 2026-10-16, R7-13). Every four
+      # hours, for every organization, from the checkout already here: what the
+      # nightly would count as active switches it on. regenerate-dashboard.yml
+      # asks the same after each rebuild; this catches what reaches no rebuild
+      # - a deadline moved on an archived assignment, an extension granted
+      # while the nightly was off. Never fails the arming.
+      - name: Keep the nightly on while this organization owes it work
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ matrix.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
+        run: scripts/keep-nightly-on.sh control "$ORG"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: armable-${{ matrix.org }}
@@ -268,6 +289,9 @@ jobs:
           ASSIGNMENT_IDS: ${{ join(matrix.sentinel.assignment_ids, ',') }}
           DEADLINE_AT: ${{ matrix.sentinel.deadline_at }}
           SENTINEL_KEY: ${{ matrix.sentinel.key }}
+          # The students whose extension ends at this instant, per assignment
+          # (find-armable.mjs, R7-12); `null` for a plain deadline.
+          SENTINEL_EXTENSIONS: ${{ toJSON(matrix.sentinel.extensions) }}
           # 45 minutes, inside the token's hour with room for the handover.
           SENTINEL_PHASE_MS: "2700000"
           SENTINEL_STATE_FILE: ${{ runner.temp }}/sentinel-handover.json
@@ -332,6 +356,7 @@ jobs:
           DEADLINE_AT: ${{ steps.sentinel.outputs.target_at }}
           SENTINEL_ARMED_AT: ${{ matrix.sentinel.deadline_at }}
           SENTINEL_KEY: ${{ matrix.sentinel.key }}
+          SENTINEL_EXTENSIONS: ${{ toJSON(matrix.sentinel.extensions) }}
           SENTINEL_STATE_FILE: ${{ runner.temp }}/sentinel-handover.json
           # This token's hour is all the runway there is. A deadline moved
           # beyond it gives up cleanly and a later cron firing re-arms.

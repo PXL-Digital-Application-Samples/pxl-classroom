@@ -137,7 +137,8 @@ test.describe('116 - the lecturer grants it, and sees what their page shows', ()
     // nothing) - with the instant the form meant, in UTC.
     await expect.poll(() => variableWrites.length, { timeout: 15000 }).toBe(1);
     expect(variableWrites).toEqual([{ repo: FULL, method: 'POST', value: new Date(local).toISOString() }]);
-    await expect(page.locator('.toast', { hasText: `Extension granted to ${STUDENT.login}; their own page shows it` })).toBeVisible();
+    // What the extension does (R7-16): nothing locked them, so the lock follows it.
+    await expect(page.locator('.toast', { hasText: `Extension granted to ${STUDENT.login} until` })).toContainText('their lock and grading follow it. Their own page shows it. The Progress tab shows it after');
   });
 
   test('an extension their page does not show yet is said, and sent on request', async ({ page }) => {

@@ -361,10 +361,13 @@ test.describe('11 - Workflow & UX Enhancements (Quick Filters, Student Status Ca
     await expect(modal).toBeVisible();
     await expect(modal.locator('h3')).toContainText('Confirm Immediate Freeze & Lockdown');
 
-    // Verify 3 key consequence points are rendered
-    await expect(modal).toContainText('Demotes Student Permissions to Read-Only');
-    await expect(modal).toContainText('Snapshots Immutable Archive Commits');
-    await expect(modal).toContainText('Locks Deadline Classification');
+    // What it actually does (R7-10): the organization's nightly, the
+    // assignment's own lock (this fixture sets none: read-only), the archive,
+    // and who is left out.
+    await expect(modal).toContainText('runs the nightly check for the whole organization now');
+    await expect(modal).toContainText('The repository becomes read-only');
+    await expect(modal).toContainText('Their work is archived');
+    await expect(modal).toContainText('Who is left out');
 
     // 3. Confirm Lockdown
     const confirmBtn = modal.locator('button', { hasText: 'Confirm Freeze & Lockdown' });

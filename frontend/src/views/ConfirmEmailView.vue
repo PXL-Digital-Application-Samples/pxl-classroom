@@ -95,9 +95,11 @@
             <Icon name="check-circle" :size="20" class="status-icon status-icon-success" />
             <span class="font-semibold">Thanks - that's all we needed</span>
           </div>
+          <!-- What it saw: the request was sent and taken up. The record it makes
+               is in a repository this page cannot read (R7-6). -->
           <p class="text-sm text-secondary">
-            <code>{{ doneEmail }}</code> is now linked to <strong>@{{ user.login }}</strong>.
-            You can close this page.
+            <code>{{ doneEmail }}</code> was sent, and is linked to <strong>@{{ user.login }}</strong> as soon as
+            the course has read it, usually within a minute. You can close this page.
           </p>
         </div>
 
@@ -179,6 +181,7 @@ import { ghApi } from '../lib/api.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { buildAcceptanceBody, encryptClaim, hubClaimKey } from '../lib/claim.js'
 import { inviteDataUrl, signedConfirmIssueTitle } from '../lib/invite.js'
+import { readBrokerSkipped } from '../lib/acceptance-progress.js'
 import { INSTITUTION_SHORT } from '../lib/deployment.js'
 
 const props = defineProps({
@@ -331,6 +334,22 @@ async function submit() {
     //     cannot cause and cannot act on.
     // The case that motivated the branch above - a finished assignment - is the
     // one a student could really hit, and it is now refused before they type.
+    // ...and one thing a student CAN be shown is that it went nowhere (review
+    // 2026-10-16, R7-6): a broker switched off skips the run and leaves the
+    // issue as it was opened, which is evidence, not a guess. So the page
+    // watches the broker's run for a short while: skipped is said, a run that
+    // started is enough to say "sent", and nothing listed says "sent" too -
+    // claiming nothing about the record it cannot see.
+    const sentAt = Date.now()
+    const ask = (method, path) => ghApi(getToken(), method, path)
+    for (let waited = 0; waited < SKIP_WATCH_MS; waited += SKIP_POLL_MS) {
+      const skipped = await readBrokerSkipped(ask, { org: props.org, broker: brokerRepo, title, sentAt })
+      if (skipped === true) {
+        throw new Error('Confirming is switched off for this assignment right now, so nothing was recorded. Tell your lecturer: publishing the assignment again switches it back on.')
+      }
+      if (skipped === false) break
+      await new Promise((r) => setTimeout(r, SKIP_POLL_MS))
+    }
     doneEmail.value = claim.value.email
     done.value = true
   } catch (e) {
@@ -338,6 +357,10 @@ async function submit() {
   }
   submitting.value = false
 }
+
+/** How long, and how often, the page looks for the broker's run (R7-6). */
+const SKIP_WATCH_MS = 45_000
+const SKIP_POLL_MS = 5_000
 
 onMounted(load)
 </script>

@@ -61,7 +61,9 @@ import { join } from "node:path";
 import { gh } from "../lib/gh.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
-import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir } from "../lib/control-layout.mjs";
+import { ASSIGNMENTS_DIR, assignmentIdFromFile, overridePath, repositoriesDir } from "../lib/control-layout.mjs";
+import { extensionFrom } from "../lib/effective-deadline.mjs";
+import { contentsText } from "../lib/contents-text.mjs";
 import { sentinelInstant, sentinelStoppedAt } from "../lib/sentinel-window.mjs";
 import { COHORT_STATES } from "../lib/finalize-scope.mjs";
 
@@ -120,7 +122,25 @@ const cfg = {
           `/actions/runs/${env("GITHUB_RUN_ID", "0")}`,
   runId: env("GITHUB_RUN_ID", "0"),
   runAttempt: env("GITHUB_RUN_ATTEMPT", "1"),
+  // An EXTENSION'S END this sentinel was armed for (R7-12, find-armable.mjs):
+  // `{ assignment_id: [login, ...] }`. Those members follow those students'
+  // own deadline, not the assignment's, which has passed.
+  extensions: parseExtensions(env("SENTINEL_EXTENSIONS", "")),
 };
+
+/** `SENTINEL_EXTENSIONS` as a Map of id -> logins; anything malformed is none. */
+export function parseExtensions(raw) {
+  let doc = null;
+  try { doc = raw ? JSON.parse(raw) : null; } catch { doc = null; }
+  const out = new Map();
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return out;
+  for (const [id, logins] of Object.entries(doc)) {
+    if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(id) || !Array.isArray(logins)) continue;
+    const ok = logins.filter((l) => typeof l === "string" && /^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$/.test(l));
+    if (ok.length) out.set(id, ok);
+  }
+  return out;
+}
 
 const log = (msg) => console.log(`[sentinel] ${msg}`);
 async function setOutput(name, value) {
@@ -188,6 +208,36 @@ async function listControlDir(dir) {
   return { ok: true, status: res.status, files };
 }
 
+/**
+ * The extension in force for each member this sentinel watches for an
+ * extension's end (R7-12), read again every poll as the deadlines are: the
+ * latest end among its students. Withdrawn for all of them (404) is no
+ * extension, so the member follows its own deadline; a read that fails keeps
+ * the end read last.
+ *
+ * @param {Map<string, Date>} previous
+ * @returns {Promise<Map<string, Date>>}
+ */
+async function readExtensionDeadlines(previous) {
+  const out = new Map();
+  for (const [id, logins] of cfg.extensions) {
+    let latest = null;
+    let unread = false;
+    for (const login of logins) {
+      const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/${overridePath(id, login)}`).catch(() => null);
+      if (res?.status === 404) continue;
+      if (!res?.ok || typeof res.data?.content !== "string") { unread = true; continue; }
+      try {
+        const ext = extensionFrom(JSON.parse(contentsText(res.data.content)));
+        if (ext && (!latest || ext.at > latest)) latest = ext.at;
+      } catch { unread = true; }
+    }
+    if (latest) out.set(id, latest);
+    else if (unread && previous.has(id)) out.set(id, previous.get(id));
+  }
+  return out;
+}
+
 async function readBlob(sha) {
   if (blobText.has(sha)) return blobText.get(sha);
   const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/git/blobs/${sha}`);
@@ -217,11 +267,14 @@ async function readAssignments() {
   for (const file of listing.files) {
     const id = assignmentIdFromFile(file.name);
     if (!id) continue;
+    // Listed but unreadable, or unparseable: `doc: null` - not a member by
+    // its deadline, and not deleted either (goneMembers reads the ids).
     const text = await readBlob(file.sha);
-    if (text === null) continue;
+    let doc = null;
     try {
-      out.push({ id, doc: parseYaml(text) });
-    } catch { /* unparseable: neither a member nor a deadline */ }
+      doc = text === null ? null : parseYaml(text);
+    } catch { /* unparseable */ }
+    out.push({ id, doc });
   }
   return out;
 }
@@ -355,12 +408,14 @@ export function assignmentsAtInstant(assignments, armedAt, withRecords = new Set
  * @returns {{byId: Map<string, Date>, earliest: Date|null}}
  *   `byId` omits a member that is absent or has no readable deadline.
  */
-export function memberDeadlines(members, assignments) {
+export function memberDeadlines(members, assignments, extensionAt = new Map()) {
   const docs = new Map(assignments.map(({ id, doc }) => [id, doc]));
   const byId = new Map();
   let earliest = null;
   for (const id of members) {
-    const raw = docs.get(id)?.deadline_at;
+    // A member this sentinel watches for an extension's end follows that
+    // extension (R7-12); `extensionAt` holds it as last read.
+    const raw = extensionAt.has(id) ? extensionAt.get(id)?.toISOString() : docs.get(id)?.deadline_at;
     if (!raw) continue;
     const at = new Date(raw);
     if (Number.isNaN(at.getTime())) continue;
@@ -502,11 +557,30 @@ async function readTimelines(id) {
  * before this existed. The only assignment now skipped is one we positively
  * READ a later deadline for - which is exactly the lecturer-moved-it case.
  */
-export function dueAssignments(assignmentIds, byId, now) {
+export function dueAssignments(assignmentIds, byId, now, gone = new Set()) {
   return assignmentIds.filter((id) => {
+    // DELETED WHILE WATCHED (review 2026-10-16, R7-17): positively absent from
+    // a listing that was read, so not "could not be re-read". Counted due, the
+    // stop ran lockdown on an assignment that no longer exists and went red.
+    if (gone.has(id)) return false;
     const at = byId.get(id);
     return !at || at.getTime() <= now;
   });
+}
+
+/**
+ * The members a readable listing of `assignments/` no longer holds: deleted
+ * while this sentinel watched. Null `assignments` (unread) says nothing, and
+ * leaves the previous answer standing; one that comes back is a member again.
+ *
+ * @param {string[]} members
+ * @param {Array<{id: string}>|null} assignments
+ * @param {Set<string>} previous
+ */
+export function goneMembers(members, assignments, previous = new Set()) {
+  if (!assignments) return previous;
+  const present = new Set(assignments.map((a) => a.id));
+  return new Set(members.filter((id) => !present.has(id)));
 }
 
 async function main() {
@@ -540,6 +614,10 @@ async function main() {
   // cleared, when a later read fails: a deadline positively read as moved
   // minutes ago is better evidence than the armed instant.
   let latestByAssignment = new Map();
+  // Members a readable listing no longer holds: deleted while watched (R7-17).
+  let gone = new Set();
+  // The extension ends this sentinel follows, as last read (R7-12).
+  let extensionAt = new Map();
 
   // Read the group, then sample, then look at the clock. A sentinel armed close
   // to the instant still records where the cohort stood when it fired, which is
@@ -566,9 +644,13 @@ async function main() {
         joinedAt.set(id, new Date().toISOString());
         log(`${id} shares this instant and was not armed with this sentinel - it joins, and is stopped with the rest`);
       }
-      const live = memberDeadlines(members, assignments);
+      extensionAt = cfg.extensions.size ? await readExtensionDeadlines(extensionAt) : extensionAt;
+      const live = memberDeadlines(members, assignments, extensionAt);
       latestByAssignment = live.byId;
       moved = live.earliest;
+      const wasGone = gone;
+      gone = goneMembers(members, assignments, gone);
+      for (const id of gone) if (!wasGone.has(id)) log(`${id} was deleted while watched - it is not stopped, and no timeline is written for it`);
     }
     sampling = await refreshWatched(watched, members, sampling, { controlReadable: assignments !== null });
 
@@ -614,8 +696,8 @@ async function main() {
     await sleep(Math.min(cfg.pollIntervalMs, target.getTime() - now));
   }
 
-  let due = outcome === "fired" ? dueAssignments(members, latestByAssignment, Date.now()) : [];
-  const skipped = members.filter((id) => !due.includes(id));
+  let due = outcome === "fired" ? dueAssignments(members, latestByAssignment, Date.now(), gone) : [];
+  const skipped = members.filter((id) => !due.includes(id) && !gone.has(id));
   if (outcome === "fired" && skipped.length) {
     log(`not due at this instant, so not stopped: ${skipped.join(", ")} (deadline moved out)`);
   }
@@ -652,7 +734,9 @@ async function main() {
   // lockdown record it explains; nothing globs that directory. Not for a member
   // another sentinel already stopped: its record is that sentinel's, and one
   // more written after the instant says nothing about the instant.
-  const recorded = outcome === "already-stopped" ? [] : members.filter((m) => !alreadyStopped.includes(m));
+  // Nor for one deleted while watched (R7-17): writing it re-created the
+  // directory the delete removed, and the timeline commit pushed it back.
+  const recorded = outcome === "already-stopped" ? [] : members.filter((m) => !alreadyStopped.includes(m) && !gone.has(m));
   for (const id of recorded) {
     const dir = join(cfg.dataDir, "lockdowns", id);
     await mkdir(dir, { recursive: true });

@@ -58,12 +58,14 @@ const group = () => ({
  * (null: the issue read fails), and the hub's run list answering `runs`
  * (null: the run list read fails). Returns a record of what the page sent.
  */
-async function setup(page, { title, run = undefined, runs = undefined, groupMode = false, teams = null }) {
+async function setup(page, { title, run = undefined, runs = undefined, groupMode = false, teams = null, inviteEnabled = true }) {
   const sent = { issues: [] };
   await page.clock.install({ time: T0 });
   await injectAuth(page, STUDENT_1);
   await setupStandardMockRoutes(page, {
     currentUser: STUDENT_1,
+    // Off: the broker skips every attempt and leaves its signed title (R7-6).
+    inviteEnabled,
     assignments: groupMode ? { [GROUP_ID]: group() } : { [ID]: individual() },
     ...(groupMode
       ? {
@@ -89,7 +91,8 @@ async function setup(page, { title, run = undefined, runs = undefined, groupMode
   await page.route(`**/api.github.com/repos/${ORG}/${broker}/issues/*`, (route) =>
     title === null
       ? route.fulfill({ status: 500, body: JSON.stringify({ message: 'boom' }) })
-      : route.fulfill({ status: 200, body: JSON.stringify({ number: 1, title, state: 'open', locked: true, labels: [] }) }));
+      // 'SIGNED': still the title the page opened it with - the broker never ran.
+      : route.fulfill({ status: 200, body: JSON.stringify({ number: 1, title: title === 'SIGNED' ? sent.issues.at(-1)?.title : title, state: 'open', locked: true, labels: [] }) }));
   await page.route('**/api.github.com/repos/*/*/actions/workflows/acceptance-handler.yml/runs*', (route) => {
     if (runs === null) return route.fulfill({ status: 500, body: JSON.stringify({ message: 'boom' }) });
     const list = runs ?? (run ? [{ display_title: acceptanceRunName(`${ORG}/${broker}`, 1), created_at: T0.toISOString(), ...run }] : []);
@@ -118,6 +121,40 @@ async function advance(page, ms) {
 
 // Past the second check, which is the first that reads the issue.
 const settle = (page) => advance(page, 12_000);
+
+test.describe('92 - acceptance switched off (review 2026-10-16, R7-6)', () => {
+  test('a broker that skipped the request says acceptance is switched off, once, and offers nothing to send again', async ({ page }) => {
+    // PXL-2TIN-DevOps-2627 that morning: the page waited half an hour saying
+    // GitHub was busy, over a broker that skipped every attempt.
+    const sent = await setup(page, { title: 'SIGNED', inviteEnabled: false });
+    await accept(page);
+    await settle(page);
+    const state = page.locator('.timeout-state');
+    await expect(state).toContainText('Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer', { timeout: 15000 });
+    await expect(page.locator('.attempt-step-failed')).toContainText('Invitation checked');
+    await expect(page.getByRole('button', { name: /Send it again/i })).toHaveCount(0);
+    expect(sent.issues).toHaveLength(1);
+  });
+
+  test('the team card says it too, joining a team', async ({ page }) => {
+    const teams = { [GROUP_ID]: [{ team_slug: 'team-alpha', team_name: 'Team Alpha', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] };
+    await setup(page, { title: 'SIGNED', inviteEnabled: false, groupMode: true, teams });
+    await page.goto(inviteUrl(ORG, GROUP_ID));
+    await page.getByRole('button', { name: 'Accept & Join Team' }).click();
+    await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });
+    await settle(page);
+    await expect(page.locator('.timeout-state')).toContainText('Accepting this assignment is switched off right now', { timeout: 15000 });
+    await expect(page.getByRole('button', { name: /Send it again/i })).toHaveCount(0);
+  });
+
+  test('switched on, the same signed title in its first seconds is still just starting', async ({ page }) => {
+    await setup(page, { title: 'SIGNED' });
+    await accept(page);
+    await advance(page, 6_000);
+    await expect(page.locator('.timeout-state')).toHaveCount(0);
+    await expect(page.locator('.pending-state')).toBeVisible();
+  });
+});
 
 test.describe('92 - Which step the request is at', () => {
   test('not delivered: said at once, and sending it again sends a new request', async ({ page }) => {

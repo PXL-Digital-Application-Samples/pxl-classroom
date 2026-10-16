@@ -26,6 +26,11 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # `actions: write` to switch the nightly on (the last step); a job-level
+    # block replaces the workflow's, so `contents: read` is restated.
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -104,6 +109,25 @@ jobs:
           fi
           git -C control commit -m "Regenerate dashboard data and reports [$(date -u +%Y-%m-%dT%H:%M:%SZ)]"
           scripts/git-push-with-retry.sh control
+
+      # WORK OWED KEEPS THE NIGHTLY ON (review 2026-10-16, R7-13). The nightly
+      # switches itself off when nothing is active, and only a publish switched
+      # it on again - so a Retry after every deadline (a repository nothing
+      # locks), or a save that moves a closed assignment's deadline later
+      # without publishing, was owed a nightly that never ran. Both rebuild
+      # this organization's pages, which is this run. The queue's own count
+      # decides (scripts/find-finalizable.mjs `active`), so this switches it
+      # on exactly when the nightly would keep itself on. Never fails a rebuild.
+      - name: Keep the nightly on while this organization owes it work
+        if: always() && steps.control.outcome == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ matrix.org }}
+          # lib/github-api-version.mjs, which YAML cannot import; the test
+          # tests/github-api-version.test.mjs holds this equal to it.
+          GITHUB_API_VERSION: "2026-03-10"
+        run: scripts/keep-nightly-on.sh control "$ORG"
 
   deploy-pages:
     needs: [find-orgs, generate]

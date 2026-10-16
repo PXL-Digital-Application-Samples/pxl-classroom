@@ -170,10 +170,13 @@ test("both arming callers exist, or the cron gap is still open", () => {
     "publishing must arm the sentinel, not merely enable it",
   );
 
-  const admin = readFileSync(
-    fileURLToPath(new URL("../frontend/src/views/AdminView.vue", import.meta.url)),
-    "utf8",
-  );
-  assert.match(admin, /deadlineIsImminent/, "saving an edited deadline must arm it too");
-  assert.match(admin, /deadline-sentinel\.yml/);
+  // Saving an edited deadline and granting an extension arm it too, through
+  // one module (frontend/src/lib/sentinel-arm.js, R7-12, R7-15).
+  const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), "utf8");
+  const arm = read("../frontend/src/lib/sentinel-arm.js");
+  assert.match(arm, /deadlineIsImminent/);
+  assert.match(arm, /deadline-sentinel\.yml/);
+  assert.match(arm, /everPublished/, "every state the sentinel watches, not only published");
+  assert.match(read("../frontend/src/views/AdminView.vue"), /armSentinelIfImminent\(\{ token: getToken\(\), org: props\.org, doc \}\)/, "the save");
+  assert.match(read("../frontend/src/views/AssignmentDetailView.vue"), /armSentinelIfImminent\(\{[^}]*instant: newExtValue/, "the extension's end");
 });

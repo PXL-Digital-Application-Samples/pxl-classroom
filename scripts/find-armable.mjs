@@ -35,7 +35,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadYaml } from '../lib/yaml.mjs';
 import { SENTINEL_ARM_WINDOW_MS, sentinelInstant } from '../lib/sentinel-window.mjs';
-import { ASSIGNMENTS_DIR, assignmentIdFromFile } from '../lib/control-layout.mjs';
+import { ASSIGNMENTS_DIR, assignmentIdFromFile, overridesDir } from '../lib/control-layout.mjs';
+import { extensionFrom } from '../lib/effective-deadline.mjs';
 
 // The window itself lives in lib/, because publishing and editing an
 // assignment now arm the sentinel themselves - the cron cannot see a deadline
@@ -64,8 +65,13 @@ export function sentinelKey(iso) {
 
 export function planSentinels(assignments, { now = Date.now(), window = ARM_WINDOW_MS, max = MAX_SENTINELS, org } = {}) {
   const byInstant = new Map();
+  const at = (iso) => {
+    if (!byInstant.has(iso)) byInstant.set(iso, { ids: new Set(), extensions: new Map() });
+    return byInstant.get(iso);
+  };
+  const reachable = (ms) => ms > now && ms <= now + window;
 
-  for (const { id, doc, hasRepositories = false } of assignments) {
+  for (const { id, doc, hasRepositories = false, extensions = [] } of assignments) {
     // The same question the running sentinel asks when it looks for
     // assignments that joined its instant later (lib/sentinel-window.mjs).
     const iso = sentinelInstant(doc, { hasRepositories });
@@ -74,22 +80,62 @@ export function planSentinels(assignments, { now = Date.now(), window = ARM_WIND
     const ms = Date.parse(iso);
     // Already past: the nightly finalize owns it, and a sentinel would only
     // duplicate work that is no longer time-critical.
-    if (ms <= now || ms > now + window) continue;
+    if (reachable(ms)) at(iso).ids.add(id);
 
-    if (!byInstant.has(iso)) byInstant.set(iso, []);
-    byInstant.get(iso).push(id);
+    // AN EXTENSION'S END IS A DEADLINE TOO (review 2026-10-16, R7-12). It was
+    // never watched: an extra-time student was locked by the nightly, hours
+    // later, and their submission rebuilt from commit dates they set
+    // themselves. Each end inside the window gets the sentinel at its instant,
+    // with the students it is for; an extension only extends, so one at or
+    // before the assignment's own deadline is no instant of its own.
+    for (const ext of extensions) {
+      const extMs = Date.parse(ext?.at ?? "");
+      if (!Number.isFinite(extMs) || extMs <= ms || !reachable(extMs)) continue;
+      const slot = at(new Date(extMs).toISOString());
+      slot.ids.add(id);
+      if (!slot.extensions.has(id)) slot.extensions.set(id, new Set());
+      slot.extensions.get(id).add(ext.login);
+    }
   }
 
   const all = [...byInstant.entries()]
-    .map(([deadline_at, ids]) => ({
+    .map(([deadline_at, { ids, extensions }]) => ({
       org,
       key: sentinelKey(deadline_at),
       deadline_at,
-      assignment_ids: ids.sort(),
+      assignment_ids: [...ids].sort(),
+      // Only where there is one, so a plan with none reads as it always did.
+      ...(extensions.size
+        ? { extensions: Object.fromEntries([...extensions].map(([id, logins]) => [id, [...logins].sort()])) }
+        : {}),
     }))
     .sort((a, b) => new Date(a.deadline_at) - new Date(b.deadline_at));
 
   return { armed: all.slice(0, max), dropped: all.slice(max) };
+}
+
+/**
+ * Each student's extension in force, from `overrides/<id>/` - the last grant
+ * in their history (lib/effective-deadline.mjs `extensionFrom`). An unreadable
+ * document is left out: the nightly still locks them.
+ *
+ * @returns {Array<{login: string, at: string}>}
+ */
+function readExtensions(controlDir, id) {
+  const dir = path.join(controlDir, overridesDir(id));
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    try {
+      const doc = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      const ext = extensionFrom(doc);
+      const login = doc?.github_login || file.slice(0, -'.json'.length);
+      if (ext && login) out.push({ login, at: ext.at.toISOString() });
+    } catch (e) {
+      console.error(`Unreadable override ${id}/${file}: ${e.message}`);
+    }
+  }
+  return out;
 }
 
 async function readAssignments(controlDir) {
@@ -107,7 +153,7 @@ async function readAssignments(controlDir) {
       // only then, as the finalize locks it only then (lib/finalize-scope.mjs).
       const records = path.join(controlDir, 'repositories', id);
       const hasRepositories = fs.existsSync(records) && fs.readdirSync(records).some((f) => f.endsWith('.json'));
-      out.push({ id, doc: await loadYaml(path.join(dir, file)), hasRepositories });
+      out.push({ id, doc: await loadYaml(path.join(dir, file)), hasRepositories, extensions: readExtensions(controlDir, id) });
     } catch (e) {
       console.error(`Unreadable assignment ${file}: ${e.message}`);
     }

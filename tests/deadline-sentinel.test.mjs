@@ -20,7 +20,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { tmpdir } from "node:os";
 import { planSentinels, sentinelKey } from "../scripts/find-armable.mjs";
 import {
-  assignmentsAtInstant, dueAssignments, handoverState, memberDeadlines, positiveNumber, resumeFrom,
+  assignmentsAtInstant, dueAssignments, handoverState, memberDeadlines, parseExtensions, positiveNumber, resumeFrom,
   stoppedByAnotherSentinel, timelineFileName,
 } from "../scripts/deadline-sentinel.mjs";
 
@@ -62,6 +62,35 @@ test("a deadline inside the window is armed; outside it is not", () => {
     { now: NOW, org: "TestOrg" },
   );
   assert.deepEqual(armed.map((a) => a.assignment_ids).flat(), ["soon"]);
+});
+
+// R7-12 (review 2026-10-16): an extension's end is a deadline too, and was
+// never watched - an extra-time student was locked by the nightly, hours late.
+test("R7-12: an extension ending inside the window gets the sentinel at its instant, with the students it is for", () => {
+  const { armed } = planSentinels(
+    [{ id: "exam", doc: published(at(-2)), extensions: [{ login: "alice", at: at(1) }, { login: "bob", at: at(1) }, { login: "cleo", at: at(9) }] }],
+    { now: NOW, org: "TestOrg" },
+  );
+  assert.deepEqual(armed, [{ org: "TestOrg", key: sentinelKey(at(1)), deadline_at: at(1), assignment_ids: ["exam"], extensions: { exam: ["alice", "bob"] } }],
+    "cleo's end is beyond the window; the assignment's own deadline has passed");
+});
+
+test("R7-12: an extension's end shares a sentinel with another assignment's deadline at that instant; one at or before its own deadline is no instant", () => {
+  const { armed } = planSentinels(
+    [
+      { id: "exam", doc: published(at(-2)), extensions: [{ login: "alice", at: at(2) }] },
+      { id: "lab", doc: published(at(2)), extensions: [{ login: "dan", at: at(2) }, { login: "eve", at: at(1) }] },
+    ],
+    { now: NOW, org: "TestOrg" },
+  );
+  assert.deepEqual(armed.map((a) => [a.deadline_at, a.assignment_ids, a.extensions ?? null]), [
+    [at(2), ["exam", "lab"], { exam: ["alice"] }],
+  ], "dan's end is lab's own deadline, and eve's is before it: an extension only extends");
+});
+
+test("a plan with no extension reads as it always did", () => {
+  const { armed } = planSentinels([{ id: "soon", doc: published(at(3)) }], { now: NOW, org: "TestOrg" });
+  assert.equal("extensions" in armed[0], false);
 });
 
 test("a deadline already past is the nightly's job, not a sentinel's", () => {
@@ -145,6 +174,23 @@ test("find-armable prints the armed list and names what it dropped", () => {
   assert.match(res.stderr, /cap of 1/);
 });
 
+test("R7-12: find-armable reads each student's extension in force from overrides/", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-armable-ext-"));
+  mkdirSync(join(dir, "assignments"), { recursive: true });
+  mkdirSync(join(dir, "overrides", "a"), { recursive: true });
+  const passed = new Date(Date.now() - HOUR).toISOString();
+  const end = new Date(Math.ceil((Date.now() + 2 * HOUR) / 60_000) * 60_000).toISOString();
+  writeFileSync(join(dir, "assignments", "a.yml"), `state: published\ndeadline_at: "${passed}"\n`);
+  const grant = (value) => ({ type: "deadline_extension", value, reason: "r", overridden_by: "l", overridden_at: passed });
+  // The LAST grant is the one in force (lib/effective-deadline.mjs).
+  writeFileSync(join(dir, "overrides", "a", "alice.json"), JSON.stringify({ github_login: "alice", overrides: [grant(new Date(Date.now() + 9 * HOUR).toISOString()), grant(end)] }));
+  writeFileSync(join(dir, "overrides", "a", "broken.json"), "{");
+  const res = spawnSync("node", [armableScript, dir, "TestOrg"], { encoding: "utf8" });
+  const armed = JSON.parse(res.stdout.trim());
+  assert.deepEqual(armed.map((a) => [a.deadline_at, a.extensions]), [[end, { a: ["alice"] }]], res.stderr);
+  assert.match(res.stderr, /Unreadable override a\/broken\.json/);
+});
+
 // --- what the sentinel does while it waits -----------------------------------
 
 /**
@@ -181,6 +227,10 @@ async function withStubApi(fn, {
   missingBlobs = () => [],
   pushedAt = () => "2026-09-10T21:12:00Z",
   repos,
+  // Whether an id is listed in assignments/ with a file that cannot be read (its blob is 404).
+  unreadable = () => false,
+  // An extension end for (id, login, polls), or null for none (404).
+  extensionFor = () => null,
 } = {}) {
   const calls = [];
   const blobs = new Map();
@@ -213,6 +263,10 @@ async function withStubApi(fn, {
       if (status) return send(status, { message: "listing refused" });
       const files = [];
       for (const id of ids) {
+        if (unreadable(id, polls)) {
+          files.push({ type: "file", name: `${id}.yml`, sha: "0".repeat(40) });
+          continue;
+        }
         const deadline = deadlineFor?.(id, polls);
         if (!deadline) continue;
         const yaml = `state: ${stateFor(id, polls)}\ndeadline_at: "${deadline}"\n`;
@@ -235,6 +289,14 @@ async function withStubApi(fn, {
           ? "0".repeat(40)
           : blobFor(JSON.stringify({ github_login: login, repo_name: `TestOrg/${repoDir[1]}-${login}` })),
       })));
+    }
+
+    const override = path.match(/\/contents\/overrides\/([^/]+)\/([^/]+)\.json$/);
+    if (override) {
+      const end = extensionFor(override[1], override[2], polls);
+      if (!end) return send(404, { message: "Not Found" });
+      const doc = { github_login: override[2], overrides: [{ type: "deadline_extension", value: end, reason: "r", overridden_by: "l", overridden_at: end }] };
+      return send(200, { content: Buffer.from(JSON.stringify(doc)).toString("base64"), encoding: "base64" });
     }
 
     const blob = path.match(/\/git\/blobs\/([0-9a-f]+)$/);
@@ -269,7 +331,7 @@ function makeControlDir(logins = ["alice"]) {
 
 function runSentinel(dir, apiBase, {
   deadlineAt, pollMs = 40, maxRuntimeMs = 60_000, assignmentIds = "exam", maxPages,
-  phaseMs, stateFile, armedAt,
+  phaseMs, stateFile, armedAt, extensions,
 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [sentinelScript], {
@@ -288,6 +350,7 @@ function runSentinel(dir, apiBase, {
         ...(phaseMs ? { SENTINEL_PHASE_MS: String(phaseMs) } : {}),
         ...(stateFile ? { SENTINEL_STATE_FILE: stateFile } : {}),
         ...(armedAt ? { SENTINEL_ARMED_AT: armedAt } : {}),
+        ...(extensions ? { SENTINEL_EXTENSIONS: JSON.stringify(extensions) } : {}),
         // Pinned rather than inherited: CI sets these, and the timeline's file
         // name falls back to them when one is already there.
         GITHUB_RUN_ID: "999",
@@ -416,7 +479,70 @@ test("an unreadable assignment keeps the armed target rather than guessing", asy
       assert.equal(res.timeline.deadline_at, new Date(deadline).toISOString());
       assert.match(res.outputs, /fired=true/);
     },
-    { deadlineFor: () => null }, // the assignment is in no listing
+    // Listed, and its file cannot be read: not absent, and not deleted.
+    { unreadable: () => true },
+  );
+});
+
+test("R7-12: a sentinel armed for an extension's end waits for THAT, though the assignment's own deadline has passed", async () => {
+  const passed = new Date(Date.now() - 2 * HOUR).toISOString();
+  const end = new Date(Date.now() + 600).toISOString();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: end, extensions: { exam: ["alice"] } });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.equal(res.timeline.deadline_at, new Date(end).toISOString(), "stopped at the extension's end, not at once");
+      assert.doesNotMatch(res.stdout, /deadline moved/, "the passed assignment deadline is not this sentinel's");
+      assert.match(res.outputs, /due_assignment_ids=exam\n/);
+    },
+    { deadlineFor: () => passed, extensionFor: (id, login) => (id === "exam" && login === "alice" ? end : null) },
+  );
+});
+
+test("R7-12: an extension withdrawn while it waits is no reason to wait: the student's deadline has passed", async () => {
+  const passed = new Date(Date.now() - 2 * HOUR).toISOString();
+  const end = new Date(Date.now() + 5 * 60_000).toISOString();
+  await withStubApi(
+    async (api) => {
+      const started = Date.now();
+      const res = await runSentinel(makeControlDir(), api, { deadlineAt: end, extensions: { exam: ["alice"] } });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.ok(Date.now() - started < 60_000, "did not wait for the withdrawn end");
+      assert.match(res.stdout, /deadline moved/);
+    },
+    { deadlineFor: () => passed, extensionFor: () => null },
+  );
+});
+
+test("parseExtensions: only an object of slugs to logins", () => {
+  assert.deepEqual([...parseExtensions('{"exam":["alice","bob"]}')], [["exam", ["alice", "bob"]]]);
+  for (const raw of ["", "null", "[]", "{", '{"Bad Id":["a"]}', '{"exam":"alice"}', '{"exam":["not a login!"]}']) {
+    assert.equal(parseExtensions(raw).size, 0, raw);
+  }
+});
+
+test("R7-17: an assignment deleted while watched is not stopped, and gets no timeline", async () => {
+  // Counted due, the stop ran lockdown on an assignment that no longer exists
+  // and went red; and writing its timeline re-created the directory the delete
+  // had removed, which the timeline commit then pushed back.
+  const deadline = new Date(Date.now() + 1_500).toISOString();
+  const dir = makeControlDir();
+  await withStubApi(
+    async (api) => {
+      const res = await runSentinel(dir, api, { deadlineAt: deadline, assignmentIds: "exam,exam-two", pollMs: 150 });
+      assert.equal(res.status, 0, res.stderr);
+      assert.match(res.outputs, /fired=true/);
+      assert.match(res.outputs, /due_assignment_ids=exam\n/, res.outputs);
+      assert.match(res.stderr + res.stdout, /exam-two was deleted while watched/);
+      assert.equal(existsSync(join(dir, "lockdowns", "exam-two")), false, "no directory re-created");
+    },
+    {
+      ids: ["exam", "exam-two"],
+      // exam-two is there at the first poll, and deleted from the second on.
+      deadlineFor: (id, polls) => (id === "exam-two" && polls > 1 ? null : deadline),
+    },
   );
 });
 

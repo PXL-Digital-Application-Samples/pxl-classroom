@@ -49,6 +49,7 @@ async function withApi(fn, { remote = {}, orgIds = null, repoLocked = [], demote
       const control = "/repos/TestOrg/pxl-classroom-control/contents/";
       if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
       if (url === `${control}assignments/exam.yml` && remote.assignment) return send(200, { content: b64(remote.assignment) });
+      if (url === `${control}assignments` && remote.listing) return send(200, remote.listing.map((name) => ({ name, type: "file" })));
       if (url === `${control}overrides/exam` && remote.overrides) {
         return send(200, Object.keys(remote.overrides).map((l) => ({ name: `${l}.json`, type: "file" })));
       }
@@ -323,6 +324,26 @@ test("R7-3: a reopen made after the deadline in force stays open, as it always h
     assert.equal(alice.deferred_until, undefined);
     assert.match(res.log, /left open - reopened by/);
   }, { remote: { assignment: assignmentYaml(DEADLINE), unlocked: { alice: reopenRecord(REOPENED) } } });
+});
+
+test("R7-17: deleted while this ran - GitHub's listing no longer names it - nothing is locked and no record written", async () => {
+  await withApi(async (api, { writes }) => {
+    const dir = checkout();
+    const res = await run(dir, api);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.log, /was deleted while this ran - nothing is locked/);
+    assert.deepEqual(writes, [], "no ruleset made again, nobody demoted");
+    assert.equal(res.record, null, "no record for an assignment nobody has");
+  }, { remote: { listing: ["other.yml"] } });
+});
+
+test("a listing that still names it, with the file unreadable, is not a deletion: the checkout decides", async () => {
+  await withApi(async (api) => {
+    const res = await run(checkout(), api);
+    assert.equal(res.status, 0, res.log);
+    assert.doesNotMatch(res.log, /was deleted/);
+    assert.ok(res.record, "locked from the checkout as before");
+  }, { remote: { listing: ["exam.yml"] } });
 });
 
 test("without a fired sentinel a deferred student's repository is asked nothing, and nothing is written", async () => {

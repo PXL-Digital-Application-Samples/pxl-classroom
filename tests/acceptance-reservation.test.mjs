@@ -10,6 +10,7 @@ import {
   claimConcerns,
   contentDecides,
   decisionInputsChanged,
+  lockRanFor,
   teamConcerns,
   parseActedAt,
   parseIssueNumber,
@@ -17,6 +18,22 @@ import {
   supersededBy,
 } from "../lib/acceptance-reservation.mjs";
 import { teammateAlreadyAdmitted } from "../lib/existing-repo.mjs";
+
+// R7-18 (review 2026-10-16): the in-flight grace closes at the lock of the
+// deadline IN FORCE, not at one for a deadline since moved later.
+test("lockRanFor: a lock record or a stop of THIS deadline, never one of an earlier one", () => {
+  const deadline = new Date("2026-10-16T21:59:00Z");
+  const old = "2026-10-15T21:59:00Z";
+  assert.equal(lockRanFor({ deadline, lockRecord: null, timelines: [] }), false);
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: old }, timelines: [] }), false, "the first deadline's lock is not this one's");
+  assert.equal(lockRanFor({ deadline, lockRecord: { deadline_at: deadline.toISOString() }, timelines: [] }), true);
+  assert.equal(lockRanFor({ deadline, lockRecord: {}, timelines: [] }), true, "a record from before deadline_at counts, as it always did");
+  assert.equal(lockRanFor({ deadline, lockRecord: "unreadable", timelines: [] }), true, "unreadable refuses the grace");
+  const stop = (deadline_at) => ({ outcome: "fired", deadline_at, stop: "done" });
+  assert.equal(lockRanFor({ deadline, lockRecord: null, timelines: [stop(old)] }), false, "the old instant's stop was let go");
+  assert.equal(lockRanFor({ deadline, lockRecord: null, timelines: [stop(old), stop(deadline.toISOString())] }), true);
+  assert.equal(lockRanFor({ deadline, lockRecord: null, timelines: [{ ...stop(deadline.toISOString()), stop: "pending" }] }), true, "a stop that may have held counts");
+});
 
 const who = { assignmentId: "groepsindeling", login: "SabriKatogluPXL" };
 

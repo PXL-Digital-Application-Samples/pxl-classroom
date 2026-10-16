@@ -116,18 +116,21 @@ const WAITING = new Set(['queued', 'pending', 'waiting', 'requested'])
  * @param {number} args.sentAt when the issue was opened (ms)
  * @param {number} [args.now]
  * @returns {{
- *   step: 'starting'|'not-started'|'queued'|'running'|'finishing'|'not-delivered'|'stopped'|'no-answer'|'link-refused'|'unknown',
+ *   step: 'starting'|'not-started'|'queued'|'running'|'finishing'|'not-delivered'|'switched-off'|'stopped'|'no-answer'|'link-refused'|'unknown',
  *   final: boolean,
  *   canRetry: boolean,
  * }}
  */
-export function attemptProgress({ title, run = null, runsRead = false, sentAt, now = Date.now() }) {
+export function attemptProgress({ title, run = null, runsRead = false, sentAt, now = Date.now(), brokerOff = null }) {
   const waited = Number.isFinite(sentAt) ? now - sentAt : 0
   const offer = waited >= RETRY_OFFER_MS
   const stage = issueStage(title)
 
   if (stage === 'not-delivered') return { step: 'not-delivered', final: true, canRetry: true }
   if (stage === 'link-refused') return { step: 'link-refused', final: true, canRetry: false }
+  // The broker skipped it: acceptance is switched off (R7-6, `brokerSkipped`).
+  // Sending it again does the same, so it is not offered.
+  if (stage === 'sent' && brokerOff === true) return { step: 'switched-off', final: true, canRetry: false }
   if (stage === 'sent') {
     return waited < BROKER_SLOW_MS
       ? { step: 'starting', final: false, canRetry: false }
@@ -163,11 +166,11 @@ export function attemptProgress({ title, run = null, runsRead = false, sentAt, n
  */
 export function progressSteps(step) {
   const at = {
-    starting: 1, 'not-started': 1, 'link-refused': 1, 'not-delivered': 1,
+    starting: 1, 'not-started': 1, 'link-refused': 1, 'not-delivered': 1, 'switched-off': 1,
     queued: 2, running: 2, finishing: 2, stopped: 2, 'no-answer': 2,
   }[step]
   if (at === undefined) return []
-  const failed = ['link-refused', 'not-delivered', 'stopped', 'no-answer'].includes(step)
+  const failed = ['link-refused', 'not-delivered', 'switched-off', 'stopped', 'no-answer'].includes(step)
   return ['Request sent', 'Invitation checked', 'Setting up'].map((label, i) => ({
     label,
     state: i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo',
@@ -198,8 +201,60 @@ export function progressMessage(step) {
       return 'Your request finished without setting anything up. Send it again - that is safe. If it happens again, tell your lecturer.'
     case 'link-refused':
       return 'Your invitation link was not accepted. Ask your lecturer for the current link.'
+    case 'switched-off':
+      return 'Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer: publishing it again switches it back on.'
     default:
       return null
+  }
+}
+
+/**
+ * The broker's own run list for issues opened since this attempt - the broker
+ * repository is public - as a path for the page's GitHub client.
+ *
+ * @param {{org: string, broker: string, sentAt: number}} args
+ */
+export function brokerRunsPath({ org, broker, sentAt }) {
+  const since = new Date((Number.isFinite(sentAt) ? sentAt : Date.now()) - 2 * 60_000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+  const q = new URLSearchParams({ event: 'issues', created: `>=${since}`, per_page: '100' })
+  return `/repos/${org}/${broker}/actions/runs?${q}`
+}
+
+/**
+ * Whether the broker SKIPPED this attempt, which only its switch does (review
+ * 2026-10-16, R7-6): `INVITE_ENABLED=false`, read in its job-level `if:`, so
+ * the run completes `skipped` and the issue keeps the signed title it was
+ * opened with - measured on PXL-2TIN-DevOps-2627's broker that morning, where
+ * the page waited half an hour saying GitHub was busy. True only when runs for
+ * this title are listed and every one was skipped; null when none is listed,
+ * or the list was not read - unreadable is not evidence.
+ *
+ * @param {unknown} data the broker's run list response body
+ * @param {unknown} title the title the attempt was opened with
+ * @returns {boolean|null}
+ */
+export function brokerSkipped(data, title) {
+  const runs = Array.isArray(data?.workflow_runs) ? data.workflow_runs : null
+  if (!runs || typeof title !== 'string' || !title.trim()) return null
+  const mine = runs.filter((r) => r?.display_title === title.trim())
+  if (!mine.length) return null
+  return mine.every((r) => r.status === 'completed' && r.conclusion === 'skipped')
+}
+
+/**
+ * Ask the broker's run list, for the pages: true, false, or null for unread.
+ *
+ * @param {(method: string, path: string) => Promise<{ok: boolean, data?: any}>} request
+ * @param {{org: string, broker: string, title: string, sentAt: number}} args
+ */
+export async function readBrokerSkipped(request, { org, broker, title, sentAt }) {
+  try {
+    const res = await request('GET', brokerRunsPath({ org, broker, sentAt }))
+    return res?.ok ? brokerSkipped(res.data, title) : null
+  } catch {
+    return null
   }
 }
 

@@ -548,7 +548,9 @@ import { changedSinceRead, contentsAt as contentsAtCommit, unseedRefusalAt } fro
 import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
 import { askConfirm } from '../lib/confirm.js'
-import { teamPath, teamsDir, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir } from '../../../lib/control-layout.mjs'
+import { teamPath, teamsDir, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir, lockdownRecordPath, overridesDir, unlockedDir } from '../../../lib/control-layout.mjs'
+import { grantableAfterLock } from '../../../lib/permission-change.mjs'
+import { deadlineVariableValue, writeDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatJoinCode, teamNeedsJoinCode } from '../../../lib/team-join-code.mjs'
@@ -561,6 +563,7 @@ import {
   commitFiles,
   deleteFile,
   getRepoContent,
+  ghApi,
   listRepoDir,
   addCollaborator,
   removeCollaborator,
@@ -1352,6 +1355,82 @@ const moveTargets = computed(() => {
  * rows on screen: `props.teams` is the display shape mergeTeamManifests
  * assembles and carries neither `created_by` nor `repo_id` nor `seeded_from`.
  */
+/**
+ * The permission a move or an add may grant on `repoName` NOW (review
+ * 2026-10-16, R7-5): the assignment's, unless the deadline's lock made the
+ * repository read-only and nobody reopened it - then read, as the lock left
+ * the team. It granted the assignment's permission, so admin on a frozen team
+ * repository, able to switch its ruleset off: an unlock around Reopen with no
+ * record. One rule with provisioning (lib/permission-change.mjs
+ * `grantableAfterLock`), read the way provisioning reads it: an unreadable
+ * lock record is held, an unreadable reopen record is a reopen.
+ */
+async function grantablePermission(token, repoName) {
+  const id = props.assignment.id
+  const full = `${props.org}/${repoName}`
+  let lockRecord = null
+  try {
+    const text = await getRepoContent(token, props.org, config.controlRepo, lockdownRecordPath(id))
+    lockRecord = text ? JSON.parse(text) : null
+  } catch {
+    lockRecord = { results: [{ repo_name: full, lock_method: 'demotion' }] }
+  }
+  const reopenRecords = []
+  if (lockRecord) {
+    let files = []
+    try {
+      files = await listRepoDir(token, props.org, config.controlRepo, unlockedDir(id))
+    } catch (e) {
+      if (e?.status !== 404) reopenRecords.push({ repo_name: full })
+    }
+    for (const f of files.filter((x) => x.type === 'file' && x.name.endsWith('.json'))) {
+      try {
+        const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+        reopenRecords.push(text ? JSON.parse(text) : { repo_name: full })
+      } catch {
+        reopenRecords.push({ repo_name: full })
+      }
+    }
+  }
+  return grantableAfterLock({ permission: studentPermission.value, repoName: full, lockRecord, reopenRecords })
+}
+
+/**
+ * Write a team repository's deadline variable from the members it has now
+ * (review 2026-10-16, R7-14): a team carries its most generous member's
+ * extension, so moving or adding someone with one changes what both teams'
+ * pages and workflows should show - and nothing rewrote it, so each page went
+ * on showing the deadline of the team as it was. One rule with provisioning
+ * (lib/deadline-variable.mjs `deadlineVariableValue`). The extensions are read
+ * first; one that cannot be read sends nothing, because "none" would delete a
+ * real one (R6-10).
+ *
+ * @returns {Promise<string|null>} null when written, otherwise why not
+ */
+async function rewriteTeamDeadline(token, repoName, members) {
+  if (!repoName) return null
+  const overrides = []
+  try {
+    let files = []
+    try {
+      files = await listRepoDir(token, props.org, config.controlRepo, overridesDir(props.assignment.id))
+    } catch (e) {
+      if (e?.status !== 404) throw e
+    }
+    for (const f of files.filter((x) => x.type === 'file' && members.some((m) => sameLogin(m, x.name.slice(0, -'.json'.length))))) {
+      const text = await getRepoContent(token, props.org, config.controlRepo, f.path)
+      if (text) overrides.push(JSON.parse(text))
+    }
+  } catch (e) {
+    return `its deadline was not sent: the extensions could not be read (${e.message})`
+  }
+  const value = members.length ? deadlineVariableValue(props.assignment, members[0], { overrides, team: { members } }) : null
+  const res = await writeDeadlineVariable((method, path, body) => ghApi(token, method, path, body), {
+    repoFullName: `${props.org}/${repoName}`, value,
+  })
+  return res.ok ? null : `its deadline was not sent: GitHub refused it (HTTP ${res.status})`
+}
+
 async function moveMemberTo(login, targetSlug) {
   if (!managingTeam.value || !targetSlug) return
   const sourceSlug = managingTeam.value.team_slug
@@ -1490,6 +1569,7 @@ async function moveMemberTo(login, targetSlug) {
     // have none on the new one, while the lecturer read "@login moved to X".
     const problems = []
     const notAccounts = []
+    const heldNotes = []
     if (sourceRepo) {
       // 404 means they were not a collaborator there, and a 403 on a username
       // that is not an account means there was never any access: both are the
@@ -1503,9 +1583,17 @@ async function moveMemberTo(login, targetSlug) {
         // Already known; inviting a username that is no account only fails.
         problems.push(`@${login} is not a GitHub account, so ${targetRepo} could not be shared with them`)
       } else {
-        const res = await addCollaborator(token, props.org, targetRepo, login, studentPermission.value)
+        // What the lock left, not the assignment's permission (R7-5).
+        const grant = await grantablePermission(token, targetRepo)
+        const res = await addCollaborator(token, props.org, targetRepo, login, grant.permission)
         if (!res?.ok) problems.push(await grantProblem(token, targetRepo, login, res))
+        else if (grant.held) heldNotes.push(`@${login} has read access to ${targetRepo}, as the deadline's lock left it; Reopen gives them more`)
       }
+    }
+    // Both teams' deadlines, from their members after the move (R7-14).
+    for (const [repo, members] of [[sourceRepo, nextSource.members], [targetRepo, nextTarget.members]]) {
+      const why = await rewriteTeamDeadline(token, repo, members)
+      if (why) problems.push(`${repo}: ${why}`)
     }
 
     await republishTeams(token)
@@ -1515,7 +1603,7 @@ async function moveMemberTo(login, targetSlug) {
         problems.join('; ')
       )
     } else {
-      const note = notAnAccountNote(notAccounts)
+      const note = [notAnAccountNote(notAccounts), ...heldNotes.map((n) => `${n}.`)].filter(Boolean).join(' ')
       toast.success(`@${login} moved to "${target.team_name}".${note ? ` ${note}` : ''}`)
     }
     managingTeam.value = null
@@ -1728,6 +1816,7 @@ async function saveTeamMembers() {
     // which on an exam is the sharper half.
     const accessFailures = []
     const notAccounts = []
+    let heldNote = ''
     if (token && repoName) {
       for (const m of removed) {
         // 204 is the success shape; 404 means they were not a collaborator, and
@@ -1737,11 +1826,15 @@ async function saveTeamMembers() {
         if (outcome === 'not-an-account') notAccounts.push(m)
         else if (outcome === 'failed') accessFailures.push(`could not remove @${m} (HTTP ${status ?? '?'})`)
       }
+      // What the lock left, not the assignment's permission (R7-5); asked
+      // once for this repository.
+      const grant = added.length ? await grantablePermission(token, repoName) : null
       for (const m of added) {
-        const res = await addCollaborator(token, props.org, repoName, m, studentPermission.value)
+        const res = await addCollaborator(token, props.org, repoName, m, grant.permission)
         // 201 is "invitation created", 204 is "already a collaborator".
         if (!res?.ok) accessFailures.push(await grantProblem(token, repoName, m, res))
       }
+      if (grant?.held) heldNote = `The deadline's lock left ${repoName} read-only, so those added have read access; Reopen gives them more.`
     }
 
     const res = await commitFiles(
@@ -1759,12 +1852,17 @@ async function saveTeamMembers() {
       },
     )
     if (res.ok) {
+      // The team's deadline, from its members as saved (R7-14).
+      if (token && repoName && (added.length || removed.length)) {
+        const why = await rewriteTeamDeadline(token, repoName, teamDoc.members || [])
+        if (why) accessFailures.push(`${repoName}: ${why}`)
+      }
       await republishTeams(token)
       // The membership is recorded either way - the manifest is the source of
       // truth and a later reconcile can repair access - but "updated
       // successfully" over a student who cannot reach the repository is the
       // lecturer finding out from the student instead.
-      const note = notAnAccountNote(notAccounts)
+      const note = [notAnAccountNote(notAccounts), heldNote].filter(Boolean).join(' ')
       if (accessFailures.length) {
         toast.error(
           `Team "${managingTeam.value.team_name}" was saved, but repository access did not all change: ` +

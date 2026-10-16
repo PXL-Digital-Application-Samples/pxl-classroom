@@ -170,7 +170,8 @@ test.describe('38 - A state transition changes the layout under the lecturer', (
     await chooseState(page, 'Archive');
     // TL-14: the question says what still happens to students who accepted,
     // and when - by the nightly, not at the instant (P2-25).
-    await expect(page.getByRole('alertdialog')).toContainText('Students who accepted are still locked and their work archived after the deadline, by the nightly check rather than at the instant itself.');
+    // At the instant, as for a published assignment (R7-15).
+    await expect(page.getByRole('alertdialog')).toContainText('Students who accepted are still locked at the deadline and their work archived, as for a published assignment.');
     await answerConfirm(page);
 
     await expect(page.getByPlaceholder('e.g. Linux Processes 2026')).toBeVisible({ timeout: 15000 });

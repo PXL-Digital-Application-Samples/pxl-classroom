@@ -200,6 +200,20 @@ test.describe('when the section appears at all', () => {
     await expect(unlockSection(page).locator('[data-reopen-until]')).toContainText(/nothing locks them again: use Lock again when they are done/);
   });
 
+  test('R7-16: an extension granted to a locked student says it does not reopen them, and how it does', async ({ page }) => {
+    await openTracking(page);
+    await openActions(page);
+    const later = new Date(Date.now() + 3 * 86400_000)
+    const local = new Date(later.getTime() - later.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+    await modal(page).locator('input[type="datetime-local"]').first().fill(local);
+    // The first reason box is the extension's; the Reopen section has its own.
+    await modal(page).getByPlaceholder(/Medical certificate/).first().fill('Medical certificate');
+    await modal(page).getByRole('button', { name: 'Grant extension' }).click();
+    const toast = page.locator('.toast', { hasText: `Extension granted to ${STUDENT}` });
+    await expect(toast).toContainText('already locked at the deadline, and more time does not reopen it. Reopen them to let them push until');
+    await expect(toast).not.toContainText('use the new deadline anyway');
+  });
+
   test('nothing is offered before the deadline has run', async ({ page }) => {
     // No lockdown record at all. A heading over "nothing has been locked" on
     // every student in a live cohort is noise, so the section does not render.

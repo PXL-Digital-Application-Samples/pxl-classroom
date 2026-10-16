@@ -87,13 +87,28 @@ function report() {
   };
 }
 
-async function openManageAlpha(page, captured) {
+async function openManageAlpha(page, captured, { overrides = {}, lockRecord = null } = {}) {
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
     assignments: { [ID]: assignment() },
     reports: { [ID]: report() },
     controlTeams: { [ID]: [storedAlpha(), storedBeta()] },
+    controlOverrides: { [ID]: overrides },
     currentUser: LECTURER,
+  });
+  if (lockRecord) {
+    await page.route(`**/contents/lockdowns/${ID}/lockdown-record.json*`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: Buffer.from(JSON.stringify(lockRecord)).toString('base64'), encoding: 'base64' }) }));
+  }
+  // Each team repository's deadline variable (lib/deadline-variable.mjs), as written.
+  captured.variables = captured.variables || [];
+  await page.route('**/actions/variables**', async (route) => {
+    const req = route.request();
+    if (req.method() === 'GET') return route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' });
+    let value = null;
+    try { value = req.postDataJSON()?.value ?? null; } catch { /* a DELETE has no body */ }
+    captured.variables.push({ method: req.method(), repo: req.url().split('/repos/')[1].split('/actions/')[0], value });
+    return route.fulfill({ status: req.method() === 'POST' ? 201 : 204, body: '' });
   });
 
   // commitFiles goes through the git tree API, not PUT /contents/, so the
@@ -123,6 +138,44 @@ async function openManageAlpha(page, captured) {
   await alphaRow.getByRole('button', { name: /Manage/i }).click();
   await expect(page.locator('.modal.card', { hasText: 'Manage Alpha' })).toBeVisible();
 }
+
+test.describe('48 - a move after the deadline and with extensions (review 2026-10-16)', () => {
+  test('R7-5: into a team the lock left read-only, the student gets read, not the assignment\'s admin', async ({ page }) => {
+    const captured = { blobs: [], trees: [], collab: [] };
+    await openManageAlpha(page, captured, {
+      lockRecord: { schema_version: 1, assignment_id: ID, results: [{ github_login: 'stud3', repo_name: `${ORG}/${ID}-beta`, snapshot_sha: 'a'.repeat(40), lock_method: 'demotion', verified: true }] },
+    });
+    // stud2 already a collaborator there: GitHub answers 204 at the permission sent.
+    const granted = [];
+    await page.route(`**/repos/${ORG}/${ID}-beta/collaborators/stud2`, async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback();
+      granted.push(route.request().postDataJSON()?.permission ?? null);
+      return route.fulfill({ status: 204, body: '' });
+    });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
+    await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
+    await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toContainText(`read access to ${ID}-beta, as the deadline's lock left it`);
+    expect(granted).toEqual(['pull']);
+  });
+
+  test('R7-14: both teams\' deadlines are written again from their members after the move', async ({ page }) => {
+    const ext = '2027-01-05T22:00:00.000Z';
+    const captured = { blobs: [], trees: [], collab: [] };
+    await openManageAlpha(page, captured, {
+      overrides: { stud2: { schema_version: 1, assignment_id: ID, github_login: 'stud2', overrides: [{ type: 'deadline_extension', value: ext, reason: 'r', overridden_by: 'admin-panel', overridden_at: '2026-10-16T10:00:00Z' }] } },
+    });
+    const modal = page.locator('.modal.card', { hasText: 'Manage Alpha' });
+    await modal.locator('.member-manage-row', { hasText: 'stud2' }).locator('select').selectOption('beta');
+    await answerConfirm(page);
+    await expect(page.locator('.toast', { hasText: /moved to "Beta"/i })).toBeVisible();
+    // Beta now carries stud2's extension; Alpha, without them, carries none.
+    await expect.poll(() => captured.variables.map((v) => `${v.repo} ${v.value ?? 'none'}`).sort()).toEqual([
+      `${ORG}/${ID}-alpha none`,
+      `${ORG}/${ID}-beta ${ext}`,
+    ]);
+  });
+});
 
 test.describe('48 - Moving a student between teams', () => {
   test('both manifests land in ONE commit, merged onto what was stored', async ({ page }) => {

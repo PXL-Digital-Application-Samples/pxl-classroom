@@ -637,6 +637,16 @@ jobs:
           # A pathspec that matches nothing tracked is not a failure here.
           git -C control restore --staged --worktree -- reports/ 2>/dev/null || true
           git -C control clean -fdq -- reports/
+          # DELETED WHILE THIS RAN (review 2026-10-16, R7-17): committing would
+          # put back the directories the delete removed, for an assignment
+          # nobody has any more. Asked of the branch, not the checkout.
+          git -C control fetch -q origin HEAD
+          if ! git -C control cat-file -e "FETCH_HEAD:assignments/${ASSIGNMENT_ID}.yml" 2>/dev/null \
+            && ! git -C control cat-file -e "FETCH_HEAD:assignments/${ASSIGNMENT_ID}.yaml" 2>/dev/null \
+            && ! git -C control cat-file -e "FETCH_HEAD:assignments/${ASSIGNMENT_ID}.json" 2>/dev/null; then
+            echo "::notice::${ASSIGNMENT_ID} was deleted while this ran, so nothing of it is committed."
+            exit 0
+          fi
           mkdir -p control/observations control/lockdowns
           git -C control add observations/ lockdowns/
           if git -C control diff --cached --quiet; then exit 0; fi

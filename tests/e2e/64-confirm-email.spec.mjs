@@ -77,6 +77,7 @@ async function openConfirm(page, {
   issueStatus = null,
   url = null,
   signedIn = true,
+  inviteEnabled = true,
 } = {}) {
   const acceptanceTitles = [];
   const acceptanceBodies = [];
@@ -86,6 +87,7 @@ async function openConfirm(page, {
     assignments: { [ID]: assignment(over) },
     acceptanceTitles,
     acceptanceBodies,
+    inviteEnabled,
   });
   await page.route('**/api.github.com/user/emails*', (route) =>
     route.fulfill({
@@ -167,6 +169,24 @@ test.describe('64 - confirming', () => {
     expect(acceptanceTitles).toHaveLength(1);
     expect(acceptanceTitles[0].ok, acceptanceTitles[0].reason).toBe(true);
     expect(acceptanceTitles[0].title).toMatch(/^pxl-confirm:/);
+  });
+
+  test('R7-6: a broker switched off is said, not thanked for - and nothing claims a link it did not see', async ({ page }) => {
+    // The broker's `if:` reads INVITE_ENABLED=false and skips the run: the
+    // page used to say "is now linked" over a confirmation that never happened.
+    await openConfirm(page, { inviteEnabled: false });
+    await address(page).waitFor({ timeout: 15000 });
+    await submit(page).click();
+    await expect(page.locator('main')).toContainText('Confirming is switched off for this assignment right now, so nothing was recorded', { timeout: 20000 });
+    await expect(page.locator('main')).not.toContainText("that's all we needed");
+  });
+
+  test('R7-6: switched on, the page says it was sent and is linked once the course has read it', async ({ page }) => {
+    await openConfirm(page);
+    await address(page).waitFor({ timeout: 15000 });
+    await submit(page).click();
+    await expect(page.locator('main')).toContainText('was sent, and is linked to', { timeout: 15000 });
+    await expect(page.locator('main')).not.toContainText('is now linked');
   });
 
   test('the address is SEALED - nothing readable leaves the browser', async ({ page }) => {

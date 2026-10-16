@@ -107,6 +107,12 @@ async function main() {
 
   const lines = found.map((f) => {
     const when = f.created_at.slice(0, 16).replace("T", " ");
+    // An address confirmation (R7-6): its link is sent again by the lecturer,
+    // and a broker switched off is switched on by publishing again.
+    if (f.purpose === "confirm") {
+      return `- \`${f.login}\` tried to confirm their address for \`${f.assignment_id}\` at ${when} UTC, and ${STAGE_WORDS[f.stage]}. ` +
+        `To fix: if the assignment is still open, publish it again, then ask them to open their confirmation link again.`;
+    }
     const fix = f.group
       ? "ask them to open their invitation link and join their team again"
       : "press **Retry** for them on the assignment page, or ask them to open their invitation link again";
@@ -114,8 +120,9 @@ async function main() {
   });
   await setOutput(
     "details",
-    `${found.length === 1 ? "A student's acceptance" : `${found.length} acceptances`} got no answer, usually because GitHub had a problem at the time. ` +
-      `Whatever ${found.length === 1 ? "it" : "each"} asked for - a repository, or a place in a team - did not happen.\n\n${lines.join("\n")}`,
+    `${found.length === 1 ? "A student's request" : `${found.length} requests`} got no answer, usually because GitHub had a problem at the time ` +
+      `or the assignment's acceptance was switched off. ` +
+      `Whatever ${found.length === 1 ? "it" : "each"} asked for - a repository, a place in a team, or a confirmed address - did not happen.\n\n${lines.join("\n")}`,
   );
   await setOutput(
     "dedup",

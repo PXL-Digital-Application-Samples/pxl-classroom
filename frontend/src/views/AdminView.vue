@@ -1676,7 +1676,7 @@ import { TIMEZONE, INSTITUTION_SHORT, CLAIM_ADDRESS_FORMAT } from '../lib/deploy
 import { REQUIRE_CLAIM_LABEL, ACCEPT_IDENTITY_QUESTION } from '../lib/claim.js'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff } from '../lib/org-session.js'
-import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, dispatchWorkflowRun, getRepo, ghApi, triggerWorkflow, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
+import { commitFile, commitFiles, createBlankStarterRepository, deleteFile, dispatchWorkflowRun, getRepo, ghApi, listRepoDir, listOrgRepos, getRepoContent, explainDispatchFailure, listOrgTemplates, validateTemplateRepository } from '../lib/api.js'
 import { syncRefusal } from '../lib/starter-sync.js'
 import { blankStarterName, blankStarterFailure } from '../lib/blank-starter.js'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -1750,7 +1750,7 @@ import { dateReadout } from '../lib/date-readout.js'
 import { formatDate } from '../lib/format.js'
 import { studentPageBarText, studentPageLine, studentPageSteps } from '../lib/student-page-status.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
-import { deadlineIsImminent } from '../../../lib/sentinel-window.mjs'
+import { armSentinelIfImminent } from '../lib/sentinel-arm.js'
 import { republishRefusal } from '../../../lib/finished-assignment.mjs'
 import { everPublished } from '../lib/state-actions.js'
 import {
@@ -4387,44 +4387,6 @@ async function onSlugBlur() {
   }
 }
 
-/**
- * Arm the deadline sentinel when a save leaves an imminent deadline.
- *
- * The sentinel arms from a 4-hourly cron, and a cron cannot see a change made
- * after it last fired. Publishing covers one of the two moments that creates a
- * deadline it has already missed; this covers the other, which is the one a
- * lecturer reaches by accident: an assignment whose deadline was next week,
- * edited to this afternoon. Nothing about that is a publish, so nothing armed.
- *
- * DELIBERATELY SILENT, in both directions. A dispatch that fails changes
- * nothing a lecturer must act on - the cron still arms anything more than four
- * hours out, and the nightly still locks whatever the sentinel misses, so the
- * deadline holds either way and only its precision is at stake. Toasting a
- * failure here would ask someone mid-exam-setup to care about a layer that
- * exists to save them minutes. It is also entirely normal for this to fail:
- * dispatching a hub workflow needs write access on the hub, which most
- * lecturers do not have (OPEN-ITEMS 4).
- *
- * Only for a PUBLISHED assignment: a draft has nobody to freeze.
- */
-async function armSentinelIfImminent(doc) {
-  if (doc?.state !== 'published') return
-  if (!deadlineIsImminent(doc?.deadline_at)) return
-  // `.ok`, not try/catch: everything in lib/api.js RESOLVES `{ ok: false }`
-  // rather than throwing, so a catch here would never run and would only look
-  // like error handling. Silent to the lecturer, visible in the console - the
-  // cron and the nightly are both still behind this, so there is nothing for
-  // them to do about it.
-  const res = await triggerWorkflow(getToken(), config.hubOwner, config.hubRepo, 'deadline-sentinel.yml', {
-    org: props.org,
-  })
-  if (!res?.ok) {
-    console.warn(
-      `Could not arm the deadline sentinel (HTTP ${res?.status}). The deadline still holds: ` +
-        `the 4-hourly cron arms anything further out, and the nightly locks whatever it misses.`,
-    )
-  }
-}
 
 // WHAT THE PRESS IS DOING, from the instant of the click. Save & publish ran
 // three seconds of checks - the form, the slug against the control repo, the
@@ -4614,7 +4576,9 @@ async function saveAssignmentSteps(stateOverride) {
       if (form.value.state === 'published' && !startsPublish) {
         verifyLiveInfrastructure(form.value.id)
       }
-      await armSentinelIfImminent(doc)
+      // Arm the deadline sentinel when the save leaves an imminent deadline
+      // (frontend/src/lib/sentinel-arm.js): silent, and cheap when it is not.
+      await armSentinelIfImminent({ token: getToken(), org: props.org, doc })
       return true
     }
     toast.error(`Save failed: ${res.data?.message || 'unknown error'}`)
@@ -5639,9 +5603,10 @@ async function setState(newState) {
       title: `Archive "${name}"?`,
       // Finalized all the same (scripts/find-finalizable.mjs `mayHaveStudents`):
       // archived before the nightly, an exam was never locked or archived
-      // (review 2026-10-14). By the nightly, not at the instant: the sentinel
-      // watches published and closed assignments only (P2-25).
-      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Students who accepted are still locked and their work archived after the deadline, by the nightly check rather than at the instant itself.'],
+      // (review 2026-10-14). AT the instant: the sentinel watches an archived
+      // assignment students accepted (R6-22, `sentinelInstant`), and saying
+      // "by the nightly" was no longer true (review 2026-10-16, R7-15).
+      paragraphs: ['It leaves the student-facing list and day-to-day tracking. Students who accepted are still locked at the deadline and their work archived, as for a published assignment.'],
       confirmLabel: 'Archive',
       destructive: true,
     },

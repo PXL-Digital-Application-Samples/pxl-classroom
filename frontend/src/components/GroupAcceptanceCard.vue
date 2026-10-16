@@ -580,7 +580,7 @@ import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, progressMessage, progressSteps,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, progressMessage, progressSteps, readBrokerSkipped,
 } from '../lib/acceptance-progress.js'
 
 const props = defineProps({
@@ -973,7 +973,11 @@ async function readAttemptProgress() {
   } catch {
     // Unread: says nothing.
   }
-  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt })
+  // Still the signed title: did the broker skip it (its switch, R7-6)?
+  const brokerOff = issueStage(attemptTitle.value) === 'sent'
+    ? await readBrokerSkipped((method, path) => ghApi(getToken(), method, path), { org: props.org, broker, title: attemptTitle.value, sentAt })
+    : null
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt, brokerOff })
   return progress.value
 }
 
