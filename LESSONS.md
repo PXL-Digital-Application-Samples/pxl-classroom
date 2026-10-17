@@ -8,6 +8,8 @@ This file is **not** loaded into every session, which is the point: the rules ar
 short enough to be read every time, and the reasoning is one click away when a rule
 is about to be changed. Kept because a rule whose reason is lost gets argued away.
 
+**Review ids.** Comments, tests and these documents cite findings as `R7-3`, `P2-34`, `LD4` and the like. They are rows of `REVIEW-TRACKER.md`, the log of the reviews of 2026-10-14 to 2026-10-17, removed once every row was closed and every decision in it was written where it stays. It is still in the history: `git show d35cd6c:REVIEW-TRACKER.md`.
+
 ## Working rules
 
 ### `npm run lint` is the only lint command, and CI runs exactly it.
