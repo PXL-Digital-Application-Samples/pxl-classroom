@@ -487,45 +487,25 @@
           <table>
             <thead>
               <tr>
-                <th @click="sortBy('github_login')" @keydown.enter="sortBy('github_login')" @keydown.space.prevent="sortBy('github_login')" tabindex="0" class="sortable" :aria-sort="ariaSort('github_login')">
-                  <span class="th-label">Login<SortIcon :dir="sortDir('github_login')" /></span>
-                </th>
-                <th v-if="isGroupAssignment" @click="sortBy('team')" @keydown.enter="sortBy('team')" @keydown.space.prevent="sortBy('team')" tabindex="0" class="sortable" :aria-sort="ariaSort('team')">
-                  <span class="th-label">Team<SortIcon :dir="sortDir('team')" /></span>
-                </th>
+                <SortableTh :sort="progressSort" col="github_login">Login</SortableTh>
+                <SortableTh v-if="isGroupAssignment" :sort="progressSort" col="team">Team</SortableTh>
                 <!-- Under `open` the claim is RECORDED rather than enforced, so
                      this column is the whole of the "detection" half - and it
                      existed everywhere except on screen: report/report.mjs
                      already says "a lecturer who cannot see it might as well
                      not have it". -->
-                <th v-if="hasClaimedEmails" @click="sortBy('claimed_email')" @keydown.enter="sortBy('claimed_email')" @keydown.space.prevent="sortBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSort('claimed_email')">
-                  <span class="th-label">Confirmed address<SortIcon :dir="sortDir('claimed_email')" /></span>
-                </th>
-                <th @click="sortBy('acceptance_state')" @keydown.enter="sortBy('acceptance_state')" @keydown.space.prevent="sortBy('acceptance_state')" tabindex="0" class="sortable" :aria-sort="ariaSort('acceptance_state')">
-                  <span class="th-label">Acceptance<SortIcon :dir="sortDir('acceptance_state')" /></span>
-                </th>
-                <th @click="sortBy('submission_status')" @keydown.enter="sortBy('submission_status')" @keydown.space.prevent="sortBy('submission_status')" tabindex="0" class="sortable" :aria-sort="ariaSort('submission_status')">
-                  <span class="th-label">Status<SortIcon :dir="sortDir('submission_status')" /></span>
-                </th>
-                <th @click="sortBy('repo_name')" @keydown.enter="sortBy('repo_name')" @keydown.space.prevent="sortBy('repo_name')" tabindex="0" class="sortable" :aria-sort="ariaSort('repo_name')">
-                  <span class="th-label">Repo<SortIcon :dir="sortDir('repo_name')" /></span>
-                </th>
-                <th @click="sortBy('latest_observed_at')" @keydown.enter="sortBy('latest_observed_at')" @keydown.space.prevent="sortBy('latest_observed_at')" tabindex="0" class="sortable" :aria-sort="ariaSort('latest_observed_at')">
-                  <span class="th-label">Last commit<SortIcon :dir="sortDir('latest_observed_at')" /></span>
-                </th>
+                <SortableTh v-if="hasClaimedEmails" :sort="progressSort" col="claimed_email">Confirmed address</SortableTh>
+                <SortableTh :sort="progressSort" col="acceptance_state">Acceptance</SortableTh>
+                <SortableTh :sort="progressSort" col="submission_status">Status</SortableTh>
+                <SortableTh :sort="progressSort" col="repo_name">Repo</SortableTh>
+                <SortableTh :sort="progressSort" col="latest_observed_at">Last commit</SortableTh>
                 <!-- A heading sets its column's width as surely as a cell does:
                      "Commits" was 86px over cells of one to five characters. The
                      word is still the heading's name for a screen reader and
                      on hover. -->
-                <th @click="sortBy('commit_count')" @keydown.enter="sortBy('commit_count')" @keydown.space.prevent="sortBy('commit_count')" tabindex="0" class="sortable num" :aria-sort="ariaSort('commit_count')" title="Commits">
-                  <span class="th-label"><span aria-hidden="true">#</span><span class="sr-only">Commits</span><SortIcon :dir="sortDir('commit_count')" /></span>
-                </th>
-                <th v-if="hasGrades" @click="sortBy('score')" @keydown.enter="sortBy('score')" @keydown.space.prevent="sortBy('score')" tabindex="0" class="sortable col-score" :aria-sort="ariaSort('score')">
-                  <span class="th-label">Score<SortIcon :dir="sortDir('score')" /></span>
-                </th>
-                <th v-if="feedbackPrEnabled" @click="sortBy('feedback_pr')" @keydown.enter="sortBy('feedback_pr')" @keydown.space.prevent="sortBy('feedback_pr')" tabindex="0" class="sortable col-feedback-pr" :aria-sort="ariaSort('feedback_pr')">
-                  <span class="th-label">Feedback PR<SortIcon :dir="sortDir('feedback_pr')" /></span>
-                </th>
+                <SortableTh :sort="progressSort" col="commit_count" class="num" title="Commits"><span aria-hidden="true">#</span><span class="sr-only">Commits</span></SortableTh>
+                <SortableTh v-if="hasGrades" :sort="progressSort" col="score" class="col-score">Score</SortableTh>
+                <SortableTh v-if="feedbackPrEnabled" :sort="progressSort" col="feedback_pr" class="col-feedback-pr">Feedback PR</SortableTh>
                 <th class="col-actions"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -658,36 +638,15 @@
                   <div v-if="extensionFor(s.github_login)" class="ext-note" :title="`Extension granted. Reason: ${extensionFor(s.github_login).reason}`">
                     ext -> {{ fmt(extensionFor(s.github_login).value) }}
                   </div>
-                  <div v-if="s.preservation_status === 'preserved' && s.preserved_sha && studentArchiveUrl(s)" class="archive-link-wrap">
-                    <a
-                      :href="studentArchiveUrl(s)"
-                      target="_blank"
-                      rel="noopener"
-                      class="mono text-xs"
-                      :title="`Preserved in archive repository at SHA ${s.preserved_sha}`"
-                      style="display: inline-flex; align-items: center; gap: 3px; color: var(--text-secondary); text-decoration: underline;"
-                    >
-                      <Icon name="archive" :size="11" />
-                      <span>archive ({{ s.preserved_sha.slice(0, 7) }})</span>
-                    </a>
-                  </div>
+                  <ArchiveLink
+                    v-if="s.preservation_status === 'preserved'"
+                    :url="studentArchiveUrl(s)"
+                    :sha="s.preserved_sha"
+                  />
                 </td>
-                <!-- An icon, with the name on hover. On an individual
-                     assignment the name is a prefix every row shares followed
-                     by the login, which is the first column: 250px that said
-                     nothing the row had not said already. -->
+                <!-- An icon, with the name on hover (RepoIconLink). -->
                 <td class="col-repo">
-                  <a
-                    v-if="s.repo_url"
-                    :href="s.repo_url"
-                    target="_blank"
-                    class="repo-link repo-icon-link"
-                    :title="shortRepo(s.repo_name)"
-                    :aria-label="`Repository ${shortRepo(s.repo_name)}`"
-                  >
-                    <Icon name="book" :size="16" />
-                  </a>
-                  <span v-else class="text-muted">-</span>
+                  <RepoIconLink :url="s.repo_url" :name="s.repo_name" />
                   <!-- The one warning no other column can express. It is a fault
                        in the repository RECORD, so it belongs on the repository
                        - not in a column of its own beside two warnings that were
@@ -701,16 +660,7 @@
                   />
                 </td>
                 <td class="col-last-commit">
-                  <template v-if="s.repo_url && latestSha(s)">
-                    <div v-if="commitTime(s)" class="commit-time-top" :title="fmt(commitTime(s))">
-                      {{ formatRelative(commitTime(s)) }}
-                    </div>
-                    <a :href="`${s.repo_url}/commit/${latestSha(s)}`" target="_blank" class="mono sha" :title="commitMsg(s) || null">
-                      {{ latestSha(s).slice(0, 7) }}
-                    </a>
-                  </template>
-                  <span v-else-if="s.repo_url" class="text-muted">no commits</span>
-                  <span v-else class="text-muted">-</span>
+                  <LastCommitCell :row="s" :timezone="assignment?.timezone || null" />
                 </td>
                 <td class="num">
                   <span v-if="s.commit_count != null">{{ s.commit_count.toLocaleString() }}</span>
@@ -1217,26 +1167,14 @@
               <table>
                 <thead>
                   <tr>
-                    <th @click="sortAutogradeBy('login')" @keydown.enter="sortAutogradeBy('login')" @keydown.space.prevent="sortAutogradeBy('login')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('login')">
-                      <span class="th-label">Login<SortIcon :dir="sortAutogradeDir('login')" /></span>
-                    </th>
-                    <th v-if="isGroupAssignment" @click="sortAutogradeBy('team')" @keydown.enter="sortAutogradeBy('team')" @keydown.space.prevent="sortAutogradeBy('team')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('team')">
-                      <span class="th-label">Team<SortIcon :dir="sortAutogradeDir('team')" /></span>
-                    </th>
-                    <th v-if="autogradeHasClaimedEmails" @click="sortAutogradeBy('claimed_email')" @keydown.enter="sortAutogradeBy('claimed_email')" @keydown.space.prevent="sortAutogradeBy('claimed_email')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('claimed_email')">
-                      <span class="th-label">Confirmed address<SortIcon :dir="sortAutogradeDir('claimed_email')" /></span>
-                    </th>
-                    <th @click="sortAutogradeBy('score')" @keydown.enter="sortAutogradeBy('score')" @keydown.space.prevent="sortAutogradeBy('score')" tabindex="0" class="sortable col-score" :aria-sort="ariaSortAutograde('score')">
-                      <span class="th-label">Score<SortIcon :dir="sortAutogradeDir('score')" /></span>
-                    </th>
-                    <th @click="sortAutogradeBy('graded_submission')" @keydown.enter="sortAutogradeBy('graded_submission')" @keydown.space.prevent="sortAutogradeBy('graded_submission')" tabindex="0" class="sortable" :aria-sort="ariaSortAutograde('graded_submission')" title="Last graded submission before deadline within limit">
-                      <span class="th-label">Graded submission<SortIcon :dir="sortAutogradeDir('graded_submission')" /></span>
-                    </th>
+                    <SortableTh :sort="gradingSort" col="login">Login</SortableTh>
+                    <SortableTh v-if="isGroupAssignment" :sort="gradingSort" col="team">Team</SortableTh>
+                    <SortableTh v-if="autogradeHasClaimedEmails" :sort="gradingSort" col="claimed_email">Confirmed address</SortableTh>
+                    <SortableTh :sort="gradingSort" col="score" class="col-score">Score</SortableTh>
+                    <SortableTh :sort="gradingSort" col="graded_submission" title="Last graded submission before deadline within limit">Graded submission</SortableTh>
                     <!-- Only under a hand-in cap: the column is a count against
                          a limit, and with no limit there is nothing to count. -->
-                    <th v-if="handInsShown" @click="sortAutogradeBy('hand_ins')" @keydown.enter="sortAutogradeBy('hand_ins')" @keydown.space.prevent="sortAutogradeBy('hand_ins')" tabindex="0" class="sortable num" :aria-sort="ariaSortAutograde('hand_ins')" title="Hand-ins made on or before the deadline, of how many count">
-                      <span class="th-label">Hand-ins<SortIcon :dir="sortAutogradeDir('hand_ins')" /></span>
-                    </th>
+                    <SortableTh v-if="handInsShown" :sort="gradingSort" col="hand_ins" class="num" title="Hand-ins made on or before the deadline, of how many count">Hand-ins</SortableTh>
                     <th class="col-actions"><span class="sr-only">Actions</span></th>
                   </tr>
                 </thead>
@@ -1529,10 +1467,16 @@ import { MANUAL_SCORE, decisionEntry, decisionProblem, gradeDecisionFor } from '
 import FeedbackPrModal from '../components/FeedbackPrModal.vue'
 import FreezeConfirmModal from '../components/FreezeConfirmModal.vue'
 
-// Moved to components/SortIcon.vue when the Roster tab learned to sort. It was
-// a local render helper while one table in the app sorted; a second copy of it
-// beside a second sortable table is the fork this project has a rule against.
-import SortIcon from '../components/SortIcon.vue'
+// The parts this page's tables share with the Teams and Roster tables: a
+// second copy of any of them beside another table is the fork this project
+// has a rule against.
+import SortableTh from '../components/SortableTh.vue'
+import RepoIconLink from '../components/RepoIconLink.vue'
+import LastCommitCell from '../components/LastCommitCell.vue'
+import ArchiveLink from '../components/ArchiveLink.vue'
+import { useTableSort } from '../composables/useTableSort.js'
+import { sortRows, timeValue } from '../lib/table-sort.js'
+import { latestSha, commitTime, commitMsg } from '../lib/last-commit.js'
 import { config } from '../lib/config.js'
 import { generateXlsxBlob } from '../lib/xlsx.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did
@@ -1731,8 +1675,10 @@ function settingsTarget(section, action) {
 const fmt = (iso) => formatDate(iso, assignment.value?.timezone)
 const search = ref('')
 const statusFilter = ref('')
-const sortKey = ref('github_login')
-const sortAsc = ref(true)
+// Which column each table is sorted on (composables/useTableSort.js, shared
+// with the Teams and Roster tables).
+const progressSort = useTableSort('github_login')
+const gradingSort = useTableSort('login')
 
 const autogradeSummary = ref(null)
 const refreshingLive = ref(false)
@@ -2734,7 +2680,7 @@ const gradingRowsShown = computed(() => {
     return [row.login, s?.claimed_email, s?.email, roster?.email, s?.repo_name, s?.full_name, roster?.full_name, s?.team_name, s?.team_slug]
       .some((v) => v && String(v).toLowerCase().includes(q))
   })
-  const key = autogradeSortKey.value
+  const key = gradingSort.sortKey.value
   const valueOf = (row) => {
     if (key === 'login') return row.login.toLowerCase()
     if (key === 'team') return row.student?.team_name || row.student?.team_slug || null
@@ -2748,16 +2694,8 @@ const gradingRowsShown = computed(() => {
     }
     return null
   }
-  return [...rows].sort((a, b) => {
-    const av = valueOf(a)
-    const bv = valueOf(b)
-    // Nulls last, whichever way it is sorted.
-    if (av == null && bv == null) return 0
-    if (av == null) return 1
-    if (bv == null) return -1
-    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv))
-    return autogradeSortAsc.value ? cmp : -cmp
-  })
+  // Blanks last whichever way it is sorted (lib/table-sort.js).
+  return sortRows(rows, valueOf, gradingSort.sortAsc.value)
 })
 
 // The Grading tab's two menus, with the same open/close contract as the
@@ -3301,50 +3239,18 @@ const filteredStudents = computed(() => {
       list = list.filter((s) => s.submission_status === statusFilter.value)
     }
   }
-  list = [...list].sort((a, b) => {
-    let av = a[sortKey.value]
-    let bv = b[sortKey.value]
-    if (sortKey.value === 'latest_observed_at') {
-      av = a.commit_date || a.latest_commit_date || a.latest_observed_at
-      bv = b.commit_date || b.latest_commit_date || b.latest_observed_at
-    } else if (sortKey.value === 'team') {
-      av = a.team_name || a.team_slug || null
-      bv = b.team_name || b.team_slug || null
-    } else if (sortKey.value === 'repo_name') {
-      av = a.repo_name ? shortRepo(a.repo_name) : null
-      bv = b.repo_name ? shortRepo(b.repo_name) : null
-    } else if (sortKey.value === 'ci_status') {
-      av = a.ci_status || null
-      bv = b.ci_status || null
-    } else if (sortKey.value === 'score') {
-      av = a.earned_points != null ? a.earned_points : null
-      bv = b.earned_points != null ? b.earned_points : null
-    } else if (sortKey.value === 'feedback_pr') {
-      av = a.feedback_pr_number ?? null
-      bv = b.feedback_pr_number ?? null
-    } else if (sortKey.value === 'github_login') {
-      // A student with no username yet has nothing to sort by here: last,
-      // with the other blanks, not first as an empty string would be.
-      av = a.github_login || null
-      bv = b.github_login || null
-    }
-    // Nulls last regardless of direction
-    if (av == null && bv == null) return 0
-    if (av == null) return 1
-    if (bv == null) return -1
-    if (sortKey.value === 'latest_observed_at' && av && bv) {
-      const at = new Date(av).getTime()
-      const bt = new Date(bv).getTime()
-      if (!Number.isNaN(at) && !Number.isNaN(bt)) {
-        return sortAsc.value ? at - bt : bt - at
-      }
-    }
-    const cmp = typeof av === 'number' && typeof bv === 'number'
-      ? av - bv
-      : String(av).localeCompare(String(bv))
-    return sortAsc.value ? cmp : -cmp
-  })
-  return list
+  // One comparator for every table (lib/table-sort.js): blanks last either
+  // way, numbers as numbers. A student with no username yet has nothing to
+  // sort by under Login, so sorts with the other blanks.
+  const key = progressSort.sortKey.value
+  const valueOf = {
+    latest_observed_at: (s) => timeValue(commitTime(s)),
+    team: (s) => s.team_name || s.team_slug,
+    repo_name: (s) => (s.repo_name ? shortRepo(s.repo_name) : null),
+    score: (s) => s.earned_points ?? null,
+    feedback_pr: (s) => s.feedback_pr_number ?? null,
+  }[key] || ((s) => s[key])
+  return sortRows(list, valueOf, progressSort.sortAsc.value)
 })
 
 // Export Dropdown Menu State
@@ -3849,22 +3755,6 @@ async function mergeRepoRecordsIntoReport(token) {
   }
 }
 
-function sortBy(key) {
-  if (sortKey.value === key) sortAsc.value = !sortAsc.value
-  else { sortKey.value = key; sortAsc.value = true }
-}
-// Returns 'asc' | 'desc' | null - consumed by the <SortIcon> render helper
-// so the active column shows a directional arrow, the rest show nothing.
-function sortDir(key) {
-  if (sortKey.value !== key) return null
-  return sortAsc.value ? 'asc' : 'desc'
-}
-
-function ariaSort(key) {
-  if (sortKey.value !== key) return 'none'
-  return sortAsc.value ? 'ascending' : 'descending'
-}
-
 function statusBadge(status) {
   return { 'on-time': 'badge-success', late: 'badge-warning', 'no-submission': 'badge-error', unknown: 'badge-neutral' }[status] || 'badge-neutral'
 }
@@ -3878,20 +3768,6 @@ function shortRepo(name) {
 }
 
 
-function latestSha(s) {
-  return s.latest_observed_sha || s.last_on_time_sha || null
-}
-
-function commitTime(s) {
-  return s.commit_date || s.latest_commit_date || s.latest_observed_at || null
-}
-
-function commitMsg(s) {
-  if (s.commit_message) return s.commit_message
-  if (s.latest_commit_message) return s.latest_commit_message
-  if (s.commit_count === 1) return 'Initial commit'
-  return null
-}
 
 
 
@@ -4918,24 +4794,6 @@ function lastGradedSubmission(row) {
     ? (s?.latest_commit_date || s?.commit_date || null)
     : null
   return { sha, time, kind: time ? 'committed' : null, pushedFrom: null, href, repoUrl }
-}
-
-const autogradeSortKey = ref('login')
-const autogradeSortAsc = ref(true)
-
-function sortAutogradeBy(key) {
-  if (autogradeSortKey.value === key) autogradeSortAsc.value = !autogradeSortAsc.value
-  else { autogradeSortKey.value = key; autogradeSortAsc.value = true }
-}
-
-function sortAutogradeDir(key) {
-  if (autogradeSortKey.value !== key) return null
-  return autogradeSortAsc.value ? 'asc' : 'desc'
-}
-
-function ariaSortAutograde(key) {
-  if (autogradeSortKey.value !== key) return 'none'
-  return autogradeSortAsc.value ? 'ascending' : 'descending'
 }
 
 // The Grading table's order is gradingRowsShown.
@@ -6307,25 +6165,8 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
 .text-secondary { color: var(--text-secondary); }
 .text-warning { color: var(--accent-yellow); }
 
-/* The link is an icon, so it gets a box and the row menu's hover: a bare 16px
-   glyph is a poor target for the link this table is clicked on most. The
-   negative margin keeps the glyph on the heading's left edge and the row at
-   the height it had. */
-.col-repo .repo-icon-link {
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin: -6px 0 -6px -6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  vertical-align: middle;
-}
-.col-repo .repo-icon-link:hover {
-  background: var(--bg-surface-elevated);
-  border-color: var(--border-default);
-}
-.col-last-commit { white-space: nowrap; }
-.col-last-commit .sha { display: inline-block; }
+/* The Repo and Last commit cells are RepoIconLink and LastCommitCell, which
+   carry their own styles: the Teams table draws them too. */
 .col-feedback-pr { font-size: 0.85rem; }
 .fb-pr-meta {
   display: inline-flex;
@@ -6373,12 +6214,6 @@ tbody tr:nth-child(even):hover td { background: var(--bg-surface-hover); }
    one. */
 .grading-status-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .badge-with-icon { display: inline-flex; align-items: center; gap: 4px; }
-.commit-time-top {
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .commit-row {
   display: flex;
   gap: var(--space-sm);
@@ -6580,10 +6415,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
    values are unchanged - but it takes them off the undeclared-class register
    and puts the appearance where DESIGN.md says it belongs.
    ------------------------------------------------------------------------ */
-
-.archive-link-wrap {
-  margin-top: 3px;
-}
 
 /* A badge that is a button. Both clickable badges in the student table carried
    `cursor: pointer; border: none;` inline - the same two declarations twice -

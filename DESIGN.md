@@ -614,7 +614,8 @@ Global vocabulary now includes:
 | :--- | :--- |
 | Layout | `.center-card`, `.empty-state`, `.loading-state`, `.app-header-*` |
 | Forms | `.field` (+ `label`, `small`), `.form-control`, `.form-hint`, `.req` |
-| Sortable table headings | `th.sortable`, `.th-label`, `.sort-glyph` - with `<SortIcon :dir>` for the arrow. Scoped inside `AssignmentDetailView` while it was the only table that sorted; shared once the Roster tab did. The view keeps its scoped copies, which still win on `[data-v-*]`. |
+| Sortable table headings | `<SortableTh :sort col>`, which draws `th.sortable`, `.th-label` and `<SortIcon>`, over the table's `useTableSort()` (`composables/useTableSort.js`), sorted by `sortRows` (`lib/table-sort.js`: blanks last both ways, numbers as numbers, `3A` before `12A`). Every sortable table uses all three: Progress, Grading, Teams, Roster and both usage tables, which until 2026-10-20 held six copies of the state, five comparators and three arrows, and the Teams table sorted on nothing. `tests/table-sort.test.mjs` refuses a hand-written `<th aria-sort>`. |
+| Table cells read the same way | `<RepoIconLink>` (the repository as an icon, §7 below), `<LastCommitCell>` (how long ago, then the SHA; what "last commit" is lives in `lib/last-commit.js`, and a team's is the member row on its repository) and `<ArchiveLink>` (where a preserved submission is, under the status, never a column of its own). The Progress and Teams tables both draw them. |
 | Status text | `.status-icon` (+ `-success`, `-warn`, `-error`, `-pulse`), `.status-text` |
 | Stat colours | `.stat-green`, `.stat-yellow`, `.stat-red`, `.stat-blue` |
 | Utilities | `.text-center`, `.text-green`, `.text-yellow`, `.text-blue`, `.spinner-sm`, `.btn-icon` |
@@ -712,7 +713,7 @@ nothing (widths measured by spec 89 against the old layout):
 | Column | Was | Why | Now |
 | :--- | ---: | :--- | :--- |
 | Confirmed address | 378px | the address and its note sat side by side | the note is under the address (most rows are two lines tall already, because Last commit is); the address is cut at `15rem` with an ellipsis and is whole in its `title` |
-| Repo | 288px | on an individual assignment the name is a prefix every row shares, then the login from the first column | an icon link, the name in its `title` and its accessible name |
+| Repo | 288px | on an individual assignment the name is a prefix every row shares, then the login from the first column | an icon link, the name in its `title` and its accessible name (`RepoIconLink`, the Teams table's too) |
 | Commits | 86px | the heading, over cells of one to five characters (`1,043`) | `#`, still named Commits on hover and to a screen reader |
 
 Cell padding went from 14px to 12px on the same day, which is 40px across a

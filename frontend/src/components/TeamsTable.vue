@@ -162,20 +162,24 @@
     <div v-else class="table-responsive">
       <table class="data-table">
         <thead>
+          <!-- The Progress table's columns and cells where they are the same
+               thing (asked 2026-10-20): every column sorts, the repository is
+               an icon, Last commit is there, and preservation is the archive
+               link under the status rather than a column of its own. -->
           <tr>
-            <th>Team</th>
-            <th>Members</th>
-            <th>Capacity</th>
-            <th>Repository</th>
-            <th>Commits</th>
-            <th>Status</th>
-            <th v-if="autogradeEnabled">Score</th>
-            <th>Preserved</th>
+            <SortableTh :sort="teamSort" col="team">Team</SortableTh>
+            <SortableTh :sort="teamSort" col="members">Members</SortableTh>
+            <SortableTh :sort="teamSort" col="capacity">Capacity</SortableTh>
+            <SortableTh :sort="teamSort" col="repo">Repo</SortableTh>
+            <SortableTh :sort="teamSort" col="last_commit">Last commit</SortableTh>
+            <SortableTh :sort="teamSort" col="commit_count" class="num" title="Commits"><span aria-hidden="true">#</span><span class="sr-only">Commits</span></SortableTh>
+            <SortableTh :sort="teamSort" col="submission_status">Status</SortableTh>
+            <SortableTh v-if="autogradeEnabled" :sort="teamSort" col="score">Score</SortableTh>
             <th class="col-actions"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="team in filteredTeams" :key="team.team_slug">
+          <tr v-for="team in sortedTeams" :key="team.team_slug">
             <!-- Team column -->
             <td>
               <div class="team-cell">
@@ -220,34 +224,31 @@
               </span>
             </td>
 
-            <!-- Repository column -->
-            <td>
-              <a
-                v-if="team.repo_url"
-                :href="team.repo_url"
-                target="_blank"
-                rel="noopener"
-                class="repo-link mono"
-              >
-                {{ team.repo_name ? team.repo_name.split('/').pop() : team.team_slug }}
-              </a>
-              <span v-else class="text-muted text-xs">-</span>
+            <td class="col-repo">
+              <RepoIconLink :url="team.repo_url" :name="team.repo_name || team.team_slug" />
             </td>
 
-            <!-- Commits column -->
-            <td>
-              <span v-if="team.commit_count != null" class="mono text-xs">
-                {{ team.commit_count }}
-              </span>
-              <span v-else class="text-muted text-xs">-</span>
+            <td class="col-last-commit">
+              <LastCommitCell :row="teamCommitRow(team, students)" :timezone="assignment?.timezone || null" />
             </td>
 
-            <!-- Submission Status column -->
+            <td class="num">
+              <span v-if="team.commit_count != null">{{ team.commit_count.toLocaleString() }}</span>
+              <span v-else class="text-muted">-</span>
+            </td>
+
+            <!-- Submission Status column, and under it where the team's work
+                 was preserved, as on the Progress table. -->
             <td>
               <span class="status-indicator">
                 <span class="status-dot" :class="team.submission_status === 'on-time' ? 'dot-success' : (team.submission_status === 'late' ? 'dot-warning' : 'dot-neutral')"></span>
                 <span class="text-sm">{{ submissionLabel(team.submission_status || 'unknown') }}</span>
               </span>
+              <ArchiveLink
+                v-if="team.preservation_status === 'preserved'"
+                :url="teamArchiveUrl(team)"
+                :sha="team.preserved_sha"
+              />
             </td>
 
             <!-- No CI status column: the run's status is on the Grading tab,
@@ -265,25 +266,6 @@
               >
                 {{ team.earned_points }}/{{ team.total_points }} pts
               </button>
-              <span v-else class="text-muted text-xs">-</span>
-            </td>
-
-            <!-- Preserved column -->
-            <td>
-              <a
-                v-if="team.preservation_status === 'preserved' && teamArchiveUrl(team)"
-                :href="teamArchiveUrl(team)"
-                target="_blank"
-                rel="noopener"
-                class="badge badge-success archive-link"
-                title="View preserved code in archive repository"
-                style="display: inline-flex; align-items: center; text-decoration: none;"
-              >
-                Preserved
-              </a>
-              <span v-else-if="team.lock_down_at" class="badge badge-neutral" title="Locked down">
-                Locked
-              </span>
               <span v-else class="text-muted text-xs">-</span>
             </td>
 
@@ -547,6 +529,13 @@ import { teamNameProblem } from '../../../lib/public-text.mjs'
 import { changedSinceRead, contentsAt as contentsAtCommit, unseedRefusalAt } from '../../../lib/team-write-guard.mjs'
 import { decodeBase64 as decodeBase64Text } from '../../../lib/grade-dispatch.mjs'
 import AutogradeResultsModal from './AutogradeResultsModal.vue'
+import SortableTh from './SortableTh.vue'
+import RepoIconLink from './RepoIconLink.vue'
+import LastCommitCell from './LastCommitCell.vue'
+import ArchiveLink from './ArchiveLink.vue'
+import { useTableSort } from '../composables/useTableSort.js'
+import { sortRows, timeValue } from '../lib/table-sort.js'
+import { commitTime, teamCommitRow } from '../lib/last-commit.js'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, teamsDir, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir, lockdownRecordPath, overridesDir, unlockedDir } from '../../../lib/control-layout.mjs'
 import { grantableAfterLock } from '../../../lib/permission-change.mjs'
@@ -909,6 +898,25 @@ const filteredTeams = computed(() => {
     }
   }
   return list
+})
+
+// Sorted on any column, as the Progress table is (lib/table-sort.js). Members
+// sort on the first one the cell shows, by the name it shows them under;
+// Capacity on how many there are.
+const teamSort = useTableSort('team')
+const TEAM_SORT_VALUES = {
+  team: (t) => t.team_name || t.team_slug,
+  members: (t) => ((t.members || []).length ? memberLabel(t.members[0]) : null),
+  capacity: (t) => (t.members || []).length,
+  repo: (t) => (t.repo_name ? t.repo_name.split('/').pop() : null),
+  last_commit: (t) => timeValue(commitTime(teamCommitRow(t, props.students))),
+  commit_count: (t) => t.commit_count ?? null,
+  submission_status: (t) => t.submission_status || null,
+  score: (t) => t.earned_points ?? null,
+}
+const sortedTeams = computed(() => {
+  const valueOf = TEAM_SORT_VALUES[teamSort.sortKey.value]
+  return valueOf ? sortRows(filteredTeams.value, valueOf, teamSort.sortAsc.value) : filteredTeams.value
 })
 
 // The roster row behind each member: by the row's own login, or by the login

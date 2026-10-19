@@ -503,7 +503,11 @@ const mockTeams = [
     repo_name: 'PXL-Digital/project-team-alpha',
     repo_url: 'https://github.com/PXL-Digital/project-team-alpha',
     commit_count: 14,
+    latest_observed_sha: '3f9c2a1b7e4d5c6f8a9b0c1d2e3f4a5b6c7d8e9f',
     submission_status: 'on-time',
+    // Preserved: the archive link under the status.
+    preservation_status: 'preserved',
+    preserved_sha: '3f9c2a1b7e4d5c6f8a9b0c1d2e3f4a5b6c7d8e9f',
     ci_status: 'success',
     earned_points: 100,
     total_points: 100,
@@ -516,6 +520,7 @@ const mockTeams = [
     repo_name: 'PXL-Digital/project-team-beta',
     repo_url: 'https://github.com/PXL-Digital/project-team-beta',
     commit_count: 5,
+    latest_observed_sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
     submission_status: 'late',
     ci_status: 'failure',
     // Partial score: the badge-warning branch. `badge-error` (0 points) is the

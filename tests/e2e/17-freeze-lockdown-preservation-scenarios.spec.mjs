@@ -263,7 +263,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     }
   });
 
-  test('Scenario 3 (Preservation Status Badges in Individual & Group Tables): Renders Preserved links to archive and Locked badges', async ({ page }) => {
+  test('Scenario 3 (Preservation Status Badges in Individual & Group Tables): Renders the archive link under the status, and none for a team only locked', async ({ page }) => {
     const assignmentId = 'lab-status-preserved';
     const assignment = {
       id: assignmentId,
@@ -297,6 +297,7 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
           submission_status: 'on-time',
           commit_count: 6,
           preservation_status: 'preserved',
+          preserved_sha: 'abc1234def5678',
         },
         {
           team_slug: 'team-locked',
@@ -341,12 +342,14 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
     // opens a menu that is still one item short.
     await expect(page.locator('.report-content')).toBeVisible({ timeout: 15000 });
 
-    // Verify Team Preserved renders green "Preserved" badge with archive link
+    // Team Preserved: the archive link under its status, as on the Progress
+    // table - not a Preserved column of its own (asked 2026-10-20).
+    await expect(page.locator('th', { hasText: /^Preserved$/ })).toHaveCount(0);
     const preservedTeamRow = page.locator('tr', { hasText: 'Team Preserved' });
     await expect(preservedTeamRow).toBeVisible();
     const preservedLink = preservedTeamRow.locator('a.archive-link');
     await expect(preservedLink).toBeVisible();
-    await expect(preservedLink).toContainText('Preserved');
+    await expect(preservedLink).toContainText('archive (abc1234)');
     // No archive_repo on this fixture ON PURPOSE: it is the pre-change report
     // shape, and a preserved row without the field must keep resolving to the
     // org's old shared archive. Deriving today's per-assignment name here would
@@ -357,10 +360,12 @@ test.describe('17 - Immediate Freeze, Lockdown & Preservation Workflows & Modal 
       `https://github.com/${ORG}/pxl-classroom-archive/tree/preserved%2Flab-status-preserved%2Fteam-preserved`,
     );
 
-    // Verify Team Locked renders "Locked" badge
+    // Team Locked, not preserved: no archive link, and its repository is the
+    // icon link the Progress table uses.
     const lockedTeamRow = page.locator('tr', { hasText: 'Team Locked' });
     await expect(lockedTeamRow).toBeVisible();
-    await expect(lockedTeamRow.locator('.badge', { hasText: /Locked/i })).toBeVisible();
+    await expect(lockedTeamRow.locator('a.archive-link')).toHaveCount(0);
+    await expect(lockedTeamRow.locator('a.repo-icon-link')).toHaveAttribute('href', `https://github.com/${ORG}/${assignmentId}-team-locked`);
   });
 
   test('Scenario 4 (Freeze Action Error Handling): Surfaces descriptive failure toast when dispatch is rejected', async ({ page }) => {

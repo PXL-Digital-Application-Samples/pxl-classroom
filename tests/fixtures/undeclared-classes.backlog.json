@@ -10,9 +10,6 @@
     "alert": [
       "RepublishBrokerModal.vue"
     ],
-    "archive-link": [
-      "TeamsTable.vue"
-    ],
     "autograde-modal": [
       "AutogradeResultsModal.vue"
     ],

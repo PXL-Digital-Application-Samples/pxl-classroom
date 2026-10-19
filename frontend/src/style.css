@@ -1732,8 +1732,15 @@ a.export-dropdown-item:hover {
    keeps its own scoped copies, which still win on `[data-v-*]` specificity, so
    nothing in that view shifted when this arrived. */
 th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--accent-blue); }
 .th-label { display: inline-flex; align-items: center; gap: 4px; }
 .sort-glyph { color: var(--accent-blue); }
+/* A column of counts, right-aligned on even digits: the Progress and Teams
+   tables' commit counts, the Grading table's hand-ins. */
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* The Repo and Last commit cells of the Progress and Teams tables
+   (RepoIconLink, LastCommitCell): one line, whatever the column's width. */
+td.col-repo, td.col-last-commit { white-space: nowrap; }
 
 .data-table {
   width: 100%;

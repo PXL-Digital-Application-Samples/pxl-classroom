@@ -349,36 +349,15 @@
                        permanently empty column asking for a value nobody has.
                        It comes back the moment one student has one.
 
-                       The sortable headings copy AssignmentDetailView's shape
-                       exactly - `th.sortable`, tabindex, Enter and Space, an
-                       `aria-sort`, and a `.th-label` holding the shared
-                       <SortIcon> - because a second table that sorts a
-                       different way is two answers to one question. -->
-                  <th v-if="anyStudentNumber" style="padding: 6px 8px;" class="sortable" tabindex="0"
-                      :aria-sort="ariaSort('student_number')"
-                      @click="toggleSort('student_number')" @keydown.enter="toggleSort('student_number')" @keydown.space.prevent="toggleSort('student_number')">
-                    <span class="th-label">Number<SortIcon :dir="sortDirFor('student_number')" /></span>
-                  </th>
-                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
-                      :aria-sort="ariaSort('full_name')"
-                      @click="toggleSort('full_name')" @keydown.enter="toggleSort('full_name')" @keydown.space.prevent="toggleSort('full_name')">
-                    <span class="th-label">Name<SortIcon :dir="sortDirFor('full_name')" /></span>
-                  </th>
-                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
-                      :aria-sort="ariaSort('email')"
-                      @click="toggleSort('email')" @keydown.enter="toggleSort('email')" @keydown.space.prevent="toggleSort('email')">
-                    <span class="th-label">Email<SortIcon :dir="sortDirFor('email')" /></span>
-                  </th>
-                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
-                      :aria-sort="ariaSort('class_group')"
-                      @click="toggleSort('class_group')" @keydown.enter="toggleSort('class_group')" @keydown.space.prevent="toggleSort('class_group')">
-                    <span class="th-label">Group<SortIcon :dir="sortDirFor('class_group')" /></span>
-                  </th>
-                  <th style="padding: 6px 8px;" class="sortable" tabindex="0"
-                      :aria-sort="ariaSort('github_login')"
-                      @click="toggleSort('github_login')" @keydown.enter="toggleSort('github_login')" @keydown.space.prevent="toggleSort('github_login')">
-                    <span class="th-label">GitHub Account<SortIcon :dir="sortDirFor('github_login')" /></span>
-                  </th>
+                       The sortable headings are the shared SortableTh, as on
+                       the Progress, Grading and Teams tables, because a second
+                       table that sorts a different way is two answers to one
+                       question. -->
+                  <SortableTh v-if="anyStudentNumber" :sort="rosterSort" col="student_number" style="padding: 6px 8px;">Number</SortableTh>
+                  <SortableTh :sort="rosterSort" col="full_name" style="padding: 6px 8px;">Name</SortableTh>
+                  <SortableTh :sort="rosterSort" col="email" style="padding: 6px 8px;">Email</SortableTh>
+                  <SortableTh :sort="rosterSort" col="class_group" style="padding: 6px 8px;">Group</SortableTh>
+                  <SortableTh :sort="rosterSort" col="github_login" style="padding: 6px 8px;">GitHub Account</SortableTh>
                   <th style="padding: 6px 8px;"></th>
                 </tr>
               </thead>
@@ -893,8 +872,10 @@ import { planClaimPromotion } from '../../../lib/promote-roster.mjs'
 import { csvCell } from '../../../lib/csv-cell.mjs'
 import PromoteRosterModal from './PromoteRosterModal.vue'
 import RosterStudentModal from './RosterStudentModal.vue'
-// The same arrow AssignmentDetailView's table uses. Shared rather than copied.
-import SortIcon from './SortIcon.vue'
+// The same sortable heading and sort every table uses. Shared rather than copied.
+import SortableTh from './SortableTh.vue'
+import { useTableSort } from '../composables/useTableSort.js'
+import { sortRows } from '../lib/table-sort.js'
 import RosterCell from './RosterCell.vue'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
@@ -1007,61 +988,29 @@ watch(groupChips, (chips) => {
 // file was written in, and every diff, import and commit reads it - so sorting
 // here builds a new array and the document is never touched. Nothing sorted
 // before this: a lecturer asking "which of my students are in 3A" had to read
-// the whole list, on a tab whose whole job is a list.
-const sortKey = ref(null)
-const sortDir = ref('asc')
+// the whole list, on a tab whose whole job is a list. Unsorted until a heading
+// is pressed, so the file's own order is what a lecturer sees first.
+const rosterSort = useTableSort(null)
 
-/** The value a column sorts on. Absent sorts LAST in both directions. */
+/** The value a column sorts on, as text. Absent sorts LAST in both directions. */
 const SORT_VALUES = {
-  student_number: (s) => s.student_number ?? '',
-  full_name: (s) => s.full_name ?? '',
-  email: (s) => s.email ?? '',
-  class_group: (s) => s.class_group ?? '',
-  github_login: (s) => s.github_login ?? '',
-}
-
-function toggleSort(key) {
-  if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
-    return
-  }
-  sortKey.value = key
-  sortDir.value = 'asc'
-}
-
-/** 'asc' | 'desc' | null - what <SortIcon> reads. Null keeps a column quiet. */
-function sortDirFor(key) {
-  return sortKey.value === key ? sortDir.value : null
-}
-
-/** The heading's own statement of the same thing, for a screen reader. */
-function ariaSort(key) {
-  if (sortKey.value !== key) return 'none'
-  return sortDir.value === 'asc' ? 'ascending' : 'descending'
+  student_number: (s) => String(s.student_number ?? ''),
+  full_name: (s) => String(s.full_name ?? ''),
+  email: (s) => String(s.email ?? ''),
+  class_group: (s) => String(s.class_group ?? ''),
+  github_login: (s) => String(s.github_login ?? ''),
 }
 
 const sortedRosterStudents = computed(() => {
   const rows = filteredRosterStudents.value
-  const key = sortKey.value
-  if (!key || !SORT_VALUES[key]) return rows
-  const read = SORT_VALUES[key]
-  const dir = sortDir.value === 'desc' ? -1 : 1
-  // A COPY. `filteredRosterStudents` can be `existingRoster.students` itself,
-  // and sorting that in place would reorder the document this tab is about to
-  // commit - a view control silently rewriting the file.
-  return [...rows].sort((a, b) => {
-    const av = String(read(a)).trim()
-    const bv = String(read(b)).trim()
-    // Empty last whichever way the arrow points: "the ones with no group" is a
-    // group of its own and belongs at the end, not interleaved at the top of a
-    // descending sort.
-    if (!av && !bv) return 0
-    if (!av) return 1
-    if (!bv) return -1
-    // `numeric` so 3A sorts before 12A, and `sensitivity: base` so a hand-typed
-    // `3a` sits beside `3A` rather than after every uppercase group.
-    return dir * av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
-  })
+  const read = SORT_VALUES[rosterSort.sortKey.value]
+  if (!read) return rows
+  // A COPY (lib/table-sort.js). `filteredRosterStudents` can be
+  // `existingRoster.students` itself, and sorting that in place would reorder
+  // the document this tab is about to commit - a view control silently
+  // rewriting the file. Empty last whichever way the arrow points, 3A before
+  // 12A, and a hand-typed `3a` beside `3A`.
+  return sortRows(rows, read, rosterSort.sortAsc.value)
 })
 
 // ---------------------------------------------------------------- selection

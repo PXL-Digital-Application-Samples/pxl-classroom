@@ -185,15 +185,9 @@
           <table class="usage-table">
             <thead>
               <tr>
-                <th @click="sortBy('repo')" tabindex="0" :aria-sort="ariaSortFor('repo')">
-                  <span class="th-label">Repository<SortIcon :dir="sortDirFor('repo')" /></span>
-                </th>
-                <th @click="sortBy('sku')" tabindex="0" :aria-sort="ariaSortFor('sku')">
-                  <span class="th-label">Resource Type<SortIcon :dir="sortDirFor('sku')" /></span>
-                </th>
-                <th @click="sortBy('used')" tabindex="0" :aria-sort="ariaSortFor('used')" class="num">
-                  <span class="th-label">Used (7 Days)<SortIcon :dir="sortDirFor('used')" /></span>
-                </th>
+                <SortableTh :sort="usageSort" col="repo">Repository</SortableTh>
+                <SortableTh :sort="usageSort" col="sku">Resource Type</SortableTh>
+                <SortableTh :sort="usageSort" col="used" class="num">Used (7 Days)</SortableTh>
                 <th class="num">Weekly Limit</th>
                 <th>Unit</th>
                 <th>Threshold Level</th>
@@ -228,8 +222,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, h } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Icon from './Icon.vue'
+import SortableTh from './SortableTh.vue'
+import { useTableSort } from '../composables/useTableSort.js'
+import { compareSortValues } from '../lib/table-sort.js'
 import { getToken } from '../lib/auth.js'
 import {
   createWorkflowRequestId,
@@ -241,14 +238,6 @@ import {
 } from '../lib/api.js'
 import { config } from '../lib/config.js'
 import { toast } from '../lib/toast.js'
-
-const SortIcon = (props) =>
-  h(Icon, {
-    name: props.dir === 'asc' ? 'arrow-up' : props.dir === 'desc' ? 'arrow-down' : 'chevrons-up-down',
-    size: 10,
-    class: props.dir ? 'sort-glyph sort-glyph-active' : 'sort-glyph',
-  })
-SortIcon.props = ['dir']
 
 const props = defineProps({
   org: { type: String, required: true }
@@ -265,8 +254,8 @@ const loading = ref(false)
 const report = ref(null)
 const loadError = ref(null)
 const filter = ref('')
-const sortKey = ref('used')
-const sortDir = ref('desc')
+// The shared table sort; usage sorts biggest first.
+const usageSort = useTableSort('used', { descFirst: ['used'] })
 const triggering = ref(false)
 const runWatching = ref(false)
 const pollCount = ref(0)
@@ -332,31 +321,13 @@ const filtered = computed(() => {
   const f = filter.value.toLowerCase().trim()
   let items = report.value.items
   if (f) items = items.filter(i => (i.repo || '').toLowerCase().includes(f) || (i.sku || '').toLowerCase().includes(f))
+  const key = usageSort.sortKey.value
+  // Over the limit first, whichever column is sorted.
   return [...items].sort((a, b) => {
     if (a.over !== b.over) return a.over ? -1 : 1
-    const av = a[sortKey.value], bv = b[sortKey.value]
-    const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv))
-    return sortDir.value === 'asc' ? cmp : -cmp
+    return compareSortValues(a[key], b[key], usageSort.sortAsc.value)
   })
 })
-
-function sortBy(key) {
-  if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    sortKey.value = key
-    sortDir.value = key === 'used' ? 'desc' : 'asc'
-  }
-}
-
-function sortDirFor(key) {
-  return sortKey.value === key ? sortDir.value : null
-}
-
-function ariaSortFor(key) {
-  if (sortKey.value !== key) return 'none'
-  return sortDir.value === 'asc' ? 'ascending' : 'descending'
-}
 
 async function fetchRateLimit() {
   const token = getToken()
@@ -749,20 +720,6 @@ onBeforeUnmount(() => {
 }
 
 .usage-table th:hover {
-  color: var(--accent-blue);
-}
-
-.th-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.sort-glyph {
-  color: var(--text-muted);
-}
-
-.sort-glyph-active {
   color: var(--accent-blue);
 }
 

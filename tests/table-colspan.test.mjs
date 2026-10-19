@@ -31,7 +31,7 @@ const SRC = readFileSync(join(root, "frontend", "src", "views", "AssignmentDetai
  * and an absence assertion against the wrong table passes vacuously.
  */
 function studentThead(src) {
-  const anchor = src.indexOf("sortBy('github_login')");
+  const anchor = src.indexOf(':sort="progressSort" col="github_login"');
   assert.ok(anchor > 0, "the student table must still sort by github_login - update this anchor with it");
   const open = src.lastIndexOf("<thead>", anchor);
   const close = src.indexOf("</thead>", anchor);
@@ -39,9 +39,12 @@ function studentThead(src) {
   return src.slice(open, close);
 }
 
-/** Every `<th …>` in a block, with its `v-if` expression when it has one. */
+/**
+ * Every heading in a block - a `<th …>` or the shared `<SortableTh …>`, which
+ * renders one - with its `v-if` expression when it has one.
+ */
 function columns(block) {
-  return [...block.matchAll(/<th\b([^>]*)>/g)].map((m) => ({
+  return [...block.matchAll(/<(?:th|SortableTh)\b([^>]*)>/g)].map((m) => ({
     conditional: /v-if="([^"]*)"/.exec(m[1])?.[1] ?? null,
   }));
 }
@@ -114,7 +117,7 @@ const ROSTER = readFileSync(join(root, "frontend", "src", "components", "RosterT
 
 /** The roster table's header block, anchored on a control only it has. */
 function rosterThead(src) {
-  const anchor = src.indexOf("toggleSort('class_group')");
+  const anchor = src.indexOf(':sort="rosterSort" col="class_group"');
   assert.ok(anchor > 0, "the roster table must still sort by class_group - update this anchor with it");
   const open = src.lastIndexOf("<thead>", anchor);
   const close = src.indexOf("</thead>", anchor);
