@@ -6,8 +6,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { compareSortValues, sortRows, timeValue } from "../frontend/src/lib/table-sort.js";
-import { useTableSort } from "../frontend/src/composables/useTableSort.js";
+// The pure rules over plain holders: `npm test` installs the hub's packages and
+// not the SPA's, so composables/useTableSort.js (which imports Vue) cannot be
+// imported here - it passed locally and failed CI. It is checked below to be
+// nothing but these rules over two refs.
+import { compareSortValues, createTableSort, sortRows, timeValue } from "../frontend/src/lib/table-sort.js";
 import { latestSha, commitTime, commitMsg, teamCommitRow } from "../frontend/src/lib/last-commit.js";
 import { repoFiles } from "./repo-files.mjs";
 
@@ -42,7 +45,15 @@ test("timeValue: a time that does not parse is no value", () => {
   assert.equal(timeValue(null), null);
 });
 
-test("useTableSort: another column ascends, the same one flips, descFirst starts down", () => {
+const useTableSort = (key = null, options) => createTableSort({ value: key }, { value: true }, options);
+
+test("useTableSort is these rules over two refs, and nothing else", () => {
+  const src = readFileSync(new URL("../frontend/src/composables/useTableSort.js", import.meta.url), "utf8");
+  assert.match(src, /return createTableSort\(ref\(initialKey\), ref\(true\), options\)/);
+  assert.doesNotMatch(src, /function sortBy|sortAsc\.value/, "no second copy of the rules");
+});
+
+test("the sort state: another column ascends, the same one flips, descFirst starts down", () => {
   const s = useTableSort("team");
   assert.equal(s.ariaSort("team"), "ascending");
   assert.equal(s.sortDir("members"), null);

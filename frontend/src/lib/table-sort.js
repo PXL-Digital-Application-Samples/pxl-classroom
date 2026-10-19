@@ -50,6 +50,42 @@ export function sortRows(rows, valueOf, asc = true) {
   return [...(rows || [])].sort((a, b) => compareSortValues(valueOf(a), valueOf(b), asc))
 }
 
+/**
+ * Which column a table is sorted on, and which way, over two holders with a
+ * `.value` (refs, in composables/useTableSort.js). Kept free of Vue so a test
+ * can run it: `npm test` installs the hub's packages, not the SPA's.
+ *
+ * Pressing the sorted column flips it; pressing another sorts it ascending, or
+ * descending for a column in `descFirst`.
+ *
+ * @param {{ value: string | null }} sortKey
+ * @param {{ value: boolean }} sortAsc
+ * @param {{ descFirst?: string[] }} [options]
+ */
+export function createTableSort(sortKey, sortAsc, { descFirst = [] } = {}) {
+  const firstAsc = (key) => !descFirst.includes(key)
+  sortAsc.value = firstAsc(sortKey.value)
+
+  function sortBy(key) {
+    if (sortKey.value === key) sortAsc.value = !sortAsc.value
+    else { sortKey.value = key; sortAsc.value = firstAsc(key) }
+  }
+
+  /** 'asc' | 'desc' | null - what <SortIcon> reads. Null keeps a column quiet. */
+  function sortDir(key) {
+    if (sortKey.value !== key) return null
+    return sortAsc.value ? 'asc' : 'desc'
+  }
+
+  /** The heading's own statement of the same thing, for a screen reader. */
+  function ariaSort(key) {
+    if (sortKey.value !== key) return 'none'
+    return sortAsc.value ? 'ascending' : 'descending'
+  }
+
+  return { sortKey, sortAsc, sortBy, sortDir, ariaSort }
+}
+
 /** An ISO time as a sortable number, or null when there is none or it does not parse. */
 export function timeValue(iso) {
   const t = iso ? new Date(iso).getTime() : NaN
