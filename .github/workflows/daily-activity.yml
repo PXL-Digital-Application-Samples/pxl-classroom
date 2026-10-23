@@ -73,10 +73,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # Tried again on a registry blip (./install): one ECONNRESET on
+      # 2026-10-20 cost this org a night's collect. Three minutes: a collect
+      # has taken up to 5m42s, and both fit inside the job's ten.
+      - uses: ./install
         with:
-          node-version: "24"
-      - run: npm ci --omit=dev
+          retry-budget-minutes: "3"
+          give-up-note: "this organization is read again by the next nightly."
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
@@ -164,6 +167,10 @@ jobs:
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ matrix.org }}
           permission-metadata: read
+          # A team-shaped finding is asked who can open it and what is in it,
+          # so an empty leftover is not reported (lib/unrecorded-repos.mjs).
+          permission-contents: read
+          permission-administration: read
 
       - name: Find student repositories with no record
         id: unrecorded
@@ -283,10 +290,10 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: ./install
         with:
-          node-version: "24"
-      - run: npm ci --omit=dev
+          retry-budget-minutes: "4"
+          give-up-note: "this organization's assignments are planned again by the next nightly."
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:
@@ -402,10 +409,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      # A finalize that cannot install locks and preserves nothing tonight.
+      - uses: ./install
         with:
-          node-version: "24"
-      - run: npm ci --omit=dev
+          retry-budget-minutes: "4"
+          give-up-note: "this assignment is finalized by the next nightly."
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: token
         with:

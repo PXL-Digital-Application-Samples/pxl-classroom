@@ -16,6 +16,12 @@ inputs:
     description: How long the install may keep trying. Keep it under the job's own timeout.
     required: false
     default: "8"
+  give-up-note:
+    description: >-
+      What happens to this job's work if the install gives up, said in the
+      error. Empty: the sentinel's answer, that the nightly locks it.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -31,4 +37,5 @@ runs:
       env:
         DEADLINE_AT: ${{ inputs.deadline-at }}
         RETRY_BUDGET_MINUTES: ${{ inputs.retry-budget-minutes }}
+        GIVE_UP_NOTE: ${{ inputs.give-up-note }}
       run: node "$GITHUB_ACTION_PATH/npm-ci-retry.mjs"

@@ -131,6 +131,32 @@ test("every job of the sentinel's path installs through ./install, inside its ow
   assert.equal(useOf("arm").with["deadline-at"], undefined, "the arm job has no instant yet");
 });
 
+test("the nightly's per-organization jobs install through ./install too, each saying what its giving up costs", () => {
+  // 2026-10-20: one ECONNRESET in a bare `npm ci` cost 2TIW-CloudEssentials-2627 a night's collect.
+  const nightly = readYaml(".github", "workflows", "daily-activity.yml");
+  for (const name of ["collect", "find-finalizable", "finalize"]) {
+    const job = nightly.jobs[name];
+    assert.equal(job.steps.some((s) => /\bnpm (ci|install)\b/.test(String(s.run ?? ""))), false, `${name} installs by hand`);
+    assert.equal(job.steps.some((s) => String(s.uses ?? "").startsWith("actions/setup-node@")), false, `${name}: ./install sets up Node`);
+    const use = job.steps.find((s) => s.uses === "./install");
+    assert.ok(use, `${name} installs through ./install`);
+    assert.ok(Number(use.with["retry-budget-minutes"]) < job["timeout-minutes"], `${name}: the retry fits inside the job's timeout`);
+    assert.match(String(use.with["give-up-note"] ?? ""), /next nightly/, `${name} says what happens when it gives up`);
+  }
+});
+
+test("the give-up sentence is the caller's, and the sentinel's by default", async () => {
+  const failing = () => ({ status: 1, output: "npm error code ECONNRESET\nnpm error network read ECONNRESET" });
+  let t = 0;
+  const run = async (giveUpNote) => {
+    const logs = [];
+    await retryInstall({ run: failing, sleep: async (ms) => { t += ms; }, now: () => t, log: (s) => logs.push(s), budgetMs: 60_000, random: () => 0, ...(giveUpNote ? { giveUpNote } : {}) });
+    return logs.at(-1);
+  };
+  assert.match(await run(), /giving up - the nightly locks what this job would have\.$/);
+  assert.match(await run("this organization is read again by the next nightly."), /giving up - this organization is read again by the next nightly\.$/);
+});
+
 test("it imports node builtins only: it runs before anything is installed", () => {
   const src = readFileSync(join(root, "install", "npm-ci-retry.mjs"), "utf8");
   const specifiers = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);

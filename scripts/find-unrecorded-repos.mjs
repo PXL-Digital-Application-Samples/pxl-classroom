@@ -24,7 +24,9 @@ import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
-import { copiedFrom, generatedFrom, lastPageFromLink, loginFromRepoName, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { repoTouched } from "../lib/untouched-repo.mjs";
+import { APP_SLUG } from "../lib/deployment.mjs";
 
 /**
  * A repository's root commit on its default branch: the last page of its
@@ -39,9 +41,27 @@ async function rootCommit(owner, repo) {
   return page.ok && Array.isArray(page.data) ? page.data[0]?.sha ?? null : null;
 }
 
-// One GET per candidate. A candidate is rare, so a cap this size is never the
-// reason something goes unreported in practice - and when it is, it says so.
+// One GET per candidate. A candidate is rare once repositories made before
+// their assignment opened are left out (`splitByOpening`), so a cap this size
+// is never the reason something goes unreported in practice - and when it is,
+// it says so, and the oldest are the ones skipped.
 const MAX_CONFIRMED = 50;
+
+/**
+ * Whether a team-shaped finding is a leftover nobody can open with nothing in
+ * it (lib/unrecorded-repos.mjs `emptyLeftover`). Three reads; any that fails
+ * keeps it reported.
+ */
+async function isEmptyLeftover(org, repo) {
+  const get = (path) => gh("GET", path);
+  const [collaborators, invitations] = await Promise.all([
+    get(`/repos/${org}/${repo}/collaborators?affiliation=direct&per_page=1`),
+    get(`/repos/${org}/${repo}/invitations?per_page=1`),
+  ]);
+  if (!emptyLeftover({ collaborators, invitations, touched: "untouched" })) return false;
+  const touched = await repoTouched(get, `${org}/${repo}`, { appLogin: `${APP_SLUG}[bot]` }).catch(() => "unknown");
+  return emptyLeftover({ collaborators, invitations, touched });
+}
 
 async function setOutput(name, value) {
   const file = process.env.GITHUB_OUTPUT;
@@ -106,9 +126,15 @@ async function main() {
     return;
   }
 
-  const candidates = unrecordedCandidates({ assignments, recorded, repoNames: repos.map((r) => r?.name) });
   const byId = new Map(assignments.map((a) => [a.id, a]));
+  const createdAt = new Map(repos.filter((r) => r?.name).map((r) => [String(r.name).toLowerCase(), r.created_at]));
+  const { current: candidates, older } = splitByOpening(
+    unrecordedCandidates({ assignments, recorded, repoNames: repos.map((r) => r?.name) }),
+    byId,
+    createdAt,
+  );
   const found = [];
+  const leftovers = [];
   let unconfirmed = 0;
   // A template's root commit, read once per template (null: unread).
   const templateRoots = new Map();
@@ -122,13 +148,21 @@ async function main() {
       if (!templateRoots.has(key)) templateRoots.set(key, await rootCommit(a.template.owner, a.template.repository));
       verdict = copiedFrom(await rootCommit(org, c.repo), templateRoots.get(key));
     }
-    if (verdict === true) found.push({ ...c, login: loginFromRepoName(a.repository_name_pattern, c.repo) });
-    else if (verdict === null) unconfirmed++;
+    if (verdict === true) {
+      const login = loginFromRepoName(a.repository_name_pattern, c.repo);
+      // A team-shaped name names no student; empty and closed to everybody,
+      // it is a team's leftover, not a student off the list.
+      if (!login && (await isEmptyLeftover(org, c.repo))) leftovers.push(c);
+      else found.push({ ...c, login });
+    } else if (verdict === null) unconfirmed++;
   }
   const skipped = Math.max(0, candidates.length - MAX_CONFIRMED);
 
-  console.log(`${org}: ${repos.length} repositories, ${candidates.length} without a record by name, ${found.length} generated from their assignment's template.`);
+  console.log(`${org}: ${repos.length} repositories, ${candidates.length} without a record by name made since their assignment opened (${older.length} older), ${found.length} generated from their assignment's template.`);
   if (unconfirmed) console.log(`${unconfirmed} candidate(s) could not be read and are not reported.`);
+  if (leftovers.length) {
+    console.log(`::notice::${leftovers.length} empty repositor${leftovers.length === 1 ? "y" : "ies"} in ${org} that nobody can open and nobody wrote in - left by a team everybody left. Not reported; safe to delete: ${leftovers.map((l) => l.repo).join(", ")}`);
+  }
   if (skipped) console.log(`::warning::${skipped} more candidate(s) in ${org} were not looked at (limit ${MAX_CONFIRMED}).`);
   for (const f of found) console.log(`  ${f.assignment_id}: ${org}/${f.repo}${f.login ? ` (${f.login})` : ""}`);
 

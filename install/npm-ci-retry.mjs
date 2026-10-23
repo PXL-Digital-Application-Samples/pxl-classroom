@@ -10,6 +10,10 @@
 // action beside it (one step, never copied into a workflow), under the rules
 // any retry loop needs:
 //
+// The nightly's per-organization jobs install through it too (2026-10-23): one
+// ECONNRESET on 2026-10-20 cost 2TIW-CloudEssentials-2627 a night's collect, and
+// its finalize would have cost an assignment its lock until the next night.
+//
 // - ONLY WHAT A RETRY CAN FIX is retried: a network or registry-side failure
 //   (`isRetryable`). Anything else - a lockfile out of date, an engine refused,
 //   a bad commit - fails at once, as a bare `npm ci` did, so a real breakage is
@@ -34,6 +38,8 @@
 //
 //   DEADLINE_AT           the instant the job acts at (optional)
 //   RETRY_BUDGET_MINUTES  how long it may keep trying, from its own start
+//   GIVE_UP_NOTE          what happens to this job's work when it gives up
+//                         (optional; the sentinel's answer by default)
 
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -46,6 +52,9 @@ export const GRACE_AFTER_DEADLINE_MS = 60 * 60_000;
 
 /** A try that runs longer than this is killed, as a hung network would be. */
 export const ATTEMPT_TIMEOUT_MS = 10 * 60_000;
+
+/** What a sentinel job that gave up leaves behind; a caller with another answer says its own. */
+export const DEFAULT_GIVE_UP_NOTE = "the nightly locks what this job would have.";
 
 /**
  * Whether npm's output says the network or the registry failed it - the only
@@ -87,10 +96,11 @@ export function planWait({ attempt, nowMs, startedMs, budgetMs, deadlineMs = nul
  *
  * @param {{ run: () => { status: number|null, output: string, timedOut?: boolean },
  *           sleep: (ms: number) => Promise<void>, now: () => number, log: (s: string) => void,
- *           budgetMs: number, deadlineMs?: number|null, random?: () => number }} deps
+ *           budgetMs: number, deadlineMs?: number|null, random?: () => number,
+ *           giveUpNote?: string }} deps
  * @returns {Promise<number>} the exit code to leave with
  */
-export async function retryInstall({ run, sleep, now, log, budgetMs, deadlineMs = null, random = Math.random }) {
+export async function retryInstall({ run, sleep, now, log, budgetMs, deadlineMs = null, random = Math.random, giveUpNote = DEFAULT_GIVE_UP_NOTE }) {
   const startedMs = now();
   for (let attempt = 1; ; attempt++) {
     const { status, output, timedOut = false } = run();
@@ -106,7 +116,7 @@ export async function retryInstall({ run, sleep, now, log, budgetMs, deadlineMs 
     }
     const wait = planWait({ attempt, nowMs: now(), startedMs, budgetMs, deadlineMs, random });
     if (wait === null) {
-      log(`::error::npm ci failed ${attempt} time(s) (${why}) over ${Math.round((now() - startedMs) / 60000)} minute(s); giving up - the nightly locks what this job would have.`);
+      log(`::error::npm ci failed ${attempt} time(s) (${why}) over ${Math.round((now() - startedMs) / 60000)} minute(s); giving up - ${giveUpNote}`);
       return code;
     }
     log(`::warning::npm ci failed (try ${attempt}, ${why}); trying again in ${Math.round(wait / 1000)}s.`);
@@ -134,6 +144,7 @@ function main() {
     log: (s) => console.log(s),
     budgetMs,
     deadlineMs: Number.isFinite(deadline) ? deadline : null,
+    giveUpNote: process.env.GIVE_UP_NOTE?.trim() || DEFAULT_GIVE_UP_NOTE,
   });
 }
 

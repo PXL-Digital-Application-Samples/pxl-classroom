@@ -14,7 +14,7 @@
 import { appendFile, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { ghAll } from "../lib/gh.mjs";
+import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, acceptancesDir, assignmentIdFromFile } from "../lib/control-layout.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
@@ -85,6 +85,20 @@ async function main() {
       // creation - so nothing created in the window is missed.
       issues = await ghAll(`/repos/${org}/${broker}/issues?state=all&since=${encodeURIComponent(since)}&per_page=100`);
     } catch (e) {
+      // A BROKER THAT IS GONE holds no attempts, and that is not a failed read
+      // (2026-10-23: a closed test assignment whose broker the lecturer
+      // deleted warned every night). On an assignment still accepting it is
+      // the finding: nobody can accept it. Asked of the repository itself, so
+      // any other failure stays a failure.
+      const repo = await gh("GET", `/repos/${org}/${broker}`).catch(() => null);
+      if (repo?.status === 404) {
+        if (assignment.state === "published") {
+          console.log(`::warning::${org}/${id} is published but its broker ${broker} does not exist, so nobody can accept it. Publishing it again creates the broker.`);
+        } else {
+          console.log(`${org}/${id}: closed, and its broker ${broker} no longer exists - no attempts to check.`);
+        }
+        continue;
+      }
       console.log(`::warning::Could not read the attempts on ${org}/${broker} (${e.message}); not checked.`);
       unread++;
       continue;

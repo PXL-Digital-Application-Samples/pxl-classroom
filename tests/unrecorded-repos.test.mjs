@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { copiedFrom, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 
 test("a notice line and its reading are one pair: every finding round-trips", () => {
   const findings = [
@@ -95,20 +95,32 @@ test("loginFromRepoName reads the login out of the ordinary pattern, and nothing
 
 // --- the script, against a stub API ------------------------------------------
 
-function controlDir({ fullHistory = false, recordFullHistory = false } = {}) {
+const OPENS = "2026-09-01T08:00:00Z";
+
+function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = null } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-unrecorded-"));
   mkdirSync(join(dir, "assignments"));
   writeFileSync(
     join(dir, "assignments", "lab.yml"),
     "state: published\nrepository_name_pattern: lab-{github_login}\ntemplate:\n  owner: Org\n  repository: starter\n" +
-      (fullHistory ? "template_full_history: true\n" : ""),
+      (fullHistory ? "template_full_history: true\n" : "") +
+      (opensAt ? `opens_at: "${opensAt}"\n` : ""),
+  );
+  // A team assignment: its repository names a team, never a student.
+  writeFileSync(
+    join(dir, "assignments", "grp.yml"),
+    `state: published\nassignment_type: group\nrepository_name_pattern: grp-{team_slug}\ntemplate:\n  owner: Org\n  repository: starter\nopens_at: "${OPENS}"\n`,
   );
   mkdirSync(join(dir, "repositories", "lab"), { recursive: true });
   writeFileSync(join(dir, "repositories", "lab", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "Org/lab-ann", ...(recordFullHistory ? { full_history: true } : {}) }));
   return dir;
 }
 
-async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false } = {}) {
+// The commit GitHub generates from a template (lib/starter-sync-cohort.mjs `generatedFromTemplate`).
+const GENERATED = { sha: "gen", parents: [], committer: { login: "web-flow" }, author: { login: "pxl-classroom-provisioner[bot]" }, commit: { verification: { verified: true } } };
+const PUSHED = { sha: "work", parents: [{ sha: "gen" }], committer: { login: "web-flow" }, author: { login: "a-student" }, commit: { verification: { verified: false } } };
+
+async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false, opensAt = null } = {}) {
   const list = repos ?? [
     { name: "lab-ann", from: "Org/starter" },
     { name: "lab-TimoHubner444", from: "Org/starter" },
@@ -122,7 +134,23 @@ async function run({ listStatus = 200, repos, fullHistory = false, recordFullHis
     };
     const [url, query = ""] = req.url.split("?");
     // 403, not a 5xx: a 5xx is retried with backoff, which only slows the test.
-    if (url === "/orgs/Org/repos") return listStatus === 200 ? send(200, list.map((r) => ({ name: r.name }))) : send(listStatus, { message: "no" });
+    if (url === "/orgs/Org/repos") return listStatus === 200 ? send(200, list.map((r) => ({ name: r.name, ...(r.created ? { created_at: r.created } : {}) }))) : send(listStatus, { message: "no" });
+    // Who can open it, who is invited, and what is in it: asked of a
+    // team-shaped finding only (`emptyLeftover`).
+    const sub = url.match(/^\/repos\/Org\/([^/]+)\/(collaborators|invitations|branches|activity)$/);
+    if (sub) {
+      const r = list.find((x) => x.name === sub[1]);
+      if (sub[2] === "collaborators") return r?.collaboratorsStatus ? send(r.collaboratorsStatus, { message: "no" }) : send(200, r?.collaborators ?? []);
+      if (sub[2] === "invitations") return send(200, r?.invitations ?? []);
+      if (sub[2] === "branches") return send(200, [{ name: "main" }]);
+      return send(200, []);
+    }
+    // repoTouched's read of the history, newest first.
+    const history = url.match(/^\/repos\/Org\/([^/]+)\/commits$/);
+    if (history && new URLSearchParams(query).get("per_page") === "21") {
+      const r = list.find((x) => x.name === history[1]);
+      return send(200, r?.pushed ? [PUSHED, GENERATED] : [GENERATED]);
+    }
     // Commits at one per page, as GitHub pages them: the last page is the root.
     const commits = url.match(/^\/repos\/Org\/([^/]+)\/commits$/);
     if (commits) {
@@ -138,7 +166,7 @@ async function run({ listStatus = 200, repos, fullHistory = false, recordFullHis
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const dir = controlDir({ fullHistory, recordFullHistory });
+  const dir = controlDir({ fullHistory, recordFullHistory, opensAt });
   const out = join(dir, "out.env");
   try {
     return await new Promise((resolve, reject) => {
@@ -205,6 +233,81 @@ test("S7: a full-history copy no record names is reported by its root commit; a 
   assert.match(since.outputs, /`lab-lost` - student `lost`/);
 });
 
+test("a repository made before its assignment opened is last year's, not a lost acceptance", async () => {
+  // PXL-Digital-SNE-Werkplekleren, 2026-10-23: `portfolio-{github_login}` builds
+  // on last year's repository, and 341 earlier portfolios were candidates every
+  // night, the same first 50 looked at and the rest never.
+  const res = await run({
+    opensAt: OPENS,
+    repos: [
+      { name: "lab-ann", from: "Org/starter", created: "2026-09-02T10:00:00Z" },
+      { name: "lab-lastyear", from: "Org/starter", created: "2025-09-20T10:00:00Z" },
+      { name: "lab-thisyear", from: "Org/starter", created: "2026-09-03T10:00:00Z" },
+      { name: "lab-nodate", from: "Org/starter" },
+    ],
+  });
+  assert.equal(res.status, 0, res.log);
+  assert.match(res.outputs, /^count=2$/m, res.log);
+  assert.match(res.outputs, /`lab-thisyear` - student `thisyear`/);
+  assert.match(res.outputs, /`lab-nodate` - student `nodate`/, "an unknown creation time is not evidence it is old");
+  assert.doesNotMatch(res.outputs, /lab-lastyear/);
+  assert.match(res.log, /made since their assignment opened \(1 older\)/);
+
+  // Without an opening on the assignment nothing is left out.
+  const unopened = await run({ repos: [{ name: "lab-lastyear", from: "Org/starter", created: "2025-09-20T10:00:00Z" }] });
+  assert.match(unopened.outputs, /^count=1$/m, unopened.log);
+});
+
+test("splitByOpening: older ones apart, the rest newest first, unknown kept", () => {
+  const byId = new Map([["lab", { opens_at: OPENS }], ["free", {}]]);
+  const created = new Map([["lab-a", "2026-09-05T00:00:00Z"], ["lab-b", "2026-09-10T00:00:00Z"], ["lab-old", "2024-01-01T00:00:00Z"], ["free-x", "2020-01-01T00:00:00Z"]]);
+  const { current, older } = splitByOpening(
+    [{ assignment_id: "lab", repo: "lab-a" }, { assignment_id: "lab", repo: "LAB-OLD" }, { assignment_id: "lab", repo: "lab-b" }, { assignment_id: "lab", repo: "lab-c" }, { assignment_id: "free", repo: "free-x" }],
+    byId,
+    created,
+  );
+  assert.deepEqual(older.map((c) => c.repo), ["LAB-OLD"], "case does not matter");
+  assert.deepEqual(current.map((c) => c.repo).slice(0, 2), ["lab-b", "lab-a"], "newest first");
+  assert.ok(current.some((c) => c.repo === "lab-c"), "no creation time: kept");
+  assert.ok(current.some((c) => c.repo === "free-x"), "no opening: kept");
+});
+
+test("an empty team repository nobody can open is a leftover, not a student off the list", async () => {
+  // PXL-Systems-Expert, 2026-10-23: two team repositories left by teams
+  // everybody left were reported every night as "the student can work in it".
+  const team = (name, extra = {}) => ({ name, from: "Org/starter", created: "2026-10-01T10:00:00Z", ...extra });
+  const res = await run({
+    repos: [
+      team("grp-left-behind"),
+      team("grp-invited", { invitations: [{ id: 1 }] }),
+      team("grp-member", { collaborators: [{ login: "bo" }] }),
+      team("grp-worked-in", { pushed: true }),
+      team("grp-unreadable", { collaboratorsStatus: 403 }),
+    ],
+  });
+  assert.equal(res.status, 0, res.log);
+  assert.doesNotMatch(res.outputs, /grp-left-behind/, "nobody can open it and nothing is in it");
+  assert.match(res.log, /::notice::1 empty repository in Org .*safe to delete: grp-left-behind/);
+  for (const kept of ["grp-invited", "grp-member", "grp-worked-in", "grp-unreadable"]) assert.match(res.outputs, new RegExp(`\`${kept}\``), `${kept} is still reported`);
+  assert.match(res.outputs, /^count=4$/m);
+});
+
+test("emptyLeftover: every read answered, all empty, untouched", () => {
+  const ok = (data) => ({ ok: true, data });
+  assert.equal(emptyLeftover({ collaborators: ok([]), invitations: ok([]), touched: "untouched" }), true);
+  assert.equal(emptyLeftover({ collaborators: ok([{}]), invitations: ok([]), touched: "untouched" }), false);
+  assert.equal(emptyLeftover({ collaborators: ok([]), invitations: ok([{}]), touched: "untouched" }), false, "a teammate not accepted yet");
+  assert.equal(emptyLeftover({ collaborators: ok([]), invitations: ok([]), touched: "touched" }), false);
+  assert.equal(emptyLeftover({ collaborators: ok([]), invitations: ok([]), touched: "unknown" }), false);
+  assert.equal(emptyLeftover({ collaborators: { ok: false, status: 403 }, invitations: ok([]), touched: "untouched" }), false, "unreadable is not empty");
+  assert.equal(emptyLeftover({ collaborators: ok([]), invitations: null, touched: "untouched" }), false);
+});
+
+test("an individual repository names its student and is reported however empty", async () => {
+  const res = await run({ repos: [{ name: "lab-lost", from: "Org/starter", created: "2026-10-01T10:00:00Z" }] });
+  assert.match(res.outputs, /`lab-lost` - student `lost`/, res.log);
+});
+
 test("nothing to report writes a zero and no notice text", async () => {
   const res = await run({ repos: [{ name: "lab-ann", from: "Org/starter" }] });
   assert.equal(res.status, 0, res.log);
@@ -230,7 +333,10 @@ test("the nightly runs it per org, advisory, and notifies only when something wa
   for (const s of [find, token, notice]) assert.equal(s["continue-on-error"], true, `${s.name} can never fail the collect leg`);
   assert.match(find.run, /scripts\/find-unrecorded-repos\.mjs control/);
   assert.match(String(notice.if), /steps\.unrecorded\.outputs\.count != '0'/);
-  assert.deepEqual(Object.keys(token.with).filter((k) => k.startsWith("permission-")), ["permission-metadata"], "metadata only");
+  // Read only: metadata to list and look, contents and administration to ask a
+  // team-shaped finding what is in it and who is invited (`emptyLeftover`).
+  const perms = Object.fromEntries(Object.entries(token.with).filter(([k]) => k.startsWith("permission-")));
+  assert.deepEqual(perms, { "permission-metadata": "read", "permission-contents": "read", "permission-administration": "read" }, "read only");
 });
 
 test("an acceptance whose record push fails notifies the lecturer, naming the student", () => {
