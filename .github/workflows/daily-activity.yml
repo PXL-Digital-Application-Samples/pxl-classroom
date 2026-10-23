@@ -80,7 +80,7 @@ jobs:
         with:
           retry-budget-minutes: "3"
           give-up-note: "this organization is read again by the next nightly."
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: token
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -161,7 +161,7 @@ jobs:
         id: unrecorded_token
         if: always()
         continue-on-error: true
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
@@ -204,7 +204,7 @@ jobs:
         id: unanswered_token
         if: always()
         continue-on-error: true
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
@@ -294,7 +294,7 @@ jobs:
         with:
           retry-budget-minutes: "4"
           give-up-note: "this organization's assignments are planned again by the next nightly."
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: token
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -414,7 +414,7 @@ jobs:
         with:
           retry-budget-minutes: "4"
           give-up-note: "this assignment is finalized by the next nightly."
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: token
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
@@ -605,7 +605,7 @@ jobs:
         id: gradetoken
         if: always() && matrix.assignment.close_only != true && steps.lockdown.outputs.outcome != 'deleted'
         continue-on-error: true
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
