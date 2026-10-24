@@ -70,3 +70,5 @@ orgs:
     budget_owner_login: afx42
   - login: pxl-grpro-dataexpert-2627
     budget_owner_login: KoenBloemen-PXL
+  - login: pxl-grpro-csadvanced-2627
+    budget_owner_login: WimBervoetsPXL
