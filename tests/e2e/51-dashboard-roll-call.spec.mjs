@@ -232,7 +232,9 @@ test.describe('51 - overlapping loads never empty the page', () => {
       assignments: SIX,
       reports: { dashboard: sixDashboard },
     });
-    await page.route('**/contents/reports%2Fdashboard.json*', async (route) => {
+    // The path the app requests, with its slash: `reports%2F` matched only
+    // where Playwright decoded it, so this hold was sometimes no hold at all.
+    await page.route('**/contents/reports/dashboard.json*', async (route) => {
       if (++seen === 1) await held;
       await route.fallback();
     });
@@ -246,6 +248,7 @@ test.describe('51 - overlapping loads never empty the page', () => {
     await expect(page.locator('.assignment-card, .dashboard-card').first())
       .toBeVisible({ timeout: 20000 });
     await expect(page.locator("body")).not.toContainText("Nothing to show");
+    expect(seen, "the first read was the one held").toBeGreaterThan(0);
   });
 
   test('switching to an org with nothing does not show the previous one\'s cards', async ({ page }) => {
@@ -265,11 +268,23 @@ test.describe('51 - overlapping loads never empty the page', () => {
     // An org whose control repo has no assignments at all.
     await page.route('**/contents/assignments*', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
-    await page.route('**/contents/reports%2Fdashboard.json*', (route) =>
-      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    // The path the app requests, with its slash. Spelled `reports%2F` this
+    // matched only where Playwright decoded it; where it did not, the old
+    // org's dashboard.json was served and its six cards rightly stayed - red
+    // on CI, green locally (2026-10-27).
+    let blocked = 0;
+    await page.route('**/contents/reports/dashboard.json*', (route) => {
+      blocked++;
+      return route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
+    });
     await page.reload();
 
-    await expect(page.locator('.assignment-card, .dashboard-card')).toHaveCount(0, { timeout: 15000 });
+    // The page's answer for this org first - "no assignments yet" - so the
+    // count below is of the loaded page, not of the blank one a reload starts
+    // from, where zero cards proves nothing.
+    await expect(page.locator('.onboarding-readiness-card')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.assignment-card, .dashboard-card')).toHaveCount(0);
+    expect(blocked, "the reload asked for dashboard.json and was answered 404").toBeGreaterThan(0);
   });
 });
 
