@@ -240,7 +240,11 @@
             <!-- Submission Status column, and under it where the team's work
                  was preserved, as on the Progress table. -->
             <td>
-              <span class="status-indicator">
+              <span v-if="teamNotRead(team)" class="status-indicator" :title="NOT_READ_TITLE" data-not-read>
+                <span class="status-dot dot-neutral"></span>
+                <span class="text-sm">{{ NOT_READ_LABEL }}</span>
+              </span>
+              <span v-else class="status-indicator">
                 <span class="status-dot" :class="team.submission_status === 'on-time' ? 'dot-success' : (team.submission_status === 'late' ? 'dot-warning' : 'dot-neutral')"></span>
                 <span class="text-sm">{{ submissionLabel(team.submission_status || 'unknown') }}</span>
               </span>
@@ -535,7 +539,7 @@ import LastCommitCell from './LastCommitCell.vue'
 import ArchiveLink from './ArchiveLink.vue'
 import { useTableSort } from '../composables/useTableSort.js'
 import { sortRows, timeValue } from '../lib/table-sort.js'
-import { commitTime, teamCommitRow } from '../lib/last-commit.js'
+import { commitTime, teamCommitRow, statusNotRead, NOT_READ_LABEL, NOT_READ_TITLE } from '../lib/last-commit.js'
 import { askConfirm } from '../lib/confirm.js'
 import { teamPath, teamsDir, repositoryPath, acceptancePath, repositoriesDir, acceptancesDir, lockdownRecordPath, overridesDir, unlockedDir } from '../../../lib/control-layout.mjs'
 import { grantableAfterLock } from '../../../lib/permission-change.mjs'
@@ -903,6 +907,10 @@ const filteredTeams = computed(() => {
 // Sorted on any column, as the Progress table is (lib/table-sort.js). Members
 // sort on the first one the cell shows, by the name it shows them under;
 // Capacity on how many there are.
+// A team whose repository's commits were never read is "Not read yet", not
+// "No submission" (lib/last-commit.js `statusNotRead`), as on the Progress table.
+const teamNotRead = (team) => statusNotRead({ ...teamCommitRow(team, props.students), submission_status: team.submission_status })
+
 const teamSort = useTableSort('team')
 const TEAM_SORT_VALUES = {
   team: (t) => t.team_name || t.team_slug,

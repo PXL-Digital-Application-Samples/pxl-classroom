@@ -18,6 +18,28 @@ export function commitTime(row) {
   return row?.commit_date || row?.latest_commit_date || row?.latest_observed_at || null
 }
 
+/**
+ * NOTHING READ YET: a repository PXL Classroom has not read the commits of.
+ * Commits are read by the nightly check and by Refresh, so a student who
+ * accepted today has a row with a repository and no reading - and the row said
+ * "No submission" and "no commits" while they had pushed five commits and the
+ * Score beside it, read live, said 10/10 (PXL-2TIN-CloudEssentials-2627,
+ * proef-pe1, 2026-10-27). "No commits" is an answer to a question nobody asked
+ * yet; this says so instead.
+ */
+export function commitsNotRead(row) {
+  return Boolean(row?.repo_url) && !row?.latest_observed_at && !latestSha(row) && row?.commit_count == null
+}
+
+/** Whether a row's status is "No submission" only because nothing was read (`commitsNotRead`). */
+export function statusNotRead(row) {
+  return commitsNotRead(row) && (row?.submission_status ?? 'no-submission') === 'no-submission'
+}
+
+export const NOT_READ_LABEL = 'Not read yet'
+export const NOT_READ_TITLE =
+  'PXL Classroom has not read the commits in this repository yet. Refresh on the Progress tab reads them now; the nightly check reads them tonight.'
+
 /** Its message, for the title; a repository with one commit is the starter's. */
 export function commitMsg(row) {
   if (row?.commit_message) return row.commit_message

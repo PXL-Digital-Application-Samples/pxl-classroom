@@ -631,7 +631,12 @@
                        would have read "6h50m before the deadline" on a row
                        saying Late, and the classification bug would have been
                        caught the day it shipped rather than after an exam. -->
-                  <span class="status-indicator" :title="statusDetail(s)">
+                  <!-- Nothing read yet is not "No submission" (lib/last-commit.js). -->
+                  <span v-if="statusNotRead(s)" class="status-indicator" :title="NOT_READ_TITLE" data-not-read>
+                    <span class="status-dot dot-neutral"></span>
+                    <span class="text-sm">{{ NOT_READ_LABEL }}</span>
+                  </span>
+                  <span v-else class="status-indicator" :title="statusDetail(s)">
                     <span class="status-dot" :class="s.submission_status === 'on-time' ? 'dot-success' : (s.submission_status === 'late' ? 'dot-warning' : (s.submission_status === 'no-submission' ? (pastDeadline(s.effective_deadline_at || currentDeadline, nowMs) ? 'dot-danger' : 'dot-neutral') : 'dot-info'))"></span>
                     <span class="text-sm">{{ submissionLabel(s.submission_status) }}</span>
                   </span>
@@ -790,7 +795,8 @@
             </header>
             <div class="student-card-badges">
               <span :class="['badge', acceptBadge(s.acceptance_state)]">{{ acceptanceLabel(s.acceptance_state) }}</span>
-              <span :class="['badge', statusBadge(s.submission_status)]">{{ submissionLabel(s.submission_status) }}</span>
+              <span v-if="statusNotRead(s)" class="badge badge-neutral" :title="NOT_READ_TITLE">{{ NOT_READ_LABEL }}</span>
+              <span v-else :class="['badge', statusBadge(s.submission_status)]">{{ submissionLabel(s.submission_status) }}</span>
               <span v-if="s.lock_down_at" class="badge badge-info">locked</span>
               <span v-if="extensionFor(s.github_login)" class="badge badge-info" :title="`Extended to ${fmt(extensionFor(s.github_login).value)} (${extensionFor(s.github_login).reason})`">
                 extended
@@ -1476,7 +1482,7 @@ import LastCommitCell from '../components/LastCommitCell.vue'
 import ArchiveLink from '../components/ArchiveLink.vue'
 import { useTableSort } from '../composables/useTableSort.js'
 import { sortRows, timeValue } from '../lib/table-sort.js'
-import { latestSha, commitTime, commitMsg } from '../lib/last-commit.js'
+import { latestSha, commitTime, commitMsg, statusNotRead, NOT_READ_LABEL, NOT_READ_TITLE } from '../lib/last-commit.js'
 import { config } from '../lib/config.js'
 import { generateXlsxBlob } from '../lib/xlsx.js'
 // One CSV cell, shared. This file held a byte-identical copy of it, as did

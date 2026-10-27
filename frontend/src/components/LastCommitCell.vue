@@ -13,6 +13,7 @@
         {{ sha.slice(0, 7) }}
       </a>
     </template>
+    <span v-else-if="notRead" class="text-muted" :title="NOT_READ_TITLE" data-not-read>not read yet</span>
     <span v-else-if="row?.repo_url" class="text-muted">no commits</span>
     <span v-else class="text-muted">-</span>
   </div>
@@ -21,7 +22,7 @@
 <script setup>
 import { computed } from 'vue'
 import { formatDate, formatRelative } from '../lib/format.js'
-import { latestSha, commitTime, commitMsg } from '../lib/last-commit.js'
+import { latestSha, commitTime, commitMsg, commitsNotRead, NOT_READ_TITLE } from '../lib/last-commit.js'
 
 const props = defineProps({
   /** A report row: a student's, or lib/last-commit.js `teamCommitRow`. */
@@ -33,6 +34,7 @@ const props = defineProps({
 const sha = computed(() => latestSha(props.row))
 const time = computed(() => commitTime(props.row))
 const message = computed(() => commitMsg(props.row))
+const notRead = computed(() => commitsNotRead(props.row))
 </script>
 
 <style scoped>
