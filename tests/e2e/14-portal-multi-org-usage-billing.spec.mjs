@@ -182,6 +182,7 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
         { repo: 'lab-containers', sku: 'actions_minutes', used: 2450, limit: 2000, over: true },
         { repo: 'lab-linux-basics', sku: 'actions_minutes', used: 450, limit: 2000, over: false },
         { repo: 'lab-cloud-storage', sku: 'packages_storage', used: 12, limit: 50, over: false },
+        { repo: 'pxl-classroom', sku: 'Actions Linux', used: 5463, limit: null, limit_source: 'public', over: false },
       ],
     };
 
@@ -206,6 +207,11 @@ test.describe('14 - Multi-Org Portal, Student Assignments Dashboard & Usage Bill
     await expect(table.locator('tr.over-threshold')).toContainText('lab-containers');
     await expect(table.locator('tr.over-threshold')).toContainText('2450');
     await expect(table).toContainText('lab-linux-basics');
+
+    // A public repository's minutes: no limit, not over, and the stored word is not what is shown.
+    const publicRow = table.locator('tr', { hasText: 'pxl-classroom' });
+    await expect(publicRow).toContainText('Public repo: free');
+    await expect(publicRow).not.toHaveClass(/over-threshold/);
 
     // Click Regenerate now button
     const regenBtn = page.getByRole('button', { name: /Regenerate now/i });
