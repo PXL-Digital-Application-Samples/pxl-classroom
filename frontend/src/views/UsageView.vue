@@ -100,7 +100,7 @@
                 <td class="num"><strong v-if="item.over">{{ item.used }}</strong><span v-else>{{ item.used }}</span></td>
                 <td class="num">{{ item.limit ?? '-' }}</td>
                 <td>{{ item.unit }}</td>
-                <td><span class="badge">{{ item.limit_source }}</span></td>
+                <td><span class="badge">{{ usageSourceLabel(item.limit_source) }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -117,6 +117,7 @@ import Icon from '../components/Icon.vue'
 import SortableTh from '../components/SortableTh.vue'
 import { useTableSort } from '../composables/useTableSort.js'
 import { compareSortValues } from '../lib/table-sort.js'
+import { usageSourceLabel } from '../lib/status-labels.js'
 import { isAuthenticated, getUser, getToken } from '../lib/auth.js'
 import {
   createWorkflowRequestId,

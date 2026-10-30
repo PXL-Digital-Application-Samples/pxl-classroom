@@ -211,7 +211,7 @@
                 </td>
                 <td class="num">{{ item.limit ?? '-' }}</td>
                 <td>{{ item.unit }}</td>
-                <td><span class="badge source-badge">{{ formatSource(item.limit_source) }}</span></td>
+                <td><span class="badge source-badge">{{ usageSourceLabel(item.limit_source) }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -227,6 +227,7 @@ import Icon from './Icon.vue'
 import SortableTh from './SortableTh.vue'
 import { useTableSort } from '../composables/useTableSort.js'
 import { compareSortValues } from '../lib/table-sort.js'
+import { usageSourceLabel } from '../lib/status-labels.js'
 import { getToken } from '../lib/auth.js'
 import {
   createWorkflowRequestId,
@@ -301,12 +302,6 @@ function formatSku(sku) {
   return map[sku] || sku
 }
 
-function formatSource(src) {
-  if (src === 'repo') return 'Repo Override'
-  if (src === 'org') return 'Org Policy'
-  if (src === 'global') return 'Global Default'
-  return 'None'
-}
 
 function formatRateReset(resetDate) {
   if (!resetDate) return 'Hourly REST quota'

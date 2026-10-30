@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import http from "node:http";
+import { parse } from "yaml";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scriptPath = join(here, "..", "scripts", "usage-fetch.mjs");
@@ -128,6 +129,74 @@ test("repo -> org -> global threshold override resolution chain", async () => {
   assert.equal(rOkOverride.over, false);
   
   assert.equal(latestJson.over_count, 3);
+});
+
+// Measured on PXL-Digital-Application-Samples and PXL-Systems-Advanced,
+// 2026-10-25: the hub's 5,479 minutes and docker-labs' 25 GB-hours were both "over"
+// with a net charge of zero, and the report had been red for four weeks.
+const LIMITS = `schema_version: 1\nweekly_limits:\n  - sku: "Actions Linux"\n    unit: Minutes\n    limit: 800\n  - sku: "Actions storage"\n    unit: GigabyteHours\n    limit: 168\n`;
+const USAGE = "/organizations/123/settings/billing/usage?year=2026&month=1";
+const PUBLIC_REPOS = "/orgs/TestOrg/repos?type=public&per_page=100";
+const item = (repositoryName, sku, quantity) => ({ date: "2026-01-05T12:00:00Z", repositoryName, sku, unitType: "x", quantity });
+
+async function usageReport(items, { publicRepos, porgsYaml, repoOverrides } = {}) {
+  const apiResponses = { "/orgs/TestOrg": { id: 123 }, [USAGE]: { usageItems: items } };
+  if (publicRepos) apiResponses[PUBLIC_REPOS] = publicRepos.map((name) => ({ name }));
+  const res = await runTest({ limitsYaml: LIMITS, porgsYaml, repoOverrides, WEEK_START: "2026-01-05", WEEK_END: "2026-01-11" }, apiResponses);
+  assert.equal(res.status, 0, res.stderr);
+  const report = JSON.parse(readFileSync(join(res.dir, "reports", "usage-latest.json"), "utf8"));
+  return { report, stderr: res.stderr, row: (repo, sku) => report.items.find((i) => i.repo === repo && i.sku === sku) };
+}
+
+test("a public repository's minutes are free: no limit, never over, and it says why", async () => {
+  const { report, row } = await usageReport([item("pxl-classroom", "Actions Linux", 5479)], { publicRepos: ["pxl-classroom"] });
+  const hub = row("pxl-classroom", "Actions Linux");
+  assert.equal(hub.over, false, "a null limit must not compare as zero");
+  assert.equal(hub.limit, null);
+  assert.equal(hub.limit_source, "public");
+  assert.equal(report.over_count, 0);
+});
+
+test("a private repository's minutes still count, whatever the public ones do", async () => {
+  const { report, row } = await usageReport(
+    [item("pxl-classroom", "Actions Linux", 5479), item("exam-repo", "Actions Linux", 801)],
+    { publicRepos: ["pxl-classroom"] },
+  );
+  assert.equal(row("exam-repo", "Actions Linux").over, true);
+  assert.equal(row("exam-repo", "Actions Linux").limit_source, "global");
+  assert.equal(report.over_count, 1);
+});
+
+test("only minutes are exempt: storage on a public repository is still measured", async () => {
+  const { row } = await usageReport([item("pxl-classroom", "Actions storage", 200)], { publicRepos: ["pxl-classroom"] });
+  assert.equal(row("pxl-classroom", "Actions storage").over, true);
+  assert.equal(row("pxl-classroom", "Actions storage").limit_source, "global");
+});
+
+test("a listing that failed exempts nothing, and says so", async () => {
+  const { row, stderr } = await usageReport([item("pxl-classroom", "Actions Linux", 5479)]);
+  assert.equal(row("pxl-classroom", "Actions Linux").over, true, "a false warning, never a silent overrun");
+  assert.match(stderr, /could not list public repositories/);
+});
+
+test("a limit a person set on one repository outranks the exemption; an org's does not", async () => {
+  const overrides = { schema_version: 1, repos: { "pxl-classroom": { "Actions Linux": 1000 } } };
+  const asked = await usageReport([item("pxl-classroom", "Actions Linux", 5479)], { publicRepos: ["pxl-classroom"], repoOverrides: overrides });
+  assert.equal(asked.row("pxl-classroom", "Actions Linux").over, true);
+  assert.equal(asked.row("pxl-classroom", "Actions Linux").limit_source, "repo");
+
+  const porgsYaml = `orgs:\n  - login: TestOrg\n    overrides:\n      Actions Linux: 20\n`;
+  const org = await usageReport([item("pxl-classroom", "Actions Linux", 5479)], { publicRepos: ["pxl-classroom"], porgsYaml });
+  assert.equal(org.row("pxl-classroom", "Actions Linux").limit_source, "public");
+});
+
+test("limits.yml: a GB-hours limit is at least one GB held all week, and storage does not fire at the amounts that are normal here", () => {
+  const limits = parse(readFileSync(join(here, "..", "limits.yml"), "utf8"));
+  const gbHours = limits.weekly_limits.filter((l) => l.unit === "GigabyteHours");
+  assert.ok(gbHours.length > 0, "sanity: limits.yml has GB-hours limits");
+  for (const l of gbHours) assert.ok(l.limit >= 168, `${l.sku}: ${l.limit} GB-hours is less than 1 GB for a week`);
+  const storage = limits.weekly_limits.find((l) => l.sku === "Actions storage").limit;
+  assert.ok(storage > 25, "docker-labs' measured 25 GB-hours, about 0.15 GB held");
 });
 
 test("ISO week computation", async () => {

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { gh, ghAllItems } from "../lib/gh.mjs";
+import { gh, ghAll, ghAllItems } from "../lib/gh.mjs";
 import { readUtf8OrFail } from "./lib/encoding.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
@@ -87,9 +87,19 @@ let repoOverrides = {};
   }
 }
 
+// Standard runners in a public repository are free, so a minutes limit on one
+// warns about money nobody spends: the hub went over it every week, and the
+// report went red four Sundays running with nothing wrong. Only minutes: GitHub
+// documents those as free, and says nothing either way about storage.
+const FREE_IN_PUBLIC_REPO = new Set(["Actions Linux", "Actions Windows", "Actions macOS"]);
+let publicRepos = new Set();
+
 function resolveLimit(repo, sku) {
   if (repoOverrides[repo] && repoOverrides[repo][sku] !== undefined) {
     return { limit: repoOverrides[repo][sku], source: "repo" };
+  }
+  if (publicRepos.has(repo) && FREE_IN_PUBLIC_REPO.has(sku)) {
+    return { limit: null, source: "public" };
   }
   if (orgOverrides[sku] !== undefined) {
     return { limit: orgOverrides[sku], source: "org" };
@@ -141,6 +151,15 @@ for (const ym of monthsToFetch) {
   }
 }
 
+// A listing that failed exempts nothing: the cost is a false warning, which says
+// what happened, and the other way round is a real overrun nobody hears about.
+try {
+  const repos = await ghAll(`/orgs/${ORG}/repos?type=public&per_page=100`, ghOpts);
+  publicRepos = new Set(repos.map((r) => r.name));
+} catch (err) {
+  console.error(`[warn] ${ORG}: could not list public repositories, so their minutes are measured too: ${err.message.slice(0, 120)}`);
+}
+
 const groups = new Map();
 for (const item of allItems) {
   const repo = item.repositoryName || "<org-level>";
@@ -162,7 +181,7 @@ for (const g of groups.values()) {
     used: usedRounded,
     limit: limit ? limit.limit : null,
     limit_source: limit ? limit.source : "none",
-    over: limit ? usedRounded > limit.limit : false,
+    over: limit && limit.limit !== null ? usedRounded > limit.limit : false,
   });
 }
 

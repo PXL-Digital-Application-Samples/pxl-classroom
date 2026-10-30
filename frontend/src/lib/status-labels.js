@@ -171,6 +171,24 @@ export function gradingRunnerLabel(value) {
 }
 
 /**
+ * Where a usage report row's limit came from (`limit_source`, written by
+ * scripts/usage-fetch.mjs). `public` has no limit at all: GitHub does not charge
+ * for standard runners in a public repository.
+ */
+export const USAGE_SOURCE_LABELS = Object.freeze({
+  repo: "Repo Override",
+  org: "Org Policy",
+  global: "Global Default",
+  public: "Public repo: free",
+  none: "None",
+});
+
+/** @param {string|null|undefined} value */
+export function usageSourceLabel(value) {
+  return label(USAGE_SOURCE_LABELS, value || "none");
+}
+
+/**
  * How a student's repository was last read: a report row's
  * `latest_observation_type`, the observation's `collection_type`, enumerated
  * in schemas/report.schema.json. Written to follow "read", as the info block

@@ -342,12 +342,12 @@ The system warns when any repo crosses a per-SKU threshold. Three layers of conf
 {
   "schema_version": 1,
   "repos": {
-    "pxl-sweeper-HanneloreRamakersPXL": { "Actions storage": 10 }
+    "pxl-sweeper-HanneloreRamakersPXL": { "Actions storage": 672 }
   }
 }
 ```
 
-Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's report respects the override; the dashboard tile turns green.
+Commit to `<org>/pxl-classroom-control/limits-overrides.json`. The next Sunday's report respects the override; the dashboard tile turns green. The unit is GB-hours and a week is 168 hours, so 672 is 4 GB held all week. A limit below what the global default allows makes the warning stricter, not quieter.
 
 ### 6.3 SKUs you'll see
 
@@ -366,7 +366,7 @@ GitHub's Enhanced Billing API returns SKUs as data - the catalog isn't fixed. Co
 | `Codespaces compute` | Hours | If your org enables Codespaces |
 | `Codespaces storage` | GigabyteHours | Codespace prebuilds |
 
-Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a configured threshold are recorded in the report but never flagged.
+Add an entry to `limits.yml` for any SKU you want thresholded. SKUs without a configured threshold are recorded in the report but never flagged. The `Actions` minutes of a public repository, the hub included, are recorded with no limit and shown as *Public repo: free*: GitHub does not charge for standard runners there, so only a per-repo override can flag them.
 
 ### 6.4 Cadence
 

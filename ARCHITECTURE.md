@@ -1484,7 +1484,7 @@ GitHub repository permissions are all-or-nothing. A shared control repository wo
 
 ### 14.3 Weekly usage tracking
 
-The system tracks GitHub usage per repo per SKU and warns when anything crosses a configured threshold. No EUR involved - actuals only (minutes, GiB·h, GB, hours), because a repo with 4 GiB·h of stale artifacts and zero minutes is invisible in a cost view but still a real problem.
+The system tracks GitHub usage per repo per SKU and warns when anything crosses a configured threshold. No EUR involved - actuals only (minutes, GiB·h, GB, hours), because a repo holding gigabytes of stale artifacts with zero minutes is invisible in a cost view but still a real problem. A week is 168 hours, so 168 GiB·h is one GiB held all week.
 
 **Sunday 22:00 UTC**, `weekly-usage-report.yml` fires. Per participating org (matrix):
 
@@ -1501,10 +1501,11 @@ The system tracks GitHub usage per repo per SKU and warns when anything crosses 
 | Source | Location | Scope |
 |---|---|---|
 | Per-repo | `<org>/pxl-classroom-control/limits-overrides.json` | Specific repo + SKU |
+| Public repository | `GET /orgs/{org}/repos?type=public`, by `scripts/usage-fetch.mjs` | Minutes only (`limit_source: public`, no limit): standard runners in a public repository are free. Storage is still measured |
 | Per-org | `participating-orgs.yml` -> `orgs[i].overrides` | All repos in that org, for that SKU |
 | Global | `limits.yml` (hub root) | Default |
 
-If no threshold is configured for a SKU anywhere, that SKU's usage is recorded but never flagged.
+If no threshold is configured for a SKU anywhere, that SKU's usage is recorded but never flagged. A listing of public repositories that fails exempts nothing, so its cost is a false warning and never a silent overrun.
 
 **Frontend.** The embedded dashboard panel and two dedicated views read the latest report from control repos at runtime with the lecturer's own token:
 
