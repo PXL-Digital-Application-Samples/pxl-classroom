@@ -579,8 +579,9 @@ import { ROSTER_PATH } from '../lib/roster.js'
 import { brokerRepoName } from '../../../lib/broker-repo.mjs'
 import { readOwnDeadline, submissionBadge, AFTER_DEADLINE_TITLE } from '../lib/own-deadline.js'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
-import { getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
-import { getRepo, getInvitations, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
+import { renamedRepoFor } from '../lib/renamed-repo.js'
+import { getToken, getUser, isAuthenticated, clearAuth, refreshSignedInLogin } from '../lib/auth.js'
+import { getRepo, getInvitations, getUserRepos, acceptInvitation, ghApi, getRepoContent } from '../lib/api.js'
 import { signedAcceptanceIssueTitle, inviteDataUrl } from '../lib/invite.js'
 import { invitationEvidence, mayOfferInvitationLink } from '../lib/invitation-evidence.js'
 import {
@@ -911,6 +912,10 @@ async function loadAssignment(isRetry = false) {
   // view: not knowing whether a student already has a repository shows them the
   // Accept button, and accepting again is idempotent.
   if (assignment.value && isAuthenticated()) {
+    // The sign-in keeps for 8 hours and their login may have changed inside them:
+    // the broker knows them by the new one, and this page would wait for a
+    // repository named after the old one.
+    await refreshSignedInLogin()
     user.value = getUser()
     authToken.value = getToken() || ""
     try {
@@ -1007,6 +1012,31 @@ async function refreshStudentSubmissionMeta(org, repoName) {
   ownDeadlineKnown.value = own.known
 }
 
+// The repository they had before renaming their account, or null
+// (lib/renamed-repo.js). `list` defaults to what they can reach; a pending
+// invitation's repository is asked about the same way.
+async function ownRepoUnderOldName(token, org, list = null) {
+  let repos = list
+  if (!repos) {
+    const res = await getUserRepos(token)
+    if (!res.ok || !Array.isArray(res.data)) return null
+    repos = res.data
+  }
+  return renamedRepoFor({
+    api: (method, path) => ghApi(token, method, path),
+    repos, org, assignment: assignment.value, assignmentId: resolvedId.value, login: user.value.login,
+    excludeIssue: acceptanceIssue.value ?? null,
+  })
+}
+
+// The repository a pending invitation is for, under the name it had before they
+// renamed, or the name today's login makes.
+async function invitedRepoName(token, org, invites, expectedName) {
+  if (!invites?.ok || !Array.isArray(invites.data)) return expectedName
+  const repos = invites.data.map((i) => i?.repository).filter(Boolean)
+  return (await ownRepoUnderOldName(token, org, repos))?.name ?? expectedName
+}
+
 // Check if the user already has a repo for this assignment
 async function checkExistingState() {
   const token = getToken()
@@ -1031,10 +1061,21 @@ async function checkExistingState() {
     return
   }
 
+  // A STUDENT WHO RENAMED THEIR ACCOUNT. Their repository keeps its name, so the
+  // look above found nothing and this page would offer Accept over their work.
+  const renamed = await ownRepoUnderOldName(token, org)
+  if (renamed) {
+    repoUrl.value = renamed.html_url
+    repoFullName.value = renamed.full_name
+    acceptState.value = 'provisioned'
+    await refreshStudentSubmissionMeta(org, renamed.name)
+    return
+  }
+
   // Check for pending invitation. Same rule as the poll, through the same
   // helper: a match is knowledge, anything else is silence.
   const invites = await getInvitations(token)
-  const evidence = invitationEvidence(invites, { org, repo: expectedName })
+  const evidence = invitationEvidence(invites, { org, repo: await invitedRepoName(token, org, invites, expectedName) })
   invitationProven.value = evidence.proven
   if (evidence.invitation) {
     const match = evidence.invitation
@@ -1361,12 +1402,24 @@ function startPolling() {
       return
     }
 
+    // A repository under the name they had before a rename is the one the hub
+    // hands back.
+    const renamed = await ownRepoUnderOldName(token, org)
+    if (stale()) return
+    if (renamed) {
+      repoUrl.value = renamed.html_url
+      repoFullName.value = renamed.full_name
+      acceptState.value = 'provisioned'
+      return
+    }
+
     // Check invitation. A MATCH is the only outcome that settles anything: an
     // answer without one has already been observed while an invitation existed,
     // so it leaves the question open rather than closing it.
     const invites = await getInvitations(token)
     if (stale()) return
-    const evidence = invitationEvidence(invites, { org, repo: expectedName })
+    const evidence = invitationEvidence(invites, { org, repo: await invitedRepoName(token, org, invites, expectedName) })
+    if (stale()) return
     invitationProven.value = evidence.proven
     if (evidence.invitation) {
       const match = evidence.invitation

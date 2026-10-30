@@ -19,7 +19,8 @@ inputs:
   event-type:
     description: >
       Event type: provisioning-failed | collection-failed | deadline-gap |
-      missing-access | unexpected-deletion | late-activity | preservation-failed
+      missing-access | unexpected-deletion | late-activity | preservation-failed |
+      renamed-accounts | renamed-accounts-conflict
     required: true
   assignment-id:
     description: Assignment ID

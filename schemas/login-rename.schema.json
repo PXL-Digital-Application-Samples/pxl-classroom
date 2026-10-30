@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pxl-digital-application-samples.github.io/pxl-classroom/schemas/login-rename.schema.json",
+  "title": "Renamed account",
+  "description": "The logins one GitHub account has been known by here, at students/renames/<github_id>.json. Written by lib/login-rename.mjs when it moves their records, so a write that lands under an old login after the move is moved too: nothing else can say whose it is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "github_id", "previous_logins"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version for forward compatibility."
+    },
+    "github_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The account. Immutable."
+    },
+    "previous_logins": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$" },
+      "uniqueItems": true,
+      "description": "Logins whose records were moved away from, oldest first."
+    }
+  }
+}

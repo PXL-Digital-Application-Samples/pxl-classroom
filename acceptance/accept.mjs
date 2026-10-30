@@ -28,6 +28,9 @@ import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { readSentinelTimelines } from "../lib/sentinel-timelines.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { repositoryNameFor } from "../lib/repo-name.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
+import { renamesPath } from "../lib/login-rename.mjs";
+import { loginFromRepoName } from "../lib/unrecorded-repos.mjs";
 import { APP_SLUG, CLAIM_ADDRESS_FORMAT, CLAIM_DOMAINS, INSTITUTION } from "../lib/deployment.mjs";
 import {
   CLAIM_REJECTIONS,
@@ -883,6 +886,34 @@ async function main() {
   const acceptFile = join(acceptDir, `${login}.json`);
   const issueNumber = parseIssueNumber(env("ISSUE_NUMBER", ""));
   const runId = /^[0-9]{1,20}$/.test(env("GITHUB_RUN_ID", "")) ? env("GITHUB_RUN_ID", "") : null;
+  // A LOGIN THAT CHANGED HANDS. GitHub frees a name when its owner renames, and
+  // anyone may register it. A record names its account by id, so a record under
+  // this login with another id is somebody else's acceptance - and the shortcut
+  // below would hand this person that student's repository. The owner's own
+  // attempt never reaches here: acceptance/reserve.mjs moved their records first.
+  // Not counted: it answers nothing the holder of this name could not read off
+  // the repository's name. Found whatever its case, because the name is the
+  // thing in question and this file system tells spellings apart; and a Retry
+  // has set the record aside, which is still that account's.
+  const refuseReusedLogin = () =>
+    reject(
+      "rejected:login-reused",
+      `This GitHub username accepted ${assignmentId} under a different account. If you took this username over from someone else, ask your lecturer.`,
+    );
+  {
+    const onFile = (await readdir(acceptDir).catch(() => [])).find((f) => f.endsWith(".json") && sameLogin(f.slice(0, -".json".length), login));
+    const setAside = env("PRIOR_ACCEPTANCE_FILE", "");
+    for (const path of [onFile ? join(acceptDir, onFile) : null, setAside]) {
+      if (!path || !existsSync(path)) continue;
+      let holder = null;
+      try {
+        holder = JSON.parse(await readFile(path, "utf-8"))?.github_id;
+      } catch {
+        // Unreadable: the checks below say what they say about a broken record.
+      }
+      if (Number.isInteger(holder) && holder !== Number(githubId)) await refuseReusedLogin();
+    }
+  }
   if (issueNumber && existsSync(acceptFile)) {
     let stored = null;
     try {
@@ -1506,9 +1537,49 @@ async function main() {
   const studentPermission = assignment.student_permission || "admin";
 
   // 6. Check idempotency - already accepted?
-  const targetRepo = isGroup
+  let targetRepo = isGroup
     ? repositoryNameFor(assignment.repository_name_pattern, { teamSlug, login })
     : repositoryNameFor(assignment.repository_name_pattern, { login });
+
+  // A RENAMED STUDENT'S REPOSITORY KEEPS ITS NAME (lib/login-rename.mjs), so the
+  // pattern and today's login no longer make it. Their record names it, and only
+  // for a login the ledger says was this account's: a recorded name that merely
+  // differs is an assignment whose pattern was edited, which this is not about.
+  // The repository record decides, not the acceptance: a lecturer's Retry has set
+  // that aside, and without this it made a second repository and pointed their
+  // record at it.
+  if (!isGroup) {
+    try {
+      const recorded = JSON.parse(await readFile(join(dataDir, "repositories", assignmentId, `${login}.json`), "utf-8"));
+      const ledger = JSON.parse(await readFile(join(dataDir, renamesPath(Number(githubId))), "utf-8"));
+      const name = manifestRepoName(recorded?.repo_name, org);
+      const namedFor = name ? loginFromRepoName(assignment.repository_name_pattern, name) : null;
+      if (namedFor && !sameLogin(namedFor, login) && ledger?.previous_logins?.some((p) => sameLogin(p, namedFor))) {
+        log("renamed", { ok: true, note: `their repository is still ${name}, named for @${namedFor}` });
+        targetRepo = name;
+      }
+    } catch {
+      // No record, no ledger, or an unreadable one: the name the pattern makes.
+    }
+
+    // AND THE OTHER DIRECTION: a repository another student's record names. Once
+    // their records have moved, nothing here is under this login any more, while
+    // the repository still has the old name: whoever registered that name comes
+    // through as new, the pattern makes exactly that repository, and step 7 reuses
+    // it with the student's work in it. A `{github_login}` repository is one
+    // student's, so a record under any other login settles it.
+    const repoRecords = join(dataDir, "repositories", assignmentId);
+    for (const file of await readdir(repoRecords).catch(() => [])) {
+      if (!file.endsWith(".json") || sameLogin(file.slice(0, -".json".length), login)) continue;
+      let name = null;
+      try {
+        name = manifestRepoName(JSON.parse(await readFile(join(repoRecords, file), "utf-8"))?.repo_name, org);
+      } catch {
+        continue;
+      }
+      if (name && name.toLowerCase() === targetRepo.toLowerCase()) await refuseReusedLogin();
+    }
+  }
 
   // A SWITCH WHOSE PROVISIONING FAILED BEFORE IT LEFT THE OLD REPOSITORY
   // (review 2026-10-14, AC3). The decision moved the student into the new team

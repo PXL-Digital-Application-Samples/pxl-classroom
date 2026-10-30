@@ -266,6 +266,33 @@ export function getUser() {
 }
 
 /**
+ * Ask GitHub who is signed in, and keep the answer if their login has changed since
+ * they signed in. The login is the one thing about an account that can change
+ * while the token stays good (lib/login-rename.mjs). A failed read changes nothing.
+ */
+export async function refreshSignedInLogin() {
+  const token = getToken()
+  if (!token || !_user) return
+  try {
+    const res = await fetchWithTimeout(`${GITHUB_API_BASE}/user`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+    }, { timeoutMs: READ_TIMEOUT_MS })
+    if (!res.ok) return
+    const login = (await res.json())?.login
+    if (typeof login !== 'string' || !login || login === _user.login) return
+    _user = { ..._user, login }
+    saveStoredAuth(browserStores(), {
+      access_token: token,
+      user: _user,
+      expires_at: _tokenExpiresAt?.toISOString(),
+    })
+  } catch {
+    // Not knowing leaves the login they signed in with.
+  }
+}
+
+/**
  * When the current token expires (Date), or null when not authenticated.
  * Surfaced in the UserBadge so the 8-hour cliff is visible before it hits.
  */

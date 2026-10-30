@@ -29,6 +29,7 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | Watch for problems | [§2.1](#21-the-instructor-notifications-issue), [§2.2](#22-the-dashboard) |
 | A student says "I clicked Accept and nothing happened" | [§3.6](#36-student-says-i-clicked-accept-but-nothing-happened) |
 | A student deleted their repository | [§3.1](#31-student-deleted-their-repository) |
+| A student changed their GitHub username | [§3.13](#313-a-student-changed-their-github-username) |
 | **Fix a mistake in the assignment after students accepted** | [§6.13](#613-correcting-an-assignment-after-students-have-accepted) |
 | Run System Health / one-click fixes | [§6.14](#614-pre-flight-diagnostics-system-health--1-click-auto-fixes) |
 
@@ -446,6 +447,15 @@ Deleting is manual because an installation token **cannot** delete an issue at a
 | Legacy (`invite_token` only) | **fail** | Republish with `regenerate_invite: true`. The title *is* the credential, and redaction alone is not enough - a rename stays visible in the issue timeline, so an exposed token must be retired rather than hidden. |
 
 This is the same split `lib/diagnostics.mjs` applies when it raises the finding, and its message says which case you are in.
+
+### 3.13 A student changed their GitHub username
+
+**You do nothing.** Their access, their clones and their repository carry on. The nightly moves their records to the new name, so by the next morning every tab shows it, and the Instructor Notifications issue says who is now who (*`old-name` is now `NewName`*). If the student presses Accept before that, the same move happens on the spot and they get the repository they already have.
+
+- **Their repository keeps its old name.** `lab-3-old-name` stays `lab-3-old-name`, and their page and row link to it.
+- **If the notice says an assignment "has records for both" names**, the student accepted under the new name before anything followed the rename, so they hold two records and perhaps a second repository. Nothing was moved in that assignment, and there is no button for this. Look at which repository holds their work, then in the control repository delete `acceptances/<id>/<name>.json` and `repositories/<id>/<name>.json` of the name that does **not** hold it. The next nightly moves whatever is left to the new name, and the empty repository can go.
+- **A student who took over someone else's old username** is refused with *uses a GitHub username that another account accepted under*. The record names the account by its id, so they are not given the first student's repository.
+- **If that refusal is wrong**, because it is the same person on a new account (the old one deleted and made again under the same name), Retry cannot help: it says the account *could not be read*. In the control repository delete `acceptances/<id>/<name>.json` and `repositories/<id>/<name>.json`, and they can accept. Their repository stays and is handed back, if it has not been locked.
 
 ---
 

@@ -38,9 +38,12 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claimConcerns, decisionInputsChanged, pathsToCommit, teamConcerns } from "../lib/acceptance-reservation.mjs";
+import { SUPERSEDED, claimConcerns, decisionInputsChanged, pathsToCommit, teamConcerns } from "../lib/acceptance-reservation.mjs";
 import { acceptancePath } from "../lib/control-layout.mjs";
 import { claimPath } from "../lib/claim.mjs";
+import { gh } from "../lib/gh.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
+import { MOVED_TREES, accountsOnRecord, currentLogin, inMoveOrder, moveLogin, renamesFor } from "../lib/login-rename.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR || ".";
@@ -110,6 +113,68 @@ function concernsUs(decided, readRef = "HEAD~1") {
     });
 }
 
+/**
+ * THE STUDENT RENAMED THEIR ACCOUNT. Their records still name the old login, so
+ * every decision below would read them as somebody new: a second repository, a
+ * second seat in their team, a refusal off a roster row that names the old login.
+ * The id on the attempt is the account, whatever it is called now
+ * (lib/login-rename.mjs), so the records move first, in a commit of their own.
+ *
+ * Saved BEFORE any decision and outside `pathsToCommit`, because it is a fact
+ * about the account whichever way the decision goes, and it spans directories a
+ * decision never commits: half of it saved reads as two students. Replayed on a
+ * refused push, and asked again from the newer state on a conflict.
+ *
+ * ASKED OF GITHUB FIRST, because the attempt's login is only what it was when the
+ * attempt was made. GitHub can start a run hours late: an attempt from before the
+ * rename, run after the records moved, would otherwise move them all back.
+ *
+ * @returns {Promise<"ok"|"failed"|"stale">} `failed` when the account could not be
+ *   read or the move not saved: deciding then would make the second repository
+ *   this exists to prevent. `stale` when the account no longer goes by this login.
+ */
+async function followRename(branch) {
+  if (!githubId || !namesValid) return "ok";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const held = accountsOnRecord(dataDir, { ledger: false }).get(Number(githubId));
+    if (!held || renamesFor(held, login).length === 0) return "ok";
+    const now = await currentLogin(gh, Number(githubId));
+    if (now === null) return "failed";
+    if (!sameLogin(now, login)) return "stale";
+    const renames = inMoveOrder(renamesFor(held, now));
+    if (renames.length === 0) return "ok";
+    let changed = 0;
+    for (const rename of renames) {
+      const moved = moveLogin(dataDir, { ...rename, githubId: Number(githubId) });
+      changed += moved.changed.length;
+      for (const c of moved.conflicts) console.log(`::warning::${c.detail}. Left as it is: which record is the real one is a lecturer's call.`);
+      console.log(`[ok] reserve - @${rename.from} is now @${rename.to}: ${moved.changed.length} path(s) follow`);
+    }
+    // Nothing moved is the conflict above, in every assignment: there is nothing
+    // to save, and the decision reads the records as they are.
+    if (changed === 0) return "ok";
+    const trees = MOVED_TREES.filter((p) => existsSync(join(dataDir, p)));
+    git(["add", "-A", "--", ...trees]);
+    git([
+      "-c", "user.name=pxl-classroom[bot]",
+      "-c", "user.email=pxl-classroom[bot]@users.noreply.github.com",
+      "commit", "-q", "-m", `Follow the rename of ${renames.map((r) => r.from).join(", ")} to ${login}`,
+    ]);
+    for (let tries = 0; tries < 5; tries++) {
+      if (git(["push", "-q", "origin", `HEAD:refs/heads/${branch}`]).ok) return "ok";
+      await sleep(backoff(tries + 1));
+      if (!git(["fetch", "-q", "origin", branch]).ok) continue;
+      if (git(["merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"]).ok) return "ok";
+      if (!git(["rebase", "-q", "FETCH_HEAD"]).ok) break;
+    }
+    git(["rebase", "--abort"]);
+    if (git(["fetch", "-q", "origin", branch]).ok) git(["reset", "-q", "--hard", "FETCH_HEAD"]);
+    else git(["reset", "-q", "--hard", "HEAD~1"]);
+    await sleep(backoff(attempt));
+  }
+  return "failed";
+}
+
 function forward({ out, sum }) {
   if (process.env.GITHUB_OUTPUT && existsSync(out)) appendFileSync(process.env.GITHUB_OUTPUT, readFileSync(out, "utf8"));
   if (process.env.GITHUB_STEP_SUMMARY && existsSync(sum)) appendFileSync(process.env.GITHUB_STEP_SUMMARY, readFileSync(sum, "utf8"));
@@ -167,6 +232,24 @@ async function main() {
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).out;
   if (!branch || branch === "HEAD") {
     console.log(`::error::The control checkout at ${dataDir} is not on a branch, so a decision cannot be saved.`);
+    finish(1);
+  }
+
+  const followed = await followRename(branch);
+  if (followed === "stale") {
+    // An attempt from before they renamed: whatever it asked for, it asked under
+    // a name that is no longer theirs, and their newer page knows better.
+    console.log(`[ok] reserve - this account no longer goes by @${login}: an attempt from before the rename, nothing to do`);
+    const late = join(scratch, "output-stale");
+    writeFileSync(late, `assignment_id=${assignmentId}\ngithub_login=${login}\ngithub_id=${githubId}\noutcome=${SUPERSEDED}\n`);
+    forward({ out: late, sum: join(scratch, "none") });
+    finish(0);
+  }
+  if (followed === "failed") {
+    console.log(`::error::${login}'s records name another login and could not be moved to this one - nothing was decided or provisioned. They can accept again from their link.`);
+    const failed = join(scratch, "output-failed");
+    writeFileSync(failed, `assignment_id=${assignmentId}\ngithub_login=${login}\noutcome=fail:reserve\n`);
+    forward({ out: failed, sum: join(scratch, "none") });
     finish(1);
   }
 

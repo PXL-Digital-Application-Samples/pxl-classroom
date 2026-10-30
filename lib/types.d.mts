@@ -326,6 +326,13 @@ export type LockdownRecord = {
 /** One element of `LockdownRecord.results`. */
 export type LockdownRecordResult = NonNullable<LockdownRecord["results"]>[number];
 
+/** The logins one GitHub account has been known by here, at students/renames/<github_id>.json (schemas/login-rename.schema.json) */
+export type LoginRename = {
+  schema_version?: 1;
+  github_id?: number;
+  previous_logins?: string[];
+};
+
 /** A point-in-time observation of a student repository's state, stored in observations/<assignment-id>/<login>/<timestamp>.json: a snapshot of the submission branch (schemas/observation.schema.json) */
 export type Observation = {
   schema_version?: 1;

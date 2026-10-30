@@ -52,6 +52,15 @@ const server = createServer((req, res) => {
   const path = (req.url || "").split("?")[0];
   const repos = fixture().repos || {};
 
+  // GET /user/{id}: `users` maps an account's id to the login it goes by now.
+  // An id it does not name is a 404, and 0 stages a failed read.
+  const account = /^\/user\/(\d+)$/.exec(path);
+  if (account) {
+    const now = fixture().users?.[account[1]];
+    if (now === 0) return json(res, 403, { message: "rate limited" });
+    return now ? json(res, 200, { login: now, id: Number(account[1]) }) : json(res, 404, { message: "Not Found" });
+  }
+
   // GET /repos/{org}/{repo}/rulesets
   let m = /^\/repos\/[^/]+\/([^/]+)\/rulesets$/.exec(path);
   if (m) {

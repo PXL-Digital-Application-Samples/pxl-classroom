@@ -77,8 +77,8 @@ export async function startRepoProbe() {
     /** Spread into a spawned script's env so lib/gh.mjs talks to the stand-in. */
     env: { GITHUB_TOKEN: "stub-token", GITHUB_API_URL: baseUrl },
     /** Rewrite what exists. Re-read per request, so it takes effect at once. */
-    setRepos(repos) {
-      writeFileSync(fixturePath, JSON.stringify({ repos: repos || {} }));
+    setRepos(repos, users = {}) {
+      writeFileSync(fixturePath, JSON.stringify({ repos: repos || {}, users }));
     },
   };
 }

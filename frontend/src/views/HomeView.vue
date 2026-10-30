@@ -198,11 +198,11 @@ import DeviceFlowCard from '../components/DeviceFlowCard.vue'
 import Icon from '../components/Icon.vue'
 import logoUrl from '../assets/logo.png'
 import { config } from '../lib/config.js'
-import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth } from '../lib/auth.js'
+import { startDeviceFlow, pollDeviceFlow, getToken, getUser, isAuthenticated, clearAuth, refreshSignedInLogin } from '../lib/auth.js'
 import { getInstallations, getInvitations, getUserRepos, ghApi } from '../lib/api.js'
 import { formatDate } from '../lib/format.js'
 import { parseInvitationLink } from '../lib/invite.js'
-import { matchStudentAssignments, withOwnDeadlines } from '../lib/student-assignments.js'
+import { matchStudentAssignments, renamedReposFor, withOwnDeadlines } from '../lib/student-assignments.js'
 import { readDeadlineVariable } from '../../../lib/deadline-variable.mjs'
 
 const router = useRouter()
@@ -363,8 +363,14 @@ async function loadStudentAssignments() {
     const userInvites = (invitesRes.ok && Array.isArray(invitesRes.data)) ? invitesRes.data : []
 
     // 4. Match student repos with assignments (lib/student-assignments.js).
+    // A repository from before they renamed their account (lib/renamed-repo.js).
+    await refreshSignedInLogin()
+    user.value = getUser()
+    const renamedRepos = await renamedReposFor(allOrgAssignments, {
+      api: (method, path) => ghApi(token, method, path), login: user.value.login, repos: userRepos,
+    })
     const matched = matchStudentAssignments(allOrgAssignments, {
-      login: user.value.login, repos: userRepos, invites: userInvites,
+      login: user.value.login, repos: userRepos, invites: userInvites, renamedRepos,
     })
     // Their own deadline past the class one, from their repository (R6-34).
     await withOwnDeadlines(matched, {

@@ -144,6 +144,52 @@ jobs:
           git -C control commit -m "Collect activity"
           scripts/git-push-with-retry.sh control
 
+      # A STUDENT CHANGED THEIR GITHUB USERNAME. Their access and their repository
+      # carry on; every record here still names a login GitHub answers "is not a
+      # user" to, and anyone may register it (lib/login-rename.mjs). One lookup per
+      # account, on the token the job already holds: the answer is public.
+      #
+      # ADVISORY, after the collect's own push so that nothing it wrote rides in
+      # this commit: a failure here is asked again tomorrow, and can never fail
+      # the collect leg or skip another organization's work.
+      - name: Follow renamed accounts
+        id: renames
+        if: always() && steps.control.outcome == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        run: node scripts/follow-renames.mjs --data-dir control
+
+      - name: Commit + push the moved records
+        id: rename_commit
+        if: always() && steps.renames.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          set -e
+          for dir in acceptances repositories overrides grading observations lockdowns teams syncs students assignments; do
+            mkdir -p "control/${dir}"
+            git -C control add "${dir}/"
+          done
+          if git -C control diff --cached --quiet; then exit 0; fi
+          git -C control commit -m "Follow renamed accounts"
+          scripts/git-push-with-retry.sh control
+
+      # Not when the push failed: the notice says the records moved, and tomorrow
+      # asks again. `outcome`, because continue-on-error makes `conclusion` green.
+      - name: Tell the lecturer which accounts were renamed
+        if: always() && steps.renames.outputs.details != '' && steps.rename_commit.outcome != 'failure'
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: ${{ steps.renames.outputs.event_type }}
+          assignment-id: renamed-accounts
+          details: ${{ steps.renames.outputs.details }}
+          dedup-key: ${{ steps.renames.outputs.dedup_key }}
+
       # STUDENT REPOSITORIES WITH NO RECORD. An acceptance creates the
       # repository first and records it last; when that record is lost the
       # student can work and is on no list, so nothing here collects, locks,

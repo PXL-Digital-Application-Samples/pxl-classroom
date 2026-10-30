@@ -85,8 +85,8 @@ jobs:
           client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
           private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
           owner: ${{ inputs.org }}
-          # The control repo only: the checkout, the pushes and GET
-          # /users/{login}, which is public. ./acceptance, ./provisioning and
+          # The control repo only: the checkout, the pushes and looking an
+          # account up, which is public. ./acceptance, ./provisioning and
           # ./notify mint their own (lib/app-token-scopes.mjs).
           repositories: pxl-classroom-control
           permission-contents: write
@@ -128,41 +128,18 @@ jobs:
               || { echo "::error::team_slug is not a valid team slug"; exit 1; }
           fi
 
+      # WHO THE ROW IS, from what is on record, then who that account is today. A
+      # login can have been renamed or passed to somebody else since it accepted
+      # (lib/login-rename.mjs), so asking GitHub the name alone can answer about
+      # the wrong person.
       - name: Look up student GitHub numeric ID
         id: lookup
         env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
           GITHUB_LOGIN: ${{ inputs.github_login }}
-          # lib/github-api-version.mjs, which YAML cannot import; the test
-          # tests/github-api-version.test.mjs holds this equal to it.
-          GITHUB_API_VERSION: "2026-03-10"
-        run: |
-          # `gh` WRITES API ERRORS TO STDOUT. Measured 2026-08-26: a 404 exits 1
-          # and prints {"message":"Not Found",...,"status":"404"} on stdout,
-          # with only the human-readable line on stderr. So the captured value
-          # is NON-EMPTY for a mistyped login and `[ -z "$ID" ]` could never
-          # fire - the guard that used to be here was unreachable.
-          #
-          # Actions runs this with `bash -e`, so the assignment did abort the
-          # step, which is why this never produced a wrong id. It produced the
-          # wrong MESSAGE: a lecturer retrying an acceptance for a colleague
-          # they had misspelled got `gh: Not Found (HTTP 404)` instead of being
-          # told which login does not exist.
-          #
-          # The exit code is the only reliable signal, and the shape is the only
-          # reliable check on what came back - `--jq` prints the string "null"
-          # for a field GitHub omits, which is non-empty too.
-          if ! ID=$(gh api -H "X-GitHub-Api-Version: ${GITHUB_API_VERSION}" "users/${GITHUB_LOGIN}" --jq .id 2>"${RUNNER_TEMP}/lookup.err"); then
-            echo "::error::No GitHub account named ${GITHUB_LOGIN}, or it could not be looked up: $(tr '\n\r' '  ' < "${RUNNER_TEMP}/lookup.err" | cut -c1-200). Check the spelling."
-            exit 1
-          fi
-          case "$ID" in
-            ''|*[!0-9]*)
-              echo "::error::GitHub returned no numeric account id for ${GITHUB_LOGIN}."
-              exit 1
-              ;;
-          esac
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/resolve-retry-account.mjs
 
       # THE STUDENT'S RECORD IS SET ASIDE BY ./acceptance (`set-aside`), NOT
       # HERE, AND NEVER COMMITTED ON A REFUSAL. Removing it is what makes
@@ -187,7 +164,7 @@ jobs:
           control-repo: pxl-classroom-control
           data-dir: control
           assignment-id: ${{ inputs.assignment_id }}
-          github-login: ${{ inputs.github_login }}
+          github-login: ${{ steps.lookup.outputs.login }}
           github-id: ${{ steps.lookup.outputs.id }}
           workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           bypass-window: ${{ inputs.bypass_window || 'true' }}

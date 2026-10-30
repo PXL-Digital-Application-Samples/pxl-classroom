@@ -5988,7 +5988,8 @@ async function retryAcceptanceFor(student) {
       })
       
       // A team member's repository is the team's (lib/repo-name.mjs).
-      const repoName = repositoryNameFor(assignment.value?.repository_name_pattern, { teamSlug: student.team_slug || null, login })
+      // A renamed student's repository keeps the name it was given, so their row's wins.
+      const repoName = String(student.repo_name || '').split('/').pop() || repositoryNameFor(assignment.value?.repository_name_pattern, { teamSlug: student.team_slug || null, login })
       startRetryWatch(login, repoName, initialRunId)
       
       actionStudent.value = null
