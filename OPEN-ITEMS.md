@@ -357,6 +357,28 @@ and the same two for `PXL-2TIN-DevOps-2627/broker-test-opdracht`.
 
 ---
 
+## 16. Grading workflows already in student repositories still follow `ubuntu-latest`
+
+**Status: open.** Recorded 2026-10-30, the day everything this repository writes was pinned to `RUNNER_IMAGE`.
+
+The pin reaches what is written from now on. It does not reach a workflow already copied into a student's repository, or a lecturer's own template, and those move to Ubuntu 26.04 when GitHub moves the label, by its own estimate before 2026-11-19. Rewriting them would be a commit on every student's `main`, which starts a grading run and can count as a hand-in, so they are left as written. A published broker keeps its copy too until it is published again; it runs setup-node, a verifier with no dependencies and `gh`.
+
+**What to do with it:** `runner-probe.yml` prints the tool versions on both images. A lecturer whose grading commands call a tool by name, rather than installing it, checks the versions they rely on against that list. A new assignment is pinned when PXL Classroom wrote its grading workflow, and not when the lecturer's own template carries one naming `ubuntu-latest`.
+
+**How to tell it is closed:** when the last assignment published before this date has finished. Published assignments, per organization:
+
+```bash
+gh api repos/<org>/pxl-classroom-control/contents/assignments --jq '.[].name'
+```
+
+Run the comparison again:
+
+```bash
+gh workflow run runner-probe.yml --repo PXL-Digital-Application-Samples/pxl-classroom --ref main
+```
+
+---
+
 ## Closed
 
 Kept briefly so they are not reopened from memory. Each was verified against the live system, not against a changelog - 2026-08-31 unless the row says otherwise.

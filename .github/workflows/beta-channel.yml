@@ -24,7 +24,7 @@ jobs:
     # Off unless the repository variable BETA_CHANNEL is `on`, like the beta
     # build it would deploy (deploy-frontend.yml `build-beta`, ADMIN.md §9).
     if: vars.BETA_CHANNEL == 'on'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Deploy the site from main, beta included

@@ -19,7 +19,7 @@ permissions:
 jobs:
   grade:
     name: Autograding
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # v4 runs on Node 20, which GitHub has deprecated: every student's
       # grading result carries a warning annotation saying so.

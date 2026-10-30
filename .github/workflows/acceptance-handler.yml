@@ -35,7 +35,7 @@ permissions:
 jobs:
   accept:
     environment: provisioning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Saving the decision and the record each retry for up to ~3 minutes in a
     # class-wide burst (acceptance/reserve.mjs, scripts/record-acceptance.sh),
     # around provisioning. Well inside the App token's hour.

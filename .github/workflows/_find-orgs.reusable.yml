@@ -24,7 +24,7 @@ on:
 
 jobs:
   list:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The install may retry for 8 minutes (./install).
     timeout-minutes: 15
     outputs:

@@ -43,7 +43,7 @@ jobs:
     if: >-
       needs.find-orgs.outputs.orgs == '[]'
       && (github.event_name != 'workflow_dispatch' || inputs.org == '')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: write
@@ -68,7 +68,7 @@ jobs:
         org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
       max-parallel: 4
       fail-fast: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The install may retry for 8 minutes (./install).
     timeout-minutes: 15
     # `actions: write` to switch the nightly on (R7-13, the step after the
@@ -157,7 +157,7 @@ jobs:
 
   aggregate-armable:
     needs: arm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       sentinels: ${{ steps.agg.outputs.sentinels }}
@@ -230,7 +230,7 @@ jobs:
       # what the first did not: a member whose stop failed or never ran.
       group: sentinel-${{ matrix.sentinel.org }}-${{ matrix.sentinel.key }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The job limit is 6h and the arm window is 4.5h; the script gives up at
     # 4h45m so it writes its timeline rather than being killed holding it. The
     # phases below fit inside that: 45 minutes of polling, an idle until 35

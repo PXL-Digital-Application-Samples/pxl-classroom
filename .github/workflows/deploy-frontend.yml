@@ -110,7 +110,7 @@ jobs:
   # and cannot fail a deploy, and /beta/ says no beta is available.
   build-beta:
     if: vars.BETA_CHANNEL == 'on'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -201,7 +201,7 @@ jobs:
     needs: build-beta
     if: ${{ !cancelled() }}
     environment: provisioning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # The workflow's own three, plus: read the previous deployment's artifact,
     # and alert on the hub's issue when an organization was kept as it was.
@@ -418,7 +418,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: build
     # Decided on the production build ALONE. Without this the default

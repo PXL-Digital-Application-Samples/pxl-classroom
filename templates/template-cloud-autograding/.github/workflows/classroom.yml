@@ -31,7 +31,7 @@ on:
 
 jobs:
   run-autograding-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'einde examen'
     steps:
       # v4 runs on Node 20, which GitHub has deprecated: every student's

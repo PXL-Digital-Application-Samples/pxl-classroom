@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
 
 import { buildAutogradingWorkflow } from "../provisioning/provision.mjs";
+import { RUNNER_IMAGE } from "../lib/runner-image.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { startRepoProbe } from "./fixtures/repo-probe.mjs";
 import { repoFiles } from "./repo-files.mjs";
@@ -302,7 +303,7 @@ test("a generated autograding workflow is a workflow GitHub would accept", () =>
   );
   const doc = parse(yaml);
   assert.deepEqual(doc.on.push.branches, ["main"]);
-  assert.equal(doc.jobs.grade["runs-on"], "ubuntu-latest");
+  assert.equal(doc.jobs.grade["runs-on"], RUNNER_IMAGE);
   assert.equal(doc.jobs.grade.steps.length, 6, "checkout + 3 tests + reporter, + the python write step");
   for (const step of doc.jobs.grade.steps) {
     assert.ok(step.uses || step.run, "every step must do something");

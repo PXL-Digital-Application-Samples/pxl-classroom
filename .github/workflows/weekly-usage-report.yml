@@ -27,7 +27,7 @@ jobs:
   # permission exists for. GET /apps/{slug} is public; the token is only for the
   # higher rate limit.
   app-declaration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,7 +50,7 @@ jobs:
   # answers for all of them, and needs the App JWT, hence `provisioning`.
   installation-approvals:
     environment: provisioning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       # This job holds the App key. A person or the Sunday cron runs it; the
@@ -99,7 +99,7 @@ jobs:
         org: ${{ fromJSON(needs.find-orgs.outputs.orgs) }}
       max-parallel: 4
       fail-fast: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # Its own guard, not the one on installation-approvals: a job-level check

@@ -1,0 +1,6 @@
+# The pinned actionlint (scripts/lint.mjs) predates this GitHub-hosted image, so
+# it reads the label as a typo. Only runner-probe.yml may name it; every other
+# workflow is held to RUNNER_IMAGE by tests/runner-image.test.mjs.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

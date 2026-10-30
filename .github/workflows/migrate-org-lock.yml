@@ -56,7 +56,7 @@ jobs:
       # run while a finalize is applying locks to the same repositories.
       group: lockdown-${{ matrix.org }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       # A person dispatches this. An App installation token - what a stolen

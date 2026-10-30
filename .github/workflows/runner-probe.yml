@@ -1,0 +1,59 @@
+name: Runner Probe
+
+# Before RUNNER_IMAGE moves (lib/runner-image.mjs): does this repository work on
+# the next image, and what differs on it? No credential is read here, so it can
+# try anything, and no job of the real pipeline runs on the image being tried.
+# Prints the tool versions a lecturer's grading commands call by name, because a
+# grading workflow already in a student's repository stays as it was written.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # tests/commit-trailers.test.mjs reads the commits since a baseline.
+          fetch-depth: 0
+
+      - name: Tools a grading command calls by name
+        # Before setup-node, so it reports the image's own Node.
+        run: |
+          for tool in python3 node java javac mvn gradle dotnet gcc g++ make docker aws az go ruby git jq; do
+            printf '%-8s ' "$tool"
+            case "$tool" in
+              java|javac) "$tool" -version 2>&1 | head -1 ;;
+              go) go version 2>&1 | head -1 ;;
+              *) "$tool" --version 2>&1 | head -1 ;;
+            esac
+          done
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix frontend
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: node --test tests/*.test.mjs cli/tests/*.test.mjs
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npx playwright test --reporter=line

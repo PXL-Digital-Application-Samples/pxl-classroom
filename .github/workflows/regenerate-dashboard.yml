@@ -24,7 +24,7 @@ jobs:
     concurrency:
       group: dashboard-${{ matrix.org }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # `actions: write` to switch the nightly on (the last step); a job-level
     # block replaces the workflow's, so `contents: read` is restated.
@@ -132,7 +132,7 @@ jobs:
   deploy-pages:
     needs: [find-orgs, generate]
     if: always() && needs.find-orgs.outputs.orgs != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: write

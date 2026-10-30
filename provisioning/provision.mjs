@@ -19,6 +19,7 @@ import { gh } from "../lib/gh.mjs";
 import { gitAuthEnv, gitRepoUrl } from "../lib/git-auth.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 import { APP_SLUG, CONTROL_REPO } from "../lib/deployment.mjs";
+import { RUNNER_IMAGE } from "../lib/runner-image.mjs";
 import { applyStudentPermission, grantableAfterLock } from "../lib/permission-change.mjs";
 import { GRADE_DISPATCH_INPUT, GRADE_RUN_NAME, gradeCheckoutStep, gradeDispatchTrigger } from "../lib/grade-dispatch.mjs";
 import { parse, stringify as stringifyYaml } from "yaml";
@@ -541,7 +542,7 @@ export function buildAutogradingWorkflow(assignment, org) {
       ...shell,
       jobs: {
         grade: {
-          "runs-on": "ubuntu-latest",
+          "runs-on": RUNNER_IMAGE,
           "timeout-minutes": 10,
           steps: [
             {
@@ -694,7 +695,7 @@ export function buildAutogradingWorkflow(assignment, org) {
 
   return stringifyYaml({
     ...shell,
-    jobs: { grade: { "runs-on": "ubuntu-latest", "timeout-minutes": 10, steps } },
+    jobs: { grade: { "runs-on": RUNNER_IMAGE, "timeout-minutes": 10, steps } },
   });
 }
 

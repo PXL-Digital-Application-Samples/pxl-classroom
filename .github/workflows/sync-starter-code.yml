@@ -54,7 +54,7 @@ concurrency:
 jobs:
   sync-starter:
     environment: provisioning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 20 stopped a real 93-file sync after 30 of its students, when every file
     # was its own blob request. Text files now go in one tree request
     # (lib/gittree.mjs), so a cohort takes minutes - this is headroom, and it

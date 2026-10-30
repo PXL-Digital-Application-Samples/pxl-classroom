@@ -25,7 +25,7 @@ concurrency:
 jobs:
   setup-control-repo:
     environment: provisioning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # A lecturer dispatches these as themselves, through the SPA or the
