@@ -171,6 +171,9 @@ async function withStubApi(fn, opts = {}) {
         return res.end();
       }
       if (/^\/repos\/[^/]+\/[^/]+\/invitations$/.test(path)) return send(200, []);
+      // Every login here is an account: a name nobody holds is a rename
+      // (tests/lockdown-renamed-student.test.mjs), never somebody removed.
+      if (/^\/users\/[^/]+$/.test(path)) return send(200, { login: path.split("/").pop() });
       if (path === "/orgs/TestOrg/members") return send(200, owners.map((login) => ({ login })));
       const asked = path.match(/\/collaborators\/([^/]+)\/permission$/);
       if (asked) return send(200, { permission: failDemote.includes(asked[1]) ? "admin" : "read" });

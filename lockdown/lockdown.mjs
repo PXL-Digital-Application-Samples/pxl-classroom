@@ -51,6 +51,7 @@ import { readSentinelTimelines as readSentinelTimelinesIn } from "../lib/sentine
 import { preservesSnapshot } from "../lib/preservation-status.mjs";
 import { lockHeld, lockedSinceReopen, reopenEndsAt } from "../lib/lock-rows.mjs";
 import { applyStudentPermission, studentPresence } from "../lib/permission-change.mjs";
+import { accountNow } from "../lib/login-rename.mjs";
 import { starterFor } from "../lib/starter-commit.mjs";
 import { headIsProvided } from "../lib/untouched-repo.mjs";
 import { APP_SLUG, CONTROL_REPO } from "../lib/deployment.mjs";
@@ -668,6 +669,25 @@ async function confirmedGone(t) {
   return installationSeesAll;
 }
 
+/**
+ * Who a stored member is now, from their acceptance record's id.
+ * `known` is false only where there was an id to ask about and GitHub did not
+ * answer: then a name nobody holds may still be a student with push access.
+ * A deleted account, or a name with no record behind it (a typo in a seeded team),
+ * has nothing to take away.
+ */
+async function accountLoginNow(stored) {
+  let id = null;
+  try {
+    id = JSON.parse(await readFile(join(cfg.dataDir, "acceptances", cfg.assignmentId, `${stored}.json`), "utf8"))?.github_id;
+  } catch {
+    return { login: stored, known: true };
+  }
+  const now = await accountNow((method, path) => gh(method, path), id);
+  if (now.login && now.login !== stored) log(`demote ${stored}`, { ok: true, note: `this account is @${now.login} now` });
+  return { login: now.login ?? stored, known: now.login !== null || now.deleted };
+}
+
 async function demote(t) {
   let allLocked = true;
   // "read" is the value that MEANS LOCKED, so it cannot be the starting
@@ -677,7 +697,13 @@ async function demote(t) {
   // demoted, from a call that failed. Unreadable is not evidence: it stays null
   // until a verification actually answers.
   let permAfter = null;
-  for (const m of t.members) {
+  for (const stored of t.members) {
+    // THE ACCOUNT, NOT THE NAME ON THE RECORD. A student who renamed since the
+    // nightly last followed it still has their access, and GitHub answers the old
+    // login with 404 (lib/login-rename.mjs). Asked at the moment it acts; the
+    // record keeps the login it has, which the next nightly moves.
+    const account = await accountLoginNow(stored);
+    const m = account.login;
     // Through the one writer that knows a PENDING INVITATION is not changed by
     // granting again (lib/permission-change.mjs, measured): a 201 answers with
     // the SAME invitation at the OLD permission, and reading that as success
@@ -691,7 +717,7 @@ async function demote(t) {
     // Only a definite "gone" skips: an unreadable answer demotes as before,
     // because at the deadline the lock outranks a stray invitation.
     const presence = await studentPresence((method, path, body) => gh(method, path, body), { repo: `${cfg.org}/${t.repoName}`, login: m });
-    if (presence === "gone") {
+    if (presence === "gone" || (presence === "no-account" && account.known)) {
       log(`demote ${m}`, { ok: true, note: "no longer has access - nothing to take away, not re-invited" });
       permAfter = permAfter ?? "none";
       continue;

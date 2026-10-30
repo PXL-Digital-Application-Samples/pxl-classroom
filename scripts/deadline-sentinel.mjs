@@ -232,7 +232,15 @@ async function readExtensionDeadlines(previous) {
     let unread = false;
     for (const login of logins) {
       const res = await gh("GET", `/repos/${cfg.org}/${CONTROL_REPO}/contents/${overridePath(id, login)}`).catch(() => null);
-      if (res?.status === 404) continue;
+      if (res?.status === 404) {
+        // Gone because they renamed: the nightly moved the file to the new login
+        // while this watches, and the extension still stands. Falling back would
+        // stop the group at the original deadline. Only a name somebody holds can
+        // have had its extension taken away.
+        const named = await gh("GET", `/users/${encodeURIComponent(login)}`).catch(() => null);
+        if (named?.status === 404) unread = true;
+        continue;
+      }
       if (!res?.ok || typeof res.data?.content !== "string") { unread = true; continue; }
       try {
         const ext = extensionFrom(JSON.parse(contentsText(res.data.content)));

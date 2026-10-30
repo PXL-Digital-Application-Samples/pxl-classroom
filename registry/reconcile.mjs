@@ -116,7 +116,11 @@ async function main() {
             }
           }
         } else if (accessCheck.status === 404) {
-          if (data.access_state !== "revoked") {
+          // A login nobody holds any more is a rename, not a revoked student:
+          // they keep their access, and the nightly moves this record
+          // (lib/login-rename.mjs). Nothing here can tell, so nothing is said.
+          const named = await gh("GET", `/users/${data.github_login}`);
+          if (named.status !== 404 && data.access_state !== "revoked") {
             console.log(`[DRIFT] Access revoked (404) for ${data.github_login} on ${data.repo_name}`);
             data.access_state = "revoked";
             changed = true;
