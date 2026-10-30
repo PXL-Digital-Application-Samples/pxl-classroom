@@ -27,7 +27,7 @@
 // Writes to pxl-classroom-testbed.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
@@ -118,13 +118,18 @@ function git(dir, ...args) {
  * Leave what a rename leaves: the records under a login nobody holds, the
  * repository under the name that login made.
  */
-async function stageRename({ id, student, oldName }) {
+async function stageRename({ id, student, oldName, repoOld }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-live-rename-"));
   try {
     git(dir, "clone", "-q", "--depth", "1", `https://github.com/${ORG}/${CONTROL_REPO}.git`, ".");
     git(dir, "config", "user.name", "pxl-classroom[bot]");
     git(dir, "config", "user.email", "pxl-classroom[bot]@users.noreply.github.com");
     moveLogin(dir, { from: student.login, to: oldName, githubId: student.id });
+    // Its record names the repository by the name a rename leaves it with. Moved
+    // here by hand, because this drill is what renamed the repository.
+    const recordPath = join(dir, "repositories", id, `${oldName}.json`);
+    const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    writeFileSync(recordPath, JSON.stringify({ ...record, repo_name: `${ORG}/${repoOld}` }, null, 2) + "\n");
     git(dir, "add", "-A");
     git(dir, "commit", "-q", "-m", `Drill: stage a rename on ${id}`);
     for (let tries = 0; ; tries++) {
@@ -172,7 +177,12 @@ async function accept({ secret, id, broker, student }) {
   return { run, refused: (await labelsOf(broker, issue)).includes(REJECTED_LABEL) };
 }
 
-const repoExists = async (name) => (await api(`/repos/${ORG}/${name}`, { token: LECTURER.token })).ok;
+// By the name it answers with: this drill renamed the repository, so its first name
+// redirects to it, and a 200 there is not a second repository.
+const repoExists = async (name) => {
+  const res = await api(`/repos/${ORG}/${name}`, { token: LECTURER.token });
+  return res.ok && String(res.data?.name).toLowerCase() === name.toLowerCase();
+};
 
 async function start() {
   console.log(`PXL Classroom live renamed account - START on ${ORG} (writes!)`);
@@ -271,7 +281,7 @@ async function start() {
     bad(`could not rename the repository: HTTP ${moved.status}`);
     finish();
   }
-  await stageRename({ id, student: A, oldName });
+  await stageRename({ id, student: A, oldName, repoOld });
   ok(`staged: records under @${oldName}, repository ${repoOld}`);
   const again = await accept({ secret, id, broker, student: A });
   if (again && !again.refused) ok("A's second attempt was not refused");
@@ -300,7 +310,7 @@ async function start() {
   else bad(`renamedRepoFor found ${found?.name ?? "nothing"} among ${(reach.data || []).length}`);
 
   console.log("\n4. The nightly follows it\n");
-  await stageRename({ id, student: A, oldName });
+  await stageRename({ id, student: A, oldName, repoOld });
   ok("staged again");
   const dispatchedAt = Date.now() - 30_000;
   const nightly = await api(`/repos/${HUB}/actions/workflows/daily-activity.yml/dispatches`, {
