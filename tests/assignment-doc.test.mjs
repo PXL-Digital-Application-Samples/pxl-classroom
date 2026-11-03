@@ -167,3 +167,21 @@ test("TS-7: the full-history setting is written only when on, and only by a real
     assert.equal("template_full_history" in doc, false, `written for ${JSON.stringify(off)}`);
   }
 });
+
+test("the acceptance deadline is optional: written from its box, kept byte for byte untouched, and omitted when the box is empty", () => {
+  // `accepts_until` (lib/acceptance-window.mjs): absent means the deadline
+  // closes acceptance, so an empty box must produce NO field - not null, not
+  // '', which the schema's date-time would refuse anyway.
+  const form = formFor("org/starter");
+  assert.equal("accepts_until" in buildAssignmentDoc(form), false, "no box, no field");
+  assert.equal("accepts_until" in buildAssignmentDoc({ ...form, accepts_until_local: "" }), false, "an empty box clears it");
+  const set = buildAssignmentDoc({ ...form, accepts_until_local: "2026-11-16T23:59" });
+  assert.equal(set.accepts_until, localToUtc("2026-11-16T23:59"), "stored as UTC, like the two beside it");
+  // Untouched, the stored instant survives the round trip through the box
+  // (preserveOrLocal), as the open date and the deadline do.
+  const stored = "2026-11-16T22:59:00Z";
+  const kept = buildAssignmentDoc({ ...form, accepts_until_local: utcToLocalInput(stored), _accepts_until_original: stored });
+  assert.equal(kept.accepts_until, stored);
+  const moved = buildAssignmentDoc({ ...form, accepts_until_local: "2026-11-17T12:00", _accepts_until_original: stored });
+  assert.equal(moved.accepts_until, localToUtc("2026-11-17T12:00"), "an edit still lands");
+});

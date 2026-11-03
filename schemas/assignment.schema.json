@@ -158,6 +158,11 @@
       "format": "date-time",
       "description": "ISO 8601 date-time when the assignment opens for acceptance."
     },
+    "accepts_until": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 date-time after which nobody NEW can accept, while the work stays due at `deadline_at`: the invitation closes a week in, the work is due a week later. OPTIONAL, and ABSENT MEANS THE DEADLINE - every assignment from before the field had one window, opens_at..deadline_at, and keeps it. NO `default` HERE ON PURPOSE: lib/validate.mjs runs Ajv with `useDefaults: true`, so a default would write one into every document it validated. Between opens_at and deadline_at; the editor refuses one outside that, and one after the deadline is simply never reached. lib/acceptance-window.mjs is the one judge: the hub refuses an acceptance after it as rejected:acceptance-closed, with the same hour of grace as the deadline for a request GitHub started late, and every page that offers Accept asks the same function. It reaches the student page on the card. Nothing else reads it - the sentinel, the lock, the archive, the grades and a student's extension are all the deadline's, and moving it later reopens acceptance with a save (the page regenerates; the broker stays on until the finalize after the deadline)."
+    },
     "deadline_at": {
       "type": "string",
       "format": "date-time",

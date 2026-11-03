@@ -20,6 +20,8 @@
  * `unknown` is a real state and keeps its own word: the collector could not
  * establish a commit date, which is not the same as nothing being handed in.
  */
+import { acceptanceWindow } from "../../../lib/acceptance-window.mjs";
+
 export const SUBMISSION_LABELS = Object.freeze({
   "on-time": "On time",
   late: "Late",
@@ -144,10 +146,12 @@ export function assignmentStateLabel(value) {
 export function assignmentStatus(assignment, now = Date.now()) {
   const state = assignment?.state;
   if (state !== "published") return { label: assignmentStateLabel(state), accepting: false };
-  const opens = Date.parse(assignment?.opens_at ?? "");
-  if (Number.isFinite(opens) && now < opens) return { label: "Not open yet", accepting: false };
-  const deadline = Date.parse(assignment?.deadline_at ?? "");
-  if (Number.isFinite(deadline) && now > deadline) return { label: "Deadline passed", accepting: false };
+  // The hub's own judge of the window (lib/acceptance-window.mjs), so the
+  // label and the gate cannot disagree about a date.
+  const { phase } = acceptanceWindow(assignment, now);
+  if (phase === "not-open") return { label: "Not open yet", accepting: false };
+  if (phase === "deadline-passed") return { label: "Deadline passed", accepting: false };
+  if (phase === "acceptance-closed") return { label: "Acceptance closed", accepting: false };
   return { label: assignmentStateLabel(state), accepting: true };
 }
 

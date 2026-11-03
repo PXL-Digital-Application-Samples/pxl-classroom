@@ -13,6 +13,7 @@ import { getInstallations, getRepoContent, listRepoDir } from './api.js'
 import { readTrackingIssue } from './tracking-issue.js'
 import { TIMED_OUT, withDeadline } from './section-deadline.js'
 import { normalizeLogin } from '../../../lib/github-login.mjs'
+import { isAccepting } from '../../../lib/acceptance-window.mjs'
 import { assignmentsToSettle, noticesForLecturer, provisionedLogins } from '../../../lib/org-notices.mjs'
 import { ASSIGNMENTS_DIR, assignmentIdFromFile, reportPath } from '../../../lib/control-layout.mjs'
 
@@ -92,12 +93,8 @@ async function loadOrgStatuses(list) {
         try { data = await res.json() } catch { /* unparseable: no assignments known */ }
         const listed = Object.values(data?.assignments || {})
         if (listed.length) {
-          const hasActive = listed.some((a) => {
-            if (a.state !== 'published') return false
-            if (a.opens_at && now < new Date(a.opens_at)) return false
-            if (a.deadline_at && now > new Date(a.deadline_at)) return false
-            return true
-          })
+          // Accepting now, by the hub's own judge (lib/acceptance-window.mjs).
+          const hasActive = listed.some((a) => isAccepting(a, now))
           status = hasActive ? 'active' : 'inactive'
         }
       }

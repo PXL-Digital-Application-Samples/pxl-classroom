@@ -195,6 +195,10 @@ async function main() {
       title: card.title,
       organization: card.organization,
       opens_at: card.opens_at,
+      // The organization light (frontend/src/lib/org-session.js) reads this
+      // index to say whether anything is accepting, through the same judge
+      // as the card. A date, like the two beside it - nothing to size up.
+      accepts_until: card.accepts_until,
       deadline_at: card.deadline_at,
       timezone: card.timezone,
       repository_name_pattern: card.repository_name_pattern,

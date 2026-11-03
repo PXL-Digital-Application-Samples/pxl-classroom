@@ -513,6 +513,7 @@ import Icon from '../components/Icon.vue'
 import WhatsNewCard from '../components/WhatsNewCard.vue'
 import { config } from '../lib/config.js'
 import { assignmentStatus } from '../lib/status-labels.js'
+import { isAccepting } from '../../../lib/acceptance-window.mjs'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { getRepoContent, getRepo, listRepoDir, triggerWorkflow, explainDispatchFailure, ghApi } from '../lib/api.js'
 import {
@@ -1020,13 +1021,12 @@ async function loadDashboard(orgArg) {
         ...extra.filter((a) => a.state === 'draft'),
       ].sort((a, b) => (a.id || '').localeCompare(b.id || ''))
 
-      const now = new Date()
-      const hasActive = assignments.value.some((a) => {
-        if (a.state !== 'published') return false
-        if (a.opens_at && now < new Date(a.opens_at)) return false
-        if (a.deadline_at && now > new Date(a.deadline_at)) return false
-        return true
-      })
+      // Accepting now, by the hub's own judge (lib/acceptance-window.mjs) -
+      // the same answer the organization list's light gives (org-session.js).
+      // A second spelling here read "active" over an organization whose only
+      // assignment was past its acceptance deadline (review 2026-11-03).
+      const now = Date.now()
+      const hasActive = assignments.value.some((a) => isAccepting(a, now))
       if (superseded()) return
       dashState.value = assignments.value.length === 0 ? (draftCount.value > 0 ? 'no-dashboard' : 'empty') : ''
       setOrgStatus(org, hasActive ? 'active' : (assignments.value.length > 0 ? 'inactive' : 'empty'))
@@ -1236,6 +1236,9 @@ async function assignmentsMissingFrom(token, org, reported) {
           title: doc?.title || null,
           state,
           opens_at: doc?.opens_at || null,
+          // The card's label reads it (assignmentStatus): without it an
+          // assignment past its acceptance deadline read "Accepting" here.
+          accepts_until: doc?.accepts_until || null,
           deadline_at: doc?.deadline_at || null,
           // No counts: nothing has reported on this assignment yet, and a zero
           // here would read as "nobody accepted" rather than "not yet known".

@@ -19,11 +19,13 @@
  * work is archived" - a lock that had already run, and that skips whatever a
  * lecturer reopened (lockdown.mjs), so it could change nothing.
  *
- * @param {{state?: string|null, deadlinePassed?: boolean, everPublished?: boolean, lockRan?: boolean}} args
- *   `lockRan`: the deadline's lock has run (the report says when)
+ * @param {{state?: string|null, deadlinePassed?: boolean, acceptanceClosed?: boolean, everPublished?: boolean, lockRan?: boolean}} args
+ *   `acceptanceClosed`: the acceptance deadline (`accepts_until`) has passed
+ *   while the deadline has not (lib/acceptance-window.mjs); `lockRan`: the
+ *   deadline's lock has run (the report says when)
  * @returns {Array<{key: string, label: string, sub: string, danger?: boolean}>}
  */
-export function stateActions({ state, deadlinePassed = false, everPublished = false, lockRan = false }) {
+export function stateActions({ state, deadlinePassed = false, acceptanceClosed = false, everPublished = false, lockRan = false }) {
   // Not "cannot be undone": a student can be let back in from their row.
   const freeze = deadlinePassed && !lockRan
     ? [{ key: 'freeze', label: 'Lock everyone out now', sub: 'Runs the deadline\'s lock now for every student whose deadline has passed, and archives their work. Asks for confirmation first.', danger: true }]
@@ -33,9 +35,14 @@ export function stateActions({ state, deadlinePassed = false, everPublished = fa
   // deadline is refused outright (lib/finished-assignment.mjs) - so "Reopen"
   // would be a control that cannot do what it says (DESIGN.md §1.5). What a
   // lecturer reopening a finished assignment has to do first is say so.
+  // The same for an acceptance deadline that has passed: the hub refuses every
+  // acceptance after it, so Reopen would publish a page nobody can accept
+  // from. Both entries jump to the Schedule section, where the date is.
   const reopen = deadlinePassed
     ? { key: 'edit-deadline', label: 'Move the deadline…', sub: 'The deadline has passed. Reopening needs a new one first.' }
-    : { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }
+    : acceptanceClosed
+      ? { key: 'edit-deadline', label: 'Move the acceptance deadline…', sub: 'The acceptance deadline has passed. Reopening needs a later one first.' }
+      : { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }
   switch (state) {
     case 'draft':
       // A draft that was PUBLISHED BEFORE (Back to draft) has a broker, maybe
@@ -53,7 +60,9 @@ export function stateActions({ state, deadlinePassed = false, everPublished = fa
       return [
         deadlinePassed
           ? { key: 'close', label: 'Stop accepting', sub: 'Marks it closed. Nobody could accept after the deadline anyway; repositories are unaffected' }
-          : { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept; existing repositories are unaffected' },
+          : acceptanceClosed
+            ? { key: 'close', label: 'Stop accepting', sub: 'Marks it closed. Nobody could accept after the acceptance deadline anyway; repositories are unaffected' }
+            : { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept; existing repositories are unaffected' },
         deadlinePassed
           ? { key: 'draft', label: 'Back to draft', sub: 'Takes it off the student pages' }
           : { key: 'draft', label: 'Back to draft', sub: 'The invitation link stops working' },

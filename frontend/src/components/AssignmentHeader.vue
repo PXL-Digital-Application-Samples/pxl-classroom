@@ -43,6 +43,11 @@
           </div>
         </div>
         <HelpButton topic="the-assignments-status" label="the assignment's status" />
+        <div v-if="acceptsUntilAbs" class="assignment-head-deadline" data-accepts-until>
+          <span class="text-secondary text-sm">Accept until</span>
+          <strong :class="{ 'stat-red': acceptsUntilPassed }">{{ acceptsUntilRelative || '-' }}</strong>
+          <span class="text-secondary text-sm">· {{ acceptsUntilAbs }}</span>
+        </div>
         <div class="assignment-head-deadline">
           <span class="text-secondary text-sm">Deadline</span>
           <strong :class="{ 'stat-red': deadlinePassed }">{{ deadlineRelative || '-' }}</strong>
@@ -129,6 +134,7 @@ import Icon from './Icon.vue'
 import HelpButton from './HelpButton.vue'
 import InvitationShare from './InvitationShare.vue'
 import { assignmentStatus } from '../lib/status-labels.js'
+import { scheduledWindow } from '../../../lib/acceptance-window.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { stateActions, everPublished } from '../lib/state-actions.js'
 import { keepMenuInView } from '../lib/menu-position.js'
@@ -173,6 +179,20 @@ onUnmounted(() => clearInterval(nowTimer))
 const status = computed(() => assignmentStatus(props.assignment, nowMs.value))
 const deadline = computed(() => props.assignment?.deadline_at || null)
 const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.value) < nowMs.value)
+// The acceptance deadline, where the assignment has one: shown beside the
+// deadline, and past it the menu offers to move it rather than Reopen - the
+// same judge as the label and the hub (lib/acceptance-window.mjs).
+const acceptsUntil = computed(() => props.assignment?.accepts_until || null)
+// The DATES, whatever the state: a closed assignment is asked whether it
+// could be reopened, and that is the schedule's answer, not the state's.
+const acceptanceClosed = computed(() => scheduledWindow(props.assignment, nowMs.value).phase === 'acceptance-closed')
+// Red once it has passed, and it stays passed once the deadline has too.
+const acceptsUntilPassed = computed(() => ['acceptance-closed', 'deadline-passed'].includes(scheduledWindow(props.assignment, nowMs.value).phase))
+const acceptsUntilRelative = computed(() => {
+  void nowMs.value
+  return acceptsUntil.value ? formatRelative(acceptsUntil.value) : ''
+})
+const acceptsUntilAbs = computed(() => (acceptsUntil.value ? formatDate(acceptsUntil.value, props.assignment?.timezone) : ''))
 // On the same clock: formatRelative reads its own "now", so the tick is read
 // here for Vue to recompute it.
 const deadlineRelative = computed(() => {
@@ -183,6 +203,7 @@ const deadlineAbs = computed(() => (deadline.value ? formatDate(deadline.value, 
 const actions = computed(() => stateActions({
   state: state.value,
   deadlinePassed: deadlinePassed.value,
+  acceptanceClosed: acceptanceClosed.value,
   everPublished: everPublished(props.assignment),
   lockRan: props.lockRan,
 }))

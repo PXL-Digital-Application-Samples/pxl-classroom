@@ -117,7 +117,16 @@
                 New acceptances are closed for this assignment.
               </div>
               <div v-else-if="isPastDeadline" class="text-xs text-danger">
-                The deadline for this assignment has passed ({{ assignment?.deadline_at }}).
+                The deadline for this assignment has passed ({{ formatDate(assignment?.deadline_at, assignment?.timezone) }}).
+              </div>
+              <div v-else-if="acceptPhase === 'acceptance-closed'" class="text-xs text-danger">
+                Nobody new can accept since {{ formatDate(assignment?.accepts_until, assignment?.timezone) }}; the work is due {{ formatDate(assignment?.deadline_at, assignment?.timezone) }}.
+              </div>
+              <div v-else-if="acceptPhase === 'not-open'" class="text-xs text-warning">
+                This assignment opens {{ formatDate(assignment?.opens_at, assignment?.timezone) }}.
+              </div>
+              <div v-else-if="acceptPhase !== 'accepting'" class="text-xs text-danger">
+                New acceptances are closed for this assignment.
               </div>
               <div v-else class="text-xs text-muted">
                 Assignment is open and accepting student repositories.
@@ -210,6 +219,8 @@ import { assignmentStatus } from '../lib/status-labels.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
 import { rosterMatchesLogin } from '../../../lib/roster-mode.mjs'
+import { acceptanceWindow, scheduledWindow } from '../../../lib/acceptance-window.mjs'
+import { formatDate } from '../lib/format.js'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -236,16 +247,16 @@ const invitationPending = computed(
   () => Boolean(props.pendingInvitation) || props.acceptState === 'invited',
 )
 
-const isPastDeadline = computed(() => {
-  if (!props.assignment?.deadline_at) return false
-  return new Date() > new Date(props.assignment.deadline_at)
-})
+// The window as the hub judges it (lib/acceptance-window.mjs), so this dialog
+// cannot call a window healthy that the hub refuses, nor a deadline passed
+// that it has not. The deadline line reads the dates whatever the state, as
+// it always did; the rest is the state-aware answer.
+const acceptPhase = computed(() => acceptanceWindow(props.assignment).phase)
+const isPastDeadline = computed(() => scheduledWindow(props.assignment).phase === 'deadline-passed')
 
 const lifecycleHealthy = computed(() => {
   if (!props.assignment) return true
-  if (props.assignment.state === 'draft' || props.assignment.state === 'closed') return false
-  if (props.assignment.opens_at && new Date() < new Date(props.assignment.opens_at)) return false
-  return !isPastDeadline.value
+  return acceptPhase.value === 'accepting'
 })
 
 const isCapReached = computed(() => {

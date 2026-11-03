@@ -95,6 +95,12 @@
               <span class="date-label">Opens</span>
               <time :datetime="assignment.opens_at">{{ formatDate(assignment.opens_at, assignment.timezone) }}</time>
             </div>
+            <div v-if="assignment.accepts_until" class="date-item" data-accepts-until>
+              <span class="date-label">Accept until</span>
+              <time :datetime="assignment.accepts_until" :class="{ 'text-warning': acceptPhase === 'acceptance-closed' || acceptPhase === 'deadline-passed' }">
+                {{ formatDate(assignment.accepts_until, assignment.timezone) }}
+              </time>
+            </div>
             <div class="date-item">
               <span class="date-label">Deadline</span>
               <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -127,11 +133,22 @@
         <div v-else class="acceptance-card card">
           <!-- Not yet accepted -->
           <div v-if="acceptState === 'ready'">
-            <div v-if="assignment && (assignment.state === 'closed' || (assignment.deadline_at && new Date() > new Date(assignment.deadline_at)))" class="text-center">
+            <!-- The window is the hub's judge (lib/acceptance-window.mjs),
+                 never spelled here: a page offering Accept where the hub
+                 refuses is the one failure no save can heal. -->
+            <div v-if="assignment && (assignment.state === 'closed' || acceptPhase === 'deadline-passed')" class="text-center">
               <Icon name="lock" :size="48" class="status-icon" />
               <h2>Assignment closed</h2>
               <p class="text-secondary">
                 New registrations for this assignment are currently closed.
+              </p>
+            </div>
+            <div v-else-if="assignment && acceptPhase === 'acceptance-closed'" class="text-center" data-acceptance-closed>
+              <Icon name="lock" :size="48" class="status-icon" />
+              <h2>Acceptance closed</h2>
+              <p class="text-secondary">
+                Nobody new can accept since {{ formatDate(assignment.accepts_until, assignment.timezone) }}.
+                The work is due {{ formatDate(assignment.deadline_at, assignment.timezone) }}. Ask your lecturer if you still need to join.
               </p>
             </div>
             <!-- An absent cap is no cap: accept.mjs enforces the limit only
@@ -143,7 +160,7 @@
                 This assignment has reached its registration limit. Please contact your lecturer.
               </p>
             </div>
-            <div v-else-if="assignment && (assignment.state === 'draft' || (assignment.opens_at && new Date() < new Date(assignment.opens_at)))" class="text-center">
+            <div v-else-if="assignment && (assignment.state === 'draft' || acceptPhase === 'not-open')" class="text-center">
               <Icon name="clock" :size="48" class="status-icon" />
               <h2>Assignment not open yet</h2>
               <p class="text-secondary">
@@ -605,6 +622,7 @@ import { copyText } from '../lib/clipboard.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
 import { normalizeRosterMode, rosterMatchesLogin, claimRequired } from '../../../lib/roster-mode.mjs'
+import { acceptanceWindow } from '../../../lib/acceptance-window.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 import { personPushed } from '../../../lib/untouched-repo.mjs'
 import { commitDateOf } from '../../../lib/observation.mjs'
@@ -782,6 +800,11 @@ const isPastDeadline = computed(() => {
   if (!effectiveDeadline.value) return false
   return now.value > effectiveDeadline.value
 })
+
+// Whether a NEW acceptance would be taken now: the assignment's own window,
+// on the ticking clock, through the hub's judge (lib/acceptance-window.mjs).
+// The countdown above is this student's deadline, a different question.
+const acceptPhase = computed(() => acceptanceWindow(assignment.value, now.value).phase)
 
 // The header badge and deadlineCountdown below count down this student's
 // effective deadline, with the shared arithmetic rather than a fourth copy.

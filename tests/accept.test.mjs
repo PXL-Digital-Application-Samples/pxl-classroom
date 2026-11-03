@@ -192,6 +192,171 @@ template:
   assert.equal(res.outputs.outcome, "rejected:past-deadline");
 });
 
+test("rejected:acceptance-closed - the acceptance deadline passed, the work still due", () => {
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  const yaml = `state: published
+accepts_until: "${past}"
+deadline_at: "${future}"
+template:
+  owner: x
+  repository: y`;
+  const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: yaml });
+  assert.equal(res.status, 0);
+  assert.equal(res.outputs.outcome, "rejected:acceptance-closed");
+});
+
+test("an acceptance deadline ahead changes nothing; past both, the deadline is the answer", () => {
+  const ahead = `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${new Date(Date.now() + 86400000 * 7).toISOString()}"
+deadline_at: "${new Date(Date.now() + 86400000 * 14).toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const ok = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" }, { assignmentYaml: ahead });
+  assert.equal(ok.status, 0);
+  assert.equal(ok.outputs.outcome, "accepted");
+
+  // The deadline is the refusal with a lock behind it, and the one the
+  // lecturer's surfaces name.
+  const both = `state: published
+accepts_until: "${new Date(Date.now() - 2 * 86400000).toISOString()}"
+deadline_at: "${new Date(Date.now() - 86400000).toISOString()}"
+template:
+  owner: x
+  repository: y`;
+  const res = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "valid", GITHUB_ID: "123" }, { assignmentYaml: both });
+  assert.equal(res.outputs.outcome, "rejected:past-deadline");
+});
+
+test("a request made before the acceptance deadline whose run GitHub started after it is honoured for an hour", () => {
+  // The deadline's grace (actedInTime), without the lock question: nothing
+  // locks at the acceptance deadline.
+  const closes = new Date(Date.now() - 10 * 60_000);
+  const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const yaml = `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${closes.toISOString()}"
+deadline_at: "${new Date(Date.now() + 86400000 * 7).toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const inTime = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", ACTED_AT: stamp(new Date(closes.getTime() - 60_000)) },
+    { assignmentYaml: yaml },
+  );
+  assert.equal(inTime.outputs.outcome, "accepted", inTime.stderr);
+  const late = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", ACTED_AT: stamp(new Date(closes.getTime() + 60_000)) },
+    { assignmentYaml: yaml },
+  );
+  assert.equal(late.outputs.outcome, "rejected:acceptance-closed");
+  // Beyond the hour, a request made in time is still refused: the grace is
+  // for a run GitHub started late, not a door held open.
+  const longAgo = new Date(Date.now() - 3 * 3600_000);
+  const stale = `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${longAgo.toISOString()}"
+deadline_at: "${new Date(Date.now() + 86400000 * 7).toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const beyond = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", ACTED_AT: stamp(new Date(longAgo.getTime() - 60_000)) },
+    { assignmentYaml: stale },
+  );
+  assert.equal(beyond.outputs.outcome, "rejected:acceptance-closed");
+});
+
+test("past the deadline, the grace runs from the acceptance deadline where there is one (review 2026-11-03)", () => {
+  // The deadline's hour of grace used to be measured from the deadline alone,
+  // so a request made AFTER acceptance closed but before the deadline, run
+  // late by GitHub, was admitted - and the later GitHub ran it, the better its
+  // chances. The grace runs from whichever date closed acceptance.
+  const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const who = { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" };
+  const yamlFor = (closes, deadline) => `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${closes.toISOString()}"
+deadline_at: "${deadline.toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+
+  const deadline = new Date(Date.now() - 5 * 60_000);
+  const closes = new Date(Date.now() - 3 * 3600_000);
+  // Made between the two dates: never in time, whatever the deadline's hour says.
+  const between = runAccept({ ...who, ACTED_AT: stamp(new Date(deadline.getTime() - 60_000)) }, { assignmentYaml: yamlFor(closes, deadline) });
+  assert.equal(between.outputs.outcome, "rejected:past-deadline");
+  // Made before acceptance closed, run three hours later: the hour ran out at
+  // the acceptance deadline, not at the deadline.
+  const stale = runAccept({ ...who, ACTED_AT: stamp(new Date(closes.getTime() - 60_000)) }, { assignmentYaml: yamlFor(closes, deadline) });
+  assert.equal(stale.outputs.outcome, "rejected:past-deadline");
+  // What the grace still covers: acceptance closed half an hour ago, the
+  // deadline five minutes ago, the request made before both, no lock yet.
+  const near = new Date(Date.now() - 30 * 60_000);
+  const inTime = runAccept({ ...who, ACTED_AT: stamp(new Date(near.getTime() - 60_000)) }, { assignmentYaml: yamlFor(near, deadline) });
+  assert.equal(inTime.outputs.outcome, "accepted", inTime.stderr);
+});
+
+test("nobody NEW: an account that already accepted passes the acceptance deadline; a stranger under its login, and the deadline, do not", () => {
+  // Pressing Accept again is how a lapsed repository invitation is re-sent,
+  // and the acceptance deadline is for newcomers (review 2026-11-03).
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  const yamlFor = (deadline) => `state: published
+repository_name_pattern: test-{github_login}
+accepts_until: "${new Date(Date.now() - 2 * 86400000).toISOString()}"
+deadline_at: "${deadline}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 123, accepted_at: "2026-01-01T00:00:00Z", status: "accepted" };
+  const acceptances = { "test-asgn": { alice: record } };
+
+  const again = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123" }, { assignmentYaml: yamlFor(future), acceptances });
+  assert.equal(again.outputs.outcome, "already-accepted", again.stderr);
+
+  // The login is a label; the id is the student (lib/login-rename.mjs). An
+  // account that merely holds the name now is new - and the rename guard
+  // ahead of the window already turns it away by name, so the record is
+  // never its way in.
+  const stranger = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "999" }, { assignmentYaml: yamlFor(future), acceptances });
+  assert.equal(stranger.outputs.outcome, "rejected:login-reused");
+  // And a newcomer with no record is what the date is for.
+  const newcomer = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "456" }, { assignmentYaml: yamlFor(future), acceptances });
+  assert.equal(newcomer.outputs.outcome, "rejected:acceptance-closed");
+
+  // Past the DEADLINE the record does not help: that refusal has a lock behind it.
+  const late = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123" }, { assignmentYaml: yamlFor(past), acceptances });
+  assert.equal(late.outputs.outcome, "rejected:past-deadline");
+});
+
+test("nobody NEW on a team: Accept again for the same team passes the acceptance deadline, another team is a new membership", () => {
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+accepts_until: "${past}"
+deadline_at: "${future}"
+group_config:
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const team = (slug, members) => ({ schema_version: 1, assignment_id: "test-asgn", team_slug: slug, team_name: slug, members, max_members: 4 });
+  const teams = { "test-asgn": { "team-a": team("team-a", ["alice"]), "team-b": team("team-b", ["bob"]) } };
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 123, accepted_at: "2026-01-01T00:00:00Z", status: "accepted", team_slug: "team-a" };
+  const acceptances = { "test-asgn": { alice: record } };
+
+  const same = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-a" }, { assignmentYaml: yaml, teams, acceptances });
+  assert.equal(same.outputs.outcome, "already-accepted", same.stderr);
+  const switching = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-b" }, { assignmentYaml: yaml, teams, acceptances });
+  assert.equal(switching.outputs.outcome, "rejected:acceptance-closed");
+});
+
 test("idempotency - already-accepted", () => {
   const yaml = `state: published
 repository_name_pattern: test-{github_login}

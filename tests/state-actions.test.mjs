@@ -98,3 +98,22 @@ test("past the deadline each line says what it does now, and a lock that already
     assert.ok(!locked.includes("freeze"), `${state}: it skips what was reopened and locked the rest, so it changes nothing`);
   }
 });
+
+test("past the acceptance deadline, Reopen offers to move it, and Stop accepting says what it does now", () => {
+  // `accepts_until` passed while the deadline has not (lib/acceptance-window.mjs):
+  // the hub refuses every acceptance, so Reopen would publish a page nobody
+  // can accept from - the same control-that-cannot-do-what-it-says as past
+  // the deadline, with the other date.
+  for (const state of ["closed", "archived"]) {
+    const list = stateActions({ state, acceptanceClosed: true });
+    assert.ok(!list.some((a) => a.key === "reopen"), `${state}: no Reopen past the acceptance deadline`);
+    const move = list.find((a) => a.key === "edit-deadline");
+    assert.equal(move?.label, "Move the acceptance deadline…", `${state}: offers to move it instead`);
+  }
+  // The deadline's own entry wins where both have passed.
+  assert.equal(stateActions({ state: "closed", deadlinePassed: true, acceptanceClosed: true }).find((a) => a.key === "edit-deadline")?.label, "Move the deadline…");
+  const sub = (actions, key) => actions.find((a) => a.key === key)?.sub;
+  assert.equal(sub(stateActions({ state: "published", acceptanceClosed: true }), "close"), "Marks it closed. Nobody could accept after the acceptance deadline anyway; repositories are unaffected");
+  // Nothing about the lock: that is the deadline's.
+  assert.ok(!stateActions({ state: "published", acceptanceClosed: true }).some((a) => a.key === "freeze"));
+});

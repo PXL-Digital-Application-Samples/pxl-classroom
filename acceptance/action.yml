@@ -38,7 +38,7 @@ inputs:
     required: false
     default: ${{ github.event.client_payload.workflow_run_url }}
   bypass-window:
-    description: Bypass assignment time windows (opens_at and deadline_at checks)
+    description: Bypass assignment time windows (the opens_at, accepts_until and deadline_at checks)
     required: false
     default: 'false'
   team-slug:

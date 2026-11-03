@@ -48,6 +48,7 @@ export type Assignment = {
   };
   repository_name_pattern?: string;
   opens_at?: string;
+  accepts_until?: string;
   deadline_at?: string;
   timezone?: string;
   submission_ref?: string;
@@ -129,6 +130,7 @@ export type Dashboard = {
     title?: string;
     state?: "draft" | "published" | "closed" | "archived";
     opens_at?: string;
+    accepts_until?: string;
     deadline_at?: string;
     timezone?: string;
     max_acceptances?: number;

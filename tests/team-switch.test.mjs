@@ -26,3 +26,17 @@ test("not self-service, not accepting, or no deadline", () => {
   assert.deepEqual(teamSwitchWindow({ canChooseAnother: true, assignment: { state: "published" }, now: Date.now() }), { can: true, until: null }, "no deadline: open while accepting, and no date named");
   assert.equal(teamSwitchWindow({ canChooseAnother: true, assignment: null, now: 0 }).can, false);
 });
+
+test("a switch is an acceptance, so the acceptance deadline closes it first", () => {
+  // `accepts_until` (lib/acceptance-window.mjs): the hub refuses a switch
+  // after it as it refuses any acceptance, so the card names that date.
+  const CLOSES = "2026-10-13T20:00:00.000Z";
+  const a = { ...open, accepts_until: CLOSES };
+  assert.deepEqual(teamSwitchWindow({ canChooseAnother: true, assignment: a, now: at("2026-10-13T19:59:00Z") }), { can: true, until: CLOSES });
+  assert.deepEqual(teamSwitchWindow({ canChooseAnother: true, assignment: a, now: at("2026-10-13T20:00:01Z") }), { can: false, until: CLOSES });
+  // One after the deadline is never reached: the deadline is still the date.
+  assert.equal(teamSwitchWindow({ canChooseAnother: true, assignment: { ...open, accepts_until: "2026-10-21T20:00:00.000Z" }, now: 0 }).until, DEADLINE);
+  // And before the assignment opens, no switch either: the hub refuses one as
+  // not-open, which the old rule did not know (review 2026-11-03).
+  assert.equal(teamSwitchWindow({ canChooseAnother: true, assignment: { ...open, opens_at: "2026-10-01T00:00:00Z" }, now: at("2026-09-30T00:00:00Z") }).can, false);
+});

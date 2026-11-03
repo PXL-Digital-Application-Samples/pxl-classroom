@@ -1551,6 +1551,7 @@ import { studentsMissingFromReport, studentRowKey } from '../lib/missing-student
 import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { minTeamSize } from '../../../lib/group-config.mjs'
 import { buildDashboardEntry, countAccepted } from '../../../lib/dashboard-aggregate.mjs'
+import { scheduledWindow } from '../../../lib/acceptance-window.mjs'
 import { teamRepresentative } from '../../../lib/team-representative.mjs'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
@@ -5186,6 +5187,9 @@ async function syncDashboardAggregate(token) {
       title: existingEntry.title,
       state: existingEntry.state,
       opens_at: existingEntry.opens_at,
+      // The loaded document's answer, cleared included: a stored entry's copy
+      // outlives a lecturer taking the acceptance deadline away.
+      accepts_until: assignment.value ? assignment.value.accepts_until : existingEntry.accepts_until,
       deadline_at: existingEntry.deadline_at,
       timezone: existingEntry.timezone ?? assignment.value?.timezone,
       max_acceptances: assignment.value?.max_acceptances ?? existingEntry.max_acceptances ?? null,
@@ -5792,8 +5796,10 @@ async function readPageDeadline(student) {
     actionPageDeadline.value = {
       ...pageDeadlineState({ expected, read, expectedKnown: !overridesProblem.value }),
       fromTeammate: Boolean(expected) && expected !== own,
-      // Nobody accepts after the class deadline, an extension included (R6-5).
-      acceptClosed: deadlinePassed.value,
+      // Nobody accepts after the class deadline, an extension included (R6-5),
+      // nor after the acceptance deadline (lib/acceptance-window.mjs).
+      // Without the document, the report's deadline, as `deadlinePassed` falls back to.
+      acceptClosed: ['deadline-passed', 'acceptance-closed'].includes(scheduledWindow(assignment.value || { deadline_at: currentDeadline.value }, nowMs.value).phase),
     }
   }
 }
@@ -5943,18 +5949,21 @@ async function retryAcceptanceFor(student) {
   try {
     const token = getToken()
 
-    const deadline = assignment.value?.deadline_at ? new Date(assignment.value.deadline_at) : null
-    const opensAt = assignment.value?.opens_at ? new Date(assignment.value.opens_at) : null
-    const now = new Date()
-    const isOutsideWindow = (deadline && now > deadline) || (opensAt && now < opensAt)
+    // The window as the hub judges it (lib/acceptance-window.mjs), by the
+    // dates whatever the state: Retry bypasses it, so the dialog says which
+    // date it is bypassing.
+    const gate = scheduledWindow(assignment.value)
+    const isOutsideWindow = ['not-open', 'deadline-passed', 'acceptance-closed'].includes(gate.phase)
     if (isOutsideWindow) {
-      const before = opensAt && now < opensAt
+      const before = gate.phase === 'not-open'
       const ok = await askConfirm({
         title: `Retry @${login}'s acceptance outside the assignment's window?`,
         paragraphs: [
           before
             ? `It opens ${fmt(assignment.value.opens_at)}, so nobody can accept yet.`
-            : `Its deadline passed ${fmt(assignment.value.deadline_at)}, so nobody can accept any more.`,
+            : gate.phase === 'acceptance-closed'
+              ? `Its acceptance deadline passed ${fmt(assignment.value.accepts_until)}, so nobody new can accept; the work is due ${fmt(assignment.value.deadline_at)}.`
+              : `Its deadline passed ${fmt(assignment.value.deadline_at)}, so nobody can accept any more.`,
           'Retrying lets this one acceptance through anyway.',
           // What becomes of it (R6-5): a repository given after the lock is
           // locked by the next nightly check, or left open until their own deadline.

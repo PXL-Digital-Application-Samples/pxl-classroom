@@ -24,6 +24,7 @@ import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 import { SUPERSEDED, actedInTime, lockRanFor, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
+import { acceptanceClosesAt, acceptanceWindow } from "../lib/acceptance-window.mjs";
 import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { readSentinelTimelines } from "../lib/sentinel-timelines.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
@@ -89,6 +90,25 @@ async function reject(category, note) {
   await setOutput("reject_reason", note ?? "");
   await summary(`### Acceptance rejected: \`${category}\`\n\n${note ?? ""}`);
   process.exit(0);
+}
+
+/**
+ * This account's own acceptance record at `file`, or null: absent, unreadable,
+ * or naming another account under this login (lib/login-rename.mjs: the login
+ * is a label, the id is the student).
+ *
+ * @param {string} file
+ * @param {string} githubId
+ * @returns {Promise<Record<string, unknown>|null>}
+ */
+async function ownAcceptanceRecord(file, githubId) {
+  if (!existsSync(file)) return null;
+  try {
+    const record = JSON.parse(await readFile(file, "utf-8"));
+    return record && String(record.github_id) === String(githubId) ? record : null;
+  } catch {
+    return null;
+  }
 }
 
 // --- Strict input validation -------------------------------------------------
@@ -943,50 +963,96 @@ async function main() {
   if (bypassWindow) {
     log("window", { ok: true, note: `bypassing open window checks (BYPASS_WINDOW=true)` });
   } else {
-    if (assignment.opens_at) {
-      const opens = new Date(assignment.opens_at);
-      if (now < opens)
-        await reject("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
-    }
-    if (assignment.deadline_at) {
+    // THE WINDOW IS ONE JUDGE (lib/acceptance-window.mjs), the same function
+    // every page that offers a student Accept asks, so the page and this gate
+    // cannot disagree about a date. What the hub adds is the hour of grace for
+    // a request GitHub started late, and the lock question, which only the
+    // deadline has.
+    const gate = acceptanceWindow(assignment, now);
+    if (gate.phase === "not-open")
+      await reject("rejected:not-open", `assignment opens at ${assignment.opens_at}, current time is ${now.toISOString()}`);
+    if (gate.phase === "deadline-passed") {
       const deadline = new Date(assignment.deadline_at);
-      if (now > deadline) {
-        // THE STUDENT WAS ON TIME; GITHUB WAS NOT. A request made before the
-        // deadline whose run started after it is decided as of the request,
-        // for an hour and only until the deadline's lock has run - after that
-        // a new repository would be one nothing locks or archives. The
-        // Deadline Sentinel's stop IS that lock, and it writes no lockdown
-        // record: it locked the repositories it knew at the instant, so one
-        // made after it was in no lock until a finalize happened to see its
-        // record (review 2026-10-14). A stop that may have held counts.
-        // ...THE LOCK OF THE DEADLINE IN FORCE (R7-18): one for a deadline
-        // since moved later does not close this one's grace.
-        const recordFile = join(dataDir, lockdownRecordPath(assignmentId));
-        let lockRecord = null;
-        if (existsSync(recordFile)) {
-          try {
-            lockRecord = JSON.parse(await readFile(recordFile, "utf-8"));
-          } catch {
-            lockRecord = "unreadable";
-          }
+      // THE STUDENT WAS ON TIME; GITHUB WAS NOT. A request made before the
+      // deadline whose run started after it is decided as of the request,
+      // for an hour and only until the deadline's lock has run - after that
+      // a new repository would be one nothing locks or archives. The
+      // Deadline Sentinel's stop IS that lock, and it writes no lockdown
+      // record: it locked the repositories it knew at the instant, so one
+      // made after it was in no lock until a finalize happened to see its
+      // record (review 2026-10-14). A stop that may have held counts.
+      // ...THE LOCK OF THE DEADLINE IN FORCE (R7-18): one for a deadline
+      // since moved later does not close this one's grace.
+      const recordFile = join(dataDir, lockdownRecordPath(assignmentId));
+      let lockRecord = null;
+      if (existsSync(recordFile)) {
+        try {
+          lockRecord = JSON.parse(await readFile(recordFile, "utf-8"));
+        } catch {
+          lockRecord = "unreadable";
         }
-        const lockRan = lockRanFor({
-          deadline,
-          lockRecord,
-          timelines: await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId))),
+      }
+      const lockRan = lockRanFor({
+        deadline,
+        lockRecord,
+        timelines: await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId))),
+      });
+      // ...AND FROM THE MOMENT ACCEPTANCE CLOSED FOR THIS REQUEST (review
+      // 2026-11-03): with an acceptance deadline before the deadline, a request
+      // made between the two was never in time, and a run GitHub started after
+      // the deadline must not admit it on the deadline's hour. The grace runs
+      // from whichever date closed acceptance - the deadline itself where there
+      // is no acceptance deadline, so nothing changes for those.
+      const closes = new Date(acceptanceClosesAt(assignment));
+      if (actedInTime({ deadline: closes, now, actedAt, lockRan })) {
+        log("window", {
+          ok: true,
+          note: `requested at ${actedAt.toISOString()}, before acceptance closed at ${closes.toISOString()}; GitHub started this run at ${now.toISOString()}`,
         });
-        if (actedInTime({ deadline, now, actedAt, lockRan })) {
-          log("window", {
-            ok: true,
-            note: `requested at ${actedAt.toISOString()}, before the deadline ${assignment.deadline_at}; GitHub started this run at ${now.toISOString()}`,
-          });
-        } else {
-          await reject(
-            "rejected:past-deadline",
-            `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}` +
-              (actedAt ? `, requested at ${actedAt.toISOString()}` : ""),
-          );
-        }
+      } else {
+        await reject(
+          "rejected:past-deadline",
+          `assignment deadline was ${assignment.deadline_at}, current time is ${now.toISOString()}` +
+            (actedAt ? `, requested at ${actedAt.toISOString()}` : ""),
+        );
+      }
+    }
+    if (gate.phase === "acceptance-closed") {
+      // The acceptance deadline (`accepts_until`): the invitation closed, the
+      // work is still due at the deadline.
+      //
+      // NOBODY NEW, exactly (review 2026-11-03): an account whose own record
+      // is here already accepted, and pressing Accept again is how a lapsed
+      // repository invitation is re-sent - GitHub's expire after seven days,
+      // and "closes a week in" is what this date is for. The record is the one
+      // step 6 reads, matched on the account and never the login alone (a
+      // stored login under another id is somebody else, lib/login-rename.mjs);
+      // on a team assignment only for the same team, because joining another
+      // is a new membership. A team renamed since does not match and falls
+      // through to the refusal, which the lecturer's Retry bypasses.
+      //
+      // Otherwise the same hour of grace as the deadline, and no lock to ask
+      // about - nothing locks at this instant, and a repository given now is
+      // an ordinary one the deadline's lock reaches like the rest.
+      const prior = await ownAcceptanceRecord(acceptFile, githubId);
+      const requestedTeam = env("TEAM_SLUG", "");
+      const sameTeam =
+        assignment.assignment_type !== "group" ||
+        (typeof prior?.team_slug === "string" && prior.team_slug.toLowerCase() === requestedTeam.toLowerCase());
+      const closes = new Date(gate.at);
+      if (prior && sameTeam) {
+        log("window", { ok: true, note: `already accepted at ${prior.accepted_at}; the acceptance deadline (${gate.at}) is for newcomers` });
+      } else if (actedInTime({ deadline: closes, now, actedAt, lockRan: false })) {
+        log("window", {
+          ok: true,
+          note: `requested at ${actedAt.toISOString()}, before acceptance closed at ${assignment.accepts_until}; GitHub started this run at ${now.toISOString()}`,
+        });
+      } else {
+        await reject(
+          "rejected:acceptance-closed",
+          `acceptance closed at ${assignment.accepts_until}, current time is ${now.toISOString()}` +
+            (actedAt ? `, requested at ${actedAt.toISOString()}` : ""),
+        );
       }
     }
     log("window", { ok: true, note: `within open window` });

@@ -70,6 +70,11 @@
           "type": "string",
           "format": "date-time"
         },
+        "accepts_until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The acceptance deadline, copied from the assignment document where it has one (assignment.schema.json `accepts_until`). Optional for the same reason as `state`: absent on the document means the deadline closes acceptance, and an entry may not invent one."
+        },
         "deadline_at": {
           "type": "string",
           "format": "date-time",

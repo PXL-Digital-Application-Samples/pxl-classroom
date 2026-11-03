@@ -28,6 +28,9 @@ const ASSIGNMENT = {
   title: "Linux Processes",
   state: "published",
   opens_at: "2026-02-01T08:00:00.000Z",
+  // Optional on the document (absent = the deadline closes acceptance); set
+  // here so the builder writes every field the schema declares.
+  accepts_until: "2026-02-15T22:00:00.000Z",
   deadline_at: "2026-03-01T22:00:00.000Z",
   timezone: "Europe/Brussels",
   max_acceptances: 50,
@@ -147,14 +150,19 @@ test("a key that is not an assignment id is refused", () => {
 
 test("every field the schema requires is one the builder always writes", () => {
   // `required` is the half that fails closed, so it may only name fields the
-  // builder cannot omit. `state` and `timezone` are deliberately absent from it
-  // - the assignment document does not require them either.
+  // builder cannot omit. `state`, `timezone` and `accepts_until` are
+  // deliberately absent from it - the assignment document does not require
+  // them either, and an absent `accepts_until` means the deadline closes
+  // acceptance (lib/acceptance-window.mjs), which an entry may not invent.
   const entry = asWritten(buildDashboardEntry(ASSIGNMENT, STUDENTS));
   const missing = SCHEMA.definitions.entry.required.filter((k) => !(k in entry));
   assert.deepEqual(missing, [], "the schema requires a field the builder does not produce");
+  const without = asWritten(buildDashboardEntry({ ...ASSIGNMENT, accepts_until: undefined }, STUDENTS));
+  assert.equal("accepts_until" in without, false, "an assignment without one yields an entry without one, never null");
+  assert.equal(check(wrap({ [ASSIGNMENT.id]: without })).valid, true);
 
   const optional = Object.keys(SCHEMA.definitions.entry.properties).filter(
     (k) => !SCHEMA.definitions.entry.required.includes(k),
   );
-  assert.deepEqual(optional.sort(), ["state", "timezone"]);
+  assert.deepEqual(optional.sort(), ["accepts_until", "state", "timezone"]);
 });

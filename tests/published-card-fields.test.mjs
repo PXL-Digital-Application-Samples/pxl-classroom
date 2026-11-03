@@ -48,13 +48,14 @@ const MUST_PUBLISH = [
   ["roster_mode", "which gate applies at all"],
   ["claim_domains", "which addresses the browser will seal"],
   ["max_acceptances", "the cap the page reports against"],
+  ["accepts_until", "when nobody new can accept, before the deadline (lib/acceptance-window.mjs)"],
 ];
 
 // The card, as the generator builds it (lib/student-card.mjs since 2026-10-08,
 // shared with the editor's "do students see what was saved" check), run rather
 // than grepped.
 const OPEN_WITH_CLAIM = studentCard(
-  { id: "x", organization: "o", state: "published", roster_mode: "open", require_claim: true, claim_domains: ["pxl.be"], max_acceptances: 5 },
+  { id: "x", organization: "o", state: "published", roster_mode: "open", require_claim: true, claim_domains: ["pxl.be"], max_acceptances: 5, accepts_until: "2026-11-16T22:59:00Z" },
   { timezone: "Europe/Brussels" },
 );
 

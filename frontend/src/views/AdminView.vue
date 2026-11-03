@@ -768,15 +768,15 @@
                always-changed one. -->
           <fieldset id="settings-schedule">
             <legend>Schedule</legend>
-            <!-- THE ONE PLACE TWO FIELDS GENUINELY PAIR. They are read
-                 together - an assignment opens THEN closes - and a
-                 `datetime-local` is fixed-length, so a full-width box for
+            <!-- THE ONE PLACE FIELDS GENUINELY PAIR. They are read together -
+                 an assignment opens, stops taking students, THEN closes - and
+                 a `datetime-local` is fixed-length, so a full-width box for
                  "21/09/2026 03:15" tells the reader the wrong thing (Baymard's
                  first rule: a fixed-length input is sized to its content).
                  Side by side they end at the same right edge as every other
                  field, so the column keeps its single measure while each date
                  gets a box that fits what goes in it. -->
-            <div class="field-row">
+            <div class="field-row field-row-3">
               <div class="field">
                 <label>Opens at <span class="req">*</span></label>
                 <input type="datetime-local" v-model="form.opens_at_local" @change="touchedFields.opens_at = true" />
@@ -785,6 +785,16 @@
                      time (lib/date-readout.js). -->
                 <small v-if="openReadout" data-date-readout>{{ openReadout }}</small>
                 <div v-if="(touchedFields.opens_at || !isNew) && fieldErrors.opens_at" class="field-error-msg">{{ fieldErrors.opens_at }}</div>
+              </div>
+              <!-- OPTIONAL: the invitation closes before the work is due.
+                   Empty means the deadline closes acceptance, which is what
+                   every assignment did before the field (lib/acceptance-window.mjs). -->
+              <div class="field">
+                <label>Accept until</label>
+                <input type="datetime-local" v-model="form.accepts_until_local" @change="touchedFields.accepts_until = true" data-accepts-until />
+                <small v-if="acceptsUntilReadout" data-date-readout>{{ acceptsUntilReadout }}</small>
+                <small v-else>Optional. Empty: students can accept until the deadline.</small>
+                <div v-if="(touchedFields.accepts_until || !isNew) && fieldErrors.accepts_until" class="field-error-msg">{{ fieldErrors.accepts_until }}</div>
               </div>
               <div class="field">
                 <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
@@ -809,6 +819,9 @@
               </small>
               <small v-if="deadlineInPast" class="text-warning">
                 This deadline is in the past: the next nightly check treats it as passed straight away, archiving every student's work and applying what you chose under After the deadline.
+              </small>
+              <small v-else-if="acceptsUntilInPast" class="text-warning" data-accepts-until-past>
+                The acceptance deadline is in the past: nobody new can accept until you move it later. Students who already accepted keep working until the deadline.
               </small>
             </div>
             <!-- ONE QUESTION, AND ITS ANSWERS ARE WHAT HAPPENS (2026-10-02).
@@ -1997,7 +2010,7 @@ const studentPageMessage = computed(() => (props.studentPage ? studentPageLine(p
 /** A card value in the lecturer's words: dates in 24-hour time, the rest plainly. */
 function cardValue(key, value) {
   if (value == null || value === '') return 'nothing'
-  if (key === 'opens_at' || key === 'deadline_at') return formatDate(value, form.value.timezone || null)
+  if (key === 'opens_at' || key === 'accepts_until' || key === 'deadline_at') return formatDate(value, form.value.timezone || null)
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (typeof value === 'object') return JSON.stringify(value)
   const s = String(value)
@@ -2644,6 +2657,7 @@ const touchedFields = ref({
   template: false,
   repository_name_pattern: false,
   opens_at: false,
+  accepts_until: false,
   deadline_at: false,
   max_acceptances: false,
 })
@@ -2748,6 +2762,21 @@ const fieldErrors = computed(() => {
   } else if (form.value.opens_at_local && !unreadable(form.value.opens_at_local)
              && new Date(form.value.deadline_at_local) <= new Date(form.value.opens_at_local)) {
     errors.deadline_at = 'Deadline must be after the open date.'
+  }
+  // The acceptance deadline is optional and sits between the two: after the
+  // open date, and never after the deadline, which closes acceptance anyway
+  // (lib/acceptance-window.mjs) - a later one would be a date that does nothing.
+  if (form.value.accepts_until_local) {
+    const readable = (v) => Boolean(v) && !unreadable(v)
+    if (unreadable(form.value.accepts_until_local)) {
+      errors.accepts_until = 'This acceptance deadline is not a date the panel can read - pick it again.'
+    } else if (readable(form.value.opens_at_local)
+               && new Date(form.value.accepts_until_local) <= new Date(form.value.opens_at_local)) {
+      errors.accepts_until = 'The acceptance deadline must be after the open date.'
+    } else if (readable(form.value.deadline_at_local)
+               && new Date(form.value.accepts_until_local) > new Date(form.value.deadline_at_local)) {
+      errors.accepts_until = 'The acceptance deadline cannot be after the deadline. Leave it empty to accept until the deadline.'
+    }
   }
 
   // 7. Max acceptances check
@@ -3184,8 +3213,12 @@ function emptyForm() {
     // now refuses it as well.
     repository_name_pattern: '',
     opens_at_local: toLocalInputValue(now),
+    // Empty: the deadline closes acceptance, as for every assignment before
+    // the field. Never seeded, so a lecturer who wants one decides on it.
+    accepts_until_local: '',
     deadline_at_local: toLocalInputValue(in14d),
     _opens_at_original: '',
+    _accepts_until_original: '',
     _deadline_at_original: '',
     timezone: TIMEZONE,
     submission_ref: 'refs/heads/main',
@@ -3321,6 +3354,8 @@ const openReadout = computed(() =>
   dateReadout(form.value.opens_at_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
 const deadlineReadout = computed(() =>
   dateReadout(form.value.deadline_at_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
+const acceptsUntilReadout = computed(() =>
+  dateReadout(form.value.accepts_until_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
 
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {
@@ -3445,6 +3480,7 @@ async function loadAssignments() {
               id,
               state: form.value.state,
               title: form.value.title || doc.title,
+              accepts_until: form.value.accepts_until_local ? localToUtc(form.value.accepts_until_local) : undefined,
               deadline_at: form.value.deadline_at_local ? localToUtc(form.value.deadline_at_local) : doc.deadline_at,
               timezone: form.value.timezone || doc.timezone,
             }
@@ -3544,6 +3580,7 @@ async function newAssignment({ confirmed = false } = {}) {
     template: false,
     repository_name_pattern: false,
     opens_at: false,
+    accepts_until: false,
     deadline_at: false,
     max_acceptances: false,
   }
@@ -3597,8 +3634,10 @@ async function editAssignment(a, { confirmed = false } = {}) {
     template: a.template ? `${a.template.owner}/${a.template.repository}` : '',
     repository_name_pattern: a.repository_name_pattern || '',
     opens_at_local: utcToLocalInput(a.opens_at),
+    accepts_until_local: a.accepts_until ? utcToLocalInput(a.accepts_until) : '',
     deadline_at_local: utcToLocalInput(a.deadline_at),
     _opens_at_original: a.opens_at || '',
+    _accepts_until_original: a.accepts_until || '',
     _deadline_at_original: a.deadline_at || '',
     timezone: a.timezone || TIMEZONE,
     submission_ref: a.submission_ref || 'refs/heads/main',
@@ -3700,6 +3739,7 @@ async function editAssignment(a, { confirmed = false } = {}) {
     template: false,
     repository_name_pattern: false,
     opens_at: false,
+    accepts_until: false,
     deadline_at: false,
     max_acceptances: false,
   }
@@ -4049,6 +4089,12 @@ async function validate(state = null) {
   if (doc.opens_at && doc.deadline_at && new Date(doc.deadline_at) <= new Date(doc.opens_at)) {
     problems.push('Deadline must be after the open date.')
   }
+  if (doc.accepts_until && doc.opens_at && new Date(doc.accepts_until) <= new Date(doc.opens_at)) {
+    problems.push('The acceptance deadline must be after the open date.')
+  }
+  if (doc.accepts_until && doc.deadline_at && new Date(doc.accepts_until) > new Date(doc.deadline_at)) {
+    problems.push('The acceptance deadline cannot be after the deadline. Leave it empty to accept until the deadline.')
+  }
   if (form.value.max_acceptances === 0) {
     problems.push('Max acceptances must be at least 1 (leave the field empty for no cap).')
   }
@@ -4067,9 +4113,23 @@ async function validate(state = null) {
 
 // Soft warning (non-blocking): a deadline in the past finalizes on the very
 // next nightly run - usually a typo, occasionally intentional (migrations).
+// A CLOCK THAT TICKS (review 2026-11-03): `new Date()` inside a computed is
+// read once, so an editor opened before a date passed went on saying it had
+// not - and the Stop accepting question then said "nobody new can accept"
+// over a header already saying Acceptance closed.
+const formNow = ref(Date.now())
+const formNowTimer = setInterval(() => { formNow.value = Date.now() }, 30_000)
+onUnmounted(() => clearInterval(formNowTimer))
 const deadlineInPast = computed(() => {
   if (!form.value.deadline_at_local) return false
-  try { return new Date(form.value.deadline_at_local) < new Date() } catch { return false }
+  try { return new Date(form.value.deadline_at_local).getTime() < formNow.value } catch { return false }
+})
+// Soft warning too: an acceptance deadline already past closes acceptance
+// the moment it is saved, with the work still due - usually meant (the
+// invitation is over), occasionally a typo.
+const acceptsUntilInPast = computed(() => {
+  if (!form.value.accepts_until_local) return false
+  try { return new Date(form.value.accepts_until_local).getTime() < formNow.value } catch { return false }
 })
 
 const canSave = computed(() => {
@@ -4092,6 +4152,7 @@ const SAVE_BLOCKER_NAMES = Object.freeze({
   id: 'slug',
   repository_name_pattern: 'repository name',
   opens_at: 'open date',
+  accepts_until: 'acceptance deadline',
   deadline_at: 'deadline',
   max_acceptances: 'max acceptances',
   description: 'description',
@@ -5638,7 +5699,9 @@ async function setState(newState) {
       title: `Stop accepting "${name}"?`,
       paragraphs: [past
         ? 'It is marked closed. Nobody could accept after the deadline anyway, and existing repositories are untouched.'
-        : 'Nobody new can accept it. Existing repositories are untouched.'],
+        : acceptsUntilInPast.value
+          ? 'It is marked closed. Nobody could accept after the acceptance deadline anyway, and existing repositories are untouched.'
+          : 'Nobody new can accept it. Existing repositories are untouched.'],
       confirmLabel: 'Stop accepting',
       destructive: true,
     },
@@ -5960,6 +6023,13 @@ watch(
   gap: var(--space-md);
 }
 .field-row > .field { margin-bottom: 0; }
+/* The schedule's three dates. Two columns before the boxes get cramped, so the
+   third wraps under the first; then the single column like every row. */
+.field-row-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 860px) {
+  .field-row-3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .field-row-3 > .field { margin-bottom: var(--space-md); }
+}
 @media (max-width: 560px) {
   .field-row { grid-template-columns: minmax(0, 1fr); }
   .field-row > .field:not(:last-child) { margin-bottom: var(--space-md); }

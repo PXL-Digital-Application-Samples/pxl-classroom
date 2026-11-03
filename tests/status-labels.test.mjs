@@ -129,6 +129,11 @@ test("'Accepting' only while the hub accepts: not before it opens, not after its
   assert.deepEqual(assignmentStatus(published(), now), { label: "Accepting", accepting: true });
   assert.deepEqual(assignmentStatus(published({ deadline_at: at(-2) }), now), { label: "Deadline passed", accepting: false });
   assert.deepEqual(assignmentStatus(published({ opens_at: at(2) }), now), { label: "Not open yet", accepting: false });
+  // The acceptance deadline (`accepts_until`): passed, with the work still
+  // due, is its own state - neither Accepting nor Deadline passed.
+  assert.deepEqual(assignmentStatus(published({ accepts_until: at(-2) }), now), { label: "Acceptance closed", accepting: false });
+  assert.deepEqual(assignmentStatus(published({ accepts_until: at(2) }), now), { label: "Accepting", accepting: true });
+  assert.deepEqual(assignmentStatus(published({ accepts_until: at(-4), deadline_at: at(-2) }), now), { label: "Deadline passed", accepting: false });
   // No dates is the stored state's own answer.
   assert.deepEqual(assignmentStatus({ state: "published" }, now), { label: "Accepting", accepting: true });
   // Every other state is its label, never green, whatever the dates say.

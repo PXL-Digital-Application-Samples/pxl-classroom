@@ -242,8 +242,9 @@
       <button class="btn btn-secondary" @click="checkExistingState">Check again</button>
     </div>
 
-    <!-- State: Assignment Closed / Past Deadline -->
-    <div v-else-if="assignment && (assignment.state === 'closed' || (assignment.deadline_at && new Date() > new Date(assignment.deadline_at)))" class="text-center py-lg">
+    <!-- State: Assignment Closed / Past Deadline. The window is the hub's
+         judge (lib/acceptance-window.mjs), never spelled here. -->
+    <div v-else-if="assignment && (assignment.state === 'closed' || acceptPhase === 'deadline-passed')" class="text-center py-lg">
       <Icon name="lock" :size="48" class="status-icon" />
       <h2>Assignment closed</h2>
       <p class="text-secondary">
@@ -251,8 +252,18 @@
       </p>
     </div>
 
+    <!-- State: Acceptance closed, the work still due -->
+    <div v-else-if="assignment && acceptPhase === 'acceptance-closed'" class="text-center py-lg" data-acceptance-closed>
+      <Icon name="lock" :size="48" class="status-icon" />
+      <h2>Acceptance closed</h2>
+      <p class="text-secondary">
+        Nobody new can join or create a team since {{ formatDate(assignment.accepts_until, assignment.timezone) }}.
+        The work is due {{ formatDate(assignment.deadline_at, assignment.timezone) }}. Ask your lecturer if you still need to join.
+      </p>
+    </div>
+
     <!-- State: Not Open Yet -->
-    <div v-else-if="assignment && (assignment.state === 'draft' || (assignment.opens_at && new Date() < new Date(assignment.opens_at)))" class="text-center py-lg">
+    <div v-else-if="assignment && (assignment.state === 'draft' || acceptPhase === 'not-open')" class="text-center py-lg">
       <Icon name="clock" :size="48" class="status-icon" />
       <h2>Assignment not open yet</h2>
       <p class="text-secondary">
@@ -576,6 +587,7 @@ import { teamNameProblem } from '../../../lib/public-text.mjs'
 import { personPushed } from '../../../lib/untouched-repo.mjs'
 import { commitDateOf } from '../../../lib/observation.mjs'
 import { teamSwitchWindow } from '../lib/team-switch.js'
+import { acceptanceWindow } from '../../../lib/acceptance-window.mjs'
 import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
@@ -1209,6 +1221,11 @@ const isPastDeadline = computed(() => {
   if (!effectiveDeadline.value) return false
   return nowTick.value > effectiveDeadline.value.getTime()
 })
+
+// Whether a NEW acceptance would be taken now: the assignment's own window,
+// on the ticking clock, through the hub's judge - the countdown above is this
+// student's deadline, which is a different question.
+const acceptPhase = computed(() => acceptanceWindow(props.assignment, nowTick.value).phase)
 
 // On the same clock as isPastDeadline, so the words and their colour turn together.
 // The moment in the card's one format and the assignment's zone, as its dates are.

@@ -185,6 +185,7 @@ import { INSTITUTION_SHORT } from '../lib/deployment.js'
 import { formatDate } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
 import { copyText } from '../lib/clipboard.js'
+import { acceptanceWindow } from '../../../lib/acceptance-window.mjs'
 
 const props = defineProps({
   org: { type: String, required: true },
@@ -304,13 +305,19 @@ const status = computed(() => {
       note: 'The invitation was never minted or has been lost. Republish to mint one.',
     }
   }
-  if (a.opens_at && now < new Date(a.opens_at)) {
+  // The window is the hub's judge (lib/acceptance-window.mjs), never spelled
+  // here: a third date added to a hand-written copy is a third date it misses.
+  const gate = acceptanceWindow(a, now)
+  if (gate.phase === 'not-open') {
     return { dot: 'dot-warning', label: `Opens ${when(a.opens_at)}`, note: `The link works, but nobody can accept before then.${expiryNote}` }
   }
-  if (a.deadline_at && now > new Date(a.deadline_at)) {
+  if (gate.phase === 'deadline-passed') {
     // The header's words for the same fact (R6-37): it said Deadline passed
     // three lines above a share block saying Closed, which is another state.
     return { dot: 'dot-neutral', label: 'Deadline passed', note: `The deadline passed ${when(a.deadline_at)}.${expiryNote}` }
+  }
+  if (gate.phase === 'acceptance-closed') {
+    return { dot: 'dot-neutral', label: 'Acceptance closed', note: `Nobody new can accept since ${when(a.accepts_until)}; the work is due ${when(a.deadline_at)}. Move the acceptance deadline to let more students in.${expiryNote}` }
   }
   const cap = Number(a.max_acceptances) || 0
   // An absent count is UNKNOWN, not zero. Two of the three callers build this
@@ -334,8 +341,9 @@ const status = computed(() => {
   return {
     dot: 'dot-success',
     label: 'Live - students can accept now',
-    note: a.deadline_at
-      ? `Anyone with this link can accept until ${when(a.deadline_at)}${room}.${expiryNote}`
+    // Until the acceptance deadline where there is one, else the deadline.
+    note: gate.at
+      ? `Anyone with this link can accept until ${when(gate.at)}${room}.${expiryNote}`
       : `Anyone with this link can accept${room}.${expiryNote}`,
   }
 })
