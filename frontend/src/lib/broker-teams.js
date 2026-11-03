@@ -35,7 +35,7 @@
 
 import { parseTeamPayload } from '../../../lib/team-payload.mjs'
 import { sameLogin } from '../../../lib/github-login.mjs'
-import { REJECTED_LABEL } from '../../../lib/acceptance-labels.mjs'
+import { INVITED_LABEL, REJECTED_LABEL } from '../../../lib/acceptance-labels.mjs'
 import { REJECTED_ISSUE_TITLE, notDelivered, issuePurpose, isAcceptanceIssueTitle } from '../../../lib/broker-issue-titles.mjs'
 
 /**
@@ -174,6 +174,28 @@ export function ownAcceptanceIssue(issues, login) {
   // An ACCEPTANCE of theirs - not their address confirmation, which the same
   // broker carries, and not an issue they wrote by hand (see recentAttempt).
   return (issues || []).find((i) => sameLogin(i?.user?.login, login) && isAcceptanceAttempt(i?.title)) || null
+}
+
+/**
+ * Did the hub ADMIT one of this student's acceptances here and send them an
+ * invitation? Read from the outcome label, which the hub puts on only when
+ * GitHub sent one (lib/acceptance-labels.mjs) - of any age, unlike
+ * `recentAttempt`, because the question is about the student, not the run.
+ *
+ * Who it is for (review 2026-11-03): after the acceptance deadline nobody new
+ * can accept, while the hub still takes the same acceptance again, which is
+ * how an expired repository invitation is sent anew - GitHub's lapse after
+ * seven days, and "closes a week in" is what the date is for. The page offers
+ * that only to a student this says was invited before. An answer from the
+ * issue list alone: a student whose admitted attempt is not among the few it
+ * returns is told to ask their lecturer, which is the safe way to be wrong.
+ *
+ * @param {Array<{title?: string, labels?: Array<string|{name?: string}>}>} issues the student's own issues on the broker
+ */
+export function invitedBefore(issues) {
+  return (issues || []).some((issue) =>
+    isAcceptanceAttempt(issue?.title) &&
+    (issue?.labels || []).some((l) => (typeof l === 'string' ? l : l?.name) === INVITED_LABEL))
 }
 
 /** Is this title one of ours, and not an address confirmation? */

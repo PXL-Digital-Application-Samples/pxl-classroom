@@ -95,10 +95,10 @@
               <span class="date-label">Opens</span>
               <time :datetime="assignment.opens_at">{{ formatDate(assignment.opens_at, assignment.timezone) }}</time>
             </div>
-            <div v-if="assignment.accepts_until" class="date-item" data-accepts-until>
+            <div v-if="acceptsUntilShown" class="date-item" data-accepts-until>
               <span class="date-label">Accept until</span>
-              <time :datetime="assignment.accepts_until" :class="{ 'text-warning': acceptPhase === 'acceptance-closed' || acceptPhase === 'deadline-passed' }">
-                {{ formatDate(assignment.accepts_until, assignment.timezone) }}
+              <time :datetime="acceptsUntilShown" :class="{ 'text-warning': acceptPhase === 'acceptance-closed' || acceptPhase === 'deadline-passed' }">
+                {{ formatDate(acceptsUntilShown, assignment.timezone) }}
               </time>
             </div>
             <div class="date-item">
@@ -143,7 +143,9 @@
                 New registrations for this assignment are currently closed.
               </p>
             </div>
-            <div v-else-if="assignment && acceptPhase === 'acceptance-closed'" class="text-center" data-acceptance-closed>
+            <!-- Not for a student the hub admitted before: they get the
+                 Accept card below, as "send my invitation again". -->
+            <div v-else-if="assignment && acceptPhase === 'acceptance-closed' && !admittedBefore" class="text-center" data-acceptance-closed>
               <Icon name="lock" :size="48" class="status-icon" />
               <h2>Acceptance closed</h2>
               <p class="text-secondary">
@@ -168,11 +170,25 @@
               </p>
             </div>
             <div v-else>
-              <h2>Accept assignment</h2>
-              <p class="text-secondary">
-                You're signed in as <strong>{{ user.login }}</strong>.
-                Click below to accept this assignment and get your repository.
-              </p>
+              <!-- After the acceptance deadline only a student the hub admitted
+                   before reaches this card (the branch above takes everyone
+                   else), and what the button does for them is send the
+                   invitation to their repository again. -->
+              <template v-if="acceptPhase === 'acceptance-closed'">
+                <h2 data-send-again>Send your invitation again</h2>
+                <p class="text-secondary">
+                  Nobody new can accept since {{ formatDate(assignment.accepts_until, assignment.timezone) }}, and you,
+                  <strong>{{ user.login }}</strong>, accepted this assignment before. If the invitation to your
+                  repository has expired, send it again.
+                </p>
+              </template>
+              <template v-else>
+                <h2>Accept assignment</h2>
+                <p class="text-secondary">
+                  You're signed in as <strong>{{ user.login }}</strong>.
+                  Click below to accept this assignment and get your repository.
+                </p>
+              </template>
               <!-- The refusal, still said after Back, until the next attempt
                    is sent. Back used to forget it. -->
               <div v-if="refusedEarlier" class="refused-earlier" role="status">
@@ -203,7 +219,7 @@
                 </template>
                 <template v-else>
                   <Icon name="check" :size="18" />
-                  <span>Accept assignment</span>
+                  <span>{{ acceptPhase === 'acceptance-closed' ? 'Send my invitation again' : 'Accept assignment' }}</span>
                 </template>
               </button>
             </div>
@@ -411,6 +427,15 @@
                 {{ checkingAgain ? 'Checking…' : 'Check again' }}
               </button>
             </div>
+            <!-- AN INVITATION EXPIRES (GitHub's, after seven days), and this
+                 state had no way out of one but the lecturer (review
+                 2026-11-03). The hub takes the same acceptance again until the
+                 deadline, an acceptance deadline included, and sends a new
+                 invitation; no address is asked for, the first one is reused. -->
+            <p v-if="canSendAgain" class="text-sm text-secondary mt-md" data-send-again-invited>
+              Invitation expired, or nowhere to be found?
+              <button type="button" class="btn-link" :disabled="accepting" @click="acceptAssignment({ reuseBinding: true })">Send it again</button>
+            </p>
           </div>
 
           <!-- Timeout state -->
@@ -611,7 +636,7 @@ import {
 } from '../lib/acceptance-outcome.js'
 import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
-import { recentAttempt } from '../lib/broker-teams.js'
+import { invitedBefore, recentAttempt } from '../lib/broker-teams.js'
 import {
   GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, progressMessage, progressSteps, readBrokerSkipped,
 } from '../lib/acceptance-progress.js'
@@ -622,7 +647,7 @@ import { copyText } from '../lib/clipboard.js'
 // Shared with acceptance/accept.mjs, so the page and the gate agree on which
 // mode is in force - fail-closed fallback included.
 import { normalizeRosterMode, rosterMatchesLogin, claimRequired } from '../../../lib/roster-mode.mjs'
-import { acceptanceWindow } from '../../../lib/acceptance-window.mjs'
+import { acceptanceWindow, acceptsUntilInForce } from '../../../lib/acceptance-window.mjs'
 import { INSTITUTION } from '../lib/deployment.js'
 import { personPushed } from '../../../lib/untouched-repo.mjs'
 import { commitDateOf } from '../../../lib/observation.mjs'
@@ -693,6 +718,11 @@ const rejectedAt = ref(null)
 // Set by Back from a refusal, cleared when the next attempt is sent: the
 // refusal stays said above the Accept button (REFUSED_EARLIER_MESSAGE).
 const refusedEarlier = ref(false)
+// The hub admitted one of this student's acceptances before and sent an
+// invitation (lib broker-teams.js `invitedBefore`). After the acceptance
+// deadline that is who may still press Accept: the hub takes the same
+// acceptance again, which sends an expired invitation anew.
+const admittedBefore = ref(false)
 
 /**
  * What the student can read out to their lecturer.
@@ -805,6 +835,11 @@ const isPastDeadline = computed(() => {
 // on the ticking clock, through the hub's judge (lib/acceptance-window.mjs).
 // The countdown above is this student's deadline, a different question.
 const acceptPhase = computed(() => acceptanceWindow(assignment.value, now.value).phase)
+// The acceptance deadline as the card may show it (never one nothing reaches).
+const acceptsUntilShown = computed(() => acceptsUntilInForce(assignment.value))
+// Whether the hub would take the same acceptance again now: before the
+// deadline, the acceptance deadline included (lib/acceptance-window.mjs).
+const canSendAgain = computed(() => ['accepting', 'acceptance-closed'].includes(acceptPhase.value))
 
 // The header badge and deadlineCountdown below count down this student's
 // effective deadline, with the shared arithmetic rather than a fourth copy.
@@ -1124,6 +1159,7 @@ async function checkExistingState() {
     `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
   )
   if (mine.ok && Array.isArray(mine.data)) {
+    admittedBefore.value = invitedBefore(mine.data)
     // NEVER BY THE `pxl-accept:` PREFIX ALONE: the broker rewrites it to
     // "Acceptance (processed)" within seconds, so that matched only inside the
     // window and never for the returning student this branch exists for. Every
@@ -1188,7 +1224,13 @@ function handleLogout() {
 // Accept assignment by opening the invitation issue on the broker.
 // Reopening is safe: the acceptance script returns already-accepted and
 // provisioning returns reused, so the student lands on the same repository.
-async function acceptAssignment() {
+/**
+ * @param {{ reuseBinding?: boolean }} [opts] `reuseBinding`: sending the same
+ *   acceptance again from the invited state, where no address is asked for -
+ *   the hub reuses the binding the first acceptance wrote (accept.mjs claim
+ *   gate, "already claimed"). Called as a click handler too, with the event.
+ */
+async function acceptAssignment({ reuseBinding = false } = {}) {
   accepting.value = true
   acceptError.value = null
   try {
@@ -1215,7 +1257,7 @@ async function acceptAssignment() {
     // title and body land in a public event GH Archive keeps forever, which is
     // the whole reason this is encrypted rather than sent in the clear.
     let claimField = null
-    if (needsClaim.value) {
+    if (needsClaim.value && (claim.value || reuseBinding !== true)) {
       const hubKey = hubClaimKey()
       if (!hubKey) {
         throw new Error(

@@ -18,6 +18,7 @@ import {
   inviteUrl,
   inviteToken,
 } from '../fixtures/e2e-fixtures.mjs';
+import { INVITED_LABEL, REJECTED_LABEL } from '../../lib/acceptance-labels.mjs';
 
 const ID = 'labo-k8s';
 const TITLE = 'Kubernetes lab';
@@ -67,6 +68,114 @@ test.describe('119 - the student side', () => {
     await expect(page.locator('.assignment-meta')).toContainText('Acceptance closed');
     // Both dates are on the card, so a student can see which one passed.
     await expect(page.locator('[data-accepts-until]')).toContainText('Accept until');
+  });
+
+  // A student the hub admitted before, whose invitation lapsed: no repository
+  // they can see, no invitation, an old attempt of theirs labelled invited.
+  // GitHub's invitations expire after seven days, and an acceptance deadline
+  // a week in is what the field is for (review 2026-11-03).
+  const earlierAttempt = (labels) => ({
+    number: 3, title: 'Acceptance (processed)', state: 'closed', created_at: new Date(Date.now() - 9 * DAY).toISOString(),
+    user: { login: STUDENT_1.login, id: 1001 }, labels: labels.map((name) => ({ name })),
+  });
+
+  test('past it, a student the hub invited before is offered to send the invitation again, and nobody else is', async ({ page }) => {
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1, assignments: { [ID]: closedYesterday() }, userRepos: [], brokerIssues: [earlierAttempt([INVITED_LABEL])],
+    });
+    await page.goto(inviteUrl(ORG, ID));
+
+    await expect(page.locator('[data-send-again]')).toHaveText('Send your invitation again', { timeout: 15000 });
+    await expect(page.locator('[data-acceptance-closed]')).toHaveCount(0);
+    const send = page.locator('button', { hasText: 'Send my invitation again' });
+    await expect(send).toBeEnabled();
+    await expect(page.locator('button', { hasText: /^Accept assignment$/ })).toHaveCount(0);
+  });
+
+  test('past it, an earlier attempt the hub refused, or none, is no way back in', async ({ page }) => {
+    for (const brokerIssues of [[earlierAttempt([REJECTED_LABEL])], [earlierAttempt([])], []]) {
+      await injectAuth(page, STUDENT_1);
+      await setupStandardMockRoutes(page, { currentUser: STUDENT_1, assignments: { [ID]: closedYesterday() }, userRepos: [], brokerIssues });
+      await page.goto(inviteUrl(ORG, ID));
+      await expect(page.locator('[data-acceptance-closed]'), JSON.stringify(brokerIssues)).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-send-again]')).toHaveCount(0);
+    }
+  });
+
+  // An expired invitation: the hub said invited, the student cannot see the
+  // repository, nothing is pending. The invited state had no way out of that.
+  const invisible = async (page, repo) => {
+    await page.route(`**/api.github.com/repos/${ORG}/${repo}`, (route) =>
+      route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) }));
+    await page.route('**/api.github.com/user/repository_invitations*', (route) =>
+      route.fulfill({ status: 200, body: JSON.stringify([]) }));
+  };
+
+  test('an invited student whose invitation went missing can send it again, until the deadline but not after', async ({ page }) => {
+    for (const [a, offered] of [[closedYesterday(), true], [assignment(), true], [assignment({ deadline_at: new Date(Date.now() - HOUR).toISOString() }), false]]) {
+      await injectAuth(page, STUDENT_1);
+      await setupStandardMockRoutes(page, {
+        currentUser: STUDENT_1, assignments: { [ID]: a }, userRepos: [],
+        brokerIssues: [{ ...earlierAttempt([INVITED_LABEL]), created_at: new Date().toISOString() }],
+        brokerIssueLabels: [INVITED_LABEL],
+      });
+      await invisible(page, `${ID}-${STUDENT_1.login}`);
+      await page.goto(inviteUrl(ORG, ID));
+      if (!offered) {
+        // Past the deadline the hub refuses, so the page does not offer it.
+        await expect(page.locator('h2').first()).toBeVisible({ timeout: 15000 });
+        await page.waitForTimeout(1500);
+        await expect(page.locator('[data-send-again-invited]')).toHaveCount(0);
+        continue;
+      }
+      const again = page.locator('[data-send-again-invited]');
+      await expect(again, a.accepts_until ?? 'no acceptance deadline').toBeVisible({ timeout: 20000 });
+      await expect(again.getByRole('button', { name: 'Send it again' })).toBeEnabled();
+    }
+  });
+
+  test('a team member whose invitation went missing can send it again, for the same team', async ({ page }) => {
+    const TEAM = 'team-alpha';
+    const group = closedYesterday({
+      assignment_type: 'group',
+      repository_name_pattern: `${ID}-{team_slug}`,
+      group_config: { max_team_size: 3, formation_mode: 'self-service', allow_team_creation: true },
+    });
+    await injectAuth(page, STUDENT_1);
+    await setupStandardMockRoutes(page, {
+      currentUser: STUDENT_1, assignments: { [ID]: group }, userRepos: [],
+      teams: { [ID]: [{ team_slug: TEAM, team_name: 'Team Alpha', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] },
+      brokerIssues: [{
+        number: 7, title: 'pxl-accept:sometoken', body: JSON.stringify({ team_slug: TEAM, team_name: 'Team Alpha' }),
+        user: { login: STUDENT_1.login }, created_at: new Date().toISOString(),
+      }],
+      brokerIssueLabels: [INVITED_LABEL],
+    });
+    await invisible(page, `${ID}-${TEAM}`);
+    const posted = [];
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && /\/repos\/[^/]+\/broker-[^/]+\/issues$/.test(req.url())) posted.push(req.postDataJSON());
+    });
+    await page.goto(inviteUrl(ORG, ID));
+    const again = page.locator('[data-send-again-invited]');
+    await expect(again).toBeVisible({ timeout: 30000 });
+    await again.getByRole('button', { name: 'Send it again' }).click();
+    // The same team, joined again: the hub takes it as the same acceptance.
+    await expect.poll(() => posted.length, { timeout: 10000 }).toBe(1);
+    const body = JSON.parse(posted[0].body);
+    expect(body).toMatchObject({ team_slug: TEAM, team_action: 'join' });
+  });
+
+  test('an acceptance deadline nothing reaches is never shown: after the deadline, or unreadable', async ({ page }) => {
+    // A hand edit; the editor refuses to save either.
+    for (const accepts_until of [new Date(Date.now() + 8 * DAY).toISOString(), 'soon']) {
+      await injectAuth(page, STUDENT_1);
+      await setupStandardMockRoutes(page, { currentUser: STUDENT_1, assignments: { [ID]: assignment({ accepts_until }) }, userRepos: [] });
+      await page.goto(inviteUrl(ORG, ID));
+      await expect(page.locator('h2', { hasText: 'Accept assignment' }), accepts_until).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-accepts-until]')).toHaveCount(0);
+    }
   });
 
   test('before it, the page accepts and shows until when', async ({ page }) => {
@@ -148,13 +257,22 @@ test.describe('119 - the lecturer side', () => {
     void a;
   });
 
-  test('a closed assignment past its acceptance deadline offers Move the acceptance deadline, not Reopen', async ({ page }) => {
+  test('a closed assignment past its acceptance deadline offers Reopen, in what it still does, and moving the date beside it', async ({ page }) => {
+    // Reopen still lets students who accepted send their invitation again
+    // (second review): offering only "Move" blocked exactly that.
     await openDetail(page, closedYesterday({ state: 'closed' }));
     await page.locator('[data-state-menu]').click();
     const menu = page.locator('.state-menu');
     await expect(menu).toBeVisible();
     await expect(menu).toContainText('Move the acceptance deadline…');
-    await expect(menu.locator('.dropdown-item-title', { hasText: 'Reopen for acceptance' })).toHaveCount(0);
+    await expect(menu.locator('.dropdown-item-title', { hasText: 'Reopen for acceptance' })).toHaveCount(1);
+    await expect(menu).toContainText('Students who accepted can send their invitation again');
+  });
+
+  test('the header shows no Accept until that nothing reaches', async ({ page }) => {
+    await openDetail(page, assignment({ accepts_until: new Date(Date.now() + 8 * DAY).toISOString() }));
+    await expect(page.locator('[data-state-menu]')).toContainText('Accepting');
+    await expect(page.locator('[data-accepts-until]')).toHaveCount(0);
   });
 
   test('a closed assignment before its acceptance deadline still offers Reopen', async ({ page }) => {
@@ -202,19 +320,29 @@ test.describe('119 - the editor', () => {
   });
 
   test('each deadline says how many days after the open date it is', async ({ page }) => {
-    const a = assignment();
-    await openEditor(page, a);
+    await openEditor(page, assignment());
     const spans = page.locator('[data-date-span]');
+    // Typed as wall-clock times, the way a lecturer does, a month ahead: the
+    // spans are the dates on the boxes, so a summer-time change between the
+    // fixture's instants cannot make "14 days" "13 days 23 hours".
+    const day = (n) => {
+      const d = new Date();
+      d.setDate(d.getDate() + 30 + n);
+      d.setHours(9, 0, 0, 0);
+      const p = (x) => String(x).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T09:00`;
+    };
+    const field = (label) => page.locator('.field', { has: page.locator('label', { hasText: label }) }).locator('input[type="datetime-local"]');
+    await field(/^Opens at/).fill(day(0));
+    await field(/^Deadline/).fill(day(14));
     await expect(spans).toHaveCount(1);
     await expect(spans.first()).toHaveText('14 days after it opens');
-    // From the open date itself, so the count is exact whatever the clock did
-    // between the fixture and the fill.
-    await box(page).fill(local(Date.parse(a.opens_at) + 8 * DAY));
+    await box(page).fill(day(8));
     await expect(spans).toHaveCount(2);
     await expect(spans.first()).toHaveText('8 days after it opens');
     await expect(spans.last()).toHaveText('14 days after it opens, 6 days after acceptance closes');
     // A schedule that is wrong shows no span under the box that is wrong.
-    await box(page).fill(local(Date.parse(a.opens_at) - DAY));
+    await box(page).fill(day(-1));
     await expect(spans).toHaveCount(1);
   });
 

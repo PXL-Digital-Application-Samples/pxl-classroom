@@ -174,6 +174,15 @@
       <a v-else href="https://github.com/notifications" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
         Check GitHub notifications
       </a>
+      <!-- AN INVITATION EXPIRES (GitHub's, after seven days), and a team
+           member here had no way out of one but the lecturer (review
+           2026-11-03). The same team again is the same acceptance, which the
+           hub takes until the deadline, an acceptance deadline included, and
+           answers with a new invitation; the address is the one on file. -->
+      <p v-if="canSendAgain && invitedTeam" class="text-sm text-secondary mt-md" data-send-again-invited>
+        Invitation expired, or nowhere to be found?
+        <button type="button" class="btn-link" :disabled="accepting" @click="sendInvitationAgain">Send it again</button>
+      </p>
     </div>
 
     <!-- State: Refused. A refusal is not a stall: without this a refused team
@@ -993,6 +1002,13 @@ async function readAttemptProgress() {
   return progress.value
 }
 
+/** From the invited state: the same team again, so the hub sends a new invitation. */
+async function sendInvitationAgain() {
+  const team = invitedTeam.value
+  if (!team?.team_slug) return
+  await executeTeamAcceptance(team.team_slug, team.team_name || team.team_slug, 'join', '', { reuseBinding: true })
+}
+
 /** Send the same join again: a new attempt. An older one that runs later does nothing. */
 async function sendAgain() {
   if (pollTimer) clearTimeout(pollTimer)
@@ -1226,6 +1242,8 @@ const isPastDeadline = computed(() => {
 // on the ticking clock, through the hub's judge - the countdown above is this
 // student's deadline, which is a different question.
 const acceptPhase = computed(() => acceptanceWindow(props.assignment, nowTick.value).phase)
+// Whether the hub would take the same acceptance again now (see the invited state).
+const canSendAgain = computed(() => ['accepting', 'acceptance-closed'].includes(acceptPhase.value))
 
 // On the same clock as isPastDeadline, so the words and their colour turn together.
 // The moment in the card's one format and the assignment's zone, as its dates are.
@@ -1373,7 +1391,11 @@ async function submitCreateTeam() {
 }
 
 /** `made`: the code was made here for a new team, not typed to join one. */
-async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = '', { made = false } = {}) {
+/**
+ * `reuseBinding`: the same acceptance again from the invited state, where no
+ * address is asked for - the hub reuses the binding the first one wrote.
+ */
+async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = '', { made = false, reuseBinding = false } = {}) {
   accepting.value = true
   try {
     const token = getToken()
@@ -1394,7 +1416,7 @@ async function executeTeamAcceptance(teamSlug, teamName, teamAction, joinCode = 
     // two readers (team fields and claim fields), and two callers assembling
     // that JSON by hand is the shape that forked diffRosters.
     let claimField = null
-    if (needsClaim.value) {
+    if (needsClaim.value && (claim.value || !reuseBinding)) {
       const hubKey = hubClaimKey()
       if (!hubKey) {
         throw new Error(
