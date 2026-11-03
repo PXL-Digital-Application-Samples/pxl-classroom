@@ -30,7 +30,7 @@ import { brokerRepoName } from "../../lib/broker-repo.mjs";
 import { inviteFileFor } from "../../lib/invite-token.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../lib/invite-token-format.mjs";
 import { normalizeLogin } from "../../lib/github-login.mjs";
-import { REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
+import { INVITED_LABEL, REJECTED_LABEL } from "../../lib/acceptance-labels.mjs";
 import { DEDUP_MARKER, TRACKING_LABEL, rejectionDedupKey } from "../../lib/rejection-notice.mjs";
 import { acceptanceWindow } from "../../lib/acceptance-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
@@ -58,11 +58,28 @@ const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 const minutesAhead = (m) => new Date(Date.now() + m * 60_000).toISOString();
 
-function finish() {
+// The drill assignment once it is committed, until its deadline has been put
+// into the past. drill.mjs's cleanup refuses an assignment whose deadline is
+// ahead, so a run that stopped half-way with a deadline six hours out left
+// something nothing could remove until then (review 2026-11-03). Every exit
+// after the commit, a failed one included, moves it back first.
+let createdId = null;
+
+async function finish() {
+  if (createdId) {
+    const id = createdId;
+    createdId = null;
+    console.log("\nLeaving it cleanable: the deadline goes into the past\n");
+    if (await saveFields(id, { deadline_at: minutesAgo(1) })) {
+      await dispatchAndWait("regenerate-dashboard.yml", { org: ORG });
+    } else {
+      note(`move ${id}'s deadline into the past by hand before cleaning up`);
+    }
+    note(`clean up with: node tests/live/drill.mjs cleanup ${id}`);
+  }
   console.log(`\n${r.failures() === 0 ? "All checks passed." : `${r.failures()} check(s) failed.`}\n`);
   process.exit(r.failures() === 0 ? 0 : 1);
 }
-function stopIfFailed() { if (r.failures() > 0) finish(); }
 
 // --- control repo and hub helpers (as drill.mjs has them) ----------------------
 
@@ -202,6 +219,13 @@ async function expectAccepted(id, broker, secret, student) {
   }
   if (!record) { bad(`no ${recordPath} after 300s - check the hub's acceptance-handler run`); return null; }
   ok(`provisioned ${record.repo_url}`);
+  // What the student page reads after the acceptance deadline to offer "Send
+  // my invitation again" (broker-teams.js `invitedBefore`): this label, on an
+  // issue of their own, put on only when GitHub sent an invitation.
+  if (record.access_state === "invited") {
+    if (await waitForLabel(broker, issue, INVITED_LABEL, 60_000)) ok(`#${issue} carries ${INVITED_LABEL}: the page will offer to send it again`);
+    else bad(`#${issue} has no ${INVITED_LABEL} label although the record says invited`);
+  }
   await acceptInvitation({ student, repoName: record.repo_name?.split("/")?.[1] ?? "" }, r);
   return { issue, record };
 }
@@ -229,7 +253,7 @@ async function main() {
   console.log("\n1. Preflight\n");
   await checkAccounts(ACCOUNTS, r);
   await checkOrg(ORG, LECTURER, r);
-  stopIfFailed();
+  if (r.failures() > 0) return finish();
   const roster = await readControl("students/roster.yml");
   const rosterLogins = new Set(roster.ok ? (parse(roster.text)?.students || []).map((s) => normalizeLogin(s.github_login || "")) : []);
   for (const s of [STUDENT_A, STUDENT_B]) {
@@ -238,7 +262,7 @@ async function main() {
   }
   const tpl = await api(`/repos/${ORG}/${TEMPLATE}`, { token: LECTURER.token });
   if (!tpl.ok) bad(`template ${ORG}/${TEMPLATE}: HTTP ${tpl.status}`);
-  stopIfFailed();
+  if (r.failures() > 0) return finish();
 
   console.log("\n2. The assignment: opened an hour ago, acceptance closed ten minutes ago, due in six hours\n");
   const now = Date.now();
@@ -274,7 +298,7 @@ async function main() {
   };
   const doc = buildAssignmentDoc(form, { templateRepositoryId: tpl.data.id });
   const { valid, errors } = validateAgainst("assignment", structuredClone(doc));
-  if (!valid) { bad(`schema refuses the document: ${JSON.stringify(errors)}`); finish(); }
+  if (!valid) { bad(`schema refuses the document: ${JSON.stringify(errors)}`); return finish(); }
   if (doc.accepts_until !== acceptsUntil) bad(`the builder wrote accepts_until ${doc.accepts_until}, not ${acceptsUntil}`);
   else ok(`the document carries accepts_until ${acceptsUntil}`);
   const phase = acceptanceWindow(doc).phase;
@@ -284,11 +308,12 @@ async function main() {
     token: LECTURER.token, method: "PUT",
     body: { message: `Create assignment ${id}`, content: Buffer.from(stringify(doc)).toString("base64") },
   });
-  if (!put.ok) { bad(`could not commit assignments/${id}.yml: HTTP ${put.status} ${put.data?.message ?? ""}`); finish(); }
+  if (!put.ok) { bad(`could not commit assignments/${id}.yml: HTTP ${put.status} ${put.data?.message ?? ""}`); return finish(); }
   ok(`committed assignments/${id}.yml as ${LECTURER.login}`);
+  createdId = id;
 
   console.log("\n3. Publish\n");
-  if ((await dispatchAndWait("publish-assignment.yml", { org: ORG, assignment_id: id, regenerate_invite: "false" })) !== "success") finish();
+  if ((await dispatchAndWait("publish-assignment.yml", { org: ORG, assignment_id: id, regenerate_invite: "false" })) !== "success") return finish();
   const stored = await readControl(`assignments/${id}.yml`);
   const storedDoc = stored.ok ? parse(stored.text) : null;
   const secret = stored.ok ? linkSecretFrom(parseInviteFields(stored.text)) : null;
@@ -297,7 +322,7 @@ async function main() {
   else ok("publish kept accepts_until");
   if (!secret) bad("no invitation secret after publish");
   const broker = brokerRepoName({ assignment: storedDoc, assignmentId: id });
-  stopIfFailed();
+  if (r.failures() > 0) return finish();
 
   console.log("\n4. The card students are served\n");
   const card = await readCard(secret, { wantAcceptsUntil: acceptsUntil });
@@ -309,7 +334,7 @@ async function main() {
 
   console.log("\n6. The lecturer moves the acceptance deadline an hour ahead, and the student is accepted\n");
   const later = minutesAhead(60);
-  if (!(await saveFields(id, { accepts_until: later }))) finish();
+  if (!(await saveFields(id, { accepts_until: later }))) return finish();
   // What the editor's save dispatches for a card change: the pages regenerate.
   await dispatchAndWait("regenerate-dashboard.yml", { org: ORG });
   const reopened = await readCard(secret, { wantAcceptsUntil: later });
@@ -318,15 +343,12 @@ async function main() {
   const accepted = await expectAccepted(id, broker, secret, STUDENT_A);
 
   console.log("\n7. Moved back into the past: Accept again is already-accepted, a newcomer is refused\n");
-  if (!(await saveFields(id, { accepts_until: minutesAgo(5) }))) finish();
+  if (!(await saveFields(id, { accepts_until: minutesAgo(5) }))) return finish();
   if (accepted) await expectAlreadyAccepted(id, broker, secret, STUDENT_A);
   await expectRefused(id, broker, secret, STUDENT_B, "rejected:acceptance-closed");
 
-  console.log("\n8. Done: the deadline goes into the past so cleanup can take it\n");
-  await saveFields(id, { deadline_at: minutesAgo(1) });
-  await dispatchAndWait("regenerate-dashboard.yml", { org: ORG });
-  note(`clean up with: node tests/live/drill.mjs cleanup ${id}`);
-  finish();
+  // 8. finish() puts the deadline into the past so cleanup can take it.
+  return finish();
 }
 
-main().catch((err) => { bad(`unexpected: ${err?.stack || err}`); finish(); });
+main().catch(async (err) => { bad(`unexpected: ${err?.stack || err}`); await finish(); });
