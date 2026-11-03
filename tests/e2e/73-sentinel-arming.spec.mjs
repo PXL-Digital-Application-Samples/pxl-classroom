@@ -73,7 +73,10 @@ async function setDeadlineAndSave(page, whenMs) {
   const value =
     `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}` +
     `T${pad(local.getHours())}:${pad(local.getMinutes())}`;
-  const field = page.locator('input[type="datetime-local"]').nth(1);
+  // By its label, never by position: the schedule gained a third box (Accept
+  // until, 2026-11-03) between the open date and the deadline, and `nth(1)`
+  // then typed an acceptance deadline two hours out and armed nothing.
+  const field = page.locator('.field', { has: page.locator('label', { hasText: /^Deadline/ }) }).locator('input[type="datetime-local"]');
   await field.fill(value);
   await saveBtn(page).click();
   await expect(page.locator('.toast', { hasText: /Saved/i })).toBeVisible({ timeout: 15000 });

@@ -18,9 +18,17 @@ const ID = 'cloud-exam-87';
 const LOGIN = STUDENT_1.login;
 const REPO = `${ORG}/${ID}-${LOGIN}`;
 const MSG = 'einde examen';
-const DEADLINE = '2026-10-01T12:00:00.000Z';
+// THE EXAM DAY IS THREE DAYS AGO, at midnight UTC, and every moment below is
+// an offset from it. Fixed dates (2026-10-01) rotted on 2026-10-31: the
+// hand-ins kept their relation to the deadline, but the grading runs aged past
+// GitHub's 30-day re-run window (lib/grading-rerun.mjs) and "run it again" was
+// no longer offered. Anchored, the runs are always a few days old, and the
+// hand-in times are still judged against the deadline, never the wall clock.
+const DAY = (() => { const d = new Date(Date.now() - 3 * 86_400_000); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })();
+const stamp = (h, min = 0) => new Date(DAY + h * 3600_000 + min * 60_000).toISOString();
+const DEADLINE = stamp(12);
 const sha = (n) => String(n).padStart(2, '0').padEnd(40, 'a');
-const at = (min) => new Date(Date.parse('2026-10-01T09:00:00Z') + min * 60_000).toISOString();
+const at = (min) => stamp(9, min);
 
 const assignment = {
   id: ID, title: 'Cloud Exam', organization: ORG, state: 'closed', assignment_type: 'individual',
@@ -30,12 +38,12 @@ const assignment = {
   submission_marker: { type: 'commit_message', value: MSG, multiple: true, max_hand_ins: 5 },
 };
 const report = {
-  schema_version: 1, generated_at: '2026-10-01T13:00:00.000Z', assignment_id: ID,
+  schema_version: 1, generated_at: stamp(13), assignment_id: ID,
   students: [{ github_login: LOGIN, acceptance_state: 'provisioned', submission_status: 'on-time', repo_name: REPO, effective_deadline_at: DEADLINE, preserved_sha: sha(6) }],
 };
 const summary = {
-  schema_version: 1, assignment_id: ID, generated_at: '2026-10-01T13:00:00.000Z', graded_by: 'lecturer1', runner: 'github_actions',
-  students: [{ login: LOGIN, earned_points: 5, total_points: 10, ci_status: 'success', ci_run_url: 'https://x/5', score_source: 'annotation-json', graded_at: '2026-10-01T13:00:00.000Z', graded_sha: sha(5) }],
+  schema_version: 1, assignment_id: ID, generated_at: stamp(13), graded_by: 'lecturer1', runner: 'github_actions',
+  students: [{ login: LOGIN, earned_points: 5, total_points: 10, ci_status: 'success', ci_run_url: 'https://x/5', score_source: 'annotation-json', graded_at: stamp(13), graded_sha: sha(5) }],
   failed: [],
 };
 const overridePath = `overrides/${ID}/${LOGIN}.json`;
@@ -77,8 +85,9 @@ async function setup(page, { overrides = null, cancelAll = false, startSummary =
       id: 100 + n, event: 'push', name: 'Grading', status: 'completed', head_sha: sha(n), head_branch: 'main',
       // When GitHub recorded the push, which is what decides on time or late
       // (lib/submission-marker.mjs). The hand-in time, never the wall clock:
-      // "a day before now" passed the fixed 2026-10-01T12:00Z deadline at
-      // noon UTC on 2026-10-02, and every hand-in turned late at once.
+      // "a day before now" passed the then-fixed noon deadline at noon UTC
+      // the next day, and every hand-in turned late at once. Every moment is
+      // an offset from the exam day now (DAY), so the relation holds.
       created_at: pushedLate && n === 6 ? at(190) : at(n * 10), head_commit: { message: MSG, timestamp: at(n * 10) },
     })).reverse();
     const first = Number(u.searchParams.get('page') || 1) === 1;
@@ -140,7 +149,7 @@ test.describe('87 - grading decisions', () => {
     const { contentWrites } = await setup(page);
     const doc = {
       schema_version: 1, assignment_id: ID, github_login: LOGIN,
-      overrides: [{ type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer2', overridden_at: '2026-10-01T14:00:00.000Z' }],
+      overrides: [{ type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer2', overridden_at: stamp(14) }],
     };
     await page.route(`**/pxl-classroom-control/contents/overrides/${ID}**`, (route) => route.request().url().includes(`${LOGIN}.json`)
       ? route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(doc)).toString('base64'), encoding: 'base64', sha: 'o1' }) })
@@ -270,7 +279,7 @@ test.describe('87 - grading decisions', () => {
   });
 
   test('GO BACK TO THE RULES: a chosen commit is shown, and undone with its own reason', async ({ page }) => {
-    const chosen = { type: 'submission_sha', value: sha(6), reason: 'wifi', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
+    const chosen = { type: 'submission_sha', value: sha(6), reason: 'wifi', overridden_by: 'lecturer1', overridden_at: stamp(14) };
     const { contentWrites } = await setup(page, { overrides: [chosen] });
     await openActions(page);
     await expect(grading(page).locator('[data-decision]')).toContainText('Graded on commit 06aaaaa, chosen by @lecturer1');
@@ -290,7 +299,7 @@ test.describe('87 - grading decisions', () => {
     // Review 2026-09-26: the write fetched the file's sha afresh - the other
     // lecturer's - and replaced their entry without a conflict.
     await setup(page);
-    const theirs = { type: 'hand_in_allowance', value: 1, reason: 'crashed lab', overridden_by: 'lecturer2', overridden_at: '2026-10-01T13:00:00.000Z' };
+    const theirs = { type: 'hand_in_allowance', value: 1, reason: 'crashed lab', overridden_by: 'lecturer2', overridden_at: stamp(13) };
     const doc = (entries) => ({ schema_version: 1, assignment_id: ID, github_login: LOGIN, overrides: entries });
     let version = 1;
     let stored = doc([]);
@@ -329,7 +338,7 @@ test.describe('87 - grading decisions', () => {
     // sha, a team's second member (or another tab) could replace a row saved
     // a moment before. Now: read, merge, write against THAT version, retry.
     await setup(page);
-    const other = { login: 'someone-else', earned_points: 4, total_points: 10, ci_status: 'success', score_source: 'annotation-json', graded_at: '2026-10-01T13:00:00.000Z' };
+    const other = { login: 'someone-else', earned_points: 4, total_points: 10, ci_status: 'success', score_source: 'annotation-json', graded_at: stamp(13) };
     let version = 1;
     let stored = summary;
     const puts = [];
@@ -362,7 +371,7 @@ test.describe('87 - grading decisions', () => {
     // the spreadsheet a grade dispute is read from.
     const decided = {
       ...summary,
-      students: [{ ...summary.students[0], earned_points: 6, graded_sha: sha(6), decided_by: { kind: 'commit', by: 'lecturer1', at: '2026-10-01T14:00:00.000Z', reason: 'wifi, then late' } }],
+      students: [{ ...summary.students[0], earned_points: 6, graded_sha: sha(6), decided_by: { kind: 'commit', by: 'lecturer1', at: stamp(14), reason: 'wifi, then late' } }],
     };
     await setup(page, { startSummary: decided });
     await page.getByRole('button', { name: /Export/ }).first().click();
@@ -393,12 +402,12 @@ test.describe('87 - grading decisions', () => {
     expect(cell('graded_sha')).toBe(sha(6));
     expect(cell('grade_decision')).toBe('chosen commit');
     expect(cell('grade_decision_by')).toBe('lecturer1');
-    expect(cell('grade_decision_at')).toBe('2026-10-01T14:00:00.000Z');
+    expect(cell('grade_decision_at')).toBe(stamp(14));
     expect(cell('grade_decision_reason')).toBe('wifi, then late');
   });
 
   test('WHILE A SCORE BY HAND IS IN FORCE, choosing a commit is replaced by why it would not count', async ({ page }) => {
-    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
+    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: stamp(14) };
     await setup(page, { overrides: [manual] });
     await openActions(page);
     await expect(grading(page).getByRole('button', { name: 'Choose the commit that counts…' })).toHaveCount(0);
@@ -406,10 +415,10 @@ test.describe('87 - grading decisions', () => {
   });
 
   test('REMOVING a score by hand when the rules can grade nothing leaves no stale "by hand" row behind', async ({ page }) => {
-    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: '2026-10-01T14:00:00.000Z' };
+    const manual = { type: 'manual_score', value: { earned: 7, total: 10 }, reason: 'oral', overridden_by: 'lecturer1', overridden_at: stamp(14) };
     const byHand = {
       ...summary,
-      students: [{ login: LOGIN, earned_points: 7, total_points: 10, ci_status: 'success', score_source: 'manual', graded_at: '2026-10-01T14:00:00.000Z', decided_by: { kind: 'score', by: 'lecturer1', at: '2026-10-01T14:00:00.000Z', reason: 'oral' } }],
+      students: [{ login: LOGIN, earned_points: 7, total_points: 10, ci_status: 'success', score_source: 'manual', graded_at: stamp(14), decided_by: { kind: 'score', by: 'lecturer1', at: stamp(14), reason: 'oral' } }],
     };
     const { contentWrites } = await setup(page, { overrides: [manual], cancelAll: true, startSummary: byHand });
     await openActions(page);
@@ -465,7 +474,7 @@ test.describe('87 - the Graded count', () => {
     await setupStandardMockRoutes(page, {
       currentUser: LECTURER,
       assignments: { [ID]: assignment, [OTHER]: { ...assignment, id: OTHER, title: 'Lab without grades' } },
-      reports: { dashboard: { schema_version: 1, generated_at: '2026-10-01T13:00:00.000Z', assignments: { [ID]: card(ID, 'Cloud Exam'), [OTHER]: card(OTHER, 'Lab without grades') } } },
+      reports: { dashboard: { schema_version: 1, generated_at: stamp(13), assignments: { [ID]: card(ID, 'Cloud Exam'), [OTHER]: card(OTHER, 'Lab without grades') } } },
       gradingSummaries: { [ID]: summary },
     });
     await page.goto(`/dashboard/${ORG}`);
