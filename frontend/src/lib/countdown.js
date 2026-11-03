@@ -42,6 +42,41 @@ export function countdownParts(deadline, now = new Date()) {
 }
 
 /**
+ * How long `to` is after `from`, in the words a lecturer counts in: "7 days",
+ * "7 days 6 hours", "6 hours", "45 minutes". The schedule's boxes show dates,
+ * not the distance between them, and a lecturer picks "a week to accept, two
+ * to hand in" (asked 2026-11-03).
+ *
+ * Null when either end is missing or unreadable, or `to` is not after `from`:
+ * the caller shows nothing rather than a span of a schedule that is wrong,
+ * which the field's own error already says. Both ends may be Dates, ISO
+ * strings or a datetime-local box's value, as long as both are the same kind -
+ * a box's value is read as local time, an ISO string as what it says.
+ *
+ * Here and not beside the boxes, because this module is the one place a
+ * duration is turned into words (the guard in tests/deadline-countdown.test.mjs).
+ *
+ * @param {string|Date|null|undefined} from
+ * @param {string|Date|null|undefined} to
+ * @returns {string|null}
+ */
+export function spanInDays(from, to) {
+  if (!from || !to) return null
+  const a = from instanceof Date ? from : new Date(from)
+  const b = to instanceof Date ? to : new Date(to)
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null
+  const diffMs = b.getTime() - a.getTime()
+  if (diffMs <= 0) return null
+  const mins = Math.floor(diffMs / 60000)
+  const hours = Math.floor(mins / 60)
+  const days = Math.floor(hours / 24)
+  const unit = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+  if (days > 0) return hours % 24 ? `${unit(days, 'day')} ${unit(hours % 24, 'hour')}` : unit(days, 'day')
+  if (hours > 0) return mins % 60 ? `${unit(hours, 'hour')} ${unit(mins % 60, 'minute')}` : unit(hours, 'hour')
+  return unit(mins, 'minute')
+}
+
+/**
  * The student-facing sentence. Past the deadline it names the moment rather
  * than the elapsed time - "3d ago" is not what a student who has just missed
  * a hand-in needs to read.

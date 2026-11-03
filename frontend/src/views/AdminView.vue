@@ -794,12 +794,14 @@
                 <input type="datetime-local" v-model="form.accepts_until_local" @change="touchedFields.accepts_until = true" data-accepts-until />
                 <small v-if="acceptsUntilReadout" data-date-readout>{{ acceptsUntilReadout }}</small>
                 <small v-else>Optional. Empty: students can accept until the deadline.</small>
+                <small v-if="acceptsUntilSpan" data-date-span>{{ acceptsUntilSpan }}</small>
                 <div v-if="(touchedFields.accepts_until || !isNew) && fieldErrors.accepts_until" class="field-error-msg">{{ fieldErrors.accepts_until }}</div>
               </div>
               <div class="field">
                 <label>Deadline <span class="req">*</span> <HelpButton topic="deadlines-and-extensions" label="deadlines and extensions" /></label>
                 <input type="datetime-local" v-model="form.deadline_at_local" @change="touchedFields.deadline_at = true" />
                 <small v-if="deadlineReadout" data-date-readout>{{ deadlineReadout }}</small>
+                <small v-if="deadlineSpan" data-date-span>{{ deadlineSpan }}</small>
                 <div v-if="(touchedFields.deadline_at || !isNew) && fieldErrors.deadline_at" class="field-error-msg">{{ fieldErrors.deadline_at }}</div>
               </div>
             </div>
@@ -1760,6 +1762,7 @@ import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { GITHUB_STATUS_URL, USUAL_WAIT, publishBarText, publishRunIdFrom, publishStageMessage, publishSteps } from '../lib/publish-progress.js'
 import { dateReadout } from '../lib/date-readout.js'
+import { spanInDays } from '../lib/countdown.js'
 import { formatDate } from '../lib/format.js'
 import { studentPageBarText, studentPageLine, studentPageSteps } from '../lib/student-page-status.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
@@ -3356,6 +3359,20 @@ const deadlineReadout = computed(() =>
   dateReadout(form.value.deadline_at_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
 const acceptsUntilReadout = computed(() =>
   dateReadout(form.value.accepts_until_local, { studentTimeZone: studentTimeZone.value, browserTimeZone }))
+// How far each date is from the open date, under its box (asked 2026-11-03):
+// a lecturer plans "a week to accept, two to hand in", and the boxes show
+// dates, not the distance between them. Nothing for a schedule that is
+// wrong (a date before the open date): the field's own error says that.
+const acceptsUntilSpan = computed(() => {
+  const sinceOpen = spanInDays(form.value.opens_at_local, form.value.accepts_until_local)
+  return sinceOpen ? `${sinceOpen} after it opens` : ''
+})
+const deadlineSpan = computed(() => {
+  const sinceOpen = spanInDays(form.value.opens_at_local, form.value.deadline_at_local)
+  if (!sinceOpen) return ''
+  const sinceClose = spanInDays(form.value.accepts_until_local, form.value.deadline_at_local)
+  return sinceClose ? `${sinceOpen} after it opens, ${sinceClose} after acceptance closes` : `${sinceOpen} after it opens`
+})
 
 function autoSyncSlug() {
   if (isNew.value && !manualSlug.value) {

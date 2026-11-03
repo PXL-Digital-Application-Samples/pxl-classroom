@@ -119,7 +119,7 @@ A student with an extension is judged against their own deadline.
 ## Deadlines and extensions
 
 - The deadline is entered in your computer's time. Students see it in the time zone set under **Advanced**.
-- **Accept until** is optional: the moment nobody new can accept, while the work stays due at the deadline. Leave it empty and students can accept until the deadline. A student who missed it is let in by moving it later and saving; a student who already accepted can still press Accept again, which only re-sends their invitation.
+- **Accept until** is optional: the moment nobody new can accept, while the work stays due at the deadline. Leave it empty and students can accept until the deadline. Under it and under the deadline, a line says how many days after the open date each is. A student who missed it is let in by moving it later and saving; a student who already accepted can still press Accept again, which only re-sends their invitation.
 - An extension moves the deadline for one student, and for every member of their team. Nothing else about the assignment changes.
 - Grant it in the student's **⋯** dialog, under **Grant deadline extension**, with a reason. Their own page shows the new date, never the reason.
 - While it runs, that student can keep pushing. Everyone else is locked at the class deadline as normal.

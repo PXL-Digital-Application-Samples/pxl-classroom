@@ -26,6 +26,8 @@ const DAY = 24 * HOUR;
 
 /** Published, opened a week ago, due in a week; the acceptance deadline is the test's. */
 function assignment(over = {}) {
+  // One clock for both dates, so they are exactly fourteen days apart.
+  const now = Date.now();
   return {
     schema_version: 1,
     id: ID,
@@ -33,8 +35,8 @@ function assignment(over = {}) {
     organization: ORG,
     template: { owner: ORG, repository: 'starter-template' },
     repository_name_pattern: `${ID}-{github_login}`,
-    opens_at: new Date(Date.now() - 7 * DAY).toISOString(),
-    deadline_at: new Date(Date.now() + 7 * DAY).toISOString(),
+    opens_at: new Date(now - 7 * DAY).toISOString(),
+    deadline_at: new Date(now + 7 * DAY).toISOString(),
     state: 'published',
     assignment_type: 'individual',
     roster_mode: 'open',
@@ -197,6 +199,23 @@ test.describe('119 - the editor', () => {
     await expect(page.locator('.field-error-msg', { hasText: 'must be after the open date' })).toBeVisible();
     await box(page).fill(local(Date.now() + DAY));
     await expect(page.locator('.field-error-msg', { hasText: /acceptance deadline/ })).toHaveCount(0);
+  });
+
+  test('each deadline says how many days after the open date it is', async ({ page }) => {
+    const a = assignment();
+    await openEditor(page, a);
+    const spans = page.locator('[data-date-span]');
+    await expect(spans).toHaveCount(1);
+    await expect(spans.first()).toHaveText('14 days after it opens');
+    // From the open date itself, so the count is exact whatever the clock did
+    // between the fixture and the fill.
+    await box(page).fill(local(Date.parse(a.opens_at) + 8 * DAY));
+    await expect(spans).toHaveCount(2);
+    await expect(spans.first()).toHaveText('8 days after it opens');
+    await expect(spans.last()).toHaveText('14 days after it opens, 6 days after acceptance closes');
+    // A schedule that is wrong shows no span under the box that is wrong.
+    await box(page).fill(local(Date.parse(a.opens_at) - DAY));
+    await expect(spans).toHaveCount(1);
   });
 
   test('one in the past warns that nobody new can accept, without blocking the save', async ({ page }) => {

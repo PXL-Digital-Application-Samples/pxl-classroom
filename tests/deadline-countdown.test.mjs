@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { countdownParts, formatDeadlineCountdown } from "../frontend/src/lib/countdown.js";
+import { countdownParts, formatDeadlineCountdown, spanInDays } from "../frontend/src/lib/countdown.js";
 import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -99,4 +99,31 @@ test("`now` is a parameter, so a ticking clock drives it", () => {
   const deadline = at(3 * HOUR);
   assert.equal(countdownParts(deadline, NOW).duration, "3h 0m");
   assert.equal(countdownParts(deadline, later).duration, "1h 0m");
+});
+
+test("the span between two dates of the schedule, in a lecturer's units", () => {
+  // Under the editor's Accept until and Deadline boxes (asked 2026-11-03):
+  // whole days plainly, the remainder only where there is one.
+  assert.equal(spanInDays(NOW, at(7 * DAY)), "7 days");
+  assert.equal(spanInDays(NOW, at(DAY)), "1 day");
+  assert.equal(spanInDays(NOW, at(7 * DAY + 6 * HOUR)), "7 days 6 hours");
+  assert.equal(spanInDays(NOW, at(DAY + HOUR)), "1 day 1 hour");
+  assert.equal(spanInDays(NOW, at(6 * HOUR)), "6 hours");
+  assert.equal(spanInDays(NOW, at(HOUR + 30 * MIN)), "1 hour 30 minutes");
+  assert.equal(spanInDays(NOW, at(45 * MIN)), "45 minutes");
+  assert.equal(spanInDays(NOW, at(MIN)), "1 minute");
+  // Seconds are not a unit: a box carries minutes, and the span truncates.
+  assert.equal(spanInDays(NOW, at(7 * DAY + 59_000)), "7 days");
+});
+
+test("the span is nothing for a schedule that is wrong or unreadable", () => {
+  assert.equal(spanInDays(NOW, NOW), null, "the same instant is no span");
+  assert.equal(spanInDays(at(DAY), NOW), null, "a date before the open date is the field's error, not a span");
+  assert.equal(spanInDays("", at(DAY)), null);
+  assert.equal(spanInDays(NOW, ""), null);
+  assert.equal(spanInDays(null, undefined), null);
+  assert.equal(spanInDays("soon", at(DAY)), null);
+  // Strings as a datetime-local box holds them, read alike at both ends.
+  assert.equal(spanInDays("2026-11-09T09:00", "2026-11-16T09:00"), "7 days");
+  assert.equal(spanInDays("2026-11-09T09:00", "2026-11-23T23:59"), "14 days 14 hours");
 });
