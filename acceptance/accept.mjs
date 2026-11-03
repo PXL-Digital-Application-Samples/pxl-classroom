@@ -24,7 +24,7 @@ import { assignmentAdmitsStudent, assignmentCohort } from "../lib/cohort.mjs";
 import { maxTeamSize as teamMaxSize } from "../lib/group-config.mjs";
 import { isWellFormedJoinCode, joinCodeMatches, normalizeJoinCode, requiresJoinCode, teamNeedsJoinCode } from "../lib/team-join-code.mjs";
 import { SUPERSEDED, actedInTime, lockRanFor, parseActedAt, parseIssueNumber, supersededBy } from "../lib/acceptance-reservation.mjs";
-import { acceptanceClosesAt, acceptanceWindow } from "../lib/acceptance-window.mjs";
+import { acceptanceWindow, acceptsUntilInForce } from "../lib/acceptance-window.mjs";
 import { lockdownRecordPath, lockdownsDir } from "../lib/control-layout.mjs";
 import { readSentinelTimelines } from "../lib/sentinel-timelines.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
@@ -960,6 +960,10 @@ async function main() {
   // Absent on a Retry, which has no issue and bypasses the window anyway.
   const actedAt = parseActedAt(env("ACTED_AT", ""));
   const bypassWindow = env("BYPASS_WINDOW") === "true";
+  // Set when the acceptance deadline has passed for an account that already
+  // accepted here: whether this attempt is THAT acceptance again (admitted) or
+  // a new one (refused) is known only at step 6, so the refusal waits there.
+  let closedToNewcomers = null;
   if (bypassWindow) {
     log("window", { ok: true, note: `bypassing open window checks (BYPASS_WINDOW=true)` });
   } else {
@@ -998,17 +1002,31 @@ async function main() {
         timelines: await readSentinelTimelines(join(dataDir, lockdownsDir(assignmentId))),
       });
       // ...AND FROM THE MOMENT ACCEPTANCE CLOSED FOR THIS REQUEST (review
-      // 2026-11-03): with an acceptance deadline before the deadline, a request
-      // made between the two was never in time, and a run GitHub started after
-      // the deadline must not admit it on the deadline's hour. The grace runs
-      // from whichever date closed acceptance - the deadline itself where there
-      // is no acceptance deadline, so nothing changes for those.
-      const closes = new Date(acceptanceClosesAt(assignment));
-      if (actedInTime({ deadline: closes, now, actedAt, lockRan })) {
+      // 2026-11-03): with an acceptance deadline before the deadline, a
+      // NEWCOMER's request made between the two was never in time, and a run
+      // GitHub started after the deadline must not admit it on the deadline's
+      // hour. An account that accepted here before is not closed out by the
+      // acceptance deadline (step 4 below), so its grace runs from the
+      // deadline - and if it asked after the acceptance deadline, only the
+      // same acceptance again is taken, decided at step 6 as below. Where
+      // there is no acceptance deadline nothing changes: both are the deadline.
+      const prior = await ownAcceptanceRecord(acceptFile, githubId);
+      const acceptsUntil = acceptsUntilInForce(assignment);
+      const closesForThem = prior || !acceptsUntil ? deadline : new Date(acceptsUntil);
+      if (actedInTime({ deadline: closesForThem, now, actedAt, lockRan })) {
+        if (prior && acceptsUntil && actedAt > new Date(acceptsUntil)) closedToNewcomers = acceptsUntil;
         log("window", {
           ok: true,
-          note: `requested at ${actedAt.toISOString()}, before acceptance closed at ${closes.toISOString()}; GitHub started this run at ${now.toISOString()}`,
+          note: `requested at ${actedAt.toISOString()}, before acceptance closed for them at ${closesForThem.toISOString()}; GitHub started this run at ${now.toISOString()}`,
         });
+      } else if (!prior && acceptsUntil && actedAt && actedAt <= deadline) {
+        // Asked before the deadline, after (or too long after) acceptance
+        // closed: the date that turned them away is the acceptance deadline,
+        // and the lecturer's notice should say so.
+        await reject(
+          "rejected:acceptance-closed",
+          `acceptance closed at ${acceptsUntil}, requested at ${actedAt.toISOString()}, current time is ${now.toISOString()}`,
+        );
       } else {
         await reject(
           "rejected:past-deadline",
@@ -1026,31 +1044,35 @@ async function main() {
       // repository invitation is re-sent - GitHub's expire after seven days,
       // and "closes a week in" is what this date is for. The record is the one
       // step 6 reads, matched on the account and never the login alone (a
-      // stored login under another id is somebody else, lib/login-rename.mjs);
-      // on a team assignment only for the same team, because joining another
-      // is a new membership. A team renamed since does not match and falls
-      // through to the refusal, which the lecturer's Retry bypasses.
+      // stored login under another id is somebody else, lib/login-rename.mjs).
+      //
+      // WHETHER THIS IS THAT ACCEPTANCE AGAIN is step 6's answer, not this
+      // step's: on a team assignment the team is resolved at step 5 - from
+      // the roster when teams are pre-assigned, where the request names none,
+      // and through `renamed_from` when the page still names an old slug. A
+      // second spelling here refused a pre-assigned member's Accept again and
+      // would have admitted anything with a matching slug (second review,
+      // 2026-11-03). So an account with a record goes on, and step 6 refuses
+      // it unless it is the same acceptance; the gates between write nothing
+      // a refusal commits but the attempt counters every refusal commits.
       //
       // Otherwise the same hour of grace as the deadline, and no lock to ask
       // about - nothing locks at this instant, and a repository given now is
       // an ordinary one the deadline's lock reaches like the rest.
       const prior = await ownAcceptanceRecord(acceptFile, githubId);
-      const requestedTeam = env("TEAM_SLUG", "");
-      const sameTeam =
-        assignment.assignment_type !== "group" ||
-        (typeof prior?.team_slug === "string" && prior.team_slug.toLowerCase() === requestedTeam.toLowerCase());
       const closes = new Date(gate.at);
-      if (prior && sameTeam) {
-        log("window", { ok: true, note: `already accepted at ${prior.accepted_at}; the acceptance deadline (${gate.at}) is for newcomers` });
-      } else if (actedInTime({ deadline: closes, now, actedAt, lockRan: false })) {
+      if (actedInTime({ deadline: closes, now, actedAt, lockRan: false })) {
         log("window", {
           ok: true,
-          note: `requested at ${actedAt.toISOString()}, before acceptance closed at ${assignment.accepts_until}; GitHub started this run at ${now.toISOString()}`,
+          note: `requested at ${actedAt.toISOString()}, before acceptance closed at ${gate.at}; GitHub started this run at ${now.toISOString()}`,
         });
+      } else if (prior) {
+        closedToNewcomers = gate.at;
+        log("window", { ok: true, note: `already accepted at ${prior.accepted_at}; the acceptance deadline (${gate.at}) admits only that acceptance again` });
       } else {
         await reject(
           "rejected:acceptance-closed",
-          `acceptance closed at ${assignment.accepts_until}, current time is ${now.toISOString()}` +
+          `acceptance closed at ${gate.at}, current time is ${now.toISOString()}` +
             (actedAt ? `, requested at ${actedAt.toISOString()}` : ""),
         );
       }
@@ -1690,6 +1712,16 @@ async function main() {
     } catch {
       sameAcceptance = false;
     }
+  }
+  // The acceptance deadline's refusal for an account that accepted before
+  // (step 4): anything but that same acceptance again is new - another team,
+  // a switch - and is refused here, before anything is created.
+  if (closedToNewcomers && !sameAcceptance) {
+    await reject(
+      "rejected:acceptance-closed",
+      `acceptance closed at ${closedToNewcomers}, current time is ${now.toISOString()}; ${login} already accepted, and this attempt is not that acceptance again` +
+        (actedAt ? ` (requested at ${actedAt.toISOString()})` : ""),
+    );
   }
   if (sameAcceptance) {
     const existing = JSON.parse(await readFile(acceptFile, "utf-8"));

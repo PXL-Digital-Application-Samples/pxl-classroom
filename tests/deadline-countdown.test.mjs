@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { countdownParts, formatDeadlineCountdown, spanInDays } from "../frontend/src/lib/countdown.js";
+import { countdownParts, formatDeadlineCountdown, spanBetween as spanInDays } from "../frontend/src/lib/countdown.js";
 import { repoFiles } from "./repo-files.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -126,4 +126,17 @@ test("the span is nothing for a schedule that is wrong or unreadable", () => {
   // Strings as a datetime-local box holds them, read alike at both ends.
   assert.equal(spanInDays("2026-11-09T09:00", "2026-11-16T09:00"), "7 days");
   assert.equal(spanInDays("2026-11-09T09:00", "2026-11-23T23:59"), "14 days 14 hours");
+  assert.equal(spanInDays("2026-11-09T09:00:30", "2026-11-16T09:00:30.500"), "7 days", "seconds and milliseconds a box may carry");
+});
+
+test("two boxes are the clock on the wall, whatever summer time does between them (review 2026-11-03)", () => {
+  // Europe ends summer time on 25 October 2026 and starts it on 28 March
+  // 2027. Read as local time on a machine in Brussels, a week across either
+  // change was "7 days 1 hour" or "6 days 23 hours". The boxes are compared
+  // as the dates and times they show, on any machine, in any zone.
+  assert.equal(spanInDays("2026-10-20T09:00", "2026-10-27T09:00"), "7 days");
+  assert.equal(spanInDays("2027-03-25T09:00", "2027-04-01T09:00"), "7 days");
+  assert.equal(spanInDays("2026-10-25T01:30", "2026-10-25T03:30"), "2 hours", "the hour that happens twice is not counted twice");
+  // An instant is elapsed time: two ISO strings with a zone keep their meaning.
+  assert.equal(spanInDays("2026-10-20T07:00:00Z", "2026-10-27T08:00:00Z"), "7 days 1 hour");
 });

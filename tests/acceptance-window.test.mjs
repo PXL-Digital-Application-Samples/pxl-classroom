@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ACCEPTANCE_PHASES, acceptanceClosesAt, acceptanceWindow, isAccepting, scheduledWindow } from "../lib/acceptance-window.mjs";
+import { ACCEPTANCE_PHASES, acceptanceClosesAt, acceptanceWindow, acceptsUntilInForce, isAccepting, scheduledWindow } from "../lib/acceptance-window.mjs";
 import { assignmentStatus } from "../frontend/src/lib/status-labels.js";
 import { teamSwitchWindow } from "../frontend/src/lib/team-switch.js";
 import { repoFiles } from "./repo-files.mjs";
@@ -76,6 +76,21 @@ test("an acceptance deadline after the deadline is never reached: the deadline c
   assert.equal(acceptanceWindow(a, NOW + 24 * 7.5 * 3600_000).phase, "deadline-passed");
 });
 
+test("what a surface may show as Accept until: only the date that closes acceptance", () => {
+  assert.equal(acceptsUntilInForce(published({ accepts_until: at(24) })), at(24));
+  // Equal to the deadline: it is the date, and the same one.
+  assert.equal(acceptsUntilInForce(published({ accepts_until: at(24 * 7) })), at(24 * 7));
+  // After the deadline (a hand edit; the editor refuses one): nothing reaches it.
+  assert.equal(acceptsUntilInForce(published({ accepts_until: at(24 * 8) })), null);
+  // Absent, empty, unreadable or not a string: nothing to show.
+  for (const accepts_until of [undefined, null, "", "soon", 7]) {
+    assert.equal(acceptsUntilInForce(published({ accepts_until })), null, String(accepts_until));
+  }
+  // No deadline at all: it is the only date that closes acceptance.
+  assert.equal(acceptsUntilInForce({ accepts_until: at(1) }), at(1));
+  assert.equal(acceptsUntilInForce(null), null);
+});
+
 test("anything but published is not accepting, whatever the dates say - and the dates still answer for themselves", () => {
   for (const state of ["draft", "closed", "archived", undefined, null, "garbage"]) {
     assert.deepEqual(acceptanceWindow(published({ state }), NOW), { phase: "not-published", at: null }, String(state));
@@ -127,32 +142,39 @@ test("every reader asks the judge", () => {
   }
   const hub = read("acceptance/accept.mjs");
   assert.match(hub, /"rejected:acceptance-closed"/, "the hub no longer refuses after the acceptance deadline");
-  assert.match(hub, /acceptanceClosesAt\(assignment\)/, "the hub's grace no longer runs from the date that closed acceptance");
+  assert.match(hub, /acceptsUntilInForce\(assignment\)/, "the hub's grace past the deadline no longer asks which date closed acceptance for this request");
 });
 
 test("no source spells the window by hand (a sweep, not a list)", () => {
   // The negative half, over every source file git tracks (tests/repo-files.mjs),
   // because the list above is how a reader gets missed.
   //
-  // Two rules. `opens_at` and `accepts_until` have NO question but the window,
-  // so any parse or comparison of either outside the judge is a fork - except
-  // a display (formatDate(a.opens_at) is no parse) and the editor's boxes,
-  // which hold `_local` copies the `\b` below does not match. `deadline_at`
-  // answers other questions too (the lock, grading, a student's own deadline,
-  // the confirm link's lifetime), so for it only a clock compared with the
-  // field inline is matched; a comparison through a variable is not seen,
-  // which is stated here rather than pretended otherwise.
+  // Two rules. `opens_at` and `accepts_until` are read for the window and
+  // for almost nothing else, so any LINE that names either field and parses
+  // a date or compares (`new Date(`, `Date.parse(`, a spaced `<`, `>`, `<=`,
+  // `>=`) is a fork unless it is listed below with its other question. A
+  // line, not an expression: the first version matched `Date.parse(x.opens_at`
+  // only, and `Date.parse(byId.get(id)?.opens_at ?? "")` walked past it
+  // (review 2026-11-03). A display (formatDate(a.opens_at)) parses nothing,
+  // and the editor's boxes hold `_local` copies, which `\b` does not match.
+  // `deadline_at` answers other questions too (the lock, grading, a student's
+  // own deadline, the confirm link's lifetime), so for it only a clock
+  // compared with the field inline is matched; a comparison through a
+  // variable is not seen, which is stated here rather than pretended otherwise.
   //
   // Exhaustive, not comparative: the matches must EQUAL the allow-list, so a
   // legitimate match needs its reason here and a stale reason fails too.
-  // `(?<!=)` keeps an arrow function's `=> a.accepts_until` out of it.
-  const windowOnly = /(?:new Date|Date\.parse)\(\s*[\w.?$]*\.(?:opens_at|accepts_until)\b|[\w.?$]*\.(?:opens_at|accepts_until)\b\s*[<>]=?|(?<!=)[<>]=?\s*[\w.?$]*\.(?:opens_at|accepts_until)\b/;
+  const windowField = /\.(?:opens_at|accepts_until)\b/;
+  const parsesOrCompares = /new Date\(|Date\.parse\(|\s[<>]=?\s/;
+  const windowOnly = { test: (line) => windowField.test(line) && parsesOrCompares.test(line) };
   const clock = String.raw`(?:\bnow\b|\bnow\.value\b|Date\.now\(\)|new Date\(\)|\bnowMs(?:\.value)?\b|\bnowTick(?:\.value)?\b|\bt\b)`;
   const deadlineInline = new RegExp(
     `${clock}\\s*[<>]=?\\s*(?:new Date\\(|Date\\.parse\\()?\\s*[\\w.?$]*\\.deadline_at\\b|[\\w.?$]*\\.deadline_at\\b\\)?(?:\\.getTime\\(\\))?\\s*[<>]=?\\s*${clock}`,
   );
   const ALLOWED = {
     "frontend/src/views/AdminView.vue": "the editor's cross-field validation compares the three dates with each other, never with a clock",
+    "lib/unrecorded-repos.mjs": "opens_at's one other question: a repository created before its assignment opened is last year's, not an acceptance (splitByOpening)",
+    "lib/diagnostics.mjs": "turns the form's local boxes into the stored instants before checking them, the editor's conversion",
   };
   const judge = join(root, "lib", "acceptance-window.mjs");
   const files = repoFiles({ under: ["frontend/src", "lib", "scripts", "acceptance", "pages", "cli"], exts: [".mjs", ".js", ".vue"] })
@@ -176,8 +198,16 @@ test("no source spells the window by hand (a sweep, not a list)", () => {
     "these files compare a clock with a date of the window, or read opens_at/accepts_until, outside lib/acceptance-window.mjs:\n" +
       Object.entries(found).map(([f, hits]) => `  ${f}\n${hits.map((h) => `      ${h}`).join("\n")}`).join("\n"),
   );
-  // The editor's matches are what the reason says: dates against dates.
+  // Each listed file's matches are what its reason says, and no more of them.
   for (const hit of found["frontend/src/views/AdminView.vue"] || []) {
     assert.match(hit, /new Date\(doc\.\w+\) [<>]=? new Date\(doc\.\w+\)/, `AdminView: not a cross-field check: ${hit}`);
+  }
+  assert.deepEqual(
+    (found["lib/unrecorded-repos.mjs"] || []).length,
+    1,
+    `unrecorded-repos reads opens_at for more than splitByOpening: ${JSON.stringify(found["lib/unrecorded-repos.mjs"])}`,
+  );
+  for (const hit of found["lib/diagnostics.mjs"] || []) {
+    assert.match(hit, /doc\.(?:opens_at|accepts_until) = new Date\(doc\.\w+_local\)\.toISOString\(\)/, `diagnostics: not the box conversion: ${hit}`);
   }
 });

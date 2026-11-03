@@ -134,7 +134,7 @@ import Icon from './Icon.vue'
 import HelpButton from './HelpButton.vue'
 import InvitationShare from './InvitationShare.vue'
 import { assignmentStatus } from '../lib/status-labels.js'
-import { scheduledWindow } from '../../../lib/acceptance-window.mjs'
+import { acceptsUntilInForce, scheduledWindow } from '../../../lib/acceptance-window.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { stateActions, everPublished } from '../lib/state-actions.js'
 import { keepMenuInView } from '../lib/menu-position.js'
@@ -182,7 +182,9 @@ const deadlinePassed = computed(() => !!deadline.value && Date.parse(deadline.va
 // The acceptance deadline, where the assignment has one: shown beside the
 // deadline, and past it the menu offers to move it rather than Reopen - the
 // same judge as the label and the hub (lib/acceptance-window.mjs).
-const acceptsUntil = computed(() => props.assignment?.accepts_until || null)
+// Only the one that closes acceptance: never an unreadable value, nor one a
+// hand edit put after the deadline, which nothing reaches.
+const acceptsUntil = computed(() => acceptsUntilInForce(props.assignment))
 // The DATES, whatever the state: a closed assignment is asked whether it
 // could be reopened, and that is the schedule's answer, not the state's.
 const acceptanceClosed = computed(() => scheduledWindow(props.assignment, nowMs.value).phase === 'acceptance-closed')

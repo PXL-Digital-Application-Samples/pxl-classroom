@@ -99,21 +99,33 @@ test("past the deadline each line says what it does now, and a lock that already
   }
 });
 
-test("past the acceptance deadline, Reopen offers to move it, and Stop accepting says what it does now", () => {
+test("past the acceptance deadline, Reopen says what it still does and moving the date is offered beside it", () => {
   // `accepts_until` passed while the deadline has not (lib/acceptance-window.mjs):
-  // the hub refuses every acceptance, so Reopen would publish a page nobody
-  // can accept from - the same control-that-cannot-do-what-it-says as past
-  // the deadline, with the other date.
+  // nobody new can accept, while a student who accepted can still send their
+  // invitation again - which Reopen gives back to a closed assignment, so the
+  // first version's "no Reopen" blocked exactly that (second review).
   for (const state of ["closed", "archived"]) {
     const list = stateActions({ state, acceptanceClosed: true });
-    assert.ok(!list.some((a) => a.key === "reopen"), `${state}: no Reopen past the acceptance deadline`);
+    const reopen = list.find((a) => a.key === "reopen");
+    assert.equal(reopen?.sub, "Students who accepted can send their invitation again. Nobody new can accept: the acceptance deadline has passed", `${state}: Reopen, in what it does now`);
     const move = list.find((a) => a.key === "edit-deadline");
-    assert.equal(move?.label, "Move the acceptance deadline…", `${state}: offers to move it instead`);
+    assert.equal(move?.label, "Move the acceptance deadline…", `${state}: and moving the date beside it`);
+    assert.ok(list.indexOf(reopen) < list.indexOf(move));
   }
-  // The deadline's own entry wins where both have passed.
-  assert.equal(stateActions({ state: "closed", deadlinePassed: true, acceptanceClosed: true }).find((a) => a.key === "edit-deadline")?.label, "Move the deadline…");
+  // The deadline's own entry wins where both have passed, and Reopen goes.
+  const both = stateActions({ state: "closed", deadlinePassed: true, acceptanceClosed: true });
+  assert.equal(both.find((a) => a.key === "edit-deadline")?.label, "Move the deadline…");
+  assert.ok(!both.some((a) => a.key === "reopen"));
   const sub = (actions, key) => actions.find((a) => a.key === key)?.sub;
-  assert.equal(sub(stateActions({ state: "published", acceptanceClosed: true }), "close"), "Marks it closed. Nobody could accept after the acceptance deadline anyway; repositories are unaffected");
+  assert.equal(sub(stateActions({ state: "published", acceptanceClosed: true }), "close"), "Nobody new can accept already; this also stops students who accepted from sending their invitation again. Repositories are unaffected");
   // Nothing about the lock: that is the deadline's.
   assert.ok(!stateActions({ state: "published", acceptanceClosed: true }).some((a) => a.key === "freeze"));
+});
+
+test("Publish says what it does now: a draft past a date that closes acceptance lets nobody accept", () => {
+  const sub = (args) => stateActions({ state: "draft", ...args }).find((a) => a.key === "publish")?.sub;
+  assert.equal(sub({}), "Creates the invitation and lets students accept");
+  assert.equal(sub({ acceptanceClosed: true }), "Creates the invitation. Nobody new can accept: the acceptance deadline has passed");
+  assert.equal(sub({ deadlinePassed: true }), "Creates the invitation. Nobody can accept: the deadline has passed");
+  assert.equal(sub({ deadlinePassed: true, acceptanceClosed: true }), "Creates the invitation. Nobody can accept: the deadline has passed");
 });

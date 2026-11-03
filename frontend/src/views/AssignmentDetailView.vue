@@ -5966,8 +5966,14 @@ async function retryAcceptanceFor(student) {
               : `Its deadline passed ${fmt(assignment.value.deadline_at)}, so nobody can accept any more.`,
           'Retrying lets this one acceptance through anyway.',
           // What becomes of it (R6-5): a repository given after the lock is
-          // locked by the next nightly check, or left open until their own deadline.
-          ...(before ? [] : ['A repository they get now is locked by the next nightly check, or left open until their own deadline if they were given more time. A repository the lock already made read-only stays read-only.']),
+          // locked by the next nightly check, or left open until their own
+          // deadline. Before the deadline (only the acceptance deadline has
+          // passed) nothing has locked yet (second review, 2026-11-03).
+          ...(gate.phase === 'deadline-passed'
+            ? ['A repository they get now is locked by the next nightly check, or left open until their own deadline if they were given more time. A repository the lock already made read-only stays read-only.']
+            : gate.phase === 'acceptance-closed'
+              ? ['A repository they get now is locked at the deadline like everyone else\'s.']
+              : []),
         ],
         confirmLabel: 'Retry anyway',
       })

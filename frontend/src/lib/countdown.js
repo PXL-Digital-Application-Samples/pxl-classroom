@@ -41,6 +41,9 @@ export function countdownParts(deadline, now = new Date()) {
   return { passed: diffMs <= 0, duration, at }
 }
 
+/** A datetime-local box's value: a wall-clock time, no zone. */
+const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/
+
 /**
  * How long `to` is after `from`, in the words a lecturer counts in: "7 days",
  * "7 days 6 hours", "6 hours", "45 minutes". The schedule's boxes show dates,
@@ -50,8 +53,13 @@ export function countdownParts(deadline, now = new Date()) {
  * Null when either end is missing or unreadable, or `to` is not after `from`:
  * the caller shows nothing rather than a span of a schedule that is wrong,
  * which the field's own error already says. Both ends may be Dates, ISO
- * strings or a datetime-local box's value, as long as both are the same kind -
- * a box's value is read as local time, an ISO string as what it says.
+ * strings or a datetime-local box's value, as long as both are the same kind.
+ *
+ * TWO BOXES ARE COMPARED AS THE CLOCK ON THE WALL (review 2026-11-03): read
+ * as local time, 20 October 09:00 to 27 October 09:00 across the end of
+ * summer time was "7 days 1 hour" to a lecturer who typed one week. Both
+ * values are read as the same zone (UTC), so the difference is the one
+ * between the dates and times they show. An ISO instant is still elapsed time.
  *
  * Here and not beside the boxes, because this module is the one place a
  * duration is turned into words (the guard in tests/deadline-countdown.test.mjs).
@@ -60,10 +68,11 @@ export function countdownParts(deadline, now = new Date()) {
  * @param {string|Date|null|undefined} to
  * @returns {string|null}
  */
-export function spanInDays(from, to) {
+export function spanBetween(from, to) {
   if (!from || !to) return null
-  const a = from instanceof Date ? from : new Date(from)
-  const b = to instanceof Date ? to : new Date(to)
+  const read = (v) => (v instanceof Date ? v : new Date(WALL_CLOCK.test(String(v)) ? `${v}Z` : v))
+  const a = read(from)
+  const b = read(to)
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null
   const diffMs = b.getTime() - a.getTime()
   if (diffMs <= 0) return null

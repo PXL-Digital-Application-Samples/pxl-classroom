@@ -35,14 +35,19 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
   // deadline is refused outright (lib/finished-assignment.mjs) - so "Reopen"
   // would be a control that cannot do what it says (DESIGN.md §1.5). What a
   // lecturer reopening a finished assignment has to do first is say so.
-  // The same for an acceptance deadline that has passed: the hub refuses every
-  // acceptance after it, so Reopen would publish a page nobody can accept
-  // from. Both entries jump to the Schedule section, where the date is.
+  // Past only the ACCEPTANCE deadline, Reopen still does something: students
+  // who accepted can send their invitation again, while nobody new can accept
+  // (second review, 2026-11-03 - the first version offered no Reopen, which
+  // blocked exactly that). So both are offered, each saying what it does now;
+  // the second jumps to the Schedule section, where the date is.
   const reopen = deadlinePassed
-    ? { key: 'edit-deadline', label: 'Move the deadline…', sub: 'The deadline has passed. Reopening needs a new one first.' }
+    ? [{ key: 'edit-deadline', label: 'Move the deadline…', sub: 'The deadline has passed. Reopening needs a new one first.' }]
     : acceptanceClosed
-      ? { key: 'edit-deadline', label: 'Move the acceptance deadline…', sub: 'The acceptance deadline has passed. Reopening needs a later one first.' }
-      : { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }
+      ? [
+          { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students who accepted can send their invitation again. Nobody new can accept: the acceptance deadline has passed' },
+          { key: 'edit-deadline', label: 'Move the acceptance deadline…', sub: 'Lets new students accept again' },
+        ]
+      : [{ key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }]
   switch (state) {
     case 'draft':
       // A draft that was PUBLISHED BEFORE (Back to draft) has a broker, maybe
@@ -51,7 +56,14 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
       // close it - and said nobody had accepted. Such a draft gets the full
       // delete, which removes the broker and keeps a record.
       return [
-        { key: 'publish', label: 'Publish', sub: 'Creates the invitation and lets students accept' },
+        // What it does NOW (review 2026-11-03): a draft whose deadline or
+        // acceptance deadline has passed is published to a page nobody can
+        // accept from.
+        deadlinePassed
+          ? { key: 'publish', label: 'Publish', sub: 'Creates the invitation. Nobody can accept: the deadline has passed' }
+          : acceptanceClosed
+            ? { key: 'publish', label: 'Publish', sub: 'Creates the invitation. Nobody new can accept: the acceptance deadline has passed' }
+            : { key: 'publish', label: 'Publish', sub: 'Creates the invitation and lets students accept' },
         everPublished
           ? { key: 'delete', label: 'Delete assignment…', sub: 'It was published before. Asks for confirmation first', danger: true }
           : { key: 'delete-draft', label: 'Delete draft', sub: 'Removes this draft. It was never published.', danger: true },
@@ -61,7 +73,9 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
         deadlinePassed
           ? { key: 'close', label: 'Stop accepting', sub: 'Marks it closed. Nobody could accept after the deadline anyway; repositories are unaffected' }
           : acceptanceClosed
-            ? { key: 'close', label: 'Stop accepting', sub: 'Marks it closed. Nobody could accept after the acceptance deadline anyway; repositories are unaffected' }
+            // Not "nobody could accept anyway" (second review, 2026-11-03): a
+            // student who accepted can still send their invitation again.
+            ? { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept already; this also stops students who accepted from sending their invitation again. Repositories are unaffected' }
             : { key: 'close', label: 'Stop accepting', sub: 'Nobody new can accept; existing repositories are unaffected' },
         deadlinePassed
           ? { key: 'draft', label: 'Back to draft', sub: 'Takes it off the student pages' }
@@ -71,7 +85,7 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
       ]
     case 'closed':
       return [
-        reopen,
+        ...reopen,
         // Closed has stopped the link already (R6-37): what is left to say is
         // what Back to draft does now.
         { key: 'draft', label: 'Back to draft', sub: 'Takes it off the student pages' },
@@ -81,7 +95,7 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
       ]
     case 'archived':
       return [
-        reopen,
+        ...reopen,
         { key: 'delete', label: 'Delete assignment…', sub: 'Asks for confirmation first', danger: true },
       ]
     default:

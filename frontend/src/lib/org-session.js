@@ -50,8 +50,11 @@ export function orgStatus(org) {
 
 export function orgStatusTitle(org) {
   const status = orgStatus(org)
-  if (status === 'active') return 'Active: at least one open assignment available'
-  if (status === 'inactive') return 'Inactive: assignments exist, but none currently open'
+  // What the light measures is acceptance (isAccepting): an assignment past its
+  // acceptance deadline, or its deadline, can still be running - so "none
+  // accepting", never "all closed" (second review, 2026-11-03).
+  if (status === 'active') return 'Active: at least one assignment is accepting students'
+  if (status === 'inactive') return 'Inactive: assignments exist, but none is accepting students now'
   if (status === 'empty') return 'Empty: no assignments in this organization'
   // "no assignments here" and "you cannot see this organization's course data"
   // are different facts, and the second must not render as the first.
@@ -61,8 +64,8 @@ export function orgStatusTitle(org) {
 
 export function orgStatusLabel(org) {
   const status = orgStatus(org)
-  if (status === 'active') return 'Open Assignments Active'
-  if (status === 'inactive') return 'All Assignments Closed'
+  if (status === 'active') return 'Accepting'
+  if (status === 'inactive') return 'None accepting'
   if (status === 'empty') return 'No Assignments'
   if (status === 'no-access') return 'No Access'
   return 'Loading Status…'

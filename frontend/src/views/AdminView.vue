@@ -1762,7 +1762,7 @@ import { askConfirm, askDiscard } from '../lib/confirm.js'
 import { usePublishWatch } from '../composables/usePublishWatch.js'
 import { GITHUB_STATUS_URL, USUAL_WAIT, publishBarText, publishRunIdFrom, publishStageMessage, publishSteps } from '../lib/publish-progress.js'
 import { dateReadout } from '../lib/date-readout.js'
-import { spanInDays } from '../lib/countdown.js'
+import { spanBetween } from '../lib/countdown.js'
 import { formatDate } from '../lib/format.js'
 import { studentPageBarText, studentPageLine, studentPageSteps } from '../lib/student-page-status.js'
 import { findPublicTextViolation, publicTextMessage } from '../../../lib/public-text.mjs'
@@ -3364,13 +3364,17 @@ const acceptsUntilReadout = computed(() =>
 // dates, not the distance between them. Nothing for a schedule that is
 // wrong (a date before the open date): the field's own error says that.
 const acceptsUntilSpan = computed(() => {
-  const sinceOpen = spanInDays(form.value.opens_at_local, form.value.accepts_until_local)
+  const sinceOpen = spanBetween(form.value.opens_at_local, form.value.accepts_until_local)
   return sinceOpen ? `${sinceOpen} after it opens` : ''
 })
 const deadlineSpan = computed(() => {
-  const sinceOpen = spanInDays(form.value.opens_at_local, form.value.deadline_at_local)
+  const sinceOpen = spanBetween(form.value.opens_at_local, form.value.deadline_at_local)
   if (!sinceOpen) return ''
-  const sinceClose = spanInDays(form.value.accepts_until_local, form.value.deadline_at_local)
+  // Only from an acceptance deadline that stands: one before the open date is
+  // the field's own error, not a date to count from (second review).
+  const sinceClose = acceptsUntilSpan.value && !fieldErrors.value.accepts_until
+    ? spanBetween(form.value.accepts_until_local, form.value.deadline_at_local)
+    : null
   return sinceClose ? `${sinceOpen} after it opens, ${sinceClose} after acceptance closes` : `${sinceOpen} after it opens`
 })
 
@@ -5177,7 +5181,14 @@ async function handlePublishClick() {
   const reopening = form.value.state === 'closed' || form.value.state === 'archived'
   if (reopening && !(await askConfirm({
     title: `Reopen "${form.value.title || form.value.id}" for acceptance?`,
-    paragraphs: ['Publishing sets it back to published, so students with the link can accept it again until the deadline.'],
+    // Until the date that closes acceptance, which an acceptance deadline may
+    // bring forward - and past one, only students who accepted before can
+    // ask again (second review, 2026-11-03).
+    paragraphs: [acceptsUntilInPast.value
+      ? 'Publishing sets it back to published. The acceptance deadline has passed, so nobody new can accept; students who accepted can send their invitation again until the deadline.'
+      : form.value.accepts_until_local
+        ? 'Publishing sets it back to published, so students with the link can accept it again until the acceptance deadline.'
+        : 'Publishing sets it back to published, so students with the link can accept it again until the deadline.'],
     confirmLabel: 'Reopen for acceptance',
   }))) return
 
@@ -5717,7 +5728,7 @@ async function setState(newState) {
       paragraphs: [past
         ? 'It is marked closed. Nobody could accept after the deadline anyway, and existing repositories are untouched.'
         : acceptsUntilInPast.value
-          ? 'It is marked closed. Nobody could accept after the acceptance deadline anyway, and existing repositories are untouched.'
+          ? 'Nobody new can accept since the acceptance deadline; this also stops students who accepted from sending their invitation again. Existing repositories are untouched.'
           : 'Nobody new can accept it. Existing repositories are untouched.'],
       confirmLabel: 'Stop accepting',
       destructive: true,

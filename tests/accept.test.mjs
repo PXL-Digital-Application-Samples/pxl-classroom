@@ -286,18 +286,50 @@ template:
 
   const deadline = new Date(Date.now() - 5 * 60_000);
   const closes = new Date(Date.now() - 3 * 3600_000);
-  // Made between the two dates: never in time, whatever the deadline's hour says.
+  // Made between the two dates: never in time, whatever the deadline's hour
+  // says - and refused for the date that turned them away, the acceptance
+  // deadline, not "after the deadline": they asked before it (second review).
   const between = runAccept({ ...who, ACTED_AT: stamp(new Date(deadline.getTime() - 60_000)) }, { assignmentYaml: yamlFor(closes, deadline) });
-  assert.equal(between.outputs.outcome, "rejected:past-deadline");
+  assert.equal(between.outputs.outcome, "rejected:acceptance-closed");
   // Made before acceptance closed, run three hours later: the hour ran out at
   // the acceptance deadline, not at the deadline.
   const stale = runAccept({ ...who, ACTED_AT: stamp(new Date(closes.getTime() - 60_000)) }, { assignmentYaml: yamlFor(closes, deadline) });
-  assert.equal(stale.outputs.outcome, "rejected:past-deadline");
+  assert.equal(stale.outputs.outcome, "rejected:acceptance-closed");
+  // Asked after the deadline itself: that is the refusal.
+  const afterIt = runAccept({ ...who, ACTED_AT: stamp(new Date(deadline.getTime() + 60_000)) }, { assignmentYaml: yamlFor(closes, deadline) });
+  assert.equal(afterIt.outputs.outcome, "rejected:past-deadline");
+  // No time of asking at all: the run is past both, and the deadline answers.
+  const unknown = runAccept({ ...who }, { assignmentYaml: yamlFor(closes, deadline) });
+  assert.equal(unknown.outputs.outcome, "rejected:past-deadline");
   // What the grace still covers: acceptance closed half an hour ago, the
   // deadline five minutes ago, the request made before both, no lock yet.
   const near = new Date(Date.now() - 30 * 60_000);
   const inTime = runAccept({ ...who, ACTED_AT: stamp(new Date(near.getTime() - 60_000)) }, { assignmentYaml: yamlFor(near, deadline) });
   assert.equal(inTime.outputs.outcome, "accepted", inTime.stderr);
+});
+
+test("past the deadline, an account that accepted before has the deadline's hour, for the same acceptance only (second review)", () => {
+  // Pressed Accept again between the two dates, GitHub ran it just after the
+  // deadline: a minute earlier it was already-accepted, and with no
+  // acceptance deadline the deadline's grace admitted it - so it is admitted.
+  const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const deadline = new Date(Date.now() - 5 * 60_000);
+  const closes = new Date(Date.now() - 3 * 3600_000);
+  const yaml = `state: published
+repository_name_pattern: test-{github_login}
+accepts_until: "${closes.toISOString()}"
+deadline_at: "${deadline.toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 123, accepted_at: "2026-01-01T00:00:00Z", status: "accepted" };
+  const acceptances = { "test-asgn": { alice: record } };
+  const actedAt = stamp(new Date(deadline.getTime() - 60_000));
+  const again = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", ACTED_AT: actedAt }, { assignmentYaml: yaml, acceptances });
+  assert.equal(again.outputs.outcome, "already-accepted", again.stdout + again.stderr);
+  // Asked after the deadline: nothing, record or not.
+  const late = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", ACTED_AT: stamp(new Date(deadline.getTime() + 60_000)) }, { assignmentYaml: yaml, acceptances });
+  assert.equal(late.outputs.outcome, "rejected:past-deadline");
 });
 
 test("nobody NEW: an account that already accepted passes the acceptance deadline; a stranger under its login, and the deadline, do not", () => {
@@ -355,6 +387,35 @@ template:
   assert.equal(same.outputs.outcome, "already-accepted", same.stderr);
   const switching = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-b" }, { assignmentYaml: yaml, teams, acceptances });
   assert.equal(switching.outputs.outcome, "rejected:acceptance-closed");
+  assert.match(switching.outputs.reject_reason, /not that acceptance again/);
+  // Nothing of the switch is decided: the team they asked for is untouched.
+  assert.deepEqual(teams["test-asgn"]["team-b"].members, ["bob"]);
+});
+
+test("nobody NEW, pre-assigned: a member's Accept again names no team, and step 5's answer is what counts (second review)", () => {
+  // The first version compared the request's TEAM_SLUG with the record's
+  // team at the window, before step 5 resolves the team. A pre-assigned
+  // member's page sends none, so their Accept again was refused as new.
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  // Top-level keys: the builder's `extra` lands after the group_config block.
+  const yaml = preAssignedYaml(`\naccepts_until: "${past}"\ndeadline_at: "${future}"`);
+  // Its own copy of the seeded team, not SEEDED_ALPHA: that constant is
+  // declared further down the file.
+  const alpha = { schema_version: 1, assignment_id: "test-asgn", team_slug: "alpha", team_name: "Alpha Team", members: ["alice", "bob"], max_members: 3 };
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 101, accepted_at: "2026-01-01T00:00:00Z", status: "accepted", team_slug: "alpha" };
+  const again = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "101" },
+    { assignmentYaml: yaml, teams: { "test-asgn": { alpha } }, acceptances: { "test-asgn": { alice: record } } },
+  );
+  assert.equal(again.outputs.outcome, "already-accepted", again.stdout + again.stderr);
+  assert.equal(again.outputs.team_slug, "alpha");
+  // ...and a member of the same seeded team who never accepted is a newcomer.
+  const bob = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "bob", GITHUB_ID: "102" },
+    { assignmentYaml: yaml, teams: { "test-asgn": { alpha } }, acceptances: { "test-asgn": { alice: record } } },
+  );
+  assert.equal(bob.outputs.outcome, "rejected:acceptance-closed");
 });
 
 test("idempotency - already-accepted", () => {
