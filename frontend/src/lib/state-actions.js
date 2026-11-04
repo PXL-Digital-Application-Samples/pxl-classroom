@@ -45,7 +45,9 @@ export function stateActions({ state, deadlinePassed = false, acceptanceClosed =
     : acceptanceClosed
       ? [
           { key: 'reopen', label: 'Reopen for acceptance', sub: 'Students who accepted can send their invitation again. Nobody new can accept: the acceptance deadline has passed' },
-          { key: 'edit-deadline', label: 'Move the acceptance deadline…', sub: 'Lets new students accept again' },
+          // Saving a closed or archived assignment keeps its state, so a
+          // moved date alone lets nobody in (third review, 2026-11-04).
+          { key: 'edit-deadline', label: 'Move the acceptance deadline…', sub: 'Then Reopen lets new students accept again' },
         ]
       : [{ key: 'reopen', label: 'Reopen for acceptance', sub: 'Students with the link can accept again' }]
   switch (state) {

@@ -1796,6 +1796,7 @@ import { classGroupChips, studentInClassGroup, normalizeClassGroup } from '../li
 import { cohortIdentity, rosterIdentities, normalizeCohortEntry, danglingCohortEntries } from '../lib/cohort.js'
 import { DEFAULT_MAX_TEAM_SIZE, maxTeamSize as teamMaxSize } from '../../../lib/group-config.mjs'
 import { requiresJoinCode } from '../../../lib/team-join-code.mjs'
+import { scheduledWindow } from '../../../lib/acceptance-window.mjs'
 import { readRoster } from '../lib/roster-read.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 
@@ -4147,11 +4148,22 @@ const deadlineInPast = computed(() => {
 })
 // Soft warning too: an acceptance deadline already past closes acceptance
 // the moment it is saved, with the work still due - usually meant (the
-// invitation is over), occasionally a typo.
-const acceptsUntilInPast = computed(() => {
-  if (!form.value.accepts_until_local) return false
-  try { return new Date(form.value.accepts_until_local).getTime() < formNow.value } catch { return false }
+// invitation is over), occasionally a typo. Asked of the hub's own judge
+// (lib/acceptance-window.mjs) with the dates the boxes hold, not a clock
+// compared by hand, so the warning and the Reopen and Stop accepting
+// questions that read it say what the hub will do (third review, 2026-11-04).
+const formDates = computed(() => {
+  const instant = (local) => {
+    const t = local ? new Date(local).getTime() : NaN
+    return Number.isFinite(t) ? new Date(t).toISOString() : undefined
+  }
+  return {
+    opens_at: instant(form.value.opens_at_local),
+    accepts_until: instant(form.value.accepts_until_local),
+    deadline_at: instant(form.value.deadline_at_local),
+  }
 })
+const acceptsUntilInPast = computed(() => scheduledWindow(formDates.value, formNow.value).phase === 'acceptance-closed')
 
 const canSave = computed(() => {
   return (

@@ -238,6 +238,33 @@ test("the org-wide index carries no acceptance detail, only what the portal matc
   assert.ok(!readFileSync(join(outDir, "assignments.json"), "utf8").includes(token));
 });
 
+test("the acceptance deadline reaches the index and the card, and is absent where it was never set", () => {
+  // The organization light reads the index and the student page the card,
+  // both through lib/acceptance-window.mjs: a date missing from either would
+  // say Accepting over an acceptance the hub refuses (third review,
+  // 2026-11-04 - nothing ran the generator with the field before).
+  const run = (extra) => {
+    const dir = mkdtempSync(join(tmpdir(), "pxl-gen-until-"));
+    mkdirSync(join(dir, "assignments"));
+    const token = mintToken("PXLAutomation", "test-valid");
+    const base = readFileSync(fix("valid-assignment.yml"), "utf8");
+    writeFileSync(join(dir, "assignments", "test-valid.yml"), `${base}\n${extra}invite_token: ${token}\ninvite_nonce: 0badc0de\n`);
+    const outDir = join(dir, "public");
+    const res = spawnSync("node", [generator], { env: { ...process.env, DATA_DIR: dir, OUTPUT_DIR: outDir }, encoding: "utf8" });
+    assert.equal(res.status, 0, `generator failed: ${res.stderr}`);
+    return {
+      entry: JSON.parse(readFileSync(join(outDir, "assignments.json"), "utf8")).assignments["test-valid"],
+      card: JSON.parse(readFileSync(join(outDir, "i", `${inviteFileFor(token)}.json`), "utf8")).assignment,
+    };
+  };
+  const set = run("accepts_until: 2026-09-28T21:59:59Z\n");
+  assert.equal(new Date(set.entry.accepts_until).toISOString(), "2026-09-28T21:59:59.000Z");
+  assert.equal(new Date(set.card.accepts_until).toISOString(), "2026-09-28T21:59:59.000Z");
+  const unset = run("");
+  assert.ok(!("accepts_until" in unset.entry), JSON.stringify(unset.entry));
+  assert.ok(!("accepts_until" in unset.card), JSON.stringify(unset.card));
+});
+
 test("generate.mjs outputs assignments as an empty object if no assignments directory exists", () => {
   const dir = mkdtempSync(join(tmpdir(), "pxl-gen-test-empty-"));
   const outDir = join(dir, "public");

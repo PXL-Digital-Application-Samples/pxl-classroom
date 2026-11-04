@@ -429,8 +429,8 @@
           >
             <div class="card-header flex items-center justify-between">
               <span class="status-indicator">
-                <span class="status-dot" :class="assignmentStatus(a).accepting ? 'dot-success' : 'dot-neutral'"></span>
-                <span class="status-text">{{ assignmentStatus(a).label }}</span>
+                <span class="status-dot" :class="assignmentStatus(a, statusNow).accepting ? 'dot-success' : 'dot-neutral'"></span>
+                <span class="status-text">{{ assignmentStatus(a, statusNow).label }}</span>
               </span>
               <span class="flex items-center gap-xs">
                 <span class="text-muted text-xs mono">{{ a.id }}</span>
@@ -869,7 +869,15 @@ async function refreshOrgsOnReturn() {
   }
 }
 
+// The cards' status ("Accepting", "Acceptance closed") on a clock that moves:
+// a page left open across an acceptance deadline or a deadline kept saying
+// "Accepting" in green until something else redrew it (third review,
+// 2026-11-04).
+const statusNow = ref(Date.now())
+let statusTimer = null
+
 onMounted(async () => {
+  statusTimer = setInterval(() => { statusNow.value = Date.now() }, 30_000)
   // GitHub appends ?installation_id=N&setup_action=install when the App's
   // Setup URL points back here. Treat that as "just connected" and clear the
   // params so a reload does not repeat it.
@@ -886,6 +894,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
   window.removeEventListener('keydown', onGlobalKeydown)
   document.removeEventListener('visibilitychange', refreshOrgsOnReturn)
   setupGeneration++
