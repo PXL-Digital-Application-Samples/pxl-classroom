@@ -92,8 +92,9 @@ const reuse = !regenerate && nonceOk && expiryOk;
 const nonce = reuse ? existingNonce.toLowerCase() : newNonce();
 const kid = Number(process.env.INVITE_KID || 1);
 // Links deliberately outlive the deadline: extending a deadline must not also
-// mean reissuing every student's link. The opens_at..deadline_at window and
-// max_acceptances in accept.mjs are what actually close acceptance.
+// mean reissuing every student's link. The acceptance window
+// (lib/acceptance-window.mjs: the open date, the acceptance deadline, the
+// deadline) and max_acceptances in accept.mjs are what actually close it.
 const expiresAt = reuse
   ? existingExpiry
   : process.env.EXPIRES_AT?.trim() ||

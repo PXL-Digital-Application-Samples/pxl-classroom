@@ -93,22 +93,44 @@ async function reject(category, note) {
 }
 
 /**
- * This account's own acceptance record at `file`, or null: absent, unreadable,
- * or naming another account under this login (lib/login-rename.mjs: the login
- * is a label, the id is the student).
+ * This account's own acceptance record, or null: absent, unreadable, or naming
+ * another account under this login (lib/login-rename.mjs: the login is a
+ * label, the id is the student). A Retry has set the record aside
+ * (acceptance/reserve.mjs) and passes that copy as PRIOR_ACCEPTANCE_FILE; it
+ * is still this account's acceptance, so it is read where `file` is absent.
+ * The id check is a second line: a record under this login that names another
+ * account has already been refused by name at step 3.8 (`rejected:login-reused`),
+ * so no test reaches it, and none should have to.
  *
  * @param {string} file
  * @param {string} githubId
  * @returns {Promise<Record<string, unknown>|null>}
  */
 async function ownAcceptanceRecord(file, githubId) {
-  if (!existsSync(file)) return null;
-  try {
-    const record = JSON.parse(await readFile(file, "utf-8"));
-    return record && String(record.github_id) === String(githubId) ? record : null;
-  } catch {
-    return null;
+  for (const path of [file, env("PRIOR_ACCEPTANCE_FILE", "")]) {
+    if (!path || !existsSync(path)) continue;
+    try {
+      const record = JSON.parse(await readFile(path, "utf-8"));
+      return record && String(record.github_id) === String(githubId) ? record : null;
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+/**
+ * Whether a team attempt by an account that already accepted is that same
+ * acceptance again: the team its record names, and no switch out of the team
+ * whose manifest lists it now. Asked once the team is resolved (step 5).
+ *
+ * @param {Record<string, unknown>|null} prior
+ * @param {{ teamSlug: string, switching: boolean }} attempt
+ * @returns {boolean}
+ */
+function sameTeamAgain(prior, { teamSlug, switching }) {
+  if (switching || !prior) return false;
+  return typeof prior.team_slug === "string" && prior.team_slug.toLowerCase() === teamSlug.toLowerCase();
 }
 
 // --- Strict input validation -------------------------------------------------
@@ -961,9 +983,13 @@ async function main() {
   const actedAt = parseActedAt(env("ACTED_AT", ""));
   const bypassWindow = env("BYPASS_WINDOW") === "true";
   // Set when the acceptance deadline has passed for an account that already
-  // accepted here: whether this attempt is THAT acceptance again (admitted) or
-  // a new one (refused) is known only at step 6, so the refusal waits there.
+  // accepted here, with the record it accepted under. On an individual
+  // assignment every attempt by that account is that acceptance again; on a
+  // team one, whether it is THAT team again (admitted) or a new acceptance
+  // (refused) is known only once step 5 has resolved the team, so the
+  // refusal waits there.
   let closedToNewcomers = null;
+  let closedPrior = null;
   if (bypassWindow) {
     log("window", { ok: true, note: `bypassing open window checks (BYPASS_WINDOW=true)` });
   } else {
@@ -1007,14 +1033,22 @@ async function main() {
       // GitHub started after the deadline must not admit it on the deadline's
       // hour. An account that accepted here before is not closed out by the
       // acceptance deadline (step 4 below), so its grace runs from the
-      // deadline - and if it asked after the acceptance deadline, only the
-      // same acceptance again is taken, decided at step 6 as below. Where
-      // there is no acceptance deadline nothing changes: both are the deadline.
+      // deadline - and unless the request was in time for the acceptance
+      // deadline as well, only the same acceptance again is taken, decided at
+      // step 5 as below. "In time for it" is the question the acceptance-closed
+      // branch below asks, so a run GitHub started later never admits more
+      // than one it started earlier (third review, 2026-11-04). Where there is
+      // no acceptance deadline, or it is the deadline itself, nothing changes:
+      // the deadline is the answer (lib/acceptance-window.mjs asks it first).
       const prior = await ownAcceptanceRecord(acceptFile, githubId);
-      const acceptsUntil = acceptsUntilInForce(assignment);
-      const closesForThem = prior || !acceptsUntil ? deadline : new Date(acceptsUntil);
+      const inForce = acceptsUntilInForce(assignment);
+      const acceptsUntil = inForce && new Date(inForce) < deadline ? new Date(inForce) : null;
+      const closesForThem = prior || !acceptsUntil ? deadline : acceptsUntil;
       if (actedInTime({ deadline: closesForThem, now, actedAt, lockRan })) {
-        if (prior && acceptsUntil && actedAt > new Date(acceptsUntil)) closedToNewcomers = acceptsUntil;
+        if (prior && acceptsUntil && !actedInTime({ deadline: acceptsUntil, now, actedAt, lockRan: false })) {
+          closedToNewcomers = inForce;
+          closedPrior = prior;
+        }
         log("window", {
           ok: true,
           note: `requested at ${actedAt.toISOString()}, before acceptance closed for them at ${closesForThem.toISOString()}; GitHub started this run at ${now.toISOString()}`,
@@ -1025,7 +1059,7 @@ async function main() {
         // and the lecturer's notice should say so.
         await reject(
           "rejected:acceptance-closed",
-          `acceptance closed at ${acceptsUntil}, requested at ${actedAt.toISOString()}, current time is ${now.toISOString()}`,
+          `acceptance closed at ${inForce}, requested at ${actedAt.toISOString()}, current time is ${now.toISOString()}`,
         );
       } else {
         await reject(
@@ -1046,15 +1080,17 @@ async function main() {
       // step 6 reads, matched on the account and never the login alone (a
       // stored login under another id is somebody else, lib/login-rename.mjs).
       //
-      // WHETHER THIS IS THAT ACCEPTANCE AGAIN is step 6's answer, not this
-      // step's: on a team assignment the team is resolved at step 5 - from
-      // the roster when teams are pre-assigned, where the request names none,
+      // WHETHER THIS IS THAT ACCEPTANCE AGAIN is step 5's answer, not this
+      // step's: on a team assignment the team is resolved there - from the
+      // roster when teams are pre-assigned, where the request names none,
       // and through `renamed_from` when the page still names an old slug. A
       // second spelling here refused a pre-assigned member's Accept again and
       // would have admitted anything with a matching slug (second review,
-      // 2026-11-03). So an account with a record goes on, and step 6 refuses
-      // it unless it is the same acceptance; the gates between write nothing
-      // a refusal commits but the attempt counters every refusal commits.
+      // 2026-11-03). So an account with a record goes on, and step 5 refuses
+      // it, as soon as the team is known, unless it is that team again; the
+      // gates between write nothing a refusal commits but the attempt
+      // counters every refusal commits. A Retry has set the record aside and
+      // is still that acceptance (`ownAcceptanceRecord`).
       //
       // Otherwise the same hour of grace as the deadline, and no lock to ask
       // about - nothing locks at this instant, and a repository given now is
@@ -1068,7 +1104,8 @@ async function main() {
         });
       } else if (prior) {
         closedToNewcomers = gate.at;
-        log("window", { ok: true, note: `already accepted at ${prior.accepted_at}; the acceptance deadline (${gate.at}) admits only that acceptance again` });
+        closedPrior = prior;
+        log("window",{ ok: true, note: `already accepted at ${prior.accepted_at}; the acceptance deadline (${gate.at}) admits only that acceptance again` });
       } else {
         await reject(
           "rejected:acceptance-closed",
@@ -1352,7 +1389,8 @@ async function main() {
     } else if (!teamSlug && !teamName && assignedSlug) {
       // Self-service (or pre-assigned falling back): the assigned team is the
       // default only when the student named none. Naming a different one is a
-      // switch, and switching stays open until the deadline.
+      // switch, taken while acceptance is open (step 4) and refused after it
+      // below.
       teamSlug = assignedSlug;
       teamName = assignedName || assignedSlug;
     }
@@ -1385,6 +1423,20 @@ async function main() {
     // The last value written is the one that stands, so the accepted path's own
     // write later changes nothing.
     await setOutput("team_slug", teamSlug);
+
+    // The acceptance deadline's refusal for an account that accepted before
+    // (step 4), asked the moment the team is known and before anything is
+    // read from GitHub or written: anything but that team again - a switch,
+    // another team, a new one - is a new acceptance, and is refused for that
+    // reason rather than whatever a later gate would say about the team it
+    // named (a full team, creation switched off; third review, 2026-11-04).
+    if (closedToNewcomers && !sameTeamAgain(closedPrior, { teamSlug, switching: Boolean(oldTeam && oldTeam.team_slug !== teamSlug) })) {
+      await reject(
+        "rejected:acceptance-closed",
+        `acceptance closed at ${closedToNewcomers}, current time is ${now.toISOString()}; ${login} already accepted, and this attempt is not that acceptance again` +
+          (actedAt ? ` (requested at ${actedAt.toISOString()})` : ""),
+      );
+    }
 
     const teamFile = join(teamsDir, `${teamSlug}.json`);
     const maxTeamSize = teamMaxSize(assignment.group_config);
@@ -1712,16 +1764,6 @@ async function main() {
     } catch {
       sameAcceptance = false;
     }
-  }
-  // The acceptance deadline's refusal for an account that accepted before
-  // (step 4): anything but that same acceptance again is new - another team,
-  // a switch - and is refused here, before anything is created.
-  if (closedToNewcomers && !sameAcceptance) {
-    await reject(
-      "rejected:acceptance-closed",
-      `acceptance closed at ${closedToNewcomers}, current time is ${now.toISOString()}; ${login} already accepted, and this attempt is not that acceptance again` +
-        (actedAt ? ` (requested at ${actedAt.toISOString()})` : ""),
-    );
   }
   if (sameAcceptance) {
     const existing = JSON.parse(await readFile(acceptFile, "utf-8"));

@@ -133,9 +133,10 @@ test("every reader asks the judge", () => {
     "frontend/src/views/AssignmentView.vue": /acceptanceWindow\(assignment\.value, now\.value\)\.phase/,
     "frontend/src/components/GroupAcceptanceCard.vue": /acceptanceWindow\(props\.assignment, nowTick\.value\)\.phase/,
     "frontend/src/components/InvitationShare.vue": /acceptanceWindow\(a, now\)/,
-    "frontend/src/components/StudentDiagnosticsModal.vue": /acceptanceWindow\(props\.assignment\)\.phase/,
+    "frontend/src/components/StudentDiagnosticsModal.vue": /acceptanceWindow\(props\.assignment, openedAt\.value\)\.phase/,
     "frontend/src/components/AssignmentHeader.vue": /scheduledWindow\(props\.assignment, nowMs\.value\)\.phase === 'acceptance-closed'/,
     "frontend/src/views/AssignmentDetailView.vue": /scheduledWindow\(assignment\.value/,
+    "frontend/src/views/AdminView.vue": /scheduledWindow\(formDates\.value, formNow\.value\)\.phase === 'acceptance-closed'/,
   };
   for (const [file, call] of Object.entries(readers)) {
     assert.match(read(file), call, `${file} no longer asks lib/acceptance-window.mjs`);
@@ -157,6 +158,9 @@ test("no source spells the window by hand (a sweep, not a list)", () => {
   // only, and `Date.parse(byId.get(id)?.opens_at ?? "")` walked past it
   // (review 2026-11-03). A display (formatDate(a.opens_at)) parses nothing,
   // and the editor's boxes hold `_local` copies, which `\b` does not match.
+  // A field read through a dot or a bracket is seen; one destructured into a
+  // variable and compared on another line is not, which is said here rather
+  // than pretended otherwise.
   // `deadline_at` answers other questions too (the lock, grading, a student's
   // own deadline, the confirm link's lifetime), so for it only a clock
   // compared with the field inline is matched; a comparison through a
@@ -164,7 +168,7 @@ test("no source spells the window by hand (a sweep, not a list)", () => {
   //
   // Exhaustive, not comparative: the matches must EQUAL the allow-list, so a
   // legitimate match needs its reason here and a stale reason fails too.
-  const windowField = /\.(?:opens_at|accepts_until)\b/;
+  const windowField = /(?:\.|\[["'`])(?:opens_at|accepts_until)\b/;
   const parsesOrCompares = /new Date\(|Date\.parse\(|\s[<>]=?\s/;
   const windowOnly = { test: (line) => windowField.test(line) && parsesOrCompares.test(line) };
   const clock = String.raw`(?:\bnow\b|\bnow\.value\b|Date\.now\(\)|new Date\(\)|\bnowMs(?:\.value)?\b|\bnowTick(?:\.value)?\b|\bt\b)`;
@@ -174,12 +178,19 @@ test("no source spells the window by hand (a sweep, not a list)", () => {
   const ALLOWED = {
     "frontend/src/views/AdminView.vue": "the editor's cross-field validation compares the three dates with each other, never with a clock",
     "lib/unrecorded-repos.mjs": "opens_at's one other question: a repository created before its assignment opened is last year's, not an acceptance (splitByOpening)",
-    "lib/diagnostics.mjs": "turns the form's local boxes into the stored instants before checking them, the editor's conversion",
+    "lib/diagnostics.mjs": "turns the form's open-date box into its stored instant for the required-fields check, which asks only whether it is there",
   };
+  // Every source file, workflows included, but the tests: they compare
+  // fixture dates on purpose. The first version listed six directories while
+  // this comment said "every file", and the hub's provisioning, report,
+  // collect and lockdown code was never read (third review, 2026-11-04).
   const judge = join(root, "lib", "acceptance-window.mjs");
-  const files = repoFiles({ under: ["frontend/src", "lib", "scripts", "acceptance", "pages", "cli"], exts: [".mjs", ".js", ".vue"] })
-    .filter((f) => f !== judge && !f.includes(`${join("cli", "tests")}${"\\"}`) && !f.includes(`${join("cli", "tests")}/`));
-  assert.ok(files.length > 100, `the sweep saw only ${files.length} files`);
+  const isTest = (f) => /^(?:tests|cli\/tests)\//.test(relative(root, f).replace(/\\/g, "/"));
+  const files = repoFiles({ exts: [".mjs", ".js", ".vue", ".yml", ".yaml"] }).filter((f) => f !== judge && !isTest(f));
+  assert.ok(files.length > 300, `the sweep saw only ${files.length} files`);
+  for (const dir of ["provisioning/", "report/", "collect/", "lockdown/", ".github/workflows/", "frontend/src/"]) {
+    assert.ok(files.some((f) => relative(root, f).replace(/\\/g, "/").startsWith(dir)), `the sweep no longer reads ${dir}`);
+  }
   const found = {};
   for (const abs of files) {
     const src = readFileSync(abs, "utf8")
@@ -208,6 +219,6 @@ test("no source spells the window by hand (a sweep, not a list)", () => {
     `unrecorded-repos reads opens_at for more than splitByOpening: ${JSON.stringify(found["lib/unrecorded-repos.mjs"])}`,
   );
   for (const hit of found["lib/diagnostics.mjs"] || []) {
-    assert.match(hit, /doc\.(?:opens_at|accepts_until) = new Date\(doc\.\w+_local\)\.toISOString\(\)/, `diagnostics: not the box conversion: ${hit}`);
+    assert.match(hit, /doc\.opens_at = new Date\(doc\.opens_at_local\)\.toISOString\(\)|!doc\.opens_at && doc\.opens_at_local/, `diagnostics: not the box conversion: ${hit}`);
   }
 });

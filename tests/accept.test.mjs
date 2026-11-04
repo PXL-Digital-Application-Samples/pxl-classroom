@@ -388,8 +388,117 @@ template:
   const switching = runAccept({ ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", TEAM_SLUG: "team-b" }, { assignmentYaml: yaml, teams, acceptances });
   assert.equal(switching.outputs.outcome, "rejected:acceptance-closed");
   assert.match(switching.outputs.reject_reason, /not that acceptance again/);
-  // Nothing of the switch is decided: the team they asked for is untouched.
-  assert.deepEqual(teams["test-asgn"]["team-b"].members, ["bob"]);
+  // Refused the moment the team was known, before anything was written: the
+  // run's own checkout still holds both teams as they were. (The first
+  // version asserted on the fixture object, which the run never touches, and
+  // step 5 had in fact moved alice into team-b on disk before refusing; third
+  // review, 2026-11-04.)
+  const onDisk = (slug) => JSON.parse(readFileSync(join(switching.dir, "teams", "test-asgn", `${slug}.json`), "utf8")).members;
+  assert.deepEqual(onDisk("team-b"), ["bob"]);
+  assert.deepEqual(onDisk("team-a"), ["alice"]);
+});
+
+test("nobody NEW on a team: the refusal names the acceptance deadline, not what a later gate thinks of the team asked for (third review)", () => {
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  const yamlWith = (extra) => `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+accepts_until: "${past}"
+deadline_at: "${future}"
+group_config:
+  max_team_size: 2${extra}
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const team = (slug, members) => ({ schema_version: 1, assignment_id: "test-asgn", team_slug: slug, team_name: slug, members, max_members: 2 });
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 123, accepted_at: "2026-01-01T00:00:00Z", status: "accepted", team_slug: "team-a" };
+  const acceptances = { "test-asgn": { alice: record } };
+  const who = { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123" };
+
+  // A full team: team-full would be the answer before the acceptance deadline.
+  const full = runAccept(
+    { ...who, TEAM_SLUG: "team-b" },
+    { assignmentYaml: yamlWith(""), acceptances, teams: { "test-asgn": { "team-a": team("team-a", ["alice"]), "team-b": team("team-b", ["bob", "dave"]) } } },
+  );
+  assert.equal(full.outputs.outcome, "rejected:acceptance-closed", full.stdout + full.stderr);
+  // A new team where creation is switched off.
+  const created = runAccept(
+    { ...who, TEAM_NAME: "Brand New", TEAM_ACTION: "create" },
+    { assignmentYaml: yamlWith("\n  allow_team_creation: false"), acceptances, teams: { "test-asgn": { "team-a": team("team-a", ["alice"]) } } },
+  );
+  assert.equal(created.outputs.outcome, "rejected:acceptance-closed", created.stdout + created.stderr);
+});
+
+test("past the deadline, a returning account's request in time for the deadline but not the acceptance deadline is that acceptance again only (third review)", () => {
+  // The run GitHub started after the deadline used to admit a switch that the
+  // same request, run an hour earlier, was refused: the later, the better.
+  const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const deadline = new Date(Date.now() - 5 * 60_000);
+  const closes = new Date(Date.now() - 3 * 3600_000);
+  const yaml = `state: published
+assignment_type: group
+repository_name_pattern: "asgn-{team_slug}"
+accepts_until: "${closes.toISOString()}"
+deadline_at: "${deadline.toISOString()}"
+group_config:
+  max_team_size: 4
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const team = (slug, members) => ({ schema_version: 1, assignment_id: "test-asgn", team_slug: slug, team_name: slug, members, max_members: 4 });
+  const teams = { "test-asgn": { "team-a": team("team-a", ["alice"]), "team-b": team("team-b", ["bob"]) } };
+  const record = { schema_version: 1, assignment_id: "test-asgn", github_login: "alice", github_id: 123, accepted_at: "2026-01-01T00:00:00Z", status: "accepted", team_slug: "team-a" };
+  const acceptances = { "test-asgn": { alice: record } };
+  // Asked a minute before acceptance closed, run three hours later.
+  const who = { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "alice", GITHUB_ID: "123", ACTED_AT: stamp(new Date(closes.getTime() - 60_000)) };
+  const switching = runAccept({ ...who, TEAM_SLUG: "team-b" }, { assignmentYaml: yaml, teams, acceptances });
+  assert.equal(switching.outputs.outcome, "rejected:acceptance-closed", switching.stdout + switching.stderr);
+  const same = runAccept({ ...who, TEAM_SLUG: "team-a" }, { assignmentYaml: yaml, teams, acceptances });
+  assert.equal(same.outputs.outcome, "already-accepted", same.stdout + same.stderr);
+});
+
+test("an acceptance deadline equal to the deadline is the deadline: past it, a newcomer run late is refused as past-deadline (third review)", () => {
+  const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const both = new Date(Date.now() - 2 * 3600_000);
+  const yaml = `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${both.toISOString()}"
+deadline_at: "${both.toISOString()}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const res = runAccept(
+    { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789", ACTED_AT: stamp(new Date(both.getTime() - 60_000)) },
+    { assignmentYaml: yaml },
+  );
+  assert.equal(res.outputs.outcome, "rejected:past-deadline");
+});
+
+test("a Retry past the acceptance deadline: with the window bypassed anyone, without it the set-aside record is that acceptance (third review)", () => {
+  // retry-acceptance.yml sets the record aside and passes it as
+  // PRIOR_ACCEPTANCE_FILE. Read from the record's usual place alone, a Retry
+  // typed with bypass_window false treated the student as new and refused
+  // what their own Accept again would have taken.
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const future = new Date(Date.now() + 86400000 * 7).toISOString();
+  const yaml = `state: published
+repository_name_pattern: hw-{github_login}
+accepts_until: "${past}"
+deadline_at: "${future}"
+template:
+  owner: TestOrg
+  repository: tpl`;
+  const who = { ASSIGNMENT_ID: "test-asgn", GITHUB_LOGIN: "charlie", GITHUB_ID: "789" };
+  const bypassed = runAccept({ ...who, BYPASS_WINDOW: "true" }, { assignmentYaml: yaml });
+  assert.equal(bypassed.outputs.outcome, "accepted", bypassed.stdout + bypassed.stderr);
+
+  const aside = join(mkdtempSync(join(tmpdir(), "pxl-prior-")), "prior-acceptance.json");
+  writeFileSync(aside, JSON.stringify({ schema_version: 1, assignment_id: "test-asgn", github_login: "charlie", github_id: 789, accepted_at: "2026-09-02T08:15:00.000Z", status: "accepted" }));
+  const retried = runAccept({ ...who, PRIOR_ACCEPTANCE_FILE: aside }, { assignmentYaml: yaml });
+  assert.equal(retried.outputs.outcome, "accepted", retried.stdout + retried.stderr);
+  const newcomer = runAccept({ ...who, PRIOR_ACCEPTANCE_FILE: aside + ".missing" }, { assignmentYaml: yaml });
+  assert.equal(newcomer.outputs.outcome, "rejected:acceptance-closed");
 });
 
 test("nobody NEW, pre-assigned: a member's Accept again names no team, and step 5's answer is what counts (second review)", () => {
