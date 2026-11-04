@@ -156,7 +156,11 @@
             <!-- An absent cap is no cap: accept.mjs enforces the limit only
                  when the field is set, so a default here would refuse an
                  acceptance the server would have granted. -->
-            <div v-else-if="assignment && assignment.max_acceptances && assignment.accepted_count >= assignment.max_acceptances" class="text-center">
+            <!-- Nor for a student the hub admitted before: it does not count
+                 the same acceptance again against the cap (accept.mjs
+                 `alreadyAccepted`), and after the acceptance deadline this
+                 hid their "send my invitation again" (third review). -->
+            <div v-else-if="assignment && !admittedBefore && assignment.max_acceptances && assignment.accepted_count >= assignment.max_acceptances" class="text-center">
               <h2>Registration cap reached</h2>
               <p class="text-secondary">
                 This assignment has reached its registration limit. Please contact your lecturer.
@@ -257,10 +261,14 @@
             <AttemptProgress
               :steps="progressStepList"
               :message="progressText"
-              :can-retry="progress.canRetry"
+              :can-retry="offerRetry"
               :busy="accepting"
               @retry="sendAgain"
             />
+            <p v-if="progress.canRetry && !retryAllowed" class="text-sm text-secondary" data-retry-closed>
+              Acceptance has closed since you sent this, so a new request would be turned away.
+              The one you sent still counts if GitHub starts it soon; leave this page open.
+            </p>
             <p v-if="!progressText && pollCount >= 5" class="text-secondary">
               Still going, and that is normal. Leave this page open - it updates by itself
               the moment the repository appears.
@@ -491,15 +499,19 @@
             <AttemptProgress
               :steps="progressStepList"
               :message="progressText"
-              :can-retry="progress.canRetry"
+              :can-retry="offerRetry"
               :busy="accepting"
               @retry="sendAgain"
             />
+            <p v-if="progress.canRetry && !retryAllowed" class="text-sm text-secondary" data-retry-closed>
+              Acceptance has closed since you sent this, so sending it again would be turned away.
+              Ask your lecturer.
+            </p>
             <!-- A link the broker would not take offers no "send it again" - the
                  same link would be refused again - so this is the way on, with
                  the current link the lecturer sends. Without it the page was a
                  dead end, and reloading led back to it for fifteen minutes. -->
-            <div v-if="!progress.canRetry" class="flex justify-center gap-sm mt-md">
+            <div v-if="!offerRetry" class="flex justify-center gap-sm mt-md">
               <button class="btn btn-secondary" @click="acceptState = 'ready'">Back</button>
             </div>
           </div>
@@ -638,7 +650,7 @@ import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { invitedBefore, recentAttempt } from '../lib/broker-teams.js'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, progressMessage, progressSteps, readBrokerSkipped,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerSkipped,
 } from '../lib/acceptance-progress.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -719,10 +731,16 @@ const rejectedAt = ref(null)
 // refusal stays said above the Accept button (REFUSED_EARLIER_MESSAGE).
 const refusedEarlier = ref(false)
 // The hub admitted one of this student's acceptances before and sent an
-// invitation (lib broker-teams.js `invitedBefore`). After the acceptance
-// deadline that is who may still press Accept: the hub takes the same
-// acceptance again, which sends an expired invitation anew.
-const admittedBefore = ref(false)
+// invitation (lib broker-teams.js `invitedBefore`), read off their own
+// recent attempts.
+const labelledInvited = ref(false)
+// ...or this page saw them invited. After the acceptance deadline that is
+// who may still press Accept: the hub takes the same acceptance again, which
+// sends an expired invitation anew. Seeing the invitation counts too, or a
+// student who reached "invited" through a listed invitation and was then
+// refused (an address the hub no longer reuses) went Back to "Acceptance
+// closed" with no way to give one (third review, 2026-11-04).
+const admittedBefore = computed(() => labelledInvited.value || sawInvitation.value)
 
 /**
  * What the student can read out to their lecturer.
@@ -840,6 +858,10 @@ const acceptsUntilShown = computed(() => acceptsUntilInForce(assignment.value))
 // Whether the hub would take the same acceptance again now: before the
 // deadline, the acceptance deadline included (lib/acceptance-window.mjs).
 const canSendAgain = computed(() => ['accepting', 'acceptance-closed'].includes(acceptPhase.value))
+// Whether a stalled attempt may be sent again now (`mayRetryAttempt`): on an
+// individual assignment every attempt by that student is the same acceptance.
+const retryAllowed = computed(() => mayRetryAttempt({ phase: acceptPhase.value, admittedBefore: admittedBefore.value }))
+const offerRetry = computed(() => progress.value.canRetry && retryAllowed.value)
 
 // The header badge and deadlineCountdown below count down this student's
 // effective deadline, with the shared arithmetic rather than a fourth copy.
@@ -1159,7 +1181,7 @@ async function checkExistingState() {
     `/repos/${org}/${brokerRepo}/issues?creator=${encodeURIComponent(user.value.login)}&state=all&per_page=5`,
   )
   if (mine.ok && Array.isArray(mine.data)) {
-    admittedBefore.value = invitedBefore(mine.data)
+    labelledInvited.value = invitedBefore(mine.data)
     // NEVER BY THE `pxl-accept:` PREFIX ALONE: the broker rewrites it to
     // "Acceptance (processed)" within seconds, so that matched only inside the
     // window and never for the returning student this branch exists for. Every
@@ -1218,6 +1240,10 @@ function handleLogout() {
   // half-filled address and seal it under their own id.
   authToken.value = ''
   claim.value = null
+  // Nor what this page learned about them: the next student on this browser
+  // was offered "send my invitation again" for an acceptance they never made.
+  labelledInvited.value = false
+  sawInvitation.value = false
   acceptState.value = 'ready'
 }
 

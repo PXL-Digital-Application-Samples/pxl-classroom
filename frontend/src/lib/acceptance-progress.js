@@ -159,6 +159,27 @@ export function attemptProgress({ title, run = null, runsRead = false, sentAt, n
 }
 
 /**
+ * Whether a stalled attempt may be sent again NOW, beside `canRetry` above,
+ * which says only whether this one is worth giving up on. A new request is
+ * judged at its own time by the hub's window (lib/acceptance-window.mjs, the
+ * `phase` passed in): while acceptance is open, by anyone; after the
+ * acceptance deadline, only the same acceptance again by a student the hub
+ * admitted before (`sameAcceptance`: on a team, the team they are in); after
+ * the deadline, or with the assignment no longer published, by nobody.
+ * Offered regardless, a newcomer whose request went in two minutes before the
+ * acceptance deadline was handed a button the hub refuses, while the request
+ * already sent could still be taken within its hour (third review,
+ * 2026-11-04).
+ *
+ * @param {{ phase: string, admittedBefore: boolean, sameAcceptance?: boolean }} args
+ * @returns {boolean}
+ */
+export function mayRetryAttempt({ phase, admittedBefore, sameAcceptance = true }) {
+  if (phase === 'accepting') return true
+  return phase === 'acceptance-closed' && admittedBefore === true && sameAcceptance === true
+}
+
+/**
  * The three steps a student sees, and how far along they are.
  *
  * @param {string} step from attemptProgress

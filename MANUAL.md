@@ -119,7 +119,7 @@ A student with an extension is judged against their own deadline.
 ## Deadlines and extensions
 
 - The deadline is entered in your computer's time. Students see it in the time zone set under **Advanced**.
-- **Accept until** is optional: the moment nobody new can accept, while the work stays due at the deadline. Leave it empty and students can accept until the deadline. Under it and under the deadline, a line says how many days after the open date each is. A student who missed it is let in by moving it later and saving. A student who already accepted sees **Send my invitation again** on their page, for when their repository invitation has expired.
+- **Accept until** is optional: the moment nobody new can accept, while the work stays due at the deadline. Leave it empty and students can accept until the deadline. Under it and under the deadline, a line says how many days after the open date each is. A student who missed it is let in by moving it later and saving. After it, a student who was sent an invitation before sees **Send my invitation again** on their page, for when that invitation has expired; while it is pending the page offers **Send it again** under it.
 - An extension moves the deadline for one student, and for every member of their team. Nothing else about the assignment changes.
 - Grant it in the student's **⋯** dialog, under **Grant deadline extension**, with a reason. Their own page shows the new date, never the reason.
 - While it runs, that student can keep pushing. Everyone else is locked at the class deadline as normal.
@@ -142,8 +142,8 @@ The **⋯** button on a student's row, on **Progress** or **Grading**, opens wha
 The button at the top of an assignment says where it stands: **Draft**, **Not open yet**, **Accepting**, **Acceptance closed**, **Deadline passed**, **Closed** or **Archived**. Its menu is what you can do from there.
 
 - **Publish** creates the invitation link and lets students accept.
-- **Stop accepting** stops new students accepting. After the deadline nobody can accept anyway, so it only marks the assignment closed.
-- **Reopen for acceptance** lets students with the link accept again. Past the deadline it offers **Move the deadline…** instead, because acceptance needs a deadline in the future. Past only the acceptance deadline it lets students who accepted send their invitation again, and **Move the acceptance deadline…** beside it lets new students in.
+- **Stop accepting** stops new students accepting. After the acceptance deadline nobody new can accept anyway, so it also stops students who accepted from sending their invitation again. After the deadline nobody can accept at all, so it only marks the assignment closed.
+- **Reopen for acceptance** lets students with the link accept again. Past the deadline it offers **Move the deadline…** instead, because acceptance needs a deadline in the future. Past only the acceptance deadline it lets students who accepted send their invitation again, and **Move the acceptance deadline…** beside it is the way to let new students in: move it, save, then reopen.
 - **Back to draft** takes the assignment off the student pages and stops the invitation link.
 - **Lock everyone out now** locks every student and archives their work straight away. It is offered after the deadline until the lock has run.
 - **Archive** and **Delete assignment…** are described in [Retiring an assignment](#retiring-an-assignment).
@@ -178,7 +178,7 @@ A **team** is not a **class group**. A team shares one repository for one assign
 - Teams belong to the assignment, not to your roster, so re-importing a roster cannot wipe them.
 - Using the same teams again on a later assignment is a separate step, not automatic. **Copy teams from…** carries them over, and warns you about anyone it carried who this assignment is not for.
 - A team nobody has accepted into yet can be renamed: **Manage**, then **Rename team**. Its repository will get the new name. Once someone has accepted, the repository already has the old name, so the team keeps it.
-- With self-service teams, a student who joined the wrong team can fix it themselves with **Switch team** on their page, until the assignment's deadline (an extension does not move it). A team left empty, whose repository nobody pushed to, is removed with its repository.
+- With self-service teams, a student who joined the wrong team can fix it themselves with **Switch team** on their page, while the assignment is accepting: until its acceptance deadline, or its deadline where it has none (an extension does not move it). A team left empty, whose repository nobody pushed to, is removed with its repository.
 
 ## Every branch and its history
 
@@ -282,7 +282,7 @@ Switched on, each student gets one of these on their own repository, kept as a d
 
 ## Retiring an assignment
 
-- **Stop accepting**, in the menu of the status button at the top of the assignment, stops new students accepting. Nobody's work is touched. After the deadline nobody can accept anyway, so it only marks the assignment closed.
+- **Stop accepting**, in the menu of the status button at the top of the assignment, stops new students accepting. Nobody's work is touched. After the acceptance deadline it also stops students who accepted from sending their invitation again; after the deadline nobody can accept anyway, so it only marks the assignment closed.
 - **Archive** takes it off the **Assignments** list (tick **Show archived** to see it) and off students' pages. Everything is kept; if the deadline has not passed, students are still locked and archived after it.
 - Neither of them deletes anything.
 

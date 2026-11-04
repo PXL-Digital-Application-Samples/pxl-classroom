@@ -12,6 +12,7 @@ import {
   findAttemptRun,
   hubRunsPath,
   issueStage,
+  mayRetryAttempt,
   progressMessage,
   progressSteps,
 } from '../frontend/src/lib/acceptance-progress.js'
@@ -125,4 +126,18 @@ test('the run list is asked for this attempt only, from shortly before it', () =
   assert.match(path, /^\/repos\/Hub\/pxl-classroom\/actions\/workflows\/acceptance-handler\.yml\/runs\?/)
   assert.match(decodeURIComponent(path), /created=>=2026-10-02T10:20:06Z/)
   assert.match(path, /event=repository_dispatch/)
+})
+
+test('a stalled attempt is offered again only where the hub would take the new request (third review, 2026-11-04)', () => {
+  // While acceptance is open, anyone.
+  assert.equal(mayRetryAttempt({ phase: 'accepting', admittedBefore: false }), true)
+  // After the acceptance deadline: the same acceptance again, by a student
+  // the hub admitted before - never a newcomer, never another team.
+  assert.equal(mayRetryAttempt({ phase: 'acceptance-closed', admittedBefore: false }), false)
+  assert.equal(mayRetryAttempt({ phase: 'acceptance-closed', admittedBefore: true }), true)
+  assert.equal(mayRetryAttempt({ phase: 'acceptance-closed', admittedBefore: true, sameAcceptance: false }), false)
+  // After the deadline, before the open date, or not published: nobody.
+  for (const phase of ['deadline-passed', 'not-open', 'not-published']) {
+    assert.equal(mayRetryAttempt({ phase, admittedBefore: true }), false, phase)
+  }
 })

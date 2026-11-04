@@ -106,10 +106,14 @@
       <AttemptProgress
         :steps="progressStepList"
         :message="progressText"
-        :can-retry="progress.canRetry"
+        :can-retry="offerRetry"
         :busy="accepting"
         @retry="sendAgain"
       />
+      <p v-if="progress.canRetry && !retryAllowed" class="text-sm text-secondary" data-retry-closed>
+        Acceptance has closed since you sent this, so a new request would be turned away.
+        The one you sent still counts if GitHub starts it soon; leave this page open.
+      </p>
       <p v-if="!progressText && pollCount >= 5" class="text-secondary">
         Still going, and that is normal. Leave this page open - it updates by itself.
       </p>
@@ -211,11 +215,15 @@
       <AttemptProgress
         :steps="progressStepList"
         :message="progressText"
-        :can-retry="progress.canRetry"
+        :can-retry="offerRetry"
         :busy="accepting"
         @retry="sendAgain"
       />
-      <button v-if="!progress.canRetry" class="btn btn-secondary" @click="backToTeams">Back</button>
+      <p v-if="progress.canRetry && !retryAllowed" class="text-sm text-secondary" data-retry-closed>
+        Acceptance has closed since you sent this, so sending it again would be turned away.
+        Ask your lecturer.
+      </p>
+      <button v-if="!offerRetry" class="btn btn-secondary" @click="backToTeams">Back</button>
     </div>
 
     <!-- State: Timeout -->
@@ -261,14 +269,49 @@
       </p>
     </div>
 
-    <!-- State: Acceptance closed, the work still due -->
-    <div v-else-if="assignment && acceptPhase === 'acceptance-closed'" class="text-center py-lg" data-acceptance-closed>
+    <!-- State: Acceptance closed, the work still due. Not for a member the
+         hub admitted before: they get the panel below. -->
+    <div v-else-if="assignment && acceptPhase === 'acceptance-closed' && !(admittedBefore && myCurrentTeam)" class="text-center py-lg" data-acceptance-closed>
       <Icon name="lock" :size="48" class="status-icon" />
       <h2>Acceptance closed</h2>
       <p class="text-secondary">
         Nobody new can join or create a team since {{ formatDate(assignment.accepts_until, assignment.timezone) }}.
         The work is due {{ formatDate(assignment.deadline_at, assignment.timezone) }}. Ask your lecturer if you still need to join.
       </p>
+    </div>
+
+    <!-- A member the hub admitted before, after the acceptance deadline: the
+         same team again is that acceptance, which the hub takes and answers
+         with a new invitation. Only the invited state offered it, so a member
+         whose newest attempt had been refused read "Acceptance closed" over
+         an expired invitation (third review, 2026-11-04). The address is
+         asked for, as on the individual page: whether the hub still has one
+         it can reuse is not something this page can see. -->
+    <div v-else-if="assignment && acceptPhase === 'acceptance-closed'" class="text-center py-lg" data-send-again>
+      <h2>Send your invitation again</h2>
+      <p class="text-secondary">
+        Nobody new can join or create a team since {{ formatDate(assignment.accepts_until, assignment.timezone) }}, and you,
+        <strong>@{{ user.login }}</strong>, are in <strong>{{ myCurrentTeam.team_name || myCurrentTeam.team_slug }}</strong>.
+        If the invitation to your team's repository has expired, send it again.
+      </p>
+      <div v-if="refusedEarlier" class="refused-earlier" role="status">
+        <p><strong>{{ REFUSED_EARLIER_MESSAGE }}</strong></p>
+        <p v-if="rejectionReference" class="text-secondary">Tell them: <strong>{{ rejectionReference }}</strong></p>
+      </div>
+      <ClaimAddressCard
+        v-if="needsClaim"
+        :assignment="assignment"
+        :org="org"
+        :token="claimToken"
+        @update:claim="claim = $event"
+      />
+      <p v-if="needsClaim && !claimKeyReady" class="text-sm claim-unavailable">
+        Claiming is not set up for this course yet. Ask your lecturer to finish
+        setting up the assignment.
+      </p>
+      <button class="btn btn-success btn-lg" :disabled="accepting || claimBlocked" @click="sendInvitationAgainFromClosed">
+        {{ accepting ? 'Sending…' : 'Send my invitation again' }}
+      </button>
     </div>
 
     <!-- State: Not Open Yet -->
@@ -575,6 +618,7 @@ import {
   attemptYields,
   attemptTeamSlug,
   ownAcceptanceIssue,
+  invitedBefore,
   RECENT_ATTEMPT_MS as SHARED_RECENT_ATTEMPT_MS,
 } from '../lib/broker-teams.js'
 import { INSTITUTION } from '../lib/deployment.js'
@@ -601,7 +645,7 @@ import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, progressMessage, progressSteps, readBrokerSkipped,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerSkipped,
 } from '../lib/acceptance-progress.js'
 
 const props = defineProps({
@@ -1009,6 +1053,15 @@ async function sendInvitationAgain() {
   await executeTeamAcceptance(team.team_slug, team.team_name || team.team_slug, 'join', '', { reuseBinding: true })
 }
 
+/** After the acceptance deadline, from the team list: the team they are in, again. */
+async function sendInvitationAgainFromClosed() {
+  const team = myCurrentTeam.value
+  if (!team?.team_slug) return
+  selectedTeam.value = team
+  targetTeamName.value = team.team_name || team.team_slug
+  await executeTeamAcceptance(team.team_slug, team.team_name || team.team_slug, 'join', '')
+}
+
 /** Send the same join again: a new attempt. An older one that runs later does nothing. */
 async function sendAgain() {
   if (pollTimer) clearTimeout(pollTimer)
@@ -1156,6 +1209,9 @@ async function loadTeams() {
     // is rewritten in seconds) - frontend/src/lib/broker-teams.js carries why,
     // and is where a test can reach it.
     const mine = ownAcceptanceIssue(issues, props.user?.login)
+    // Any of their OWN attempts the hub labelled invited, not only the newest:
+    // a later refused attempt does not undo the acceptance (third review).
+    labelledInvited.value = invitedBefore(issues.filter((i) => sameLogin(i?.user?.login, props.user?.login)))
     if (mine) {
       acceptanceIssue.value = mine.number
       acceptanceIssueCreatedAt.value = mine.created_at || null
@@ -1244,6 +1300,27 @@ const isPastDeadline = computed(() => {
 const acceptPhase = computed(() => acceptanceWindow(props.assignment, nowTick.value).phase)
 // Whether the hub would take the same acceptance again now (see the invited state).
 const canSendAgain = computed(() => ['accepting', 'acceptance-closed'].includes(acceptPhase.value))
+// Whether the hub admitted this student here before: one of their own
+// attempts carries the invited label (loadTeams), or this card saw them
+// invited or in their repository. After the acceptance deadline that is who
+// may send the same team again.
+const labelledInvited = ref(false)
+const admittedSeen = ref(false)
+watch(acceptState, (state) => {
+  if (state === 'invited' || state === 'provisioned') admittedSeen.value = true
+})
+const admittedBefore = computed(() => labelledInvited.value || admittedSeen.value)
+// Whether a stalled join may be sent again (`mayRetryAttempt`): after the
+// acceptance deadline, only a join of the team they are in.
+const retryAllowed = computed(() => {
+  const join = lastJoin.value
+  const slug = join?.slug || targetTeamSlug.value
+  const mine = myCurrentTeam.value?.team_slug
+  const sameAcceptance = Boolean(slug && mine) && join?.action !== 'create' && join?.action !== 'switch' &&
+    slug.toLowerCase() === mine.toLowerCase()
+  return mayRetryAttempt({ phase: acceptPhase.value, admittedBefore: admittedBefore.value, sameAcceptance })
+})
+const offerRetry = computed(() => progress.value.canRetry && retryAllowed.value)
 
 // On the same clock as isPastDeadline, so the words and their colour turn together.
 // The moment in the card's one format and the assignment's zone, as its dates are.

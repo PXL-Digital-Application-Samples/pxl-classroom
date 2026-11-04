@@ -105,7 +105,7 @@ npx playwright test --config tests/screenshots/playwright.shots.config.mjs
   - So the branches you prepared can be merged and rebased the way the exercise intends.
 
 - **Teams form and manage themselves.**
-  - Students create or join a team within the size you set, and can move between teams until the deadline.
+  - Students create or join a team within the size you set, and can move between teams while the assignment is accepting.
   - A grouping that already worked can be carried into the next assignment.
 
 - **Fix a mistake after students have started.**

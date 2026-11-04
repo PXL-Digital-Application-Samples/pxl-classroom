@@ -108,7 +108,7 @@
                      value was printed raw - so a student read "Assignment
                      Lifecycle: archived". -->
                 This assignment is:
-                <span>{{ assignmentStatus(assignment).label || 'unknown' }}</span>
+                <span>{{ assignmentStatus(assignment, openedAt).label || 'unknown' }}</span>
               </div>
               <div v-if="assignment?.state === 'draft'" class="text-xs text-warning">
                 This assignment is currently in draft mode. Your lecturer hasn't published it yet.
@@ -212,7 +212,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { clearAuth, getUser } from '../lib/auth.js'
 import { assignmentStatus } from '../lib/status-labels.js'
@@ -251,8 +251,16 @@ const invitationPending = computed(
 // cannot call a window healthy that the hub refuses, nor a deadline passed
 // that it has not. The deadline line reads the dates whatever the state, as
 // it always did; the rest is the state-aware answer.
-const acceptPhase = computed(() => acceptanceWindow(props.assignment).phase)
-const isPastDeadline = computed(() => scheduledWindow(props.assignment).phase === 'deadline-passed')
+//
+// On the clock of the moment it was opened: the instance outlives the dialog
+// (`show` toggles it), and with no clock of its own these were worked out
+// once and cached, so a dialog opened before the acceptance deadline and
+// again after it said "Acceptance closed" beside a green "open and
+// accepting" (third review, 2026-11-04).
+const openedAt = ref(Date.now())
+watch(() => props.show, (shown) => { if (shown) openedAt.value = Date.now() })
+const acceptPhase = computed(() => acceptanceWindow(props.assignment, openedAt.value).phase)
+const isPastDeadline = computed(() => scheduledWindow(props.assignment, openedAt.value).phase === 'deadline-passed')
 
 const lifecycleHealthy = computed(() => {
   if (!props.assignment) return true
