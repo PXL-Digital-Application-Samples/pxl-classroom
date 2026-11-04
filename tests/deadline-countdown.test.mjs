@@ -134,9 +134,23 @@ test("two boxes are the clock on the wall, whatever summer time does between the
   // 2027. Read as local time on a machine in Brussels, a week across either
   // change was "7 days 1 hour" or "6 days 23 hours". The boxes are compared
   // as the dates and times they show, on any machine, in any zone.
-  assert.equal(spanInDays("2026-10-20T09:00", "2026-10-27T09:00"), "7 days");
-  assert.equal(spanInDays("2027-03-25T09:00", "2027-04-01T09:00"), "7 days");
-  assert.equal(spanInDays("2026-10-25T01:30", "2026-10-25T03:30"), "2 hours", "the hour that happens twice is not counted twice");
-  // An instant is elapsed time: two ISO strings with a zone keep their meaning.
-  assert.equal(spanInDays("2026-10-20T07:00:00Z", "2026-10-27T08:00:00Z"), "7 days 1 hour");
+  //
+  // Asked IN Brussels: CI runs in UTC, where reading the boxes as local time
+  // gives the same answer, so a regression to it passed there (third review,
+  // 2026-11-04). Node takes a TZ set at runtime; the first assertion proves
+  // it did, so the rest cannot pass by being asked in UTC.
+  const before = process.env.TZ;
+  process.env.TZ = "Europe/Brussels";
+  try {
+    assert.equal(new Date("2026-10-20T09:00").getTimezoneOffset(), -120, "the zone did not take: this test would prove nothing");
+    assert.equal(new Date("2026-10-27T09:00").getTimezoneOffset(), -60);
+    assert.equal(spanInDays("2026-10-20T09:00", "2026-10-27T09:00"), "7 days");
+    assert.equal(spanInDays("2027-03-25T09:00", "2027-04-01T09:00"), "7 days");
+    assert.equal(spanInDays("2026-10-25T01:30", "2026-10-25T03:30"), "2 hours", "the hour that happens twice is not counted twice");
+    // An instant is elapsed time: two ISO strings with a zone keep their meaning.
+    assert.equal(spanInDays("2026-10-20T07:00:00Z", "2026-10-27T08:00:00Z"), "7 days 1 hour");
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
 });
