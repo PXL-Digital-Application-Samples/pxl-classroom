@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { signAcceptanceTitle } from "../../lib/acceptance-signature.mjs";
 import { GITHUB_API_VERSION } from "../../lib/github-api-version.mjs";
+import { normalizeLogin } from "../../lib/github-login.mjs";
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -19,6 +20,17 @@ export function die(m) { console.error(`\n${m}\n`); process.exit(2); }
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export const decode = (b64) => Buffer.from(b64, "base64").toString("utf8");
+
+/** An instant as GitHub writes one: whole seconds, `Z`. */
+export const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/**
+ * The description every drill assignment carries. drill.mjs's cleanup deletes
+ * an assignment only with a `drill-` id AND these words, so they are the key to
+ * what a drill may remove - spelled here once, where seven drills had a copy
+ * each (third review, 2026-11-04).
+ */
+export const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 // --- env ---------------------------------------------------------------------
 
@@ -222,10 +234,108 @@ export async function openAcceptanceIssue({ org, broker, title, student, teamSlu
  * detail.
  */
 export async function acceptInvitation({ student, repoName }, r) {
-  const invites = await api("/user/repository_invitations", { token: student.token });
-  const mine = (invites.data || []).find((v) => v.repository?.name === repoName);
+  const mine = await pendingInvitation({ student, repoName });
   if (!mine) { r.note(`${student.login}: no pending invitation (already a collaborator?)`); return; }
   const accepted = await api(`/user/repository_invitations/${mine.id}`, { token: student.token, method: "PATCH" });
   if (accepted.status === 204) r.ok(`${student.login} accepted the repository invitation`);
   else r.bad(`${student.login} could not accept the invitation: HTTP ${accepted.status}`);
+}
+
+/** The student's pending invitation to `repoName`, or null: what GitHub sent them. */
+export async function pendingInvitation({ student, repoName }) {
+  const invites = await api("/user/repository_invitations", { token: student.token });
+  return (invites.data || []).find((v) => v.repository?.name === repoName) || null;
+}
+
+// --- the control repository and the hub, as the lecturer reads and runs them --
+
+/** Reads of one organization's control repository with one token. */
+export function controlRepo({ org, repo, token }) {
+  async function readControl(path) {
+    const res = await api(`/repos/${org}/${repo}/contents/${path}`, { token });
+    return res.ok ? { ok: true, sha: res.data.sha, text: decode(res.data.content) } : { ok: false, status: res.status };
+  }
+  async function readControlJson(path) {
+    const res = await readControl(path);
+    if (!res.ok) return null;
+    try { return JSON.parse(res.text); } catch { return null; }
+  }
+  return { readControl, readControlJson };
+}
+
+/**
+ * The hub's workflows, dispatched and watched as `lecturer`. Each step is said
+ * through `r`, so a drill reports a dispatch the same way whichever drill it is.
+ */
+export function hubRuns({ hub, lecturer, r }) {
+  async function dispatch(workflow, inputs) {
+    const res = await api(`/repos/${hub}/actions/workflows/${workflow}/dispatches`, {
+      token: lecturer.token, method: "POST", body: { ref: "main", inputs },
+    });
+    if (res.ok) r.ok(`dispatched ${workflow} ${JSON.stringify(inputs)}`);
+    else r.bad(`could not dispatch ${workflow}: HTTP ${res.status} ${res.data?.message ?? ""}`);
+    return res.ok;
+  }
+  async function runsSince(workflow, since) {
+    const q = new URLSearchParams({ created: `>=${isoSeconds(since)}`, per_page: "50" });
+    const res = await api(`/repos/${hub}/actions/workflows/${workflow}/runs?${q}`, { token: lecturer.token });
+    return (res.data?.workflow_runs || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+  async function findDispatchedRun(workflow, since) {
+    for (let i = 0; i < 12; i++) {
+      await sleep(5_000);
+      const run = (await runsSince(workflow, since)).find((x) => normalizeLogin(x.actor?.login) === normalizeLogin(lecturer.login));
+      if (run) return run;
+    }
+    return null;
+  }
+  async function waitForRun(run, { minutes = 10 } = {}) {
+    for (let waited = 0; waited < minutes * 60_000; waited += 10_000) {
+      const res = await api(`/repos/${hub}/actions/runs/${run.id}`, { token: lecturer.token });
+      if (res.data?.status === "completed") return res.data;
+      await sleep(10_000);
+    }
+    return null;
+  }
+  /** A dispatched workflow, run to its end; the conclusion or null. */
+  async function dispatchAndWait(workflow, inputs) {
+    const since = Date.now() - 5_000;
+    if (!(await dispatch(workflow, inputs))) return null;
+    const run = await findDispatchedRun(workflow, since);
+    if (!run) { r.bad(`no ${workflow} run appeared within 60s`); return null; }
+    r.note(`watching ${run.html_url}`);
+    const done = await waitForRun(run);
+    if (done?.conclusion === "success") r.ok(`${workflow} run succeeded`);
+    else r.bad(`${workflow} run ${done?.conclusion ?? "did not finish in 10 minutes"}: ${run.html_url}`);
+    return done?.conclusion ?? null;
+  }
+  return { dispatch, runsSince, findDispatchedRun, waitForRun, dispatchAndWait };
+}
+
+/** Whether `label` is on the issue within `ms`. */
+export async function waitForLabel({ repo, issue, label, token, ms }) {
+  for (let waited = 0; waited <= ms; waited += 10_000) {
+    const res = await api(`/repos/${repo}/issues/${issue}/labels`, { token });
+    if ((res.data || []).some?.((l) => l.name === label)) return true;
+    await sleep(10_000);
+  }
+  return false;
+}
+
+/**
+ * Every comment on an issue, oldest first, walked to its last page. GitHub
+ * lists comments oldest first and 100 a page at most, and the testbed's
+ * tracking issue was at 97 with two more a run: a check reading page one alone
+ * would have stopped finding the newest refusal within a run or two (third
+ * review, 2026-11-04). A walk that failed, or hit its cap, is not `ok`.
+ */
+export async function issueComments({ repo, issue, token, maxPages = 30 }) {
+  const comments = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await api(`/repos/${repo}/issues/${issue}/comments?per_page=100&page=${page}`, { token });
+    if (!res.ok || !Array.isArray(res.data)) return { ok: false, comments, status: res.status };
+    comments.push(...res.data);
+    if (res.data.length < 100) return { ok: true, comments };
+  }
+  return { ok: false, comments, capped: true };
 }

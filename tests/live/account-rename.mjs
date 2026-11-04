@@ -42,14 +42,13 @@ import { repositoryNameFor } from "../../lib/repo-name.mjs";
 import { renamedRepoFor } from "../../frontend/src/lib/renamed-repo.js";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
-  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, loadEnv, openAcceptanceIssue, reporter, signAcceptance, sleep,
+  DRILL_DESCRIPTION, accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, issueComments, loadEnv, openAcceptanceIssue,
+  reporter, signAcceptance, sleep,
 } from "./live-kit.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
-// The same description drill.mjs writes, so `drill.mjs cleanup` deletes these.
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 const env = loadEnv();
 const ACCOUNTS = accounts(env);
@@ -335,8 +334,9 @@ async function start() {
   let noticed = false;
   for (const issue of issues.data || []) {
     if (String(issue.body || "").includes(oldName)) noticed = true;
-    const comments = await api(`/repos/${ORG}/${CONTROL_REPO}/issues/${issue.number}/comments?per_page=100`, { token: LECTURER.token });
-    if ((comments.data || []).some((c) => String(c.body).includes(`\`${oldName}\` is now`))) noticed = true;
+    // Every page: GitHub lists oldest first, and the tracking issue only grows.
+    const { comments } = await issueComments({ repo: `${ORG}/${CONTROL_REPO}`, issue: issue.number, token: LECTURER.token });
+    if (comments.some((c) => String(c.body).includes(`\`${oldName}\` is now`))) noticed = true;
   }
   if (noticed) ok("the tracking issue says who is now who");
   else bad("no notice on the tracking issue names the rename");

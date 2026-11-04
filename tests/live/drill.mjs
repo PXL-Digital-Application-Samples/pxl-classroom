@@ -102,7 +102,7 @@ import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/depl
 import { usesOrgScope, demotesAfterStop } from "../../lib/lock-scope.mjs";
 import { findOrgSubmissionLock, findSubmissionLock, targetedRepositoryIds } from "../../lib/submission-lock.mjs";
 import {
-  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
+  DRILL_DESCRIPTION, accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
   openAcceptanceIssue, reporter, signAcceptance, sleep,
 } from "./live-kit.mjs";
 import { CLEANUP_LOCK_REF, acquireCleanupLock, breakCleanupLock, releaseCleanupLock } from "./cleanup-lock.mjs";
@@ -126,8 +126,8 @@ const ON_TIME_MESSAGE = "drill: on-time submission";
 const GRADE_POINTS = 10;
 const WORK_MESSAGE = "drill: work in progress";
 const INJECTED_WORKFLOW = ".github/workflows/autograding.yml";
-// Written on every drill assignment; cleanup refuses anything without it.
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
+// DRILL_DESCRIPTION (live-kit.mjs) is written on every drill assignment;
+// cleanup refuses anything without it.
 
 const [command, ...rest] = process.argv.slice(2);
 const flag = (name) => rest.includes(`--${name}`);

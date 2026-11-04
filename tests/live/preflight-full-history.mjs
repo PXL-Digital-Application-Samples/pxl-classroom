@@ -12,14 +12,13 @@
 // the ids are printed for `drill.mjs cleanup`.
 
 import { stringify } from "yaml";
-import { accounts, api, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
+import { DRILL_DESCRIPTION, accounts, api, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
 import { buildAssignmentDoc, utcToLocalInput } from "../../lib/assignment-doc.mjs";
 import { validateAgainst } from "../../lib/validate.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = "history-template-preflight";
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 const HUB = `/repos/${HUB_OWNER}/${HUB_REPO_NAME}`;
 const { LECTURER } = accounts(loadEnv());
 const T = LECTURER.token;

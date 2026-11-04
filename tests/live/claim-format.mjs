@@ -48,13 +48,12 @@ import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/depl
 import { signAcceptanceTitle, PURPOSE } from "../../lib/acceptance-signature.mjs";
 import { encryptClaim, claimPath, claimAttemptsPath, normalizeEmail } from "../../lib/claim.mjs";
 import { rejectionDedupKey, TRACKING_LABEL } from "../../lib/rejection-notice.mjs";
-import { accounts, api, checkAccounts, decode, die, loadEnv, reporter, sleep } from "./live-kit.mjs";
+import { DRILL_DESCRIPTION, accounts, api, checkAccounts, decode, die, issueComments, loadEnv, reporter, sleep } from "./live-kit.mjs";
 
 const env = loadEnv();
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 const { LECTURER, STUDENT_A } = accounts(env);
 const r = reporter();
 
@@ -231,7 +230,8 @@ async function main() {
     const reason = await waitFor("2 the tracking issue names rejected:claim-format", async () => {
       const issues = (await lect(`/repos/${ORG}/${CONTROL_REPO}/issues?labels=${TRACKING_LABEL}&state=all`)).data || [];
       for (const i of issues) {
-        const comments = (await lect(`/repos/${ORG}/${CONTROL_REPO}/issues/${i.number}/comments?per_page=100`)).data || [];
+        // Every page: GitHub lists oldest first, and this issue only grows.
+        const { comments } = await issueComments({ repo: `${ORG}/${CONTROL_REPO}`, issue: i.number, token: LECTURER.token });
         const hit = comments.find((c) => (c.body || "").includes(key));
         if (hit) return hit;
       }

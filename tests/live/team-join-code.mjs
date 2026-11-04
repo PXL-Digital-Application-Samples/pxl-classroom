@@ -44,7 +44,7 @@ import { encryptTeamCode } from "../../lib/claim.mjs";
 import { formatJoinCode, newJoinCode } from "../../lib/team-join-code.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
-  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, root, signAcceptance, sleep,
+  DRILL_DESCRIPTION, accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, root, signAcceptance, sleep,
 } from "./live-kit.mjs";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,8 +53,6 @@ const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 const PAGES = process.env.PAGES_BASE || `https://${HUB_OWNER.toLowerCase()}.github.io/${HUB_REPO_NAME}/`;
-// The same description drill.mjs writes, so `drill.mjs cleanup` deletes these.
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 const env = loadEnv();
 const ACCOUNTS = accounts(env);

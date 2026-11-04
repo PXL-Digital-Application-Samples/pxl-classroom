@@ -43,7 +43,7 @@ import { acceptanceRunName } from "../../lib/acceptance-run-name.mjs";
 import { unansweredAttempts } from "../../lib/unanswered-attempts.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
-  accounts, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, signAcceptance, sleep,
+  DRILL_DESCRIPTION, accounts, api, checkAccounts, checkOrg, decode, die, loadEnv, reporter, signAcceptance, sleep,
 } from "./live-kit.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
@@ -52,8 +52,6 @@ const FULL_HISTORY = process.argv.includes("--full-history");
 // branches, a tag.
 const TEMPLATE = FULL_HISTORY ? "history-template" : process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
-// The same description drill.mjs writes, so `drill.mjs cleanup` deletes these.
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 const env = loadEnv();
 const ACCOUNTS = accounts(env);

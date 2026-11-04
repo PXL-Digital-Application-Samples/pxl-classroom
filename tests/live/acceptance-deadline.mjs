@@ -35,17 +35,14 @@ import { DEDUP_MARKER, TRACKING_LABEL, rejectionDedupKey } from "../../lib/rejec
 import { acceptanceWindow } from "../../lib/acceptance-window.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../lib/deployment.mjs";
 import {
-  accounts, acceptInvitation, api, checkAccounts, checkOrg, decode, die, loadEnv,
-  openAcceptanceIssue, reporter, signAcceptance, sleep,
+  DRILL_DESCRIPTION, accounts, acceptInvitation, api, checkAccounts, checkOrg, controlRepo, die, hubRuns, isoSeconds,
+  issueComments, loadEnv, openAcceptanceIssue, pendingInvitation, reporter, signAcceptance, sleep, waitForLabel,
 } from "./live-kit.mjs";
 
 const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
 const TEMPLATE = process.env.DRILL_TEMPLATE || "starter-template";
 const HUB = `${HUB_OWNER}/${HUB_REPO_NAME}`;
 const PAGES_BASE = process.env.LIVE_PAGES_BASE || `https://${HUB_OWNER.toLowerCase()}.github.io/${HUB_REPO_NAME}`;
-// drill.mjs's cleanup accepts an assignment only with this id prefix and this
-// description, so the drill's own words.
-const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
 
 const env = loadEnv();
 const ACCOUNTS = accounts(env);
@@ -53,8 +50,10 @@ const LECTURER = ACCOUNTS.LECTURER;
 const [STUDENT_A, STUDENT_B] = [ACCOUNTS.STUDENT_A, ACCOUNTS.STUDENT_B];
 const r = reporter();
 const { ok, bad, note } = r;
+const { readControl, readControlJson } = controlRepo({ org: ORG, repo: CONTROL_REPO, token: LECTURER.token });
+const { dispatchAndWait } = hubRuns({ hub: HUB, lecturer: LECTURER, r });
+const labelled = (broker, issue, label, ms) => waitForLabel({ repo: `${ORG}/${broker}`, issue, label, token: LECTURER.token, ms });
 
-const isoSeconds = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
 const minutesAgo = (m) => new Date(Date.now() - m * 60_000).toISOString();
 const minutesAhead = (m) => new Date(Date.now() + m * 60_000).toISOString();
 
@@ -62,7 +61,9 @@ const minutesAhead = (m) => new Date(Date.now() + m * 60_000).toISOString();
 // into the past. drill.mjs's cleanup refuses an assignment whose deadline is
 // ahead, so a run that stopped half-way with a deadline six hours out left
 // something nothing could remove until then (review 2026-11-03). Every exit
-// after the commit, a failed one included, moves it back first.
+// after the commit - a failed check, a thrown error, Ctrl-C - moves it back
+// first, and says how to do it by hand when that fails too (third review,
+// 2026-11-04: Ctrl-C skipped it, and a network error inside it hid the note).
 let createdId = null;
 
 async function finish() {
@@ -70,77 +71,24 @@ async function finish() {
     const id = createdId;
     createdId = null;
     console.log("\nLeaving it cleanable: the deadline goes into the past\n");
-    if (await saveFields(id, { deadline_at: minutesAgo(1) })) {
-      await dispatchAndWait("regenerate-dashboard.yml", { org: ORG });
-    } else {
-      note(`move ${id}'s deadline into the past by hand before cleaning up`);
+    let moved = false;
+    try {
+      moved = Boolean(await saveFields(id, { deadline_at: minutesAgo(1) }));
+      if (moved) await dispatchAndWait("regenerate-dashboard.yml", { org: ORG });
+    } catch (err) {
+      bad(`could not move the deadline: ${err?.message || err}`);
     }
+    if (!moved) note(`move ${id}'s deadline into the past by hand (assignments/${id}.yml, deadline_at) before cleaning up`);
     note(`clean up with: node tests/live/drill.mjs cleanup ${id}`);
   }
   console.log(`\n${r.failures() === 0 ? "All checks passed." : `${r.failures()} check(s) failed.`}\n`);
   process.exit(r.failures() === 0 ? 0 : 1);
 }
 
-// --- control repo and hub helpers (as drill.mjs has them) ----------------------
-
-async function readControl(path) {
-  const res = await api(`/repos/${ORG}/${CONTROL_REPO}/contents/${path}`, { token: LECTURER.token });
-  return res.ok ? { ok: true, sha: res.data.sha, text: decode(res.data.content) } : { ok: false, status: res.status };
-}
-async function readControlJson(path) {
-  const res = await readControl(path);
-  if (!res.ok) return null;
-  try { return JSON.parse(res.text); } catch { return null; }
-}
-async function dispatch(workflow, inputs) {
-  const res = await api(`/repos/${HUB}/actions/workflows/${workflow}/dispatches`, {
-    token: LECTURER.token, method: "POST", body: { ref: "main", inputs },
-  });
-  if (res.ok) ok(`dispatched ${workflow} ${JSON.stringify(inputs)}`);
-  else bad(`could not dispatch ${workflow}: HTTP ${res.status} ${res.data?.message ?? ""}`);
-  return res.ok;
-}
-async function runsSince(workflow, since) {
-  const q = new URLSearchParams({ created: `>=${isoSeconds(since)}`, per_page: "50" });
-  const res = await api(`/repos/${HUB}/actions/workflows/${workflow}/runs?${q}`, { token: LECTURER.token });
-  return (res.data?.workflow_runs || []).sort((a, b) => a.created_at.localeCompare(b.created_at));
-}
-async function findDispatchedRun(workflow, since) {
-  for (let i = 0; i < 12; i++) {
-    await sleep(5_000);
-    const run = (await runsSince(workflow, since)).find((x) => normalizeLogin(x.actor?.login) === normalizeLogin(LECTURER.login));
-    if (run) return run;
-  }
-  return null;
-}
-async function waitForRun(run, { minutes = 10 } = {}) {
-  for (let waited = 0; waited < minutes * 60_000; waited += 10_000) {
-    const res = await api(`/repos/${HUB}/actions/runs/${run.id}`, { token: LECTURER.token });
-    if (res.data?.status === "completed") return res.data;
-    await sleep(10_000);
-  }
-  return null;
-}
-async function waitForLabel(broker, issue, label, ms) {
-  for (let waited = 0; waited <= ms; waited += 10_000) {
-    const res = await api(`/repos/${ORG}/${broker}/issues/${issue}/labels`, { token: LECTURER.token });
-    if ((res.data || []).some?.((l) => l.name === label)) return true;
-    await sleep(10_000);
-  }
-  return false;
-}
-/** A dispatched workflow, run to its end; the conclusion or null. */
-async function dispatchAndWait(workflow, inputs) {
-  const since = Date.now() - 5_000;
-  if (!(await dispatch(workflow, inputs))) return null;
-  const run = await findDispatchedRun(workflow, since);
-  if (!run) { bad(`no ${workflow} run appeared within 60s`); return null; }
-  note(`watching ${run.html_url}`);
-  const done = await waitForRun(run);
-  if (done?.conclusion === "success") ok(`${workflow} run succeeded`);
-  else bad(`${workflow} run ${done?.conclusion ?? "did not finish in 10 minutes"}: ${run.html_url}`);
-  return done?.conclusion ?? null;
-}
+// Ctrl-C during one of the five-minute waits is the ordinary way a run dies
+// (drill.mjs says the same of its cleanup). Once: a second Ctrl-C ends it at
+// once, which is what someone pressing it twice means.
+process.once("SIGINT", () => { bad("interrupted"); finish(); });
 
 /** The refusal the hub wrote on the tracking issue for this student, within `ms`. */
 async function waitForRefusal(id, login, outcome, ms) {
@@ -150,8 +98,9 @@ async function waitForRefusal(id, login, outcome, ms) {
   for (let waited = 0; waited <= ms; waited += 15_000) {
     const issues = await api(`/repos/${ORG}/${CONTROL_REPO}/issues?labels=${TRACKING_LABEL}&state=open&per_page=10`, { token: LECTURER.token });
     for (const issue of issues.data || []) {
-      const comments = await api(`/repos/${ORG}/${CONTROL_REPO}/issues/${issue.number}/comments?per_page=100`, { token: LECTURER.token });
-      const hit = (comments.data || []).find((c) => c.body?.toLowerCase().includes(key));
+      // Every page: the tracking issue holds every refusal the org ever had.
+      const { comments } = await issueComments({ repo: `${ORG}/${CONTROL_REPO}`, issue: issue.number, token: LECTURER.token });
+      const hit = comments.find((c) => c.body?.toLowerCase().includes(key));
       if (hit) return hit;
     }
     await sleep(15_000);
@@ -198,7 +147,7 @@ async function expectRefused(id, broker, secret, student, outcome) {
   const title = await signAcceptance({ secret, assignmentId: id, student }, r);
   const issue = title ? await openAcceptanceIssue({ org: ORG, broker, title, student }, r) : null;
   if (!issue) return;
-  if (await waitForLabel(broker, issue, REJECTED_LABEL, 300_000)) ok(`#${issue} carries ${REJECTED_LABEL}`);
+  if (await labelled(broker, issue, REJECTED_LABEL, 300_000)) ok(`#${issue} carries ${REJECTED_LABEL}`);
   else bad(`#${issue} has no ${REJECTED_LABEL} label after 300s - check the hub's acceptance-handler run`);
   const comment = await waitForRefusal(id, student.login, outcome, 120_000);
   if (comment) ok(`the tracking issue names the refusal: ${outcome}`);
@@ -221,12 +170,18 @@ async function expectAccepted(id, broker, secret, student) {
   ok(`provisioned ${record.repo_url}`);
   // What the student page reads after the acceptance deadline to offer "Send
   // my invitation again" (broker-teams.js `invitedBefore`): this label, on an
-  // issue of their own, put on only when GitHub sent an invitation.
-  if (record.access_state === "invited") {
-    if (await waitForLabel(broker, issue, INVITED_LABEL, 60_000)) ok(`#${issue} carries ${INVITED_LABEL}: the page will offer to send it again`);
-    else bad(`#${issue} has no ${INVITED_LABEL} label although the record says invited`);
+  // issue of their own, put on only when GitHub sent an invitation - which is
+  // asked of GitHub, the student's own pending invitation. The record says
+  // `access_state: invited` for every acceptance whether or not one was sent
+  // (lib/team-member-records.mjs), so it could not tell (third review).
+  const repoName = record.repo_name?.split("/")?.[1] ?? "";
+  if (await pendingInvitation({ student, repoName })) {
+    if (await labelled(broker, issue, INVITED_LABEL, 60_000)) ok(`#${issue} carries ${INVITED_LABEL}: the page will offer to send it again`);
+    else bad(`#${issue} has no ${INVITED_LABEL} label although GitHub sent ${student.login} an invitation`);
+  } else {
+    note(`${student.login} was sent no invitation (already had access), so no ${INVITED_LABEL} label is owed`);
   }
-  await acceptInvitation({ student, repoName: record.repo_name?.split("/")?.[1] ?? "" }, r);
+  await acceptInvitation({ student, repoName }, r);
   return { issue, record };
 }
 

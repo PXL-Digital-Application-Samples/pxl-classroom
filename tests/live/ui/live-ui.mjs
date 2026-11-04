@@ -3,16 +3,17 @@
 // is real GitHub, as the test accounts in .env.test (tests/live/live-kit.mjs).
 
 import { stringify } from "yaml";
-import { accounts, api, decode, loadEnv, sleep } from "../live-kit.mjs";
+import { DRILL_DESCRIPTION, accounts, api, decode, loadEnv, sleep } from "../live-kit.mjs";
 import { CONTROL_REPO, HUB_OWNER, HUB_REPO_NAME, TIMEZONE } from "../../../lib/deployment.mjs";
 import { linkSecretFrom, parseInviteFields } from "../../../lib/invite-token-format.mjs";
 import { buildAssignmentDoc, utcToLocalInput } from "../../../lib/assignment-doc.mjs";
 import { validateAgainst } from "../../../lib/validate.mjs";
 import { AUTH_KEY } from "../../../frontend/src/lib/auth-storage.js";
 
-// tests/live/drill.mjs's own marker and id prefix, so `drill.mjs cleanup <id>`
-// deletes what this suite made the way the Admin Panel would.
-export const DRILL_DESCRIPTION = "Automated deadline drill (tests/live/drill.mjs). Safe to delete.";
+// tests/live/drill.mjs's own marker (live-kit.mjs) and id prefix, so
+// `drill.mjs cleanup <id>` deletes what this suite made the way the Admin
+// Panel would. Passed on for the specs that import it from here.
+export { DRILL_DESCRIPTION };
 
 export const ACCOUNTS = accounts(loadEnv());
 export const ORG = process.env.DRILL_ORG || "pxl-classroom-testbed";
