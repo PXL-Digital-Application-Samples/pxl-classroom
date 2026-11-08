@@ -77,6 +77,26 @@ async function setup(page, { swapped = false } = {}) {
     },
   });
 
+  // GitHub names the template a repository was generated from
+  // (`template_repository`), and the planner reads it to tell a genuine switch
+  // from a rewritten history (lib/starter-sync-cohort.mjs repoOrigin): the
+  // swapped student's repository came from the OLD template, the others from
+  // this one. Without it the fixture answered 404, which GitHub never does for
+  // a generated repository, and the switch read as a student's own history.
+  await page.route(/api\.github\.com\/repos\/[^/]+\/[^/]+$/, async (route) => {
+    const url = new URL(route.request().url());
+    const [, , owner, repo] = url.pathname.split('/');
+    if (owner !== ORG || !repo.startsWith('lab-catchup-')) return route.fallback();
+    const fromOld = swapped && repo === repoOf(STUDENT_1);
+    return route.fulfill({
+      status: 200,
+      body: JSON.stringify({
+        full_name: `${ORG}/${repo}`, name: repo, default_branch: 'main', private: true,
+        template_repository: fromOld ? { id: 777, full_name: `${ORG}/old-template` } : { id: 4242, full_name: `${ORG}/${TPL}` },
+      }),
+    });
+  });
+
   // Registered after the standard routes, so these answer first: the
   // template's history with its trees, the newest commit's detail, and each
   // student's first commit behind a `last` link - the reads a starting point

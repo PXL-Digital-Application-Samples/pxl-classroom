@@ -21,7 +21,7 @@ import { validateAgainst } from "../lib/validate.mjs";
 import { withConcurrency } from "../lib/worker-pool.mjs";
 import { commitWithRebase } from "../lib/gittree.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
-import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
+import { blobOf, listTemplateCommits, modeOf, planStudent, repoOrigin, rootCommit, treeReader } from "../../../lib/starter-sync-cohort.mjs";
 import { submissionBranch } from "../../../lib/submission-marker.mjs";
 import { buildSyncRecord, generateSyncId, progressFlusher, syncRow } from "../../../lib/sync-record.mjs";
 import { sameLogin } from "../../../lib/github-login.mjs";
@@ -293,12 +293,14 @@ export function registerSyncStarterCommand(program) {
         const studentFullName = `${org}/${repoName}`;
         try {
           const studentTree = await readStudentTree(studentFullName, branch);
-          const { from, source, plan, at } = await planStudent({
+          const { from, source, plan, at, theirs = [], dropped = [] } = await planStudent({
             login,
             studentRepo: studentFullName,
             studentTree,
             readTree: readTemplateTree,
             root: () => rootCommit(get, studentFullName, branch),
+            repoOrigin: () => repoOrigin(get, studentFullName),
+            templateId: Number.isInteger(assignment.template?.repository_id) ? assignment.template.repository_id : null,
             templateFullName,
             headSha: templateSha,
             headTree,
@@ -308,6 +310,8 @@ export function registerSyncStarterCommand(program) {
             selected: requested,
             historyComplete: listedOk && listedComplete,
           });
+          if (dropped.length) process.stdout.write(`  · ${login}: GitHub's copy was short of ${dropped.join(", ")}; planned from ${String(from).slice(0, 7)}\n`);
+          if (theirs.length) process.stdout.write(`  · ${login}: ${theirs.length} file(s) the template never changed are theirs, not offered: ${theirs.join(", ")}\n`);
           const outcome = outcomeFor(plan);
 
           const base = { login, teamSlug, repoFull: studentFullName, outcome, plan, from, source, at };

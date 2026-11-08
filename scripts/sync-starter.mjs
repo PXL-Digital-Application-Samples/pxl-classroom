@@ -33,7 +33,7 @@ import {
   startingPointFor,
   syncRefusal,
 } from "../lib/starter-sync.mjs";
-import { blobOf, listTemplateCommits, modeOf, planStudent, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
+import { blobOf, listTemplateCommits, modeOf, planStudent, repoOrigin, rootCommit, treeReader } from "../lib/starter-sync-cohort.mjs";
 import { assignmentOutcome, issueAssignees, loginsByRepo, oneRecordPerRepo } from "../lib/sync-issue.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
 import { submissionBranch } from "../lib/submission-marker.mjs";
@@ -376,12 +376,14 @@ async function main() {
 
     try {
       const studentTree = await readStudentTree(studentFullName, branch);
-      const { from, source, plan, at } = await planStudent({
+      const { from, source, plan, at, theirs = [], dropped = [] } = await planStudent({
         login,
         studentRepo: studentFullName,
         studentTree,
         readTree: readTemplateTree,
         root: () => rootCommit(get, studentFullName, branch),
+        repoOrigin: () => repoOrigin(get, studentFullName),
+        templateId: Number.isInteger(assignment.template?.repository_id) ? assignment.template.repository_id : null,
         templateFullName,
         headSha: templateSha,
         headTree,
@@ -391,6 +393,8 @@ async function main() {
         selected: requestedFiles,
         historyComplete: listed.ok && listed.complete,
       });
+      if (dropped.length) console.log(`[sync] ${login}: GitHub's copy was short of ${dropped.join(", ")}; planned from ${String(from).slice(0, 7)}`);
+      if (theirs.length) console.log(`[sync] ${login}: ${theirs.length} file(s) the template never changed are theirs, not offered: ${theirs.join(", ")}`);
       const outcome = outcomeFor(plan);
       row = syncRow({ login, repoName: studentFullName, teamSlug, outcome, from, source, at, plan });
       for (const e of [...plan.clean, ...plan.conflicts]) appliedPaths.add(e.path);

@@ -348,7 +348,7 @@ import { ghApi, getRepoContent, dispatchWorkflowRun } from '../lib/api.js'
 import { activeSyncRun, describeFollow } from '../../../lib/sync-status.mjs'
 import { submissionBranch } from '../../../lib/submission-marker.mjs'
 import {
-  changedPaths, outcomeFor, listTemplateCommits, planStudent, rootCommit, treeReader,
+  changedPaths, outcomeFor, listTemplateCommits, planStudent, repoOrigin, rootCommit, treeReader,
 } from '../lib/starter-sync.js'
 import { toast } from '../lib/toast.js'
 
@@ -405,6 +405,9 @@ let allTemplateCommits = []
 // having a repository from another template (lib/starter-sync-cohort.mjs).
 let templateHistoryComplete = false
 const rootCache = new Map()
+// GitHub's `template_repository` per student repository, read once and only
+// where the planner asks (a student planned from their own first commit).
+const originCache = new Map()
 // Files some student is behind on that the newest commit did not change,
 // found by the scan. Tickable like the others; see `catchUpFiles`.
 const catchUpFiles = ref([])
@@ -655,6 +658,11 @@ function planFor(s, selected) {
     studentTree: studentTrees.value.get(repo),
     readTree: readTemplateTree,
     root: () => rootCache.get(repo),
+    repoOrigin: () => {
+      if (!originCache.has(repo)) originCache.set(repo, repoOrigin(get, repo))
+      return originCache.get(repo)
+    },
+    templateId: Number.isInteger(props.assignment?.template?.repository_id) ? props.assignment.template.repository_id : null,
     templateFullName: templateFullName.value,
     headSha: targetSha.value,
     headTree: headTree.value,

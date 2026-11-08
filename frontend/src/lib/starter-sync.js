@@ -17,6 +17,7 @@ export {
 export {
   listTemplateCommits,
   planStudent,
+  repoOrigin,
   rootCommit,
   treeReader,
 } from '../../../lib/starter-sync-cohort.mjs'

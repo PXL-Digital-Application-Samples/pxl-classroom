@@ -11,11 +11,15 @@ import assert from "node:assert/strict";
 
 import {
   diffTreePaths,
+  fromAnotherTemplate,
+  partialCopyStart,
+  planStarterSync,
   resolveSelection,
   selectionIsAll,
   startingPointFor,
   outcomeFor,
   REACHED_OUTCOMES,
+  theirsByHistory,
 } from "../lib/starter-sync.mjs";
 import { listTemplateCommits, planStudent, rootTreeSha, treeReader } from "../lib/starter-sync-cohort.mjs";
 
@@ -479,10 +483,16 @@ const NEW_PARENT_TREE = new Map([
   [".github/workflows/classroom.yml", "wf-old"],
 ]);
 
+// What GitHub records on a repository generated from the OLD template: its
+// `template_repository` names that template, not the assignment's. The
+// planner reads it (repoOrigin) to tell a genuine switch from a rewritten
+// history, where a file this template never changed is the student's own.
+const OLD_ORIGIN = { id: 99, full_name: "Org/old-tpl" };
+
 /** A planner over a swapped template: the student's first commit is `first`. */
 // `generated`: whether GitHub generated their first commit from a template
 // (lib/starter-sync-cohort.mjs rootCommit) - true for a genuine switch.
-async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, repo = "Org/labs-swap", records = [], generated = true, historyComplete = true } = {}) {
+async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, repo = "Org/labs-swap", records = [], generated = true, historyComplete = true, origin = OLD_ORIGIN } = {}) {
   const trees = {
     [`Org/tpl@${NEW_HEAD}`]: NEW_TREE,
     [`Org/tpl@${NEW_PARENT}`]: NEW_PARENT_TREE,
@@ -494,7 +504,8 @@ async function swapped(studentTree, { first = OLD_FIRST, firstReadable = true, r
     return t;
   };
   return planStudent({
-    login: "swap", studentRepo: repo, studentTree, readTree, root: async () => ({ treeSha: "first-tree", generated }),
+    login: "swap", studentRepo: repo, studentTree, readTree, root: async () => ({ treeSha: "first-tree", generated, copyShape: generated }),
+    repoOrigin: async () => origin, templateId: 1,
     templateFullName: "Org/tpl", headSha: NEW_HEAD, headTree: NEW_TREE,
     // The new template's history holds no commit with the student's first tree.
     templateCommits: [{ sha: NEW_HEAD, treeSha: "t9", date: "2026-09-25T20:00:00Z" }, { sha: NEW_PARENT, treeSha: "t8", date: "2026-09-25T19:00:00Z" }],
@@ -841,4 +852,253 @@ test("a template file DELETED since their start is removed if untouched, offered
   } finally {
     delete TREES[LAB5];
   }
+});
+
+// =============================================================================
+// GitHub's copy one file short, and a file the template never changed
+//
+// 2026-11-08, PXL-Systems-Expert / 2627-systemsexp-pe-3tinb-yarrrrrr-harhar:
+// re-generated after an empty leftover was removed, the copy held 15 of the
+// template's 16 paths (no .env.example) under an UNVERIFIED "Initial commit" by
+// the provisioner bot. Matching no commit's tree sha, it was planned from its
+// own first commit; the missing file read as a template change and the team's
+// own .env.example, filled in on 4 Nov, was offered as PR #9 wiping it. The
+// template had never changed .env.example.
+// =============================================================================
+
+// The measured root: PXL-Systems-Expert/2627-systemsexp-pe-3tinb-yarrrrrr-harhar a1c8963.
+const SHORT_ROOT_ROW = {
+  parents: [], author: { login: "pxl-classroom-provisioner[bot]" }, committer: { login: "web-flow" },
+  commit: { message: "Initial commit", tree: { sha: "2569085" }, verification: { verified: false, reason: "unsigned" } },
+};
+
+test("copyShape is the generated shape signature aside; generatedFromTemplate still wants the signature", async () => {
+  const { copyShape, generatedFromTemplate } = await import("../lib/starter-sync-cohort.mjs");
+  assert.equal(copyShape(SHORT_ROOT_ROW), true);
+  assert.equal(generatedFromTemplate(SHORT_ROOT_ROW), false, "unverified: not trusted as starter code on its own");
+  assert.equal(copyShape({ ...SHORT_ROOT_ROW, author: { login: "a-student" } }), false);
+  assert.equal(copyShape({ ...SHORT_ROOT_ROW, committer: { login: "a-student" } }), false);
+  assert.equal(copyShape({ ...SHORT_ROOT_ROW, parents: [{ sha: "x" }] }), false);
+  assert.equal(copyShape(null), false);
+});
+
+test("partialCopyStart: a root holding one commit's blobs minus some paths is a copy of that commit, fewest missing first", () => {
+  const trees = new Map(Object.entries(TREES));
+  const shortOfTests = new Map([...TREES[LAB3]].filter(([p]) => p !== "Lab03/Tests.cs"));
+  assert.deepEqual(partialCopyStart({ rootTree: shortOfTests, templateCommits: COMMITS, trees }), { sha: LAB3, missing: ["Lab03/Tests.cs"] });
+  // Lab 2's tree minus README is inside lab 2 (1 missing), lab 3 (3) and lab 4 (4): the fewest missing wins.
+  const shortOfReadme = new Map([["Lab02/Program.cs", "l2"]]);
+  assert.deepEqual(partialCopyStart({ rootTree: shortOfReadme, templateCommits: COMMITS, trees }), { sha: LAB2, missing: ["README.md"] });
+  // An exact copy is that commit with nothing missing.
+  assert.deepEqual(partialCopyStart({ rootTree: TREES[LAB2], templateCommits: COMMITS, trees }), { sha: LAB2, missing: [] });
+  // A blob the template never had, or a path it never had, is not a copy of anything.
+  assert.equal(partialCopyStart({ rootTree: new Map([["README.md", "theirs"]]), templateCommits: COMMITS, trees }), null);
+  assert.equal(partialCopyStart({ rootTree: new Map([["README.md", "r"], ["notes.md", "n"]]), templateCommits: COMMITS, trees }), null);
+  // Nothing from nothing: an empty root, no trees.
+  assert.equal(partialCopyStart({ rootTree: new Map(), templateCommits: COMMITS, trees }), null);
+  assert.equal(partialCopyStart({ rootTree: shortOfTests, templateCommits: COMMITS, trees: new Map() }), null);
+  // The same files in two commits (a revert): the newest, as an exact match picks.
+  const reverted = [...COMMITS, { sha: sha("9"), treeSha: "tree-2", date: "2026-09-26T08:00:00Z" }];
+  assert.equal(partialCopyStart({ rootTree: shortOfReadme, templateCommits: reverted, trees: new Map([...trees, [sha("9"), TREES[LAB2]]]) }).sha, sha("9"));
+});
+
+test("theirsByHistory: one template content ever, held at another content, is theirs; anything else is not", () => {
+  const known = new Map([
+    ["config.env", new Set(["stub"])],                 // added once, never changed
+    ["gradlew", new Set(["g1@100755", "g1"])],         // one content in two modes: never changed
+    ["README.md", new Set(["r1", "r2"])],              // changed by the template
+    ["gone.md", new Set(["old"])],                     // deleted by the template (not in head)
+  ]);
+  const headTree = new Map([["config.env", "stub"], ["gradlew", "g1@100755"], ["README.md", "r2"]]);
+  const paths = ["config.env", "gradlew", "README.md", "gone.md", "lab2.md"];
+  const theirs = (student) => theirsByHistory({ paths, studentTree: student, knownVersions: known, headTree });
+  assert.deepEqual(theirs(new Map([["config.env", "NAME=alice"], ["gradlew", "g1"], ["README.md", "mine"], ["gone.md", "mine"]])), ["config.env"]);
+  // Missing: added as before. At the template's content: untouched, repaired as before.
+  assert.deepEqual(theirs(new Map([["config.env", "stub"]])), []);
+  assert.deepEqual(theirs(new Map()), []);
+  assert.deepEqual(theirs(new Map([["config.env", "x"], ["gradlew", "g1@100644"]])), ["config.env"], "a mode-only difference is the template's content");
+  assert.deepEqual(theirsByHistory({ paths, studentTree: new Map([["config.env", "x"]]), knownVersions: null, headTree }), []);
+});
+
+test("fromAnotherTemplate: by the pinned id where both are known, else by name; no origin is not another template", () => {
+  assert.equal(fromAnotherTemplate({ origin: { id: 2, full_name: "Org/other" }, templateFullName: "Org/tpl", templateId: 1 }), true);
+  assert.equal(fromAnotherTemplate({ origin: { id: 1, full_name: "Org/renamed-tpl" }, templateFullName: "Org/tpl", templateId: 1 }), false, "a renamed template keeps its id");
+  assert.equal(fromAnotherTemplate({ origin: { full_name: "Org/TPL" }, templateFullName: "org/tpl" }), false);
+  assert.equal(fromAnotherTemplate({ origin: { full_name: "Org/other" }, templateFullName: "Org/tpl" }), true);
+  assert.equal(fromAnotherTemplate({ origin: null, templateFullName: "Org/tpl", templateId: 1 }), false);
+  assert.equal(fromAnotherTemplate({ origin: {}, templateFullName: "Org/tpl", templateId: 1 }), false);
+});
+
+test("repoOrigin reads GitHub's template_repository: null when none or the repository is gone, a thrown error otherwise", async () => {
+  const { repoOrigin } = await import("../lib/starter-sync-cohort.mjs");
+  const get = (answer) => async () => answer;
+  assert.deepEqual(await repoOrigin(get({ ok: true, status: 200, data: { template_repository: { id: 5, full_name: "Org/tpl" } } }), "Org/x"), { id: 5, full_name: "Org/tpl" });
+  assert.equal(await repoOrigin(get({ ok: true, status: 200, data: { template_repository: null } }), "Org/x"), null);
+  assert.equal(await repoOrigin(get({ ok: false, status: 404, data: null }), "Org/x"), null);
+  await assert.rejects(repoOrigin(get({ ok: false, status: 502, data: null }), "Org/x"), /HTTP 502/);
+});
+
+test("planStarterSync: a path the copy never gave them is added when absent, never read as a deletion of theirs", () => {
+  const base = new Map([["a", "1"], ["b", "1"]]);
+  const head = new Map([["a", "1"], ["b", "2"]]);
+  // Without `dropped`, an absent file the base had reads as the student's deletion: a pull request.
+  assert.deepEqual(planStarterSync({ headTree: head, baseTree: base, studentTree: new Map([["a", "1"]]), paths: ["b"] }).conflicts, [{ path: "b", action: "write" }]);
+  assert.deepEqual(planStarterSync({ headTree: head, baseTree: base, studentTree: new Map([["a", "1"]]), paths: ["b"], dropped: ["b"] }).clean, [{ path: "b", action: "write" }]);
+  // Present at their own content: `dropped` says nothing, the usual rules do.
+  assert.deepEqual(planStarterSync({ headTree: head, baseTree: base, studentTree: new Map([["a", "1"], ["b", "mine"]]), paths: ["b"], dropped: ["b"] }).conflicts, [{ path: "b", action: "write" }]);
+});
+
+/** A planner over a student whose first commit is `rootTree`, shaped as `root` says, in a repository GitHub says came from `origin`. */
+async function fromRoot(studentTree, { rootTree, copyShape = true, origin = null, originFails = false, repo = "Org/labs-short", historyComplete = true } = {}) {
+  const readTree = async (r, ref) => {
+    if (r === "Org/tpl" && TREES[ref]) return TREES[ref];
+    if (r === repo && ref === "root-tree") return rootTree;
+    throw new Error(`no tree ${r}@${ref}`);
+  };
+  return planStudent({
+    login: "short", studentRepo: repo, studentTree, readTree,
+    root: async () => ({ treeSha: "root-tree", generated: false, copyShape }),
+    repoOrigin: async () => {
+      if (originFails) throw new Error("could not read Org/labs-short (HTTP 502)");
+      return origin;
+    },
+    templateId: 1,
+    templateFullName: "Org/tpl", headSha: LAB4, headTree: TREES[LAB4], templateCommits: COMMITS,
+    records: [], fallbackSha: LAB3, selected: ["*"], historyComplete,
+  });
+}
+
+const SHORT_OF_TESTS = new Map([...TREES[LAB3]].filter(([p]) => p !== "Lab03/Tests.cs"));
+
+test("THE SHORT COPY: generated at lab 3 minus Lab03/Tests.cs - the start is lab 3, the range is the template's own changes since, and their own Tests.cs is theirs", async () => {
+  const theirs = new Map([...SHORT_OF_TESTS, ["Lab03/Tests.cs", "NAME=alice"]]);
+  const res = await fromRoot(theirs, { rootTree: SHORT_OF_TESTS });
+  assert.equal(res.source, "generated");
+  assert.equal(res.from, LAB3);
+  assert.deepEqual(res.dropped, ["Lab03/Tests.cs"]);
+  assert.deepEqual(res.paths, ["Lab04/Program.cs"], "only what the template changed since lab 3");
+  assert.deepEqual(res.plan.clean, [{ path: "Lab04/Program.cs", action: "write" }]);
+  assert.deepEqual(res.plan.conflicts, [], "their Lab03/Tests.cs is not offered");
+  assert.equal(res.at, LAB4);
+});
+
+test("THE SHORT COPY: the path the copy left out is added on main where they still have no file there", async () => {
+  const res = await fromRoot(new Map(SHORT_OF_TESTS), { rootTree: SHORT_OF_TESTS });
+  assert.equal(res.source, "generated");
+  assert.deepEqual(res.paths, ["Lab03/Tests.cs", "Lab04/Program.cs"]);
+  assert.deepEqual(res.plan.clean.map((c) => c.path), ["Lab03/Tests.cs", "Lab04/Program.cs"]);
+  assert.deepEqual(res.plan.conflicts, []);
+});
+
+test("THE SHORT COPY: only for a root GitHub made - a student's own root of template files is still their first commit", async () => {
+  const theirs = new Map([...SHORT_OF_TESTS, ["Lab03/Tests.cs", "NAME=alice"]]);
+  const res = await fromRoot(theirs, { rootTree: SHORT_OF_TESTS, copyShape: false });
+  assert.equal(res.source, "first-commit");
+  assert.deepEqual(res.dropped, []);
+});
+
+test("THE SHORT COPY: on a capped history nothing is a copy of anything - the old behaviour, named unknown", async () => {
+  const res = await fromRoot(new Map(SHORT_OF_TESTS), { rootTree: SHORT_OF_TESTS, historyComplete: false });
+  assert.equal(res.source, "unknown");
+});
+
+test("FROM THEIR OWN FIRST COMMIT: a file the template added once and never changed, filled in by them, is theirs - not in range, no pull request", async () => {
+  // Their root: lab 3's files with Tests.cs already filled in (a rewritten history).
+  const own = new Map([...TREES[LAB3], ["Lab03/Tests.cs", "NAME=alice"]]);
+  const res = await fromRoot(own, { rootTree: own, copyShape: false });
+  assert.equal(res.source, "first-commit");
+  assert.deepEqual(res.theirs, ["Lab03/Tests.cs"]);
+  assert.ok(!res.paths.includes("Lab03/Tests.cs"), "not in range");
+  assert.ok(!res.plan.conflicts.some((c) => c.path === "Lab03/Tests.cs"), "no pull request wiping it");
+  assert.ok(res.plan.clean.some((c) => c.path === "Lab04/Program.cs" && c.action === "write"), "lab 4 still arrives on main");
+});
+
+test("FROM THEIR OWN FIRST COMMIT: a file the template DID change, which they edited, is still a pull request", async () => {
+  const own = new Map([["README.md", "r"], ["Lab02/Program.cs", "MINE"], ["Lab03/Program.cs", "l3"], ["Lab03/Tests.cs", "t3"]]);
+  // The template changes Lab02/Program.cs in lab 4, so it has two versions.
+  const changed = { ...TREES, [LAB4]: new Map([...TREES[LAB4], ["Lab02/Program.cs", "l2-fixed"]]) };
+  const readTree = async (r, ref) => {
+    if (r === "Org/tpl" && changed[ref]) return changed[ref];
+    if (r === "Org/labs-short" && ref === "root-tree") return own;
+    throw new Error(`no tree ${r}@${ref}`);
+  };
+  const res = await planStudent({
+    login: "short", studentRepo: "Org/labs-short", studentTree: own, readTree,
+    root: async () => ({ treeSha: "root-tree", generated: false, copyShape: false }),
+    repoOrigin: async () => null, templateId: 1,
+    // A copy of the list: the template's versions are read once PER LIST
+    // (templateVersions memoises on it), and this test's lab 4 differs.
+    templateFullName: "Org/tpl", headSha: LAB4, headTree: changed[LAB4], templateCommits: [...COMMITS],
+    records: [], fallbackSha: LAB3, selected: ["*"], historyComplete: true,
+  });
+  assert.equal(res.source, "first-commit");
+  assert.deepEqual(res.theirs, []);
+  assert.deepEqual(res.plan.conflicts.filter((c) => c.path === "Lab02/Program.cs"), [{ path: "Lab02/Program.cs", action: "write" }]);
+});
+
+test("FROM THEIR OWN FIRST COMMIT: GitHub says another template - the never-changed file is offered, as a switch must", async () => {
+  const own = new Map([...TREES[LAB3], ["Lab03/Tests.cs", "NAME=alice"]]);
+  const res = await fromRoot(own, { rootTree: own, copyShape: false, origin: { id: 2, full_name: "Org/other-template" } });
+  assert.equal(res.source, "first-commit");
+  assert.deepEqual(res.theirs, []);
+  assert.deepEqual(res.plan.conflicts.filter((c) => c.path === "Lab03/Tests.cs"), [{ path: "Lab03/Tests.cs", action: "write" }]);
+  // The same template under another name, same id: not a switch.
+  const same = await fromRoot(own, { rootTree: own, copyShape: false, origin: { id: 1, full_name: "Org/tpl-renamed" } });
+  assert.deepEqual(same.theirs, ["Lab03/Tests.cs"]);
+});
+
+test("FROM THEIR OWN FIRST COMMIT: an origin that cannot be read fails the student rather than planning on a guess", async () => {
+  const own = new Map([...TREES[LAB3], ["Lab03/Tests.cs", "NAME=alice"]]);
+  await assert.rejects(fromRoot(own, { rootTree: own, copyShape: false, originFails: true }), /HTTP 502/);
+});
+
+test("A COPY AT A TEMPLATE VERSION IN BETWEEN is starter code: written on main from a known start, never offered back (Krusty Krabs, 2026-11-08)", async () => {
+  // Generated at v1; given v2's PE2.md by a pull request their lecturer made
+  // by hand; the template moves on to v3. Compared with v1 and v3 alone, v2
+  // differs from both and was a pull request offering v3 - a conflict over a
+  // file nobody edited.
+  const V1 = sha("a");
+  const V2 = sha("b");
+  const V3 = sha("c");
+  const trees = {
+    [V1]: new Map([["README.md", "r"], ["PE2.md", "pe2-v1"]]),
+    [V2]: new Map([["README.md", "r"], ["PE2.md", "pe2-v2"]]),
+    [V3]: new Map([["README.md", "r"], ["PE2.md", "pe2-v3"]]),
+  };
+  const commits = [
+    { sha: V3, treeSha: "t-c", date: "2026-11-08T21:34:24Z" },
+    { sha: V2, treeSha: "t-b", date: "2026-11-08T18:03:07Z" },
+    { sha: V1, treeSha: "t-a", date: "2026-10-12T20:37:16Z" },
+  ];
+  const readTree = async (r, ref) => {
+    if (r === "Org/tpl" && trees[ref]) return trees[ref];
+    throw new Error(`no tree ${r}@${ref}`);
+  };
+  const run = (studentTree) => planStudent({
+    login: "kk", studentRepo: "Org/labs-kk", studentTree, readTree,
+    root: async () => ({ treeSha: "t-a", generated: true, copyShape: true }), repoOrigin: async () => null, templateId: 1,
+    templateFullName: "Org/tpl", headSha: V3, headTree: trees[V3], templateCommits: commits,
+    records: [], fallbackSha: V2, selected: ["*"], historyComplete: true,
+  });
+  const merged = await run(new Map([["README.md", "r"], ["PE2.md", "pe2-v2"]]));
+  assert.equal(merged.source, "generated");
+  assert.equal(merged.from, V1);
+  assert.deepEqual(merged.plan.clean, [{ path: "PE2.md", action: "write" }], "v2 is the template's own: v3 lands on main");
+  assert.deepEqual(merged.plan.conflicts, []);
+  // Their own edit is still theirs: a pull request.
+  const edited = await run(new Map([["README.md", "r"], ["PE2.md", "our notes"]]));
+  assert.deepEqual(edited.plan.conflicts, [{ path: "PE2.md", action: "write" }]);
+  assert.deepEqual(edited.plan.clean, []);
+});
+
+test("UP TO DATE BY HAND: a student whose main already carries the template's files (a merged pull request) is sent nothing and gets no pull request", async () => {
+  // Generated at lab 3, then given lab 4's files by a pull request of their lecturer's.
+  const res = await fromRoot(new Map(TREES[LAB4]), { rootTree: TREES[LAB3] });
+  assert.equal(res.source, "generated");
+  assert.equal(res.from, LAB3);
+  assert.deepEqual(res.paths, ["Lab04/Program.cs"]);
+  assert.deepEqual(res.plan.upToDate, ["Lab04/Program.cs"]);
+  assert.deepEqual(res.plan.clean, []);
+  assert.deepEqual(res.plan.conflicts, []);
+  assert.equal(outcomeFor(res.plan), "skipped-up-to-date");
 });
