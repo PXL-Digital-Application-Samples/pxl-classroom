@@ -264,6 +264,23 @@ test("COMPLETED: a student with no repository is not 'already had it' (third rev
   assert.equal(v.detail, "1 updated, 2 already had it, 1 had no repository to update.");
 });
 
+test("COMPLETED: a student whose branch only takes pull requests was updated by one, and the line says how many", () => {
+  // 2026-11-08: a lecturer who expects the files on main finds a pull request
+  // waiting for the team instead, so the line says so (`main_refused` on the row).
+  const v = describeSyncStatus({
+    record: record({
+      results: [
+        res("ada", "pr-opened", { main_refused: "Repository rule violations found: Changes must be made through a pull request.", pr_number: 4 }),
+        res("bo", "auto-merged"),
+        res("cy", "skipped-up-to-date"),
+      ],
+    }),
+    templateHeadSha: HEAD,
+  });
+  assert.equal(v.state, "completed");
+  assert.equal(v.detail, "2 updated (1 as a pull request: their branch only takes pull requests), 1 already had it.");
+});
+
 test("FOLLOW: an unreadable run is unknown and keeps checking - never 'done'", () => {
   const v = describeFollow({ run: null, record: null });
   assert.equal(v.state, "unknown");

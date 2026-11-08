@@ -27,7 +27,13 @@ import { buildSyncRecord, generateSyncId, progressFlusher, syncRow } from "../..
 import { sameLogin } from "../../../lib/github-login.mjs";
 import { assignmentOutcome, issueAssignees, loginsByRepo, oneRecordPerRepo } from "../../../lib/sync-issue.mjs";
 import {
+  branchRefusedByRule,
+  branchRefusedMessage,
   changedPaths,
+  filesForPullRequest,
+  isRuleRefusal,
+  ruleRefusalReason,
+  syncBranchName,
   closeSupersededSyncPrs,
   outcomeFor,
   syncMarker,
@@ -247,6 +253,7 @@ export function registerSyncStarterCommand(program) {
         return {
           ...syncRow({ login: res.login, repoName: res.repoFull, teamSlug: res.teamSlug, outcome: res.outcome, from: res.from, source: res.source, at: res.at, plan: res.plan }),
           ...(res.sha ? { commit_sha: res.sha } : {}),
+          ...(res.mainRefused ? { main_refused: res.mainRefused } : {}),
           ...(res.prNumber ? { pr_number: res.prNumber, pr_url: res.prUrl } : {}),
           ...(res.issueNumber ? { issue_number: res.issueNumber, issue_url: res.issueUrl } : {}),
           ...(res.issueAssignees ? { issue_assignees: res.issueAssignees } : {}),
@@ -323,18 +330,32 @@ export function registerSyncStarterCommand(program) {
 
           const row = { ...base };
 
+          // Straight onto their branch - unless a rule of theirs refuses it
+          // (lib/starter-sync.mjs `isRuleRefusal`): then every file goes in
+          // the pull request, as the workflow does. Tried, not asked of the
+          // rules first, so a team that granted PXL Classroom a bypass keeps
+          // its direct commit.
+          let mainRefused = null;
           if (plan.clean.length > 0) {
-            const commit = await commitWithRebase(octokit, {
-              owner: org,
-              repo: repoName,
-              branch,
-              message: `Update starter code from template: ${commitHeadline}`,
-              changes: await toChanges(plan.clean),
-            });
-            row.sha = commit.commitSha;
+            try {
+              const commit = await commitWithRebase(octokit, {
+                owner: org,
+                repo: repoName,
+                branch,
+                message: `Update starter code from template: ${commitHeadline}`,
+                changes: await toChanges(plan.clean),
+              });
+              row.sha = commit.commitSha;
+            } catch (err) {
+              if (!isRuleRefusal(err)) throw err;
+              mainRefused = ruleRefusalReason(err);
+              row.outcome = outcomeFor(plan, { mainRefused: true });
+              row.mainRefused = mainRefused;
+            }
           }
 
-          if (plan.conflicts.length > 0) {
+          const offered = filesForPullRequest(plan, mainRefused !== null);
+          if (offered.length > 0) {
             // Adopt the pull request a previous run of this same sync already
             // opened, rather than adding another. `paginate` walks the whole
             // list: one page of it is not the list, and a missed marker is a
@@ -353,26 +374,41 @@ export function registerSyncStarterCommand(program) {
               return row;
             }
 
-            const branchName = `starter-update-${Date.now().toString(36)}`;
+            const branchName = syncBranchName();
             const { data: head } = await octokit.rest.git.getRef({ owner: org, repo: repoName, ref: `heads/${branch}` });
-            await octokit.rest.git.createRef({
-              owner: org,
-              repo: repoName,
-              ref: `refs/heads/${branchName}`,
-              sha: head.object.sha,
-            });
+            try {
+              await octokit.rest.git.createRef({
+                owner: org,
+                repo: repoName,
+                ref: `refs/heads/${branchName}`,
+                sha: head.object.sha,
+              });
+            } catch (err) {
+              // A "restrict creations" rule of theirs answers "Reference
+              // update failed", which names nothing, so the rules for that
+              // name are asked (lib/starter-sync.mjs `branchRefusedByRule`).
+              // Nothing was created; the row says what the team can do.
+              const rules = err?.status === 422
+                ? await octokit.request("GET /repos/{owner}/{repo}/rules/branches/{branch}", { owner: org, repo: repoName, branch: branchName })
+                  .then((res) => res.data, () => null)
+                : null;
+              if (branchRefusedByRule({ status: err?.status, message: err?.response?.data?.message || err?.message, rules })) {
+                throw new Error(branchRefusedMessage(branchName), { cause: err });
+              }
+              throw err;
+            }
             await commitWithRebase(octokit, {
               owner: org,
               repo: repoName,
               branch: branchName,
               message: `Starter code update: ${commitHeadline}`,
-              changes: await toChanges(plan.conflicts),
+              changes: await toChanges(offered),
             });
             const { data: prData } = await octokit.rest.pulls.create({
               owner: org,
               repo: repoName,
               title: syncTitle,
-              body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
+              body: `${syncBody}\n\n> Files in this pull request: ${offered.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
               head: branchName,
               base: branch,
             });
@@ -386,7 +422,7 @@ export function registerSyncStarterCommand(program) {
             const superseded = await closeSupersededSyncPrs({
               openPulls,
               newPrNumber: prData.number,
-              offered: plan.conflicts.map((c) => c.path),
+              offered: offered.map((c) => c.path),
               pullDetail: async (n) => {
                 const { data } = await octokit.rest.pulls.get({ owner: org, repo: repoName, pull_number: n });
                 return { ok: true, commits: data?.commits };
@@ -410,10 +446,10 @@ export function registerSyncStarterCommand(program) {
             const { data: issue } = await octokit.rest.issues.create({
               owner: org,
               repo: repoName,
-              title: plan.conflicts.length
+              title: offered.length
                 ? `[Action Required] Starter Code Update Available in PR #${row.prNumber}`
                 : `[Notice] Starter Code Updated: ${commitHeadline}`,
-              body: plan.conflicts.length
+              body: offered.length
                 ? `A starter code update is available in Pull Request [#${row.prNumber}](${row.prUrl}). Please review and merge it.`
                 : `The starter code was updated from template commit \`${templateSha.slice(0, 7)}\`.\n\nRun \`git pull\` in your workspace to get it.`,
             });
@@ -458,7 +494,9 @@ export function registerSyncStarterCommand(program) {
       for (const res of results) {
         if (!res) continue;
         const files = res.plan
-          ? `${res.plan.clean.length} in place, ${res.plan.conflicts.length} in a PR` +
+          ? (res.mainRefused
+            ? `${res.plan.clean.length + res.plan.conflicts.length} in a PR (their branch only takes pull requests)`
+            : `${res.plan.clean.length} in place, ${res.plan.conflicts.length} in a PR`) +
             `${res.plan.kept?.length ? `, ${res.plan.kept.length} kept` : ""}` +
             (res.source === "first-commit"
               ? " - from their own first commit (created from a different template)"

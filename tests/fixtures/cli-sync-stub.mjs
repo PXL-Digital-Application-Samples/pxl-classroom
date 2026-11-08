@@ -22,6 +22,7 @@ const ORG = fx.org;
 const CONTROL = `/repos/${ORG}/${fx.controlRepo}`;
 const TPL = `/repos/${ORG}/starter`;
 
+const RULE_MESSAGE = "Repository rule violations found\n\nChanges must be made through a pull request.\n\n";
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8" } });
@@ -88,6 +89,14 @@ globalThis.fetch = async (input, init = {}) => {
   const repo = stu && fx.students[stu[1]];
   if (repo) {
     const rest = stu[2];
+    // A ruleset of the student's, as GitHub words the refusal (2026-11-08,
+    // PXL-Systems-Expert): `mainRule` refuses the direct write to the
+    // submission branch, `branchRule` refuses creating any branch at all.
+    if (repo.mainRule && rest === `git/refs/heads/${fx.branch}` && method === "PATCH") return json(422, { message: RULE_MESSAGE });
+    // Creating a branch a creation rule covers: GitHub's generic words
+    // (measured), so the CLI asks the rules for that name, answered here.
+    if (repo.branchRule && rest === "git/refs" && method === "POST") return json(422, { message: "Reference update failed - https://docs.github.com/rest/git/refs#create-a-reference" });
+    if (/^rules\/branches\//.test(rest)) return json(200, repo.branchRule ? [{ type: "creation", ruleset_id: 9 }] : []);
     if (rest === "commits" && method === "GET") {
       // One commit, GitHub-generated from the template's older commit.
       return json(200, [{ sha: "r".repeat(40), parents: [], commit: { tree: { sha: repo.rootTree } } }]);

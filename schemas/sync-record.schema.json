@@ -260,6 +260,10 @@
           "issue_error": {
             "type": "string",
             "description": "Why the notification issue could not be created. The issue IS how a student learns a starter-code pull request is waiting, so a failure to open one has to reach the record a lecturer reads - not just the run log."
+          },
+          "main_refused": {
+            "type": "string",
+            "description": "GitHub's reason, on one line, when the student's branch refused the direct write because of a rule of theirs (a ruleset requiring pull requests, which binds this App like anyone not on its bypass list). Then nothing landed on the branch: the files `files_merged` counts travelled in the pull request with the rest, and `outcome` is `pr-opened`. Absent: the direct write was not refused (lib/starter-sync.mjs `isRuleRefusal`, `filesForPullRequest`)."
           }
         }
       }

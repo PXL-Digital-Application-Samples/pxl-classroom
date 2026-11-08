@@ -175,3 +175,31 @@ test("a dry run still writes no record, progress or otherwise", async () => {
   assert.deepEqual(res.records, []);
   assert.equal(res.log.some((l) => /^(POST|PATCH|PUT|DELETE) /.test(l)), false, res.log.join("\n"));
 });
+
+test("THE CLI TOO: a branch that only takes pull requests gets the update as one; a branch the rules refuse is said in words", async () => {
+  // 2026-11-08: four team repositories with a ruleset requiring pull requests
+  // on main refused the sync's direct commit. The rule is the workflow's,
+  // through lib/starter-sync.mjs, and the CLI's record says the same things.
+  const res = await runSync({
+    erin: { tree: { "README.md": "r1", gradlew: "g1@100755" }, mainRule: true },
+    frank: { tree: { "README.md": "r1", gradlew: "g1@100755" }, mainRule: true, branchRule: true },
+  }, ["--issue"]);
+  assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+  for (const doc of res.records) {
+    const { valid, errors } = validateAgainst("sync-record", doc);
+    assert.equal(valid, true, JSON.stringify(errors));
+  }
+  const rows = byLogin(res.records.at(-1));
+  assert.equal(rows.erin.outcome, "pr-opened");
+  assert.equal(rows.erin.main_refused, "Repository rule violations found: Changes must be made through a pull request.");
+  assert.equal(typeof rows.erin.pr_number, "number");
+  assert.equal("commit_sha" in rows.erin, false, "nothing landed on main");
+  assert.equal(rows.erin.files_merged, 2);
+  assert.equal(typeof rows.erin.issue_number, "number", "the [Action Required] issue names the pull request");
+  assert.match(res.stdout, /erin\s+pr-opened\b.*2 in a PR \(their branch only takes pull requests\)/);
+  assert.equal(rows.frank.outcome, "failed");
+  assert.match(rows.frank.error, /^their repository's rules do not allow PXL Classroom to create a branch \(starter-update-[0-9a-z]+\)\./);
+  assert.equal("pr_number" in rows.frank, false);
+  assert.match(res.stdout, /frank\s+failed: their repository's rules do not allow/);
+  assert.match(res.stdout, /Sync Summary: 0 updated in place, 1 PRs opened, 0 skipped, 1 failed\./);
+});

@@ -595,6 +595,7 @@ export type SyncRecord = {
     error?: string;
     issue_assignees?: string[];
     issue_error?: string;
+    main_refused?: string;
   }>;
 };
 

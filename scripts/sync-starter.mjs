@@ -17,9 +17,15 @@ import { commitWithRebase } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
+  branchRefusedByRule,
+  branchRefusedMessage,
   changedPaths,
   closeSupersededSyncPrs,
+  filesForPullRequest,
+  isRuleRefusal,
   outcomeFor,
+  ruleRefusalReason,
+  syncBranchName,
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
@@ -417,24 +423,42 @@ async function main() {
         return out;
       };
 
-      // 3a. Files the student never touched go straight onto main.
+      // 3a. Files the student never touched go straight onto main - unless a
+      //     rule of THEIRS refuses it (lib/starter-sync.mjs `isRuleRefusal`: a
+      //     ruleset requiring pull requests, which binds this App like anyone
+      //     not on its bypass list). Then nothing can land there but a pull
+      //     request, and every file goes in it (3b). Tried, not asked of the
+      //     rules first: a team that granted PXL Classroom a bypass still
+      //     gets the direct commit. Any other refusal is still this student's
+      //     failure, as before.
+      let mainRefused = null;
       if (plan.clean.length > 0) {
-        const commit = await commitWithRebase({
-          token: cfg.token,
-          apiBase: process.env.GITHUB_API_URL || undefined,
-          owner: cfg.org,
-          repo: repoName,
-          branch,
-          message: `Update starter code from template: ${commitMsgTitle}`,
-          changes: await toChanges(plan.clean),
-        });
-        row.commit_sha = commit.commitSha;
-        console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)} (${fromNote})`);
+        try {
+          const commit = await commitWithRebase({
+            token: cfg.token,
+            apiBase: process.env.GITHUB_API_URL || undefined,
+            owner: cfg.org,
+            repo: repoName,
+            branch,
+            message: `Update starter code from template: ${commitMsgTitle}`,
+            changes: await toChanges(plan.clean),
+          });
+          row.commit_sha = commit.commitSha;
+          console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)} (${fromNote})`);
+        } catch (err) {
+          if (!isRuleRefusal(err)) throw err;
+          mainRefused = ruleRefusalReason(err);
+          row.outcome = outcomeFor(plan, { mainRefused: true });
+          row.main_refused = mainRefused;
+          console.log(`[pr] ${login}: their ${branch} only takes pull requests (${mainRefused}) - every file goes in the pull request`);
+        }
       }
 
       // 3b. Files they did touch go onto a branch off THEIR OWN main, so no
-      //     foreign SHA is ever involved, and are offered as a pull request.
-      if (plan.conflicts.length > 0) {
+      //     foreign SHA is ever involved, and are offered as a pull request -
+      //     and every file, where main refused the direct write.
+      const offered = filesForPullRequest(plan, mainRefused !== null);
+      if (offered.length > 0) {
         // Adopt the pull request a previous run of this same sync already
         // opened. Re-running is the first thing a lecturer does when a sync
         // looks like it did nothing, and without this each run adds another.
@@ -449,7 +473,7 @@ async function main() {
           return;
         }
 
-        const branchName = `starter-update-${Date.now().toString(36)}`;
+        const branchName = syncBranchName();
         const head = await gh("GET", `/repos/${studentFullName}/git/ref/heads/${encodeURIComponent(branch)}`, null, { token: cfg.token });
         if (!head.ok) throw new Error(`could not read ${branch} (HTTP ${head.status})`);
 
@@ -457,7 +481,19 @@ async function main() {
           ref: `refs/heads/${branchName}`,
           sha: head.data.object.sha,
         }, { token: cfg.token });
-        if (!ref.ok) throw new Error(`could not create ${branchName} (HTTP ${ref.status})`);
+        if (!ref.ok) {
+          // A "restrict creations" rule of theirs answers "Reference update
+          // failed", which names nothing - so the rules for that name are
+          // asked (lib/starter-sync.mjs `branchRefusedByRule`). Nothing was
+          // created, and the row says what the team can do.
+          const rules = ref.status === 422
+            ? await gh("GET", `/repos/${studentFullName}/rules/branches/${encodeURIComponent(branchName)}`, null, { token: cfg.token })
+            : null;
+          if (branchRefusedByRule({ status: ref.status, message: ref.data?.message, rules: rules?.ok ? rules.data : null })) {
+            throw new Error(branchRefusedMessage(branchName));
+          }
+          throw new Error(`could not create ${branchName} (HTTP ${ref.status}${ref.data?.message ? `: ${ref.data.message}` : ""})`);
+        }
 
         await commitWithRebase({
           token: cfg.token,
@@ -466,12 +502,12 @@ async function main() {
           repo: repoName,
           branch: branchName,
           message: `Starter code update: ${commitMsgTitle}`,
-          changes: await toChanges(plan.conflicts),
+          changes: await toChanges(offered),
         });
 
         const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
           title: syncTitle,
-          body: `${syncBody}\n\n> Files in this pull request: ${plan.conflicts.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
+          body: `${syncBody}\n\n> Files in this pull request: ${offered.map((c) => `\`${c.path}\``).join(", ")}\n\n${syncMarker(templateSha)}`,
           head: branchName,
           base: branch,
         }, { token: cfg.token });
@@ -479,7 +515,7 @@ async function main() {
 
         row.pr_number = prRes.data.number;
         row.pr_url = prRes.data.html_url;
-        console.log(`[pr-opened] ${login}: #${prRes.data.number} for ${plan.conflicts.length} file(s) (${prRes.data.html_url})`);
+        console.log(`[pr-opened] ${login}: #${prRes.data.number} for ${offered.length} file(s) (${prRes.data.html_url})`);
 
         // An OLDER sync's pull request is superseded by this one WHERE THIS ONE
         // CARRIES EVERY FILE IT DID, at a newer version. Left open, the two
@@ -491,7 +527,7 @@ async function main() {
         const superseded = await closeSupersededSyncPrs({
           openPulls,
           newPrNumber: prRes.data.number,
-          offered: plan.conflicts.map((c) => c.path),
+          offered: offered.map((c) => c.path),
           pullDetail: async (n) => {
             const res = await gh("GET", `/repos/${studentFullName}/pulls/${n}`, null, { token: cfg.token });
             return { ok: res.ok, commits: res.data?.commits };
@@ -510,11 +546,11 @@ async function main() {
       }
 
       if (cfg.createIssue) {
-        const body = plan.conflicts.length
+        const body = offered.length
           ? `A starter code update is available in Pull Request [#${row.pr_number}](${row.pr_url}). Please review and merge it.`
           : "The starter code in this repository was updated with the latest template changes.\n\nRun `git pull` in your workspace to get them.";
         const issueRes = await gh("POST", `/repos/${studentFullName}/issues`, {
-          title: plan.conflicts.length
+          title: offered.length
             ? `[Action Required] Starter Code Update Available in PR #${row.pr_number}`
             : `[Notice] Starter Code Updated: ${commitMsgTitle}`,
           body,

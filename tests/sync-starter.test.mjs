@@ -26,11 +26,18 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
 import {
+  branchRefusedByRule,
+  branchRefusedMessage,
   changedPaths,
+  filesForPullRequest,
+  isRuleRefusal,
+  refusedByRule,
   resolveSelection,
   planStarterSync,
   outcomeFor,
+  ruleRefusalReason,
   summarize,
+  syncBranchName,
   syncMarker,
   findExistingSyncPr,
   readTemplateCommit,
@@ -643,7 +650,14 @@ test("nothing outside lib/starter-sync.mjs decides clean-vs-conflict for itself"
 // so this drives the path that writes nothing: a student whose tree already
 // carries the head blob is `skipped-up-to-date`.
 
-function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false, behind = false, issues = [], assign = null, issueStatus = 201 }) {
+// GitHub's answer to a ref update a ruleset refuses, word for word (a team
+// repository of PXL-Systems-Expert, 2026-11-08).
+const RULE_MESSAGE = "Repository rule violations found\n\nChanges must be made through a pull request.\n\n";
+// And its answer to creating a branch a "restrict creations" rule covers
+// (measured on the testbed the same day): nothing in it names a rule.
+const BRANCH_MESSAGE = "Reference update failed - https://docs.github.com/rest/git/refs#create-a-reference";
+
+function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false, behind = false, issues = [], assign = null, issueStatus = 201, mainRule = false, branchRule = false, pulls = [] }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
@@ -715,7 +729,8 @@ function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWr
         req.on("data", (d) => (body += d));
         req.on("end", () => then(body ? JSON.parse(body) : {}));
       };
-      if (rest === "git/ref/heads%2Fmain") return send(200, { object: { sha: "c".repeat(40) } });
+      // gittree encodes the slash; the script's own read of the head does not.
+      if (rest === "git/ref/heads%2Fmain" || rest === "git/ref/heads/main") return send(200, { object: { sha: "c".repeat(40) } });
       if (rest.startsWith("git/commits/")) return send(200, { sha: "c".repeat(40), tree: { sha: "t".repeat(40) } });
       // The inline scratch tree reads back as nothing, so the verification
       // falls back to blobs - the path that is certain to be correct.
@@ -723,7 +738,33 @@ function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWr
       if (rest.startsWith("git/trees/")) return send(200, { truncated: false, tree: [] });
       if (rest === "git/blobs" && req.method === "POST") return send(201, { sha: "e".repeat(40) });
       if (rest === "git/commits" && req.method === "POST") return send(201, { sha: "f".repeat(40) });
-      if (rest === "git/refs/heads%2Fmain" && req.method === "PATCH") return send(200, { object: { sha: "f".repeat(40) } });
+      if (rest === "git/refs/heads%2Fmain" && req.method === "PATCH") {
+        // `mainRule`: a ruleset of the student's requiring pull requests.
+        if (mainRule) return send(422, { message: RULE_MESSAGE });
+        return send(200, { object: { sha: "f".repeat(40) } });
+      }
+      // The pull-request path: its branch (`branchRule`: a "restrict
+      // creations" rule refuses it), its commit, the pull request itself.
+      if (rest === "git/refs" && req.method === "POST") {
+        // Measured 2026-11-08: a creation rule answers with GitHub's generic
+        // words, not the ruleset ones - so the script asks the rules below.
+        if (branchRule) return send(422, { message: BRANCH_MESSAGE });
+        return send(201, { ref: "refs/heads/starter-update-x", object: { sha: "c".repeat(40) } });
+      }
+      // The rules that would apply to the sync branch's name: a creation rule
+      // under `branchRule: true`, none under `branchRule: "unexplained"`.
+      if (/^rules\/branches\/starter-update-/.test(rest)) {
+        return send(200, branchRule === true ? [{ type: "deletion", ruleset_id: 9 }, { type: "creation", ruleset_id: 9 }] : []);
+      }
+      if (/^git\/ref\/heads%2Fstarter-update-/.test(rest)) return send(200, { object: { sha: "c".repeat(40) } });
+      if (/^git\/refs\/heads%2Fstarter-update-/.test(rest) && req.method === "PATCH") return send(200, { object: { sha: "g".repeat(40) } });
+      if (rest === "pulls" && req.method === "GET") return send(200, []);
+      if (rest === "pulls" && req.method === "POST") {
+        return readBody((b) => {
+          pulls.push({ repo, ...b });
+          send(201, { number: pulls.length, html_url: `https://github.com/TestOrg/${repo}/pull/${pulls.length}` });
+        });
+      }
       if (rest === "issues" && req.method === "POST") {
         return readBody((b) => {
           if (issueStatus >= 300) return send(issueStatus, { message: "Issues are disabled for this repo" });
@@ -1138,4 +1179,136 @@ test("with issues off, nobody is assigned anything", async () => {
   assert.equal(issues.length, 0);
   assert.equal(requested.some((u) => u.includes("/assignees")), false);
   assert.equal("issue_assignees" in res.record.results[0], false);
+});
+
+// --- a rule of the student's refuses the write ------------------------------
+//
+// 2026-11-08, PXL-Systems-Expert: four duo teams had put a ruleset on main
+// requiring a pull request, with no bypass - `current_user_can_bypass: never`
+// for the organization owner too. The sync's direct commit was refused with
+// 422 "Repository rule violations found" and eight students were listed as
+// "could not update" with GitHub's words. Only a pull request can reach such a
+// branch, and the sync already knew how to open one.
+
+test("a rule refusal is recognised in both thrown shapes, and nothing else is one", () => {
+  assert.equal(refusedByRule(422, RULE_MESSAGE), true);
+  assert.equal(refusedByRule("422", RULE_MESSAGE), true);
+  // A GittreeError carries status and message; an Octokit RequestError its
+  // status and response.data.message.
+  assert.equal(isRuleRefusal({ status: 422, message: RULE_MESSAGE }), true);
+  assert.equal(isRuleRefusal({ status: 422, message: "HTTP 422", response: { data: { message: RULE_MESSAGE } } }), true);
+  // A non-fast-forward 422 is the ref moving under us (lib/gittree.mjs retries
+  // it); a 403 is a permission; a 5xx is nothing at all.
+  assert.equal(isRuleRefusal({ status: 422, message: "Update is not a fast forward" }), false);
+  assert.equal(isRuleRefusal({ status: 403, message: "Resource not accessible by integration" }), false);
+  assert.equal(isRuleRefusal({ status: 500, message: RULE_MESSAGE }), false);
+  assert.equal(isRuleRefusal(null), false);
+  assert.equal(ruleRefusalReason({ status: 422, message: RULE_MESSAGE }), "Repository rule violations found: Changes must be made through a pull request.");
+  assert.equal(ruleRefusalReason({ status: 422, message: "Repository rule violations found" }), "Repository rule violations found");
+
+  // Creating the branch: GitHub's words name nothing, so the rules that
+  // would apply to that name decide. Unreadable rules decide nothing.
+  const creation = [{ type: "deletion", ruleset_id: 9 }, { type: "creation", ruleset_id: 9 }];
+  assert.equal(branchRefusedByRule({ status: 422, message: BRANCH_MESSAGE, rules: creation }), true);
+  assert.equal(branchRefusedByRule({ status: 422, message: BRANCH_MESSAGE, rules: [{ type: "branch_name_pattern", ruleset_id: 3 }] }), true);
+  assert.equal(branchRefusedByRule({ status: 422, message: BRANCH_MESSAGE, rules: [{ type: "deletion", ruleset_id: 9 }] }), false);
+  assert.equal(branchRefusedByRule({ status: 422, message: BRANCH_MESSAGE, rules: [] }), false);
+  assert.equal(branchRefusedByRule({ status: 422, message: BRANCH_MESSAGE, rules: null }), false);
+  assert.equal(branchRefusedByRule({ status: 422, message: RULE_MESSAGE, rules: null }), true, "the ruleset wording counts where GitHub uses it");
+  assert.equal(branchRefusedByRule({ status: 404, message: "Not Found", rules: creation }), false);
+});
+
+test("when the branch refused the direct write, every file goes in the pull request and the outcome says so", () => {
+  const plan = { clean: [{ path: "a", action: "write" }], conflicts: [{ path: "b", action: "write" }], kept: [] };
+  assert.deepEqual(filesForPullRequest(plan, false).map((f) => f.path), ["b"]);
+  assert.deepEqual(filesForPullRequest(plan, true).map((f) => f.path), ["a", "b"]);
+  assert.deepEqual(filesForPullRequest({ clean: [{ path: "a", action: "delete" }], conflicts: [] }, true).map((f) => f.action), ["delete"]);
+  assert.equal(outcomeFor(plan), "merged-and-pr");
+  assert.equal(outcomeFor(plan, { mainRefused: true }), "pr-opened");
+  assert.equal(outcomeFor({ clean: plan.clean, conflicts: [] }, { mainRefused: true }), "pr-opened");
+  assert.equal(outcomeFor({ clean: [], conflicts: [] }, { mainRefused: true }), "skipped-up-to-date");
+  // The sentence names the branch and what the team can do - never GitHub's
+  // words, and no dash of either kind.
+  const msg = branchRefusedMessage("starter-update-abc");
+  assert.match(msg, /\(starter-update-abc\)/);
+  assert.match(msg, /allow that name or add PXL Classroom as a bypass, then Sync again\.$/);
+  assert.doesNotMatch(msg, /[–—]|rule violations/);
+  assert.match(syncBranchName(1_700_000_000_000), /^starter-update-[0-9a-z]+$/);
+});
+
+test("a branch that only takes pull requests gets the whole update as one, and the record says why", async () => {
+  const issues = [];
+  const pulls = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    env: { CREATE_ISSUE: "true" }, behind: true, mainRule: true, issues, pulls,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.match(res.stdout, /\[pr\] alice: their main only takes pull requests \(Repository rule violations found: Changes must be made through a pull request\.\) - every file goes in the pull request/);
+  assert.match(res.stdout, /\[pr-opened\] alice: #1 for 1 file\(s\)/);
+  assert.doesNotMatch(res.stdout, /\[auto-merged\]|\[fail\]/);
+  const row = res.record.results[0];
+  assert.equal(row.outcome, "pr-opened");
+  assert.equal(row.main_refused, "Repository rule violations found: Changes must be made through a pull request.");
+  assert.equal(row.pr_number, 1);
+  assert.equal("commit_sha" in row, false, "nothing landed on main");
+  // The plan's split stays on the row: the file was untouched, and it
+  // travelled by pull request.
+  assert.equal(row.files_merged, 1);
+  assert.equal(row.files_conflicted, 0);
+  assert.equal(pulls.length, 1);
+  assert.match(pulls[0].body, /Files in this pull request: `README\.md`/);
+  assert.equal(pulls[0].base, "main");
+  assert.match(pulls[0].head, /^starter-update-/);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].title, "[Action Required] Starter Code Update Available in PR #1");
+  assert.deepEqual(res.record.summary, { total: 1, auto_merged: 0, pr_opened: 1, skipped: 0, failed: 0 });
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
+});
+
+test("a branch the repository's rules refuse to create is a failed row that says what the team can do", async () => {
+  const pulls = [];
+  const requested = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    behind: true, mainRule: true, branchRule: true, pulls, requested,
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const row = res.record.results[0];
+  assert.equal(row.outcome, "failed");
+  assert.match(row.error, /^their repository's rules do not allow PXL Classroom to create a branch \(starter-update-[0-9a-z]+\)\. They can allow that name or add PXL Classroom as a bypass, then Sync again\.$/);
+  assert.equal("pr_number" in row, false);
+  assert.equal(pulls.length, 0, "no pull request without its branch");
+  assert.match(res.stdout, /\[fail\] alice: their repository's rules do not allow/);
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
+  // The verdict came from asking the rules for that name, not from the words.
+  assert.ok(requested.some((u) => /\/repos\/TestOrg\/exam-alice\/rules\/branches\/starter-update-/.test(u)), "the rules for the branch name were asked");
+});
+
+test("a refused branch that no rule explains keeps GitHub's words - never the team's sentence", async () => {
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    behind: true, mainRule: true, branchRule: "unexplained",
+  });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const row = res.record.results[0];
+  assert.equal(row.outcome, "failed");
+  assert.match(row.error, /^could not create starter-update-[0-9a-z]+ \(HTTP 422: Reference update failed/);
+  assert.doesNotMatch(row.error, /add PXL Classroom as a bypass/);
+  assert.equal(validateSyncRecord(res.record), true, JSON.stringify(validateSyncRecord.errors));
+});
+
+test("both executors ask lib/starter-sync.mjs whether a rule refused them, and neither spells the branch or the sentence itself", () => {
+  const script = readFileSync(join(process.cwd(), "scripts/sync-starter.mjs"), "utf8");
+  const cli = readFileSync(join(process.cwd(), "cli/src/commands/sync-starter.mjs"), "utf8");
+  for (const [name, src] of [["scripts", script], ["cli", cli]]) {
+    const code = stripComments(src);
+    for (const fn of ["isRuleRefusal(", "ruleRefusalReason(", "filesForPullRequest(", "branchRefusedByRule(", "branchRefusedMessage(", "syncBranchName(", "/rules/branches/"]) {
+      assert.ok(code.includes(fn), `${name} must call ${fn}`);
+    }
+    assert.doesNotMatch(code, /starter-update-\$\{/, `${name} must not spell the sync branch name itself`);
+    assert.doesNotMatch(code, /rule violations/i, `${name} must not match GitHub's words itself`);
+    // The pull request carries what lib decided, never the plan's conflicts alone.
+    assert.doesNotMatch(code, /plan\.conflicts\.map\(/, `${name} must list the offered files, not the plan's conflicts`);
+  }
 });
