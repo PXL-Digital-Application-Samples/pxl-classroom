@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { commitWithRebase, inlineText, gitBlobSha, requestDetail } from "../lib/gittree.mjs";
+import { OBJECT_TRIES, commitWithRebase, inlineText, gitBlobSha, requestDetail } from "../lib/gittree.mjs";
 
 // Spelled as a code point: a literal U+FEFF in the source is invisible, lint
 // refuses it, and an editor may drop it.
@@ -215,13 +215,13 @@ test("a 5xx on the scratch tree is tried again, and the second answer is used: n
   assert.equal(scratchPosts(fake).length, 2);
   assert.equal(blobPosts(fake).length, 0);
   assert.equal(notes.length, 1);
-  assert.match(notes[0], /POST \/repos\/\{owner\}\/\{repo\}\/git\/trees, HTTP 502, [\d.]+s failed - try 2 of 3/);
+  assert.match(notes[0], new RegExp(`POST /repos/\\{owner\\}/\\{repo\\}/git/trees, HTTP 502, [\\d.]+s failed - try 2 of ${OBJECT_TRIES} in \\d+ms`));
 });
 
-test("a scratch tree that fails three times is given up on, and its files go up one by one in the same attempt", async () => {
-  // Three tries with a wait between them, never a fourth: the blobs finish
-  // the commit, and the attempt is not started over to upload them twice.
-  const fake = fakeGit({ scratchStatus: [502, 502, 502] });
+test("a scratch tree that fails every try is given up on, and its files go up one by one in the same attempt", async () => {
+  // OBJECT_TRIES tries with a wait between them, never one more: the blobs
+  // finish the commit, and the attempt is not started over to upload them twice.
+  const fake = fakeGit({ scratchStatus: Array(OBJECT_TRIES).fill(502) });
   const notes = [];
   const changes = files(4);
   const res = await commitWithRebase({
@@ -229,7 +229,7 @@ test("a scratch tree that fails three times is given up on, and its files go up 
     onNote: (t) => notes.push(t),
   });
   assert.equal(res.attempts, 1);
-  assert.equal(scratchPosts(fake).length, 3);
+  assert.equal(scratchPosts(fake).length, OBJECT_TRIES);
   assert.equal(blobPosts(fake).length, 4);
   for (const [i, c] of changes.entries()) assert.equal(fake.finalTree().tree[i].sha, gitSha(c.content));
   assert.match(notes.at(-1), /^4 file\(s\) could not share a request \(POST .*git\/trees, HTTP 502, [\d.]+s\) - uploading them one by one$/);
@@ -245,14 +245,25 @@ test("GitHub's ten-second answer is tried again whatever status it comes with", 
   assert.equal(scratchPosts(fake).length, 1, "nothing before the tree was sent twice");
 });
 
-test("a tree that times out three times fails the commit with GitHub's words, and says which request", async () => {
-  const fake = fakeGit({ commitTree: Array.from({ length: 3 }, () => ({ status: 422, message: TIMED_OUT })) });
+test("half the requests cut off, as on a slow repository: the commit still lands", async () => {
+  // Measured 2026-11-13: about every second tree write of one repository was
+  // cut off, whatever its size. Three tries a request lost that commit two
+  // times in three.
+  const cut = { status: 422, message: TIMED_OUT };
+  const fake = fakeGit({ commitTree: [cut, cut, cut, cut] });
+  const res = await commitFast(fake, files(4));
+  assert.equal(res.attempts, 1);
+  assert.equal(commitTreePosts(fake).length, 5);
+});
+
+test("a tree that times out on every try fails the commit with GitHub's words, and says which request", async () => {
+  const fake = fakeGit({ commitTree: Array.from({ length: OBJECT_TRIES }, () => ({ status: 422, message: TIMED_OUT })) });
   await assert.rejects(commitFast(fake, files(4)), (err) => {
     assert.equal(err.message, TIMED_OUT);
     assert.match(requestDetail(err), /^POST \/repos\/\{owner\}\/\{repo\}\/git\/trees, HTTP 422, [\d.]+s$/);
     return true;
   });
-  assert.equal(commitTreePosts(fake).length, 3);
+  assert.equal(commitTreePosts(fake).length, OBJECT_TRIES);
 });
 
 test("a real refusal of the tree (422, not a timeout) is not tried again", async () => {

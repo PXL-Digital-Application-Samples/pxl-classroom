@@ -13,7 +13,7 @@ import { appendFile, readdir, readFile, writeFile, mkdir } from "node:fs/promise
 import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { commitWithRebase, requestDetail } from "../lib/gittree.mjs";
+import { commitWithRebase, isServerFailure, requestDetail } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
@@ -63,6 +63,10 @@ const cfg = {
   // script again, which skips everyone who has the change). `round` of
   // `rounds`; alone, as the CLI and the tests run it, it is 1 of 1 and stops
   // as it always did.
+  // The first wait between two tries of a commit's request (lib/gittree.mjs).
+  // Set by the tests alone, which cannot wait seconds a try; unset is the
+  // module's own.
+  backoffMs: Number(env("SYNC_BACKOFF_MS", "")) || undefined,
   round: Math.max(1, Number(env("SYNC_ROUND", "")) || 1),
   rounds: Math.max(1, Number(env("SYNC_ROUNDS", "")) || 1),
 };
@@ -351,6 +355,8 @@ async function main() {
   // the same row under their own login.
   const teammates = (rec) => recs.filter((o) => o !== rec && repoKey(o) && repoKey(o).toLowerCase() === repoKey(rec).toLowerCase());
   let remaining = 0;
+  // Repositories whose failure was GitHub not answering, for the second pass.
+  const transient = new Set();
   for (const [index, rec] of perRepo.entries()) {
     // The sync stops ITSELF before the job's timeout does, so that it can say
     // where it stopped: a job the timeout kills writes nothing afterwards.
@@ -365,6 +371,45 @@ async function main() {
       break;
     }
     await maybeFlush();
+    await handle(rec);
+    // Rate-limit throttle
+    await sleep(300);
+  }
+
+  // ONCE MORE, AT THE END, FOR A STUDENT GITHUB WAS TOO SLOW FOR (2026-11-13).
+  // A request cut off by GitHub is tried six times within about a minute
+  // (lib/gittree.mjs). A repository that stays slow for longer than that - one
+  // did for two and a half minutes - was marked failed and left for somebody
+  // to press Sync again, although every such student that day got through on
+  // the next run with nothing changed. By the time the rest of the cohort is
+  // done, minutes have passed. So: only a failure that was GitHub not
+  // answering (`transient`, set where it is caught), only once, only when
+  // everyone was reached, and only while the round's budget lasts. Planned
+  // again from what the repository holds now, so a first attempt that got
+  // part-way is not repeated. Whoever fails again is failed, as before.
+  if (remaining === 0 && transient.size > 0) {
+    const again = [...transient];
+    transient.clear();
+    console.log(`[again] ${again.length} student(s) failed because GitHub did not answer in time - trying each once more`);
+    for (const rec of again) {
+      if (Date.now() - t0 > cfg.budgetMs) {
+        console.log(`[again] time budget reached - ${rec.github_login} stays failed`);
+        continue;
+      }
+      // Their failed row, and each teammate's copy of it, makes way for the
+      // new outcome: one row per student in a record.
+      const mine = new Set([rec, ...teammates(rec)].map((r) => String(r.github_login).toLowerCase()));
+      for (let i = results.length - 1; i >= 0; i--) {
+        if (results[i].outcome === "failed" && mine.has(String(results[i].github_login).toLowerCase())) results.splice(i, 1);
+      }
+      await maybeFlush();
+      await handle(rec);
+      await sleep(300);
+    }
+  }
+
+  /** One repository, and the same row for every other member of it. */
+  async function handle(rec) {
     const pushed = results.length;
     await syncOne(rec);
     // Every other member of a shared repository: the same outcome, their login.
@@ -373,8 +418,6 @@ async function main() {
         if (sameLogin(row.github_login, rec.github_login)) results.push({ ...row, github_login: mate.github_login, ...(mate.team_slug ? { team_slug: mate.team_slug } : {}) });
       }
     }
-    // Rate-limit throttle
-    await sleep(300);
   }
 
   async function syncOne(rec) {
@@ -468,6 +511,7 @@ async function main() {
             message: `Update starter code from template: ${commitMsgTitle}`,
             changes: await toChanges(plan.clean),
             onNote,
+            baseBackoffMs: cfg.backoffMs,
           });
           row.commit_sha = commit.commitSha;
           console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)} (${fromNote})`);
@@ -530,6 +574,7 @@ async function main() {
           message: `Starter code update: ${commitMsgTitle}`,
           changes: await toChanges(offered),
           onNote,
+          baseBackoffMs: cfg.backoffMs,
         });
 
         const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
@@ -617,6 +662,9 @@ async function main() {
       const detail = requestDetail(err);
       console.log(`[fail] ${login}: ${err.message}${detail ? ` [${detail}]` : ""}`);
       results.push(failedRow(row, err.message));
+      // GitHub not answering is worth one more try at the end of the round;
+      // a refusal is not (the second pass above).
+      if (isServerFailure(err)) transient.add(rec);
     }
   }
 

@@ -46,6 +46,7 @@ import {
   sameContent,
 } from "../lib/starter-sync.mjs";
 import { FLUSH_EVERY, FLUSH_MS, progressFlusher } from "../lib/sync-record.mjs";
+import { OBJECT_TRIES } from "../lib/gittree.mjs";
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 addFormats(ajv);
@@ -657,7 +658,7 @@ const RULE_MESSAGE = "Repository rule violations found\n\nChanges must be made t
 // (measured on the testbed the same day): nothing in it names a rule.
 const BRANCH_MESSAGE = "Reference update failed - https://docs.github.com/rest/git/refs#create-a-reference";
 
-function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false, behind = false, issues = [], assign = null, issueStatus = 201, mainRule = false, branchRule = false, pulls = [] }) {
+function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWrites = [], controlDenied = false, behind = false, issues = [], assign = null, issueStatus = 201, mainRule = false, branchRule = false, pulls = [], treeTimeouts = {} }) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-sync-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
@@ -734,7 +735,15 @@ function runSyncStarter({ records, env: extraEnv = {}, requested = [], controlWr
       if (rest.startsWith("git/commits/")) return send(200, { sha: "c".repeat(40), tree: { sha: "t".repeat(40) } });
       // The inline scratch tree reads back as nothing, so the verification
       // falls back to blobs - the path that is certain to be correct.
-      if (rest === "git/trees" && req.method === "POST") return send(201, { sha: "s".repeat(40) });
+      if (rest === "git/trees" && req.method === "POST") {
+        // `treeTimeouts`: this many tree requests of this repository are cut
+        // off the way GitHub cuts one off (HTTP 422, its own wording).
+        if ((treeTimeouts[repo] || 0) > 0) {
+          treeTimeouts[repo]--;
+          return send(422, { message: "Sorry, your request timed out.  It's likely that your input was too large to process.  Consider building the tree incrementally, or building the commits you need in a local clone of the repository and then pushing them to GitHub." });
+        }
+        return send(201, { sha: "s".repeat(40) });
+      }
       if (rest.startsWith("git/trees/")) return send(200, { truncated: false, tree: [] });
       if (rest === "git/blobs" && req.method === "POST") return send(201, { sha: "e".repeat(40) });
       if (rest === "git/commits" && req.method === "POST") return send(201, { sha: "f".repeat(40) });
@@ -1148,6 +1157,69 @@ test("a round whose final record cannot be written goes red and hands nothing ov
     assert.notEqual(res.status, 0);
     assert.equal(readFileSync(file, "utf8"), "", "no output, so the next round's condition is false");
   });
+});
+
+// ONCE MORE AT THE END for a student GitHub was too slow for (2026-11-13). A
+// request is tried several times within a minute; a repository that stayed
+// slow for longer was marked failed and waited for a lecturer to press Sync
+// again, although the next run got every such student through.
+test("a student whose requests GitHub cut off is tried once more at the end, and then has the change", async () => {
+  const controlWrites = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob"), student("carol")]),
+    behind: true, controlWrites,
+    // Every try of bob's tree: the whole of his first attempt.
+    treeTimeouts: { "exam-bob": OBJECT_TRIES }, env: { SYNC_BACKOFF_MS: "1" },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = res.stdout;
+  assert.match(out, /\[fail\] bob: Sorry, your request timed out\..*\[POST \/repos\/\{owner\}\/\{repo\}\/git\/trees, HTTP 422, [\d.]+s\]/);
+  assert.match(out, /\[again\] 1 student\(s\) failed because GitHub did not answer in time - trying each once more/);
+  // After everyone else, not straight away: minutes are what fixes it.
+  assert.ok(out.indexOf("[auto-merged] carol") < out.indexOf("[again]"), out);
+  assert.ok(out.indexOf("[again]") < out.lastIndexOf("[auto-merged] bob"), out);
+  const end = controlWrites.at(-1);
+  assert.equal(end.status, "completed");
+  assert.deepEqual(end.results.map((r) => [r.github_login, r.outcome]).sort(), [["alice", "auto-merged"], ["bob", "auto-merged"], ["carol", "auto-merged"]]);
+  assert.equal(end.summary.failed, 0);
+  assert.match(out, /Sync completed .*: 3 updated in place, 0 pull request\(s\), 0 skipped, 0 failed\./);
+});
+
+test("a student who fails the second time too is failed once, and nobody is tried a third time", async () => {
+  const controlWrites = [];
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob")]),
+    behind: true, controlWrites,
+    treeTimeouts: { "exam-bob": 99 }, env: { SYNC_BACKOFF_MS: "1" },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.match(/\[again\]/g).length, 1);
+  assert.equal(res.stdout.match(/\[fail\] bob:/g).length, 2);
+  const end = controlWrites.at(-1);
+  const rows = end.results.filter((r) => r.github_login === "bob");
+  assert.equal(rows.length, 1, "one row per student, whatever happened twice");
+  assert.equal(rows[0].outcome, "failed");
+  assert.equal(end.summary.failed, 1);
+});
+
+test("a student refused for a REASON is not tried again: a rule of theirs is not GitHub being slow", async () => {
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice")]),
+    behind: true, mainRule: true, branchRule: true,
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /\[fail\] alice:/);
+  assert.doesNotMatch(res.stdout, /\[again\]/);
+});
+
+test("no second try once the round's time is up: the student stays failed and the round says who is left", async () => {
+  // The budget ends the main pass first here, so nobody was reached twice.
+  const res = await runSyncStarter({
+    records: Object.fromEntries([student("alice"), student("bob")]),
+    behind: true, env: { SYNC_BUDGET_MS: "1" }, treeTimeouts: { "exam-alice": 99 },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.doesNotMatch(res.stdout, /\[again\]/);
 });
 
 test("progress is recorded as it goes, so a run that dies still says who it reached", async () => {
