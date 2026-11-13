@@ -95,6 +95,66 @@ test.describe('107 - repositories nobody recorded', () => {
     await expect(line(page, 'lab-3-bob')).toContainText('Retry started');
   });
 
+  // The hub's ANSWER, read from the run (lib/retry-outcome.mjs). 2026-11-13:
+  // this line said "is on the assignment's list in a minute or two" at the
+  // click, over a retry the hub refused two seconds later with a green run.
+  const RUN = 900;
+  async function answer(page, { message, statuses = ['completed'] }) {
+    const left = [...statuses];
+    const calls = { run: 0 };
+    await page.route(/\/actions\/workflows\/retry-acceptance\.yml\/dispatches$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflow_run_id: RUN, html_url: `https://github.com/Hub/pxl-classroom/actions/runs/${RUN}` }) }));
+    await page.route(new RegExp(`/actions/runs/${RUN}$`), (route) => {
+      calls.run++;
+      const status = left.length > 1 ? left.shift() : left[0];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: RUN, status, conclusion: status === 'completed' ? 'success' : null }) });
+    });
+    await page.route(new RegExp(`/actions/runs/${RUN}/jobs`), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: [{ id: 77, name: 'retry' }] }) }));
+    await page.route(/\/check-runs\/77\/annotations/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(message === null ? [] : [{ annotation_level: 'notice', title: 'pxl-retry-outcome', message }]) }));
+    return calls;
+  }
+  const outcome = (page) => line(page, 'lab-3-bob').locator('[data-retry-outcome]');
+
+  test('a retry the hub REFUSED says so, why and what to do - on a green run - and can be pressed again', async ({ page }) => {
+    await open(page);
+    await answer(page, { message: 'accept=rejected:no-claim record=skipped' });
+    await line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' }).click();
+    await expect(outcome(page)).toHaveAttribute('data-state', 'refused');
+    await expect(outcome(page)).toContainText('Not added: no confirmed email address.');
+    await expect(outcome(page)).toContainText('Ask them to open the invitation link and accept again with their address; they keep their repository');
+    await expect(outcome(page)).not.toContainText("is on the assignment's list");
+    await expect(outcome(page).getByRole('link', { name: 'View run' })).toHaveAttribute('href', `https://github.com/Hub/pxl-classroom/actions/runs/${RUN}`);
+    await expect(line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' })).toBeVisible();
+  });
+
+  test('while the hub has not answered it says waiting, the notice cannot be marked dealt with, and then it says added', async ({ page }) => {
+    await open(page);
+    const calls = await answer(page, { message: 'accept=accepted provision=provisioned:invited record=success', statuses: ['in_progress', 'completed'] });
+    await line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' }).click();
+    await expect(outcome(page)).toHaveAttribute('data-state', 'waiting');
+    await expect(outcome(page)).toContainText('Waiting for the answer');
+    await expect(page.locator('[data-dealt-with]')).toHaveCount(0);
+    // The next check, five seconds on.
+    await expect(outcome(page)).toHaveAttribute('data-state', 'added', { timeout: 15000 });
+    await expect(outcome(page)).toContainText("@bob is on the assignment's list.");
+    await expect(line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' })).toHaveCount(0);
+    await expect(page.locator('[data-dealt-with]')).toBeVisible();
+    // And it stops asking once it knows.
+    const settled = calls.run;
+    await page.waitForTimeout(6000);
+    expect(calls.run).toBe(settled);
+  });
+
+  test('a run that ended without saying what it decided claims nothing', async ({ page }) => {
+    await open(page);
+    await answer(page, { message: null });
+    await line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' }).click();
+    await expect(outcome(page)).toHaveAttribute('data-state', 'unknown');
+    await expect(outcome(page)).toContainText('without saying what it decided');
+  });
+
   test('after the deadline it says so, and Retry asks first', async ({ page }) => {
     const { dispatches } = await open(page, { deadline: new Date(Date.now() - 3 * 86400_000).toISOString() });
     const bob = line(page, 'lab-3-bob');

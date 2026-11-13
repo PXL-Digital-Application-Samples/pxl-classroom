@@ -115,6 +115,17 @@ inputs:
       ordinary acceptance.
     required: false
     default: ''
+  earlier-admission-at:
+    description: >-
+      Set only by a lecturer's Retry, from scripts/prove-earlier-admission.mjs:
+      the time the hub itself marked this account's own acceptance request as
+      invited and created its repository, or empty. With it, an individual
+      acceptance that must carry a confirmed address and has none stored is
+      admitted without asking again (lib/earlier-admission.mjs): the
+      confirmation was lost with the records, not withheld. Empty for an
+      ordinary acceptance, which can never set it.
+    required: false
+    default: ''
   set-aside:
     description: >-
       "true" on a lecturer's Retry: the student's acceptance record is removed
@@ -293,6 +304,7 @@ runs:
         CLAIM_PRIVATE_KEY: ${{ inputs.claim-private-key }}
         CLAIM_PRIVATE_KEYS_RETIRED: ${{ inputs.claim-private-keys-retired }}
         PRIOR_ACCEPTANCE_FILE: ${{ inputs.prior-acceptance-file }}
+        EARLIER_ADMISSION_AT: ${{ inputs.earlier-admission-at }}
         SET_ASIDE: ${{ inputs.set-aside }}
         PERSIST_REFUSALS: ${{ inputs.persist-refusals }}
         ISSUE_NUMBER: ${{ inputs.issue-number }}

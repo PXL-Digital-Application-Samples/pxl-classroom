@@ -141,6 +141,39 @@ jobs:
           DATA_DIR: control
         run: node scripts/resolve-retry-account.mjs
 
+      # CAN THE HUB SHOW IT ADMITTED THIS ACCOUNT BEFORE? (2026-11-13,
+      # lib/earlier-admission.mjs.) An acceptance writes its records last, and
+      # that write can be lost: the student then has a repository and is on no
+      # list, and where the assignment asks for a confirmed address, the
+      # confirmation was lost in the same write - so this Retry, which carries
+      # none, was refused for ever. What survives is on GitHub: the student's
+      # own request, marked invited by the App, and the repository made for
+      # it. Read-only, its own narrow token, and never a failure: anything
+      # unread is "no", and the acceptance asks for the address as before.
+      - name: Mint a read token for the earlier-admission check
+        id: proof_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          # Every repository, read only: the broker's issues and their events,
+          # and the student's repository with this account's permission on it,
+          # whose name no list in this file can know (lib/app-token-scopes.mjs).
+          permission-metadata: read
+          permission-issues: read
+
+      - name: Did the hub admit this account before?
+        id: proof
+        env:
+          GITHUB_TOKEN: ${{ steps.proof_token.outputs.token }}
+          DATA_DIR: control
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          GITHUB_LOGIN: ${{ steps.lookup.outputs.login }}
+          GITHUB_ID: ${{ steps.lookup.outputs.id }}
+        run: node scripts/prove-earlier-admission.mjs
+
       # THE STUDENT'S RECORD IS SET ASIDE BY ./acceptance (`set-aside`), NOT
       # HERE, AND NEVER COMMITTED ON A REFUSAL. Removing it is what makes
       # accept.mjs run every gate again instead of leaving through
@@ -169,6 +202,7 @@ jobs:
           workflow-run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           bypass-window: ${{ inputs.bypass_window || 'true' }}
           prior-acceptance-file: ${{ runner.temp }}/prior-acceptance.json
+          earlier-admission-at: ${{ steps.proof.outputs.admitted_at }}
           set-aside: 'true'
           persist-refusals: 'false'
 
@@ -211,6 +245,7 @@ jobs:
           dedup-key: prov-fail-${{ steps.accept.outputs.assignment_id }}-${{ steps.accept.outputs.github_login }}
 
       - name: Write repository record into control checkout, push
+        id: record
         if: (success() || failure()) && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted') && steps.prov.outputs.outcome != ''
         env:
           ASSIGNMENT_ID: ${{ steps.accept.outputs.assignment_id }}
@@ -233,6 +268,17 @@ jobs:
         # The same script as acceptance-handler.yml, so the two cannot drift:
         # this block used to be a copy of that one, comments and all.
         run: scripts/record-acceptance.sh
+
+      # WHAT THE RETRY DECIDED, where the page that started it can read it
+      # (lib/retry-outcome.mjs): a refusal is green and written nowhere, and
+      # the page used to promise "on the list in a minute or two" over one.
+      - name: Say how the retry ended
+        if: always()
+        env:
+          ACCEPT_OUTCOME: ${{ steps.accept.outputs.outcome }}
+          PROVISION_OUTCOME: ${{ steps.prov.outputs.outcome }}
+          RECORD_OUTCOME: ${{ steps.record.outcome }}
+        run: node scripts/say-retry-outcome.mjs
 
       - name: Trigger dashboard regeneration
         if: always() && (steps.accept.outputs.outcome == 'accepted' || steps.accept.outputs.outcome == 'already-accepted')

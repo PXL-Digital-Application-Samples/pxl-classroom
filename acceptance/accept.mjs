@@ -606,6 +606,23 @@ async function recordClaim({ assignment, assignmentId, roster, login, githubId, 
   // passes when the machinery fails is not a requirement.
   const payload = env("CLAIM_PAYLOAD", "").trim();
   if (!payload) {
+    // THE HUB DOES NOT ASK AGAIN WHAT IT CAN SHOW IT ALREADY DECIDED
+    // (lib/earlier-admission.mjs, 2026-11-13). A lecturer's Retry for a
+    // student whose records were lost in the last push of their acceptance
+    // carries no address, and the one they confirmed was lost with the
+    // records - so the remedy the notice offers was refused here for ever.
+    // Only where NOTHING is stored for the account (`replacing` is a binding
+    // that no longer counts, which is the student's to correct), only for an
+    // acceptance, and only on the Retry's own proof. No address is written:
+    // the report shows it missing, which is true.
+    const admittedBefore = env("EARLIER_ADMISSION_AT", "").trim();
+    if (required && !replacing && voice !== "confirm" && admittedBefore && !Number.isNaN(Date.parse(admittedBefore))) {
+      log("claim", {
+        ok: true,
+        note: `no address asked again - the hub admitted @${login} on ${admittedBefore} and their records were lost; none is stored for them`,
+      });
+      return null;
+    }
     if (required) {
       await reject(
         CLAIM_REJECTIONS.NO_CLAIM,

@@ -82,16 +82,30 @@
                     </div>
                     <p class="org-needs-text">{{ lineAdvice(l).text }}</p>
                     <div v-if="retryOffered(l) || retries[lineKey(l)]" class="org-needs-actions">
+                      <!-- Offered again once a retry has ENDED without adding
+                           the student: a refusal the lecturer has since fixed,
+                           or a failure, is retried from here. -->
                       <button
-                        v-if="retryOffered(l) && !retries[lineKey(l)]?.started"
+                        v-if="retryOffered(l) && (!retries[lineKey(l)]?.view || (retries[lineKey(l)].view.done && retries[lineKey(l)].view.state !== 'added'))"
                         class="btn btn-secondary btn-sm"
                         type="button"
                         :disabled="retries[lineKey(l)]?.busy"
                         @click="retryLine(l)"
                       >{{ retries[lineKey(l)]?.busy ? 'Starting…' : `Retry @${l.login}` }}</button>
-                      <span v-if="retries[lineKey(l)]?.started" class="status-indicator text-sm" role="status">
-                        <span class="status-dot dot-success" aria-hidden="true"></span>
-                        <span>Retry started. @{{ l.login }} is on the assignment's list in a minute or two.</span>
+                      <!-- What the hub ANSWERED, never what the click hoped
+                           for (lib/retry-outcome.mjs): this line said "is on
+                           the assignment's list in a minute or two" over a
+                           retry the hub had refused. -->
+                      <span
+                        v-if="retries[lineKey(l)]?.view"
+                        class="status-indicator text-sm"
+                        role="status"
+                        data-retry-outcome
+                        :data-state="retries[lineKey(l)].view.state"
+                      >
+                        <span class="status-dot" :class="`dot-${retries[lineKey(l)].view.tone}`" aria-hidden="true"></span>
+                        <span>{{ retries[lineKey(l)].view.text }}</span>
+                        <a v-if="retries[lineKey(l)].runUrl" :href="retries[lineKey(l)].runUrl" target="_blank" rel="noopener">View run</a>
                       </span>
                       <span v-else-if="retries[lineKey(l)]?.error" class="text-danger text-sm" role="alert">{{ retries[lineKey(l)].error }}</span>
                     </div>
@@ -104,7 +118,10 @@
                 <!-- Handled: a 👍 on the notice's comment, so it leaves this list
                      for every lecturer and survives the nightly rewriting it
                      (lib/org-notices.mjs DEALT_WITH_REACTION). -->
-                <div v-if="n.id" class="org-needs-actions">
+                <!-- Not while a retry of one of its lines is still waiting for
+                     the hub's answer: marked then, on 2026-11-13, a notice
+                     left the list over a retry that was refused. -->
+                <div v-if="n.id && !retryWaiting(n)" class="org-needs-actions">
                   <button class="btn-link text-sm" type="button" :disabled="marking[n.id]" @click="markDealtWith(n, true)" data-dealt-with>
                     {{ marking[n.id] ? 'Marking…' : 'Dealt with' }}
                   </button>
@@ -277,14 +294,15 @@
 // in one Advanced section that reads nothing until it is opened. The "Course
 // activity" list went with it: it repeated the assignment cards.
 
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import AuthCard from '../components/AuthCard.vue'
 import ControlRepoUnreadable from '../components/ControlRepoUnreadable.vue'
 import SystemHealthModal from '../components/SystemHealthModal.vue'
 import UsagePanel from '../components/UsagePanel.vue'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff, readProvisioned, setNeedsYou } from '../lib/org-session.js'
-import { explainDispatchFailure, getRepo, getRepoContent, ghApi, listRepoDir, triggerWorkflow } from '../lib/api.js'
+import { dispatchWorkflowRun, explainDispatchFailure, getRepo, getRepoContent, ghApi, listRepoDir } from '../lib/api.js'
+import { describeRetry, parseRetryOutcome } from '../../../lib/retry-outcome.mjs'
 import { askConfirm } from '../lib/confirm.js'
 import { parseUnrecordedLines } from '../../../lib/unrecorded-repos.mjs'
 import { normalizeLogin, sameLogin } from '../../../lib/github-login.mjs'
@@ -387,17 +405,81 @@ async function retryLine(l) {
     if (!ok) return
   }
   retries.value = { ...retries.value, [key]: { busy: true } }
-  const res = await triggerWorkflow(getToken(), config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
+  const res = await dispatchWorkflowRun(getToken(), config.hubOwner, config.hubRepo, 'retry-acceptance.yml', {
     org: props.org,
     assignment_id: l.assignmentId,
     github_login: l.login,
     bypass_window: 'true',
   })
-  retries.value = {
-    ...retries.value,
-    [key]: res.ok || res.status === 204 ? { started: true } : { error: explainDispatchFailure(res, 'Retry could not be started') },
+  if (!(res.ok || res.status === 204)) {
+    retries.value = { ...retries.value, [key]: { error: explainDispatchFailure(res, 'Retry could not be started') } }
+    return
   }
+  if (!res.runId) {
+    // GitHub did not say which run: said as that, never as an outcome.
+    retries.value = {
+      ...retries.value,
+      [key]: { view: { state: 'unknown', tone: 'neutral', done: true, text: `Retry started, but GitHub did not say which run it is, so its answer cannot be shown here. Open the assignment page in a minute to see whether @${l.login} is on its list.` } },
+    }
+    return
+  }
+  retries.value = { ...retries.value, [key]: { view: describeRetry({ login: l.login, run: undefined }), runUrl: res.htmlUrl } }
+  followRetry(key, l.login, res.runId, res.htmlUrl, 0)
 }
+
+// THE HUB'S ANSWER TO A RETRY, read from its run (lib/retry-outcome.mjs). The
+// run is asked every few seconds while this page is open, and when it is over
+// its job's own annotation says what it decided: a refusal is a green run, so
+// the colour says nothing.
+const RETRY_CHECK_MS = 5000
+// Five minutes. A retry takes about one; one that waits longer is said to be
+// still going, with its run, rather than watched for ever.
+const RETRY_CHECKS = 60
+let retryPageOpen = true
+const retryTimers = new Set()
+onBeforeUnmount(() => {
+  retryPageOpen = false
+  for (const t of retryTimers) clearTimeout(t)
+  retryTimers.clear()
+})
+async function readRetry(runId) {
+  const hub = `/repos/${config.hubOwner}/${config.hubRepo}`
+  // ghApi resolves `{ ok: false }` for every failure, a timeout included; it
+  // never rejects, so `.ok` is the whole error handling.
+  const runRes = await ghApi(getToken(), 'GET', `${hub}/actions/runs/${runId}`)
+  if (!runRes.ok) return { run: null }
+  const run = runRes.data
+  if (run?.status !== 'completed') return { run }
+  // Over: its jobs, and each job's annotations. A job's id is its check run's.
+  const jobsRes = await ghApi(getToken(), 'GET', `${hub}/actions/runs/${runId}/jobs?per_page=100`)
+  if (!jobsRes.ok || !Array.isArray(jobsRes.data?.jobs)) return { run, outcome: null, outcomeRead: false }
+  let outcomeRead = true
+  for (const job of jobsRes.data.jobs) {
+    const ann = await ghApi(getToken(), 'GET', `${hub}/check-runs/${job.id}/annotations?per_page=100`)
+    if (!ann.ok) { outcomeRead = false; continue }
+    const outcome = parseRetryOutcome(ann.data)
+    if (outcome) return { run, outcome, outcomeRead: true }
+  }
+  return { run, outcome: null, outcomeRead }
+}
+async function followRetry(key, login, runId, runUrl, tries) {
+  if (!retryPageOpen) return
+  const read = await readRetry(runId)
+  if (!retryPageOpen) return
+  let view = describeRetry({ login, ...read })
+  if (!view.done && tries + 1 >= RETRY_CHECKS) {
+    view = { state: 'unknown', tone: 'neutral', done: true, text: `The retry is still running after five minutes. Open its run, or the assignment page later, to see whether @${login} is on its list.` }
+  }
+  retries.value = { ...retries.value, [key]: { view, runUrl } }
+  if (view.done) return
+  const t = setTimeout(() => {
+    retryTimers.delete(t)
+    followRetry(key, login, runId, runUrl, tries + 1)
+  }, RETRY_CHECK_MS)
+  retryTimers.add(t)
+}
+/** A retry of one of this notice's lines is still waiting for its answer. */
+const retryWaiting = (n) => unrecordedLinesOf(n).some((l) => retries.value[lineKey(l)]?.view && !retries.value[lineKey(l)].view.done)
 
 // DEALT WITH: a 👍 on the notice's comment (lib/org-notices.mjs). Taken back by
 // removing this account's own 👍; one another lecturer left is theirs to take.
