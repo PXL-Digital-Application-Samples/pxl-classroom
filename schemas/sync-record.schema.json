@@ -98,6 +98,16 @@
       "minimum": 0,
       "description": "Students not reached when it stopped. 0 on a completed run."
     },
+    "round": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which round of its run wrote this record, where the run is given more than one (sync-starter-code.yml: a round lasts under the App token's hour and the next continues where it stopped). Each round writes a record of its own, so `results` counts the students THIS round handled, the ones an earlier round updated among them as skipped. Absent on a record written before 2026-11-13, by the CLI, or by a run of one round. No default: absent is 'not said', and validation must not invent a 1."
+    },
+    "rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many rounds the run may take at most. Written with `round`, absent without it. No default, for the reason `round` has none."
+    },
     "per_student_range": {
       "type": "boolean",
       "description": "true: every student was sent what they were missing between their own starting point (`results[].from_sha`) and `template_sha`, not what one commit changed. Absent on records written before 2026-09-25, which are therefore NOT read as evidence of where a student is: one commit's files arriving is not holding that commit (lib/starter-sync.mjs `startingPointFor`). No default: a default would write `false` into every old record on validation, which is a different answer from absent only in wording, and a different one the day this is read."

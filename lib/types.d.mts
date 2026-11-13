@@ -563,6 +563,8 @@ export type SyncRecord = {
   finished_at?: string;
   total_students?: number;
   remaining?: number;
+  round?: number;
+  rounds?: number;
   per_student_range?: boolean;
   all_files?: boolean;
   pr_title?: string;

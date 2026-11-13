@@ -113,6 +113,26 @@ test("RUNNING and its run is going: progress, and Follow - never a timer on the 
   assert.equal(v.runUrl, "https://github.com/Hub/pxl-classroom/actions/runs/36152850724");
 });
 
+test("RUNNING in a LATER ROUND: which round, that it continues by itself, and what the count counts", () => {
+  // Each round writes its own record, so round 2 starts at 0 and climbs
+  // through everyone round 1 did. Unsaid, that read as a sync starting over.
+  const rec = (over) => record({ status: "running", remaining: undefined, total_students: 145, results: Array.from({ length: 31 }, (_, i) => res(`s${i}`, "skipped-up-to-date")), ...over });
+  const run = { status: "in_progress" };
+  const v = describeSyncStatus({ record: rec({ round: 2, rounds: 3 }), run });
+  assert.equal(v.state, "running");
+  assert.equal(v.title, "Syncing aaaaaaa by @wesleyhendrikx");
+  assert.equal(v.detail, "Round 2 of at most 3: it continues by itself. 31 of 145 students checked in this round at the last count; those already updated are skipped.");
+  // Round 1 is the sync as it always read; so is a record that names no round.
+  for (const over of [{ round: 1, rounds: 3 }, {}, { round: 2 }, { rounds: 3 }]) {
+    assert.equal(describeSyncStatus({ record: rec(over), run }).detail, "31 of 145 students done at the last count.", JSON.stringify(over));
+  }
+  // The round another follows leaves `running`: if its run is then over, the
+  // next round never started, and that is said as a sync cut off.
+  const cut = describeSyncStatus({ record: rec({ round: 1, rounds: 3 }), run: { status: "completed", conclusion: "failure" } });
+  assert.equal(cut.state, "died");
+  assert.equal(cut.action, "sync-again");
+});
+
 test("RUNNING in the record but the run is OVER: it died, and the lecturer is told to run it again", () => {
   // The exact state .NET Advanced was left in: cut off, nothing recorded after.
   // GitHub's conclusion is never printed as-is (DESIGN.md §1.7): `timed_out`

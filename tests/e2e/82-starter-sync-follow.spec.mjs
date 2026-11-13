@@ -123,10 +123,11 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     await expect(panel(page)).toContainText('60 of 111 students done at the last count.');
 
     // Round 2 has started: its own record, the same run.
-    state.rec2 = record({ sync_id: FILE2.replace('.json', ''), results: res(75) });
+    state.rec2 = record({ sync_id: FILE2.replace('.json', ''), round: 2, rounds: 3, results: res(75) });
     await tick(page);
     await expect(panel(page)).toHaveAttribute('data-state', 'running');
-    await expect(panel(page)).toContainText('75 of 111 students done at the last count.');
+    await expect(panel(page)).toContainText('Round 2 of at most 3: it continues by itself.');
+    await expect(panel(page)).toContainText('75 of 111 students checked in this round at the last count; those already updated are skipped.');
 
     state.run = { status: 'completed', conclusion: 'success' };
     state.rec2 = record({ sync_id: FILE2.replace('.json', ''), status: 'completed', remaining: 0, results: res(111) });

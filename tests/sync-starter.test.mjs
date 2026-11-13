@@ -1091,6 +1091,8 @@ test("a round another follows hands over: its record stays running, and it says 
     // that is about to carry on.
     assert.equal(end.status, "running");
     assert.equal("remaining" in end, false);
+    // Every record of a run in rounds says which round wrote it.
+    for (const doc of controlWrites) assert.deepEqual([doc.round, doc.rounds], [1, 3]);
     assert.equal(validateSyncRecord(end), true, JSON.stringify(validateSyncRecord.errors));
     assert.equal(readFileSync(file, "utf8"), "continues=true\n");
   });
@@ -1124,6 +1126,16 @@ test("a round that reaches everyone ends the sync, whatever rounds are left", as
     assert.equal(controlWrites.at(-1).status, "completed");
     assert.equal(readFileSync(file, "utf8"), "continues=false\n");
   });
+});
+
+test("a sync of one round names no round, as every record before rounds existed", async () => {
+  const controlWrites = [];
+  const res = await runSyncStarter({ records: Object.fromEntries([student("alice")]), controlWrites });
+  assert.equal(res.status, 0, res.stderr);
+  for (const doc of controlWrites) {
+    assert.equal("round" in doc, false);
+    assert.equal("rounds" in doc, false);
+  }
 });
 
 test("a round whose final record cannot be written goes red and hands nothing over", async () => {

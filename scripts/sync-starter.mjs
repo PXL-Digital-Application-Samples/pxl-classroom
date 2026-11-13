@@ -300,7 +300,7 @@ async function main() {
     syncId, assignmentId: cfg.assignmentId, startedAt, syncedBy: cfg.actor, status, runId, runUrl,
     totalStudents: repoFiles.length, remaining, templateRepo: templateFullName, templateSha,
     templateBaseSha: parentSha, appliedPaths, allFiles, prTitle: syncTitle, prBody: syncBody,
-    createdIssues: cfg.createIssue, results,
+    createdIssues: cfg.createIssue, results, round: cfg.round, rounds: cfg.rounds,
   });
 
   const recordPath = `syncs/${cfg.assignmentId}/${syncId}.json`;
