@@ -9,7 +9,7 @@
 // what the merge-based implementation this replaced actually did to a
 // repository created from a template, and which half of it was a 404.
 
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
@@ -52,11 +52,25 @@ const cfg = {
   actor: env("ACTOR", "lecturer"),
   // Blank syncs the template's newest commit.
   templateCommit: env("TEMPLATE_COMMIT", ""),
-  // How long the sync may spend on students before it stops itself and says
-  // where. Under the job's 45-minute timeout with room for the final record:
-  // a job the timeout kills writes nothing afterwards.
-  budgetMs: Number(env("SYNC_BUDGET_MS", "")) || 38 * 60_000,
+  // How long ONE ROUND may spend on students before it stops itself and says
+  // where. Under the App token's hour, which is what a round runs on, with
+  // room for the student it is in the middle of and the final record: past
+  // the hour every write is a 401, and a step the timeout kills writes
+  // nothing afterwards.
+  budgetMs: Number(env("SYNC_BUDGET_MS", "")) || 52 * 60_000,
+  // A sync that reaches its budget CONTINUES BY ITSELF where the workflow
+  // gives it another round (sync-starter-code.yml: a fresh token, then this
+  // script again, which skips everyone who has the change). `round` of
+  // `rounds`; alone, as the CLI and the tests run it, it is 1 of 1 and stops
+  // as it always did.
+  round: Math.max(1, Number(env("SYNC_ROUND", "")) || 1),
+  rounds: Math.max(1, Number(env("SYNC_ROUNDS", "")) || 1),
 };
+
+// The one output the workflow reads (`continues`): does another round follow?
+async function setOutput(name, value) {
+  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -343,7 +357,11 @@ async function main() {
     // Counted in STUDENTS, the unit `total_students` is in.
     if (Date.now() - t0 > cfg.budgetMs) {
       remaining = perRepo.slice(index).reduce((n, r) => n + 1 + teammates(r).length, 0);
-      console.log(`[stop] time budget reached with ${remaining} student(s) not yet reached - run the sync again to finish them`);
+      console.log(
+        cfg.round < cfg.rounds
+          ? `[stop] time budget reached with ${remaining} student(s) not yet reached - continuing by itself in round ${cfg.round + 1} of ${cfg.rounds}`
+          : `[stop] time budget reached with ${remaining} student(s) not yet reached - run the sync again to finish them`,
+      );
       break;
     }
     await maybeFlush();
@@ -604,19 +622,36 @@ async function main() {
 
   // 4. The final record. NOT best effort: this is the one that says the run
   //    finished and how, and a run whose final record did not land goes red.
-  const status = remaining > 0 ? "stopped" : "completed";
+  //
+  //    A ROUND THAT ANOTHER FOLLOWS LEAVES ITS RECORD `running`. The sync as a
+  //    whole is still going, in the same run, and `stopped` would tell the
+  //    lecturer to press Sync again over a job that is about to carry on. If
+  //    the next round never starts, the page finds this record `running` with
+  //    its run over and says the sync ended before it finished and how many it
+  //    reached (lib/sync-status.mjs), which is then the truth. The next round
+  //    writes a record of its own, and the newest record is the one shown.
+  const continues = remaining > 0 && cfg.round < cfg.rounds;
+  const status = remaining > 0 ? (continues ? "running" : "stopped") : "completed";
   const syncRecord = buildRecord(status, remaining);
   await writeRecord(
     syncRecord,
-    status === "stopped"
-      ? `Starter code sync for ${cfg.assignmentId} stopped with ${remaining} student(s) to go`
-      : `Record starter code sync for ${cfg.assignmentId}`,
+    continues
+      ? `Starter code sync for ${cfg.assignmentId}: round ${cfg.round} of ${cfg.rounds} ended with ${remaining} student(s) to go`
+      : status === "stopped"
+        ? `Starter code sync for ${cfg.assignmentId} stopped with ${remaining} student(s) to go`
+        : `Record starter code sync for ${cfg.assignmentId}`,
   );
+  // After the record, never before: a round that could not write where it
+  // got to goes red (above) instead of handing over.
+  await setOutput("continues", continues ? "true" : "false");
 
   const s = syncRecord.summary;
+  const tail = continues
+    ? `, ${remaining} not reached - round ${cfg.round + 1} of ${cfg.rounds} continues`
+    : remaining ? `, ${remaining} not reached - run it again` : "";
   console.log(
-    `\nSync ${status} (${syncId}): ${s.auto_merged} updated in place, ${s.pr_opened} pull request(s), ` +
-      `${s.skipped} skipped, ${s.failed} failed${remaining ? `, ${remaining} not reached - run it again` : ""}.`,
+    `\nSync ${continues ? `round ${cfg.round} of ${cfg.rounds} ended` : status} (${syncId}): ${s.auto_merged} updated in place, ` +
+      `${s.pr_opened} pull request(s), ${s.skipped} skipped, ${s.failed} failed${tail}.`,
   );
 }
 

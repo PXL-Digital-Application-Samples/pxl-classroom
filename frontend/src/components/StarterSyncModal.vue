@@ -859,7 +859,13 @@ async function findRunRecord(runId) {
     try {
       const doc = JSON.parse(await getRepoContent(getToken(), props.org, config.controlRepo, f.path))
       if (doc?.run_id === runId) {
-        followRecordPath = f.path
+        // Remembered only once it has ENDED. One run writes a record per
+        // round (sync-starter-code.yml), and a round another follows leaves
+        // its own `running`: held on to, the dialog would watch round 1's
+        // record while round 2 does the work, and call the sync cut off when
+        // the run ends. Newest first, so while it runs this finds the round
+        // that is going.
+        if (doc.status !== 'running') followRecordPath = f.path
         return { record: doc, read: true }
       }
     } catch {

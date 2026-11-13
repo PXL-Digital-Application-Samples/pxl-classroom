@@ -14,6 +14,7 @@ const ID = 'lab-follow';
 const TPL = 'template-follow';
 const RUN = 555;
 const FILE = 'sync-20260925T151518Z-b1gcxj.json';
+const FILE2 = 'sync-20260925T160801Z-r2r2r2.json';
 const SHA = '1e7f7145a0499768a23976c4b7076ba21cc11b2f';
 
 const record = (over = {}) => ({
@@ -51,8 +52,11 @@ async function setup(page, { runsList = [], dispatchDetails = true } = {}) {
   await page.route(/contents\/syncs\//, (route) => {
     const url = route.request().url();
     if (!state.rec) return route.fulfill({ status: 404, body: JSON.stringify({ message: 'Not Found' }) });
-    if (url.includes(FILE)) return route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(state.rec)).toString('base64'), encoding: 'base64' }) });
-    return route.fulfill({ status: 200, body: JSON.stringify([{ type: 'file', name: FILE, path: `syncs/${ID}/${FILE}` }]) });
+    const file = (doc) => route.fulfill({ status: 200, body: JSON.stringify({ content: Buffer.from(JSON.stringify(doc)).toString('base64'), encoding: 'base64' }) });
+    // `state.rec2`: the record a SECOND ROUND of the same run wrote.
+    if (state.rec2 && url.includes(FILE2)) return file(state.rec2);
+    if (url.includes(FILE)) return file(state.rec);
+    return route.fulfill({ status: 200, body: JSON.stringify([FILE, ...(state.rec2 ? [FILE2] : [])].map((name) => ({ type: 'file', name, path: `syncs/${ID}/${name}` }))) });
   });
   page.on('request', (r) => { if (/\/git\/trees\/main/.test(r.url())) state.trees++; });
   return state;
@@ -100,6 +104,35 @@ test.describe('82 - The sync dialog follows the run it started', () => {
     const settled = state.calls;
     await page.clock.runFor(60_000);
     expect(state.calls, 'no checks after the outcome is known').toBe(settled);
+  });
+
+  test('a sync that continues in a second round: the dialog moves to the round that is going, and ends with it', async ({ page }) => {
+    // One run, a record per round (sync-starter-code.yml). Round 1 hands over
+    // with its record still `running`; held on to, the dialog would show
+    // round 1's count while round 2 worked and call the sync cut off when the
+    // run ended (2026-11-13).
+    const state = await setup(page);
+    await page.goto(`/dashboard/${ORG}/${ID}`);
+    await openStarterSyncModal(page);
+    await page.locator('.modal.card.modal-wide button', { hasText: /Apply Starter Update/i }).click();
+    await expect(panel(page)).toHaveAttribute('data-state', 'waiting');
+
+    state.run = { status: 'in_progress' };
+    state.rec = record({ results: res(60) });
+    await tick(page);
+    await expect(panel(page)).toContainText('60 of 111 students done at the last count.');
+
+    // Round 2 has started: its own record, the same run.
+    state.rec2 = record({ sync_id: FILE2.replace('.json', ''), results: res(75) });
+    await tick(page);
+    await expect(panel(page)).toHaveAttribute('data-state', 'running');
+    await expect(panel(page)).toContainText('75 of 111 students done at the last count.');
+
+    state.run = { status: 'completed', conclusion: 'success' };
+    state.rec2 = record({ sync_id: FILE2.replace('.json', ''), status: 'completed', remaining: 0, results: res(111) });
+    await tick(page);
+    await expect(panel(page)).toHaveAttribute('data-state', 'completed');
+    await expect(panel(page).locator('strong')).toHaveText(`The sync of ${SHA.slice(0, 7)} finished: all 111 students handled`);
   });
 
   test('closing the dialog stops the checking', async ({ page }) => {

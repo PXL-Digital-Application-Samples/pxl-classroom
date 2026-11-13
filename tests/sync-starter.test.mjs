@@ -1066,6 +1066,78 @@ test("at its time budget the sync STOPS ITSELF and records who is left", async (
   assert.deepEqual(end.results, []);
 });
 
+// A sync that reaches its budget continues by itself where the workflow gives
+// it another round (sync-starter-code.yml, tests/sync-rounds.test.mjs).
+function withOutputFile(fn) {
+  const dir = mkdtempSync(join(tmpdir(), "pxl-sync-out-"));
+  const file = join(dir, "output");
+  writeFileSync(file, "");
+  return fn(file).finally(() => rmSync(dir, { recursive: true, force: true }));
+}
+
+test("a round another follows hands over: its record stays running, and it says continues", async () => {
+  await withOutputFile(async (file) => {
+    const controlWrites = [];
+    const res = await runSyncStarter({
+      records: Object.fromEntries([student("alice"), student("bob"), student("carol")]),
+      env: { SYNC_BUDGET_MS: "1", SYNC_ROUND: "1", SYNC_ROUNDS: "3", GITHUB_OUTPUT: file },
+      controlWrites,
+    });
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stdout, /time budget reached with 3 student\(s\) not yet reached - continuing by itself in round 2 of 3/);
+    assert.doesNotMatch(res.stdout, /run the sync again|run it again/, "nobody is told to press anything");
+    const end = controlWrites.at(-1);
+    // `stopped` would put "Run it again" on the lecturer's page over a job
+    // that is about to carry on.
+    assert.equal(end.status, "running");
+    assert.equal("remaining" in end, false);
+    assert.equal(validateSyncRecord(end), true, JSON.stringify(validateSyncRecord.errors));
+    assert.equal(readFileSync(file, "utf8"), "continues=true\n");
+  });
+});
+
+test("the LAST round stops as a sync always did, and says so to the workflow", async () => {
+  await withOutputFile(async (file) => {
+    const controlWrites = [];
+    const res = await runSyncStarter({
+      records: Object.fromEntries([student("alice"), student("bob")]),
+      env: { SYNC_BUDGET_MS: "1", SYNC_ROUND: "3", SYNC_ROUNDS: "3", GITHUB_OUTPUT: file },
+      controlWrites,
+    });
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stdout, /time budget reached with 2 student\(s\) not yet reached - run the sync again/);
+    assert.equal(controlWrites.at(-1).status, "stopped");
+    assert.equal(controlWrites.at(-1).remaining, 2);
+    assert.equal(readFileSync(file, "utf8"), "continues=false\n");
+  });
+});
+
+test("a round that reaches everyone ends the sync, whatever rounds are left", async () => {
+  await withOutputFile(async (file) => {
+    const controlWrites = [];
+    const res = await runSyncStarter({
+      records: Object.fromEntries([student("alice")]),
+      env: { SYNC_ROUND: "1", SYNC_ROUNDS: "3", GITHUB_OUTPUT: file },
+      controlWrites,
+    });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(controlWrites.at(-1).status, "completed");
+    assert.equal(readFileSync(file, "utf8"), "continues=false\n");
+  });
+});
+
+test("a round whose final record cannot be written goes red and hands nothing over", async () => {
+  await withOutputFile(async (file) => {
+    const res = await runSyncStarter({
+      records: Object.fromEntries([student("alice")]),
+      env: { SYNC_BUDGET_MS: "1", SYNC_ROUND: "1", SYNC_ROUNDS: "3", GITHUB_OUTPUT: file },
+      controlDenied: true,
+    });
+    assert.notEqual(res.status, 0);
+    assert.equal(readFileSync(file, "utf8"), "", "no output, so the next round's condition is false");
+  });
+});
+
 test("progress is recorded as it goes, so a run that dies still says who it reached", async () => {
   const controlWrites = [];
   const logins = Array.from({ length: 22 }, (_, i) => `s${String(i).padStart(2, "0")}`);

@@ -55,11 +55,17 @@ jobs:
   sync-starter:
     environment: provisioning
     runs-on: ubuntu-24.04
-    # 20 stopped a real 93-file sync after 30 of its students, when every file
-    # was its own blob request. Text files now go in one tree request
-    # (lib/gittree.mjs), so a cohort takes minutes - this is headroom, and it
-    # stays under the App token's one-hour life, which the job does not re-mint.
-    timeout-minutes: 45
+    # THREE ROUNDS, EACH ON ITS OWN TOKEN. An App installation token lives one
+    # hour, so one round stops itself after 52 minutes (scripts/sync-starter.mjs
+    # `budgetMs`) and says whether students are left (`continues`). If so the
+    # next round mints a fresh token, checks the control repository out again
+    # and runs the same script, which skips everyone who has the change. A
+    # lab of 18 MiB per student needed four runs by hand for 145 students
+    # (2026-11-13); this is those runs without the pressing. After the third
+    # round it stops and says who is left, so a sync that cannot finish does
+    # not hold the assignment's slot all day. Three hours for three rounds;
+    # each sync step has its own limit below the token's hour.
+    timeout-minutes: 180
     steps:
       # A lecturer dispatches this as themselves, through the SPA or the Actions
       # tab. The only other thing that can reach workflow_dispatch here is an App
@@ -126,6 +132,10 @@ jobs:
       - run: npm ci --omit=dev
 
       - name: Execute Starter Code Sync
+        id: round1
+        # Below the token's hour: a step that hangs is ended while its
+        # credential still is one, and the job goes red rather than on.
+        timeout-minutes: 58
         env:
           GITHUB_TOKEN: ${{ steps.token.outputs.token }}
           ORG: ${{ inputs.org }}
@@ -137,9 +147,100 @@ jobs:
           CREATE_ISSUE: ${{ inputs.create_issue }}
           TEMPLATE_COMMIT: ${{ inputs.template_commit }}
           ACTOR: ${{ github.actor }}
+          SYNC_ROUND: "1"
+          SYNC_ROUNDS: "3"
         # The script writes its own record - when it starts, as it goes and
         # when it ends - through the Git Data API. A record committed by a
         # later step was never written at all when the timeout stopped the
         # sync, so nothing could say who had been reached.
+        run: |
+          node scripts/sync-starter.mjs
+
+      # ---- Round 2: only when round 1 said students are left ----------------
+      # `steps.<id>.outputs.continues` of a step that failed, was skipped or
+      # ended early is the empty string, so nothing below runs after anything
+      # but a round that recorded where it got to.
+      - name: Mint App token for round 2
+        id: token_round2
+        if: steps.round1.outputs.continues == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
+      # Again, not reused: the records round 1 wrote are read from here, and
+      # the first checkout's stored credential is the token that is expiring.
+      - name: Checkout control repo for round 2
+        if: steps.round1.outputs.continues == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token_round2.outputs.token }}
+          path: control
+
+      - name: Execute Starter Code Sync, round 2
+        id: round2
+        if: steps.round1.outputs.continues == 'true'
+        timeout-minutes: 58
+        env:
+          GITHUB_TOKEN: ${{ steps.token_round2.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+          SELECTED_FILES: ${{ inputs.selected_files }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_BODY: ${{ inputs.pr_body }}
+          CREATE_ISSUE: ${{ inputs.create_issue }}
+          TEMPLATE_COMMIT: ${{ inputs.template_commit }}
+          ACTOR: ${{ github.actor }}
+          SYNC_ROUND: "2"
+          SYNC_ROUNDS: "3"
+        run: |
+          node scripts/sync-starter.mjs
+
+      # ---- Round 3: the last. What it does not reach, it says ---------------
+      - name: Mint App token for round 3
+        id: token_round3
+        if: steps.round2.outputs.continues == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          owner: ${{ inputs.org }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
+      - name: Checkout control repo for round 3
+        if: steps.round2.outputs.continues == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.org }}/pxl-classroom-control
+          token: ${{ steps.token_round3.outputs.token }}
+          path: control
+
+      - name: Execute Starter Code Sync, round 3
+        id: round3
+        if: steps.round2.outputs.continues == 'true'
+        timeout-minutes: 58
+        env:
+          GITHUB_TOKEN: ${{ steps.token_round3.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+          SELECTED_FILES: ${{ inputs.selected_files }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_BODY: ${{ inputs.pr_body }}
+          CREATE_ISSUE: ${{ inputs.create_issue }}
+          TEMPLATE_COMMIT: ${{ inputs.template_commit }}
+          ACTOR: ${{ github.actor }}
+          SYNC_ROUND: "3"
+          SYNC_ROUNDS: "3"
         run: |
           node scripts/sync-starter.mjs
