@@ -1,4 +1,9 @@
 name: Retry Acceptance
+# Names who and what it is for, so the Organization page can find the last
+# Retry of one student and show what the hub answered, after a refresh too
+# (lib/retry-outcome.mjs `retryRunTitle`; a test holds the two equal). A run
+# name is a title, not a script, and names nothing the run's log does not.
+run-name: "Retry Acceptance: ${{ inputs.github_login }} / ${{ inputs.assignment_id }} (${{ inputs.org }})"
 
 # Lecturer-triggerable rescue for half-done acceptances.
 # Sets the student's acceptance record aside in its checkout (never pushed on a

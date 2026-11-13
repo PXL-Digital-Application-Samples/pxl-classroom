@@ -147,6 +147,27 @@ test.describe('107 - repositories nobody recorded', () => {
     expect(calls.run).toBe(settled);
   });
 
+  test('a refusal is still on the page after a reload, and in a colleague\'s tab: it is read from the run, not remembered', async ({ page }) => {
+    // DESIGN.md §1.5. The retry was pressed somewhere else, earlier: this page
+    // finds the last Retry of @bob for lab-3 in the hub's runs and shows what
+    // the hub answered, with when - and offers Retry, pressing nothing itself.
+    // Routes after the fixture's own (the last one registered answers), then
+    // the page is loaded again: that load is the one under test.
+    const { dispatches } = await open(page);
+    await answer(page, { message: 'accept=rejected:no-claim record=skipped' });
+    await page.route(/\/actions\/workflows\/retry-acceptance\.yml\/runs/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ workflow_runs: [
+        { id: 12, display_title: `Retry Acceptance: someone-else / lab-3 (${ORG})`, created_at: new Date(Date.now() - 60_000).toISOString(), html_url: 'https://github.com/Hub/pxl-classroom/actions/runs/12' },
+        { id: RUN, display_title: `Retry Acceptance: bob / lab-3 (${ORG})`, created_at: new Date(Date.now() - 2 * 3600_000).toISOString(), html_url: `https://github.com/Hub/pxl-classroom/actions/runs/${RUN}` },
+      ] }) }));
+    await page.reload();
+    await expect(outcome(page)).toHaveAttribute('data-state', 'refused', { timeout: 15000 });
+    await expect(outcome(page)).toContainText('Last retry, 2h ago: Not added: no confirmed email address.');
+    await expect(outcome(page).locator('.status-dot')).toHaveClass(/dot-danger/);
+    await expect(line(page, 'lab-3-bob').getByRole('button', { name: 'Retry @bob' })).toBeVisible();
+    expect(dispatches.filter((d) => d.workflow === 'retry-acceptance.yml').length, 'opening the page starts nothing').toBe(0);
+  });
+
   test('a run that ended without saying what it decided claims nothing', async ({ page }) => {
     await open(page);
     await answer(page, { message: null });

@@ -104,7 +104,7 @@
                         :data-state="retries[lineKey(l)].view.state"
                       >
                         <span class="status-dot" :class="`dot-${retries[lineKey(l)].view.tone}`" aria-hidden="true"></span>
-                        <span>{{ retries[lineKey(l)].view.text }}</span>
+                        <span><template v-if="retries[lineKey(l)].at">Last retry, {{ formatRelative(retries[lineKey(l)].at) }}: </template>{{ retries[lineKey(l)].view.text }}</span>
                         <a v-if="retries[lineKey(l)].runUrl" :href="retries[lineKey(l)].runUrl" target="_blank" rel="noopener">View run</a>
                       </span>
                       <span v-else-if="retries[lineKey(l)]?.error" class="text-danger text-sm" role="alert">{{ retries[lineKey(l)].error }}</span>
@@ -302,7 +302,7 @@ import UsagePanel from '../components/UsagePanel.vue'
 import { getToken, getUser, isAuthenticated } from '../lib/auth.js'
 import { markStaff, readProvisioned, setNeedsYou } from '../lib/org-session.js'
 import { dispatchWorkflowRun, explainDispatchFailure, getRepo, getRepoContent, ghApi, listRepoDir } from '../lib/api.js'
-import { describeRetry, parseRetryOutcome } from '../../../lib/retry-outcome.mjs'
+import { describeRetry, latestRetryRun, parseRetryOutcome } from '../../../lib/retry-outcome.mjs'
 import { askConfirm } from '../lib/confirm.js'
 import { parseUnrecordedLines } from '../../../lib/unrecorded-repos.mjs'
 import { normalizeLogin, sameLogin } from '../../../lib/github-login.mjs'
@@ -462,7 +462,9 @@ async function readRetry(runId) {
   }
   return { run, outcome: null, outcomeRead }
 }
-async function followRetry(key, login, runId, runUrl, tries) {
+// `at`: when the retry was started, for one FOUND on opening the page rather
+// than pressed in it, so its answer is not read as news.
+async function followRetry(key, login, runId, runUrl, tries, at = null) {
   if (!retryPageOpen) return
   const read = await readRetry(runId)
   if (!retryPageOpen) return
@@ -470,14 +472,38 @@ async function followRetry(key, login, runId, runUrl, tries) {
   if (!view.done && tries + 1 >= RETRY_CHECKS) {
     view = { state: 'unknown', tone: 'neutral', done: true, text: `The retry is still running after five minutes. Open its run, or the assignment page later, to see whether @${login} is on its list.` }
   }
-  retries.value = { ...retries.value, [key]: { view, runUrl } }
+  retries.value = { ...retries.value, [key]: { view, runUrl, at } }
   if (view.done) return
   const t = setTimeout(() => {
     retryTimers.delete(t)
-    followRetry(key, login, runId, runUrl, tries + 1)
+    followRetry(key, login, runId, runUrl, tries + 1, at)
   }, RETRY_CHECK_MS)
   retryTimers.add(t)
 }
+
+// THE LAST RETRY OF EACH LINE, WORKED OUT EVERY TIME THE LINES ARE SHOWN
+// (DESIGN.md §1.5: a status that lives only in the tab that saw it happen is
+// not a status). The answer above was in this tab's memory alone, so a refresh
+// or a colleague's tab showed a bare Retry button over a retry the hub had
+// refused. A Retry run names its student and assignment (`retryRunTitle`), so
+// the hub's run list says which was the last one, and its own annotation says
+// what it decided. One list read for all lines; unread, a line offers Retry
+// and claims nothing.
+let retryHistoryFor = ''
+watch(needsYou, async (list) => {
+  const lines = list.flatMap(unrecordedLinesOf).filter((l) => l.login && retryOffered(l))
+  const signature = lines.map(lineKey).sort().join('|')
+  if (!lines.length || signature === retryHistoryFor) return
+  retryHistoryFor = signature
+  const res = await ghApi(getToken(), 'GET', `/repos/${config.hubOwner}/${config.hubRepo}/actions/workflows/retry-acceptance.yml/runs?per_page=50`)
+  if (!res.ok || !retryPageOpen) return
+  for (const l of lines) {
+    const key = lineKey(l)
+    if (retries.value[key]) continue // pressed here meanwhile: that one is newer
+    const run = latestRetryRun(res.data?.workflow_runs, props.org, l.assignmentId, l.login)
+    if (run) followRetry(key, l.login, run.id, run.html_url, 0, run.created_at)
+  }
+}, { immediate: true })
 /** A retry of one of this notice's lines is still waiting for its answer. */
 const retryWaiting = (n) => unrecordedLinesOf(n).some((l) => retries.value[lineKey(l)]?.view && !retries.value[lineKey(l)].view.done)
 

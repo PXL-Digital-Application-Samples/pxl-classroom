@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";
-import { RETRY_OUTCOME_TITLE, describeRetry, parseRetryOutcome, retryOutcomeLine } from "../lib/retry-outcome.mjs";
+import { RETRY_OUTCOME_TITLE, describeRetry, latestRetryRun, parseRetryOutcome, retryOutcomeLine, retryRunTitle } from "../lib/retry-outcome.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), "utf8");
@@ -68,7 +68,8 @@ test("while the run is going it says it is waiting, and promises nothing", () =>
 test("THE CASE: a green run that refused says refused, why, and what to do", () => {
   const v = said({ accept: "rejected:no-claim", provision: "", record: "skipped" });
   assert.equal(v.state, "refused");
-  assert.equal(v.tone, "warning");
+  // DESIGN.md §4: "failed, refused - something did not happen" is the red dot.
+  assert.equal(v.tone, "danger");
   assert.match(v.text, /^Not added: no confirmed email address\. /);
   assert.match(v.text, /Ask them to open the invitation link and accept again with their address; they keep their repository/);
   assert.doesNotMatch(v.text, /rejected:/, "a stored value is not a label");
@@ -129,6 +130,40 @@ test("retry-acceptance.yml says the outcome in a step that always runs, fed by t
   assert.ok(recordStep.id, "the record step has an id, or its outcome is the empty string for ever");
   assert.equal(say.env.RECORD_OUTCOME, `\${{ steps.${recordStep.id}.outcome }}`);
   for (const k of Object.keys(say.env)) assert.ok(steps.indexOf(steps.find((s) => s.id === id(say.env[k]))) < steps.indexOf(say));
+});
+
+// -----------------------------------------------------------------------------
+// The answer is found again on every load, not kept in the tab that asked
+// -----------------------------------------------------------------------------
+
+test("the run-name the workflow declares is the one the page looks for", () => {
+  // Derived, never re-spelled: a workflow that named its runs differently
+  // would make every earlier Retry invisible, and its refusal with it.
+  const expr = parseYaml(read(".github/workflows/retry-acceptance.yml"))["run-name"];
+  const rendered = expr
+    .replace("${{ inputs.github_login }}", "bob")
+    .replace("${{ inputs.assignment_id }}", "lab-3")
+    .replace("${{ inputs.org }}", "Org");
+  assert.equal(rendered, retryRunTitle("Org", "lab-3", "bob"));
+});
+
+test("the last Retry of THIS student of THIS assignment, and nobody else's", () => {
+  const t = (login, id = "lab-3", org = "Org") => retryRunTitle(org, id, login);
+  const runs = [
+    { id: 5, display_title: t("alice"), created_at: "2026-11-13T15:00:00Z" },
+    { id: 4, display_title: t("bob"), created_at: "2026-11-13T14:20:57Z" },
+    { id: 3, display_title: t("bob", "lab-4"), created_at: "2026-11-13T14:30:00Z" },
+    { id: 2, display_title: t("bob", "lab-3", "OtherOrg"), created_at: "2026-11-13T14:40:00Z" },
+    { id: 1, display_title: t("BOB"), created_at: "2026-11-01T00:00:00Z" },
+    { id: 0, display_title: "Retry Acceptance", created_at: "2026-11-13T16:00:00Z" },
+  ];
+  assert.equal(latestRetryRun(runs, "Org", "lab-3", "bob").id, 4);
+  // The login as the notice spells it, whatever case the click used.
+  assert.equal(latestRetryRun(runs, "Org", "lab-3", "Bob").id, 4);
+  assert.equal(latestRetryRun(runs, "Org", "lab-3", "carol"), null);
+  assert.equal(latestRetryRun(null, "Org", "lab-3", "bob"), null);
+  // An untitled run (from before runs were named) is nobody's.
+  assert.equal(latestRetryRun([runs[5]], "Org", "lab-3", "bob"), null);
 });
 
 test("the page no longer promises an outcome at the click", () => {
