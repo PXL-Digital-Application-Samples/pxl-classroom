@@ -122,6 +122,63 @@ async function main() {
   const slow = await commitAndCheck("93 files, forced fallback", cohortFiles("slow"), { noShortcut: true, expectBlobs: 93 });
   r.note(`per student: ${fast}s with the shortcut, ${slow}s without`);
 
+  // What timed out on 2026-11-13: 341 files and 18 MiB a student, of which 332
+  // text files and 7.4 MiB went in ONE scratch tree and 341 entries in ONE
+  // commit tree, each 4-5s against GitHub's ten. Now in pieces - and whether
+  // a tree built step by step is the tree, deletes included, is GitHub's to
+  // say: the read-back below compares every path.
+  const big = (tag) =>
+    Array.from({ length: 330 }, (_, i) => ({
+      path: `Lab9/wwwroot/lib/pkg${String(i % 11).padStart(2, "0")}/file${String(i).padStart(3, "0")}.js`,
+      content: Buffer.from(`// ${tag} ${stamp} ${i}\n`.padEnd(22 * 1024, "x"), "utf8"),
+    }));
+  const longest = { ms: 0, line: "" };
+  const timed = counter();
+  const timedFetch = async (url, init) => {
+    const t = Date.now();
+    const res = await timed.fetchImpl(url, init);
+    const ms = Date.now() - t;
+    if (ms > longest.ms) Object.assign(longest, { ms, line: timed.calls.at(-1) });
+    return res;
+  };
+  const t0 = Date.now();
+  const first = await commitWithRebase({
+    fetch: timedFetch, token, owner: org, repo: REPO, branch: "main", message: `330 files, 7 MiB ${stamp}`, changes: big("in"),
+  });
+  const trees = timed.calls.filter((c) => c === `POST /repos/${org}/${REPO}/git/trees`).length;
+  const blobs = timed.calls.filter((c) => c.endsWith("/git/blobs")).length;
+  // 4 scratch trees (7 MiB in pieces of 2) and 4 steps (330 entries by 100).
+  if (blobs === 0 && trees === 8) r.ok(`330 files, 7 MiB: ${trees} tree requests, 0 blobs, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  else r.bad(`330 files, 7 MiB: ${trees} tree requests and ${blobs} blobs where 8 and 0 were expected`);
+  if (longest.ms < 5000) r.ok(`the longest request took ${(longest.ms / 1000).toFixed(1)}s (${longest.line})`);
+  else r.bad(`a request took ${(longest.ms / 1000).toFixed(1)}s, half of GitHub's limit: ${longest.line}`);
+  const after = await api(`/repos/${org}/${REPO}/git/trees/${first.commitSha}?recursive=1`, { token });
+  // Files only: a folder's own entry changes with what is in it.
+  const blobsOf = (tree) => new Map((tree || []).filter((e) => e.type === "blob").map((e) => [e.path, e.sha]));
+  const have = blobsOf(after.data?.tree);
+  const wrong = big("in").filter((f) => have.get(f.path) !== gitSha(f.content)).length;
+  if (after.ok && !after.data.truncated && wrong === 0) r.ok("330 files, 7 MiB: all byte-identical");
+  else r.bad(`330 files, 7 MiB: ${wrong} file(s) differ (read HTTP ${after.status}, truncated ${after.data?.truncated})`);
+
+  // A rename of the folder: 330 deletes and 330 writes, stepped, deletes first.
+  const moved = big("in").map((f) => ({ ...f, path: f.path.replace("Lab9/", "Lab09/") }));
+  const second = await commitWithRebase({
+    token, owner: org, repo: REPO, branch: "main", message: `rename, 660 entries ${stamp}`,
+    changes: [...moved, ...big("in").map((f) => ({ path: f.path, content: null }))],
+  });
+  const renamed = await api(`/repos/${org}/${REPO}/git/trees/${second.commitSha}?recursive=1`, { token });
+  const now = blobsOf(renamed.data?.tree);
+  const left = [...now.keys()].filter((p) => p.startsWith("Lab9/")).length;
+  const missing = moved.filter((f) => now.get(f.path) !== gitSha(f.content)).length;
+  const others = [...have.keys()].filter((p) => !p.startsWith("Lab9/") && now.get(p) !== have.get(p)).length;
+  if (renamed.ok && left === 0 && missing === 0 && others === 0) r.ok("rename of 330 files: old folder gone, new one byte-identical, nothing else touched");
+  else r.bad(`rename of 330 files: ${left} left under the old name, ${missing} wrong under the new, ${others} other path(s) changed`);
+  // And put away again, so the probe repository does not grow by 7 MiB a run.
+  await commitWithRebase({
+    token, owner: org, repo: REPO, branch: "main", message: `remove the 330 ${stamp}`,
+    changes: moved.map((f) => ({ path: f.path, content: null })),
+  });
+
   console.log(`\n${r.failures() ? `${r.failures()} FAILED` : "all good"}\n`);
   process.exit(r.failures() ? 1 : 0);
 }

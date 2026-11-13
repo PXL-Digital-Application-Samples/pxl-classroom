@@ -13,7 +13,7 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { commitWithRebase } from "../lib/gittree.mjs";
+import { commitWithRebase, requestDetail } from "../lib/gittree.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { CONTROL_REPO } from "../lib/deployment.mjs";
 import {
@@ -373,6 +373,9 @@ async function main() {
     const studentFullName = `${cfg.org}/${repoName}`;
     // Named before the plan, so a failure while planning still has a row.
     let row = { github_login: login, repo_name: studentFullName, ...(teamSlug ? { team_slug: teamSlug } : {}) };
+    // What the commit did besides the plain path (a request tried again,
+    // files uploaded one by one): the reason a student took minutes.
+    const onNote = (text) => console.log(`[note] ${login}: ${text}`);
 
     try {
       const studentTree = await readStudentTree(studentFullName, branch);
@@ -446,6 +449,7 @@ async function main() {
             branch,
             message: `Update starter code from template: ${commitMsgTitle}`,
             changes: await toChanges(plan.clean),
+            onNote,
           });
           row.commit_sha = commit.commitSha;
           console.log(`[auto-merged] ${login}: ${plan.clean.length} file(s) -> ${commit.commitSha.slice(0, 7)} (${fromNote})`);
@@ -507,6 +511,7 @@ async function main() {
           branch: branchName,
           message: `Starter code update: ${commitMsgTitle}`,
           changes: await toChanges(offered),
+          onNote,
         });
 
         const prRes = await gh("POST", `/repos/${studentFullName}/pulls`, {
@@ -589,7 +594,10 @@ async function main() {
 
       results.push(row);
     } catch (err) {
-      console.log(`[fail] ${login}: ${err.message}`);
+      // The LOG names the request, its status and how long GitHub took; the
+      // row keeps GitHub's words, which are what the lecturer's page shows.
+      const detail = requestDetail(err);
+      console.log(`[fail] ${login}: ${err.message}${detail ? ` [${detail}]` : ""}`);
       results.push(failedRow(row, err.message));
     }
   }
