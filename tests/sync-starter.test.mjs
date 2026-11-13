@@ -1176,8 +1176,9 @@ test("a student whose requests GitHub cut off is tried once more at the end, and
   assert.match(out, /\[fail\] bob: Sorry, your request timed out\..*\[POST \/repos\/\{owner\}\/\{repo\}\/git\/trees, HTTP 422, [\d.]+s\]/);
   assert.match(out, /\[again\] 1 student\(s\) failed because GitHub did not answer in time - trying each once more/);
   // After everyone else, not straight away: minutes are what fixes it.
-  assert.ok(out.indexOf("[auto-merged] carol") < out.indexOf("[again]"), out);
-  assert.ok(out.indexOf("[again]") < out.lastIndexOf("[auto-merged] bob"), out);
+  const at = (re) => out.search(re);
+  assert.ok(at(/\[auto-merged\] carol:/) >= 0 && at(/\[auto-merged\] carol:/) < at(/\[again\]/), out);
+  assert.ok(at(/\[again\]/) < at(/\[auto-merged\] bob:/), out);
   const end = controlWrites.at(-1);
   assert.equal(end.status, "completed");
   assert.deepEqual(end.results.map((r) => [r.github_login, r.outcome]).sort(), [["alice", "auto-merged"], ["bob", "auto-merged"], ["carol", "auto-merged"]]);
