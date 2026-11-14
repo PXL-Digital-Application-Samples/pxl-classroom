@@ -37,6 +37,15 @@ outputs:
   outcome:
     description: collected | partial | fail:*
     value: ${{ steps.run.outputs.outcome }}
+  missing_count:
+    description: Recorded repositories that answered 404 (lib/missing-repos.mjs)
+    value: ${{ steps.run.outputs.missing_count }}
+  missing_details:
+    description: The unexpected-deletion notice naming them, when missing_count is not 0
+    value: ${{ steps.run.outputs.missing_details }}
+  missing_dedup:
+    description: The notice's dedup key, from the set of repositories
+    value: ${{ steps.run.outputs.missing_dedup }}
 
 runs:
   using: composite

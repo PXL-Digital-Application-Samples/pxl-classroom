@@ -212,6 +212,10 @@ test("a genuinely broken repository IS an error, and is the only one", async () 
       assert.equal(res.outputs.collected_count, "1");
       assert.equal(res.outputs.outcome, "partial");
       assert.match(res.stdout, /snapshot bob/);
+      // And the lecturer is told, rather than left a log line (lib/missing-repos.mjs).
+      assert.equal(res.outputs.missing_count, "1");
+      assert.match(res.outputs.missing_dedup, /^missing-[0-9a-f]{16}$/);
+      assert.match(readFileSync(join(dir, "out.env"), "utf8"), /missing_details<<PXL_[0-9a-f]{16}\n[\s\S]*`TestOrg\/exam-bob` \(assignment `exam`\) - student `bob`/);
     },
     { brokenRepos: [`${ID}-bob`] },
   );

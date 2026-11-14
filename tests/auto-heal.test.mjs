@@ -5,7 +5,10 @@
 //
 //   * presses Retry for a student whose own attempt left a repository with no
 //     record (scripts/dispatch-auto-retry.mjs; who is chosen is
-//     tests/unrecorded-repos.test.mjs).
+//     tests/unrecorded-repos.test.mjs), and
+//   * tells the lecturer about a repository the records name and GitHub no
+//     longer has (lib/missing-repos.mjs), which was only a `[FAIL]` line in a
+//     green collect job when PXL-2TIN-DevOps-2627 lost a team's repository.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,6 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { retriesToDispatch } from "../scripts/dispatch-auto-retry.mjs";
+import { missingRepoNotice } from "../lib/missing-repos.mjs";
 import { AUTO_RETRY_MAX } from "../lib/unrecorded-repos.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -90,4 +94,38 @@ test("the nightly presses Retry only from the finder's own list, with the hub to
   assert.equal(press.env.GITHUB_TOKEN, "${{ secrets.GITHUB_TOKEN }}", "the hub's own token: an App token is refused by the guard");
   assert.equal(press["continue-on-error"], true);
   assert.equal(workflow("daily-activity.yml").jobs.collect.permissions.actions, "write");
+});
+
+test("missingRepoNotice: one entry per repository, a team's members together, a stable key", () => {
+  assert.equal(missingRepoNotice([]), null);
+  assert.equal(missingRepoNotice(null), null);
+  const notice = missingRepoNotice([
+    { assignmentId: "grp", login: "julie", repo: "Org/grp-friends" },
+    { assignmentId: "grp", login: "ann", repo: "Org/GRP-friends" },
+    { assignmentId: "lab", login: "bob", repo: "Org/lab-bob" },
+  ]);
+  assert.equal(notice.count, 2);
+  assert.match(notice.details, /^2 student repositories that PXL Classroom has on record no longer exist/);
+  assert.match(notice.details, /- `Org\/grp-friends` \(assignment `grp`\) - students `julie`, `ann`/);
+  assert.match(notice.details, /- `Org\/lab-bob` \(assignment `lab`\) - student `bob`/);
+  assert.match(notice.details, /restore it for 90 days/);
+  assert.match(notice.details, /\*\*Settings\*\*, \*\*Deleted repositories\*\*, \*\*Restore\*\*/);
+  assert.match(notice.dedup, /^missing-[0-9a-f]{16}$/);
+  const reordered = missingRepoNotice([
+    { assignmentId: "lab", login: "bob", repo: "Org/lab-bob" },
+    { assignmentId: "grp", login: "julie", repo: "Org/grp-friends" },
+  ]);
+  assert.equal(reordered.dedup, notice.dedup, "the same repositories are the same notice, updated rather than posted again");
+  assert.match(missingRepoNotice([{ assignmentId: "lab", login: "bob", repo: "Org/lab-bob" }]).details, /^A student repository that PXL Classroom has on record no longer exists/);
+});
+
+test("the nightly posts the collector's missing-repository notice as unexpected-deletion", () => {
+  const steps = workflow("daily-activity.yml").jobs.collect.steps;
+  const post = steps.find((s) => s.name === "Tell the lecturer about repositories that are gone");
+  assert.ok(post);
+  assert.equal(post.uses, "./notify");
+  assert.equal(post.with["event-type"], "unexpected-deletion");
+  assert.equal(post.with.details, "${{ steps.collect_action.outputs.missing_details }}");
+  assert.equal(post.with["dedup-key"], "${{ steps.collect_action.outputs.missing_dedup }}");
+  assert.equal(post["continue-on-error"], true);
 });

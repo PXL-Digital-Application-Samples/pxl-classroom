@@ -6,7 +6,9 @@
 // per-student errors. No npm dependencies (Node 18+ fetch).
 
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { missingRepoNotice } from "../lib/missing-repos.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
@@ -30,7 +32,13 @@ const cfg = {
 
 // --- Actions output / summary helpers ----------------------------------------
 async function setOutput(name, value) {
-  if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `${name}=${value ?? ""}\n`);
+  if (!process.env.GITHUB_OUTPUT) return;
+  const text = String(value ?? "");
+  if (!text.includes("\n")) return appendFile(process.env.GITHUB_OUTPUT, `${name}=${text}\n`);
+  // A multi-line value (the missing-repository notice) goes between delimiters
+  // made from its own content, so no line of it can end the block early.
+  const delimiter = `PXL_${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
+  await appendFile(process.env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${text}\n${delimiter}\n`);
 }
 async function summary(md) {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, md + "\n");
@@ -171,6 +179,7 @@ async function main() {
   let totalCollected = 0;
   let totalErrors = 0;
   const allRows = [];
+  const missing = [];
 
   for (const assignmentId of assignmentsToProcess) {
     const assignment = await readAssignment(assignmentId);
@@ -226,6 +235,9 @@ async function main() {
         const repoRes = await gh("GET", `/repos/${cfg.org}/${repoName}`);
         if (!repoRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
+          // Gone, or out of the App's reach: said to the lecturer below
+          // (lib/missing-repos.mjs). Any other status is a failed read.
+          if (repoRes.status === 404) missing.push({ assignmentId, login, repo: rec.repo_name ?? repoName });
           res.errors++;
           res.row = `| ${login} | - | error (repo ${repoRes.status}) |`;
           return res;
@@ -376,6 +388,12 @@ async function main() {
   await setOutput("collected_count", totalCollected);
   await setOutput("error_count", totalErrors);
   await setOutput("outcome", outcome);
+  const notice = missingRepoNotice(missing);
+  await setOutput("missing_count", notice?.count ?? 0);
+  if (notice) {
+    await setOutput("missing_details", notice.details);
+    await setOutput("missing_dedup", notice.dedup);
+  }
   await summary(
     `### Collect: \`${outcome}\`\n\n` +
     `| student | SHA | status |\n|---|---|---|\n` +

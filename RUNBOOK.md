@@ -229,7 +229,7 @@ Each org's control repo has an open issue titled **PXL Classroom - Instructor No
 | `collection-failed` | The nightly collect step couldn't reach a student's repo. Usually transient. |
 | `deadline-gap` | An observation gap straddles a deadline. Reduces evidence quality; mention in grading. |
 | `missing-access` | The reconcile step found a repo where the student's admin grant has been revoked. |
-| `unexpected-deletion` | A managed repo was deleted. See §3.1 (Student deleted their repository). |
+| `unexpected-deletion` | A repository the records name answers "not found": it was deleted, or PXL Classroom can no longer see it. Posted by the nightly run, one comment per organization listing every such repository with its students, updated rather than repeated. See §3.1. |
 | `late-activity` | Activity observed after the deadline. Reports include details. |
 | `preservation-failed` | The archive copy of the deadline SHA didn't succeed. |
 | `run-failed` | The nightly run itself did not finish, so collection, lock-down, preservation and reporting may all be incomplete and the dashboard is stale. Every other row here is the system reporting about a student; this one is the system reporting about itself, and it exists because a run that died before reaching its notify step used to say nothing at all. One comment per organization, updated rather than repeated. Nothing is lost - a failed leg retries on the next run - so act on it if it appears twice. |
@@ -248,9 +248,13 @@ The dashboard reads the **aggregate** `reports/dashboard.json` from your control
 
 ### 3.1 Student deleted their repository
 
-The reconcile step posts `unexpected-deletion` in Instructor Notifications.
+The nightly run posts `unexpected-deletion` in Instructor Notifications, naming the repository and its students. Until something changes nothing in it is collected, and at the deadline nothing is locked, archived or graded.
 
-To restore:
+**Deleted by mistake:** an owner of the organization can restore it for 90 days: the organization's **Settings**, **Deleted repositories**, **Restore** (it can take up to an hour after the deletion to appear there). The next nightly run reads it again and stops reporting it; press **Dealt with** on the notice.
+
+**Deleted on purpose:** nothing is needed. The notice stays while the records name it.
+
+To give a student on an individual assignment a new repository instead:
 
 1. In the control repo, delete `repositories/<id>/<login>.json`.
 2. (Optional) delete `acceptances/<id>/<login>.json` if you want them to re-confirm acceptance.
