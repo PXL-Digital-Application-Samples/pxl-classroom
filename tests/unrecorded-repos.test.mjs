@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { AUTO_RETRY_DAYS, AUTO_RETRY_MAX, autoRetryable, copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 
 test("a notice line and its reading are one pair: every finding round-trips", () => {
   const findings = [
@@ -97,8 +97,14 @@ test("loginFromRepoName reads the login out of the ordinary pattern, and nothing
 
 const OPENS = "2026-09-01T08:00:00Z";
 
-function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = null } = {}) {
+function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-unrecorded-"));
+  // `ownAttempts`: login -> accepted_at of that student's own acceptance
+  // record for `lab`, as a failed attempt leaves it.
+  for (const [login, at] of Object.entries(ownAttempts)) {
+    mkdirSync(join(dir, "acceptances", "lab"), { recursive: true });
+    writeFileSync(join(dir, "acceptances", "lab", `${login}.json`), JSON.stringify({ schema_version: 1, assignment_id: "lab", github_login: login, accepted_at: at, status: "failed" }));
+  }
   mkdirSync(join(dir, "assignments"));
   writeFileSync(
     join(dir, "assignments", "lab.yml"),
@@ -120,7 +126,7 @@ function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = 
 const GENERATED = { sha: "gen", parents: [], committer: { login: "web-flow" }, author: { login: "pxl-classroom-provisioner[bot]" }, commit: { verification: { verified: true } } };
 const PUSHED = { sha: "work", parents: [{ sha: "gen" }], committer: { login: "web-flow" }, author: { login: "a-student" }, commit: { verification: { verified: false } } };
 
-async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false, opensAt = null } = {}) {
+async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {} } = {}) {
   const list = repos ?? [
     { name: "lab-ann", from: "Org/starter" },
     { name: "lab-TimoHubner444", from: "Org/starter" },
@@ -166,7 +172,7 @@ async function run({ listStatus = 200, repos, fullHistory = false, recordFullHis
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const dir = controlDir({ fullHistory, recordFullHistory, opensAt });
+  const dir = controlDir({ fullHistory, recordFullHistory, opensAt, ownAttempts });
   const out = join(dir, "out.env");
   try {
     return await new Promise((resolve, reject) => {
@@ -195,6 +201,54 @@ test("the script reports the unrecorded student, and not a hand-made repository 
   // Written in the one format the Organization page reads back.
   assert.deepEqual(parseUnrecordedLines(res.outputs.match(/details<<(\w+)\n([\s\S]*?)\n\1/)[2]).map((l) => [l.repo, l.login]), [["lab-TimoHubner444", "TimoHubner444"]]);
   assert.match(res.outputs, /^dedup=unrecorded-[0-9a-f]{16}$/m);
+  assert.match(res.outputs, /^retry=\[\]$/m, "nobody's own attempt is on record: report only");
+  assert.doesNotMatch(res.outputs, /has pressed \*\*Retry\*\* itself/);
+});
+
+// 2026-11-13, PXL-2TIN-DevOps-2627: a double click left a student's repository
+// on no list, while their own acceptance record (status failed) sat beside it.
+test("where the student's own attempt is on record, the nightly presses Retry for them and says so", async () => {
+  const res = await run({ ownAttempts: { TimoHubner444: new Date(Date.now() - 3600_000).toISOString() } });
+  assert.equal(res.status, 0, res.log);
+  assert.match(res.outputs, /^retry=\[\{"assignment_id":"lab","login":"TimoHubner444"\}\]$/m);
+  assert.match(res.outputs, /PXL Classroom has pressed \*\*Retry\*\* itself for `TimoHubner444`/);
+  // The line the Organization page reads is unchanged.
+  assert.deepEqual(parseUnrecordedLines(res.outputs.match(/details<<(\w+)\n([\s\S]*?)\n\1/)[2]).map((l) => l.login), ["TimoHubner444"]);
+});
+
+test("an own attempt older than a week is reported, not pressed again", async () => {
+  const res = await run({ ownAttempts: { TimoHubner444: new Date(Date.now() - (AUTO_RETRY_DAYS + 1) * 24 * 3600_000).toISOString() } });
+  assert.match(res.outputs, /^retry=\[\]$/m, res.log);
+});
+
+test("autoRetryable: one student's own recent attempt, oldest first, capped, never a team", () => {
+  const now = new Date("2026-11-14T12:00:00Z");
+  const rec = (login, at) => ({ github_login: login, accepted_at: at });
+  const records = {
+    "a/ann": rec("Ann", "2026-11-13T09:00:00Z"),
+    "a/bob": rec("bob", "2026-11-01T09:00:00Z"),
+    "a/cy": rec("cy", "not a date"),
+    "a/dee": rec("someone-else", "2026-11-13T09:00:00Z"),
+    "a/eve": rec("eve", "2026-11-15T12:00:00Z"),
+  };
+  const of = (id, login) => records[`${id}/${login}`] ?? null;
+  const found = [
+    { repo: "a-ann", login: "ann", assignment_id: "a" },
+    { repo: "a-bob", login: "bob", assignment_id: "a" },
+    { repo: "a-cy", login: "cy", assignment_id: "a" },
+    { repo: "a-dee", login: "dee", assignment_id: "a" },
+    { repo: "a-eve", login: "eve", assignment_id: "a" },
+    { repo: "a-nobody", login: "nobody", assignment_id: "a" },
+    { repo: "grp-x", login: null, assignment_id: "a" },
+  ];
+  assert.deepEqual(autoRetryable(found, of, now), [{ assignment_id: "a", login: "ann", repo: "a-ann" }],
+    "the login matches whatever its case; a week old, unparsable, another login's record, the future, no record and a team are not pressed");
+
+  const many = Array.from({ length: AUTO_RETRY_MAX + 3 }, (_, i) => ({ repo: `a-s${i}`, login: `s${i}`, assignment_id: "a" }));
+  const at = (i) => new Date(now.getTime() - (i + 1) * 3600_000).toISOString();
+  const picked = autoRetryable(many, (id, login) => rec(login, at(Number(login.slice(1)))), now);
+  assert.equal(picked.length, AUTO_RETRY_MAX);
+  assert.equal(picked[0].login, `s${AUTO_RETRY_MAX + 2}`, "oldest attempt first");
 });
 
 test("S7: a full-history copy no record names is reported by its root commit; a lookalike is not", async () => {

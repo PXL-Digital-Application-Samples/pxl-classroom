@@ -71,6 +71,11 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # `actions: write` for one thing: pressing Retry for a student whose own
+    # attempt left a repository with no record (scripts/dispatch-auto-retry.mjs).
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Tried again on a registry blip (./install): one ECONNRESET on
@@ -240,6 +245,23 @@ jobs:
           assignment-id: unrecorded-repositories
           details: ${{ steps.unrecorded.outputs.details }}
           dedup-key: ${{ steps.unrecorded.outputs.dedup }}
+
+      # WHERE THE STUDENT ASKED, NOBODY ELSE HAS TO. A finding whose student has
+      # their own acceptance record for that assignment, from the last week, is
+      # an attempt whose last write was lost: the nightly presses Retry for them
+      # (lib/unrecorded-repos.mjs `autoRetryable`, at most five a night), which
+      # is the button the Organization page shows, runs every gate again and
+      # changes nothing on a refusal. With the hub's own token, the one
+      # `github-actions[bot]` retry-acceptance.yml lets through. Decided
+      # 2026-11-14 (LESSONS.md); everything else stays report only.
+      - name: Press Retry for students whose own attempt is on record
+        if: always() && steps.unrecorded.outputs.retry != '' && steps.unrecorded.outputs.retry != '[]'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ matrix.org }}
+          RETRY: ${{ steps.unrecorded.outputs.retry }}
+        run: node scripts/dispatch-auto-retry.mjs
 
       # ACCEPTANCE ATTEMPTS THAT GOT NO ANSWER. When GitHub drops the event, a
       # run never starts, or one dies before it records anything, nothing is

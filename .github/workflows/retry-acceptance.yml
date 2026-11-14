@@ -70,12 +70,23 @@ jobs:
       # It does NOT stop a stolen user credential, which acts as its owner. That
       # is the residual, and rulesets plus the provisioning environment are what
       # bound it.
+      #
+      # `github-actions[bot]` IS LET THROUGH, as in deadline-sentinel.yml: it is
+      # a workflow already running in THIS repository from `main`, reviewed
+      # code. The nightly presses Retry for a student whose own attempt left a
+      # repository with no record (daily-activity.yml,
+      # scripts/dispatch-auto-retry.mjs). Every other `[bot]` is an App
+      # installation token - what a stolen broker credential is - and is
+      # still refused.
       - name: Reject automated dispatch
-        if: github.event_name == 'workflow_dispatch' && endsWith(github.actor, '[bot]')
+        if: >-
+          github.event_name == 'workflow_dispatch'
+          && endsWith(github.actor, '[bot]')
+          && github.actor != 'github-actions[bot]'
         env:
           ACTOR: ${{ github.actor }}
         run: |
-          echo "::error::$ACTOR may not dispatch this workflow; a lecturer must run it"
+          echo "::error::$ACTOR may not dispatch this workflow; a lecturer or a hub workflow must run it"
           exit 1
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

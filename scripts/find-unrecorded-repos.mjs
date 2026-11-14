@@ -4,15 +4,16 @@
 // The nightly's answer to lib/unrecorded-repos.mjs: list the organization,
 // take the repositories an assignment's name pattern produces that no
 // repository record or team manifest names, and keep the ones GitHub says were
-// generated from that assignment's template. REPORT ONLY - it writes nothing
-// to the control repo; the workflow posts what it prints as a notice and the
-// lecturer presses Retry.
+// generated from that assignment's template. It writes nothing to the control
+// repo; the workflow posts what it prints as a notice, and presses Retry for
+// the students `retry` lists - those whose own attempt is on record
+// (lib/unrecorded-repos.mjs `autoRetryable`). The lecturer presses the rest.
 //
 //   node scripts/find-unrecorded-repos.mjs <control-dir> <org>
 //
 // Env: GITHUB_TOKEN  - installation token that can read every repository's
 //                      metadata in the organization
-//      GITHUB_OUTPUT - `count`, `details`, `dedup`
+//      GITHUB_OUTPUT - `count`, `details`, `dedup`, `retry` (a JSON list)
 //
 // Exits 0 whatever it finds or fails to read: it is advisory, and it must not
 // fail the collect leg it runs in. A listing that could not be read is said
@@ -23,8 +24,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
-import { ASSIGNMENTS_DIR, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
-import { copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { ASSIGNMENTS_DIR, acceptancesDir, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
+import { sameLogin } from "../lib/github-login.mjs";
+import { autoRetryable, copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { APP_SLUG } from "../lib/deployment.mjs";
 
@@ -169,15 +171,32 @@ async function main() {
   await setOutput("count", found.length);
   if (found.length === 0) return;
 
+  // WHERE THE STUDENT'S OWN ATTEMPT IS ON RECORD, the nightly presses Retry
+  // (lib/unrecorded-repos.mjs `autoRetryable`); the workflow dispatches what
+  // `retry` lists. Read from this checkout: the record is what the student's
+  // attempt wrote before the write that was lost.
+  const acceptances = new Map();
+  for (const id of new Set(found.map((f) => f.assignment_id))) {
+    acceptances.set(id, await jsonFilesIn(join(dataDir, acceptancesDir(id))));
+  }
+  const retry = autoRetryable(found, (id, login) => (acceptances.get(id) || []).find((r) => sameLogin(r?.github_login, login)) ?? null);
+  await setOutput("retry", JSON.stringify(retry.map(({ assignment_id, login }) => ({ assignment_id, login }))));
+  for (const r of retry) console.log(`  -> Retry is pressed tonight for ${r.login} on ${r.assignment_id}: their own attempt is on record.`);
+
   // One line each, in the format the Organization page reads back to put a
   // Retry and the right advice beside it (lib/unrecorded-repos.mjs).
   const lines = found.map((f) => unrecordedNoticeLine(f));
+  const pressed = retry.length
+    ? `\n\nPXL Classroom has pressed **Retry** itself for ${retry.map((r) => `\`${r.login}\``).join(", ")}, whose own acceptance attempt is on record. ` +
+      `If it worked, they are gone from tomorrow's list; if the hub refused, the reason is beside them on the Organization page.`
+    : "";
   await setOutput(
     "details",
     `${found.length === 1 ? "A student repository exists" : `${found.length} student repositories exist`} that PXL Classroom has no record of. ` +
       `The student can work in it, but is missing from the student list and would be left out at the deadline.\n\n` +
       `${lines.join("\n")}\n\n` +
-      `On the **Organization** page of PXL Classroom, **Retry** beside each one adds the student and keeps the repository and the work in it.`,
+      `On the **Organization** page of PXL Classroom, **Retry** beside each one adds the student and keeps the repository and the work in it.` +
+      pressed,
   );
   await setOutput("dedup", `unrecorded-${createHash("sha256").update(found.map((f) => f.repo.toLowerCase()).sort().join("\n")).digest("hex").slice(0, 16)}`);
 }
