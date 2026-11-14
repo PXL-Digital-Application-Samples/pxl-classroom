@@ -179,6 +179,30 @@ export function fillWaitChecks({ fullHistory, createdAt, now = new Date(), base 
   return Math.max(base, Math.ceil(left / 2000));
 }
 
+/**
+ * THE REPOSITORY ANOTHER RUN MADE BETWEEN OUR READ AND OUR CREATE, or null.
+ *
+ * A student who clicks Accept twice starts two runs seconds apart. Both read
+ * the name as free at step 3; the first one's create wins and the second's is
+ * answered 422 ("Name already exists on this account"). The first run then
+ * leaves the record to the newer attempt (scripts/record-acceptance.sh
+ * `still_ours`), so a second run that FAILED here left a repository with work
+ * in it on nobody's list: not locked, archived or graded
+ * (PXL-2TIN-DevOps-2627 and pxl-grpro-wpl1-2627, 2026-11-12 and 13).
+ *
+ * It is the case step 3 already reuses when it sees it - a repository made
+ * minutes ago, which only another run of ours can have made at this name
+ * (`mayStillBeFilling`) - met a moment later. Asked only on a 422, and never
+ * guessed: a repository that cannot be read, or one older than that window,
+ * is somebody else's and the create fails as before.
+ */
+async function arrivedMeanwhile(status) {
+  if (status !== 422) return null;
+  const now = await gh("GET", `/repos/${cfg.org}/${cfg.targetRepo}`);
+  if (now.status !== 200 || mayStillBeFilling(now.data?.created_at) !== true) return null;
+  return now.data;
+}
+
 async function ensureRepoPopulated({ attempts = 30, delayMs = 1000 } = {}) {
   if (repoPopulated) return true;
   for (let i = 0; i < attempts; i++) {
@@ -721,7 +745,11 @@ async function createWithFullHistory(tpl) {
     await fail("fail:create", `${cfg.templateOwner}/${cfg.templateRepo} reports no usable default branch ("${branch ?? ""}")`);
   }
   const created = await gh("POST", `/orgs/${cfg.org}/repos`, { name: cfg.targetRepo, private: cfg.isPrivate, auto_init: false });
-  if (!created.ok) await fail("fail:create", `create HTTP ${created.status} ${created.data?.message ?? ""}`);
+  if (!created.ok) {
+    const raced = await arrivedMeanwhile(created.status);
+    if (raced) return { raced };
+    await fail("fail:create", `create HTTP ${created.status} ${created.data?.message ?? ""}`);
+  }
   const repo = created.data;
   log("create", { ok: true, note: `id=${repo.id} ${repo.html_url} (empty, for the template's full history)` });
   // Said before the copy, for the reason the generate path says it at once: a
@@ -1133,15 +1161,44 @@ async function main() {
   // one case whose starting commit is known for certain (step 7). A reuse
   // made nothing.
   let copiedHistory = null;
+  // Another run's repository, made between the read at step 3 and the create
+  // here: see `arrivedMeanwhile`.
+  let raced = null;
   if (!alreadyExists && !cfg.dryRun && cfg.fullHistory) {
-    ({ repo, pushed: copiedHistory } = await createWithFullHistory(tpl));
+    const made = await createWithFullHistory(tpl);
+    if (made.raced) raced = made.raced;
+    else ({ repo, pushed: copiedHistory } = made);
   } else if (!alreadyExists && !cfg.dryRun) {
     const gen = await gh("POST", `/repos/${cfg.templateOwner}/${cfg.templateRepo}/generate`, {
       owner: cfg.org, name: cfg.targetRepo, private: cfg.isPrivate, include_all_branches: false,
     });
-    if (!gen.ok) await fail("fail:create", `generate HTTP ${gen.status} ${gen.data?.message ?? ""}`);
-    repo = gen.data;
-    log("create", { ok: true, note: `id=${repo.id} ${repo.html_url}` });
+    if (!gen.ok) {
+      raced = await arrivedMeanwhile(gen.status);
+      if (!raced) await fail("fail:create", `generate HTTP ${gen.status} ${gen.data?.message ?? ""}`);
+    } else {
+      repo = gen.data;
+      log("create", { ok: true, note: `id=${repo.id} ${repo.html_url}` });
+    }
+  }
+  if (raced) {
+    log("idempotency", {
+      ok: true,
+      note:
+        `exists id=${raced.id} - another run created it a moment ago (this student's other attempt), ` +
+        `so it is reused once the template has arrived in it`,
+    });
+    const attempts = process.env.PXL_FILL_WAIT_CHECKS
+      ? FILL_WAIT_CHECKS
+      : fillWaitChecks({ fullHistory: cfg.fullHistory, createdAt: raced.created_at });
+    if (!(await ensureRepoPopulated({ attempts, delayMs: FILL_WAIT_DELAY_MS }))) {
+      await fail(
+        "fail:create",
+        `${cfg.org}/${cfg.targetRepo} was created a moment ago by another run and is still empty. ` +
+          `Retry this student in ten minutes - an attempt then removes it and creates it again.`,
+      );
+    }
+    alreadyExists = true;
+    repo = raced;
   }
 
   // A FULL-HISTORY COPY AN EARLIER RUN MADE, reused: its starting commit is

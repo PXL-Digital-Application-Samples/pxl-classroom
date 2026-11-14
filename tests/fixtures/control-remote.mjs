@@ -150,6 +150,39 @@ function outputsOf(file) {
 
 let runSeq = 1000;
 
+// A HUB RUN HAS NO GIT IDENTITY, so neither does one here. The scripts under
+// test name theirs on every command that writes a commit; one that does not
+// fails on a runner with "Committer identity unknown" and passed here, in CI
+// too, because `configure()` above gives every checkout one - which the
+// workflow's checkout never has. acceptance/reserve.mjs
+// replayed its decision with a bare `git rebase`, which failed on every runner,
+// so every refused push was decided again and a lab's burst cut one student's
+// acceptance off after fifteen minutes (2026-11-13).
+//
+// Only the identity is taken away, through environment config, which outranks
+// every config file (the checkout's own included) and is outranked by a
+// command's own `-c`: an empty name is refused, and `useConfigOnly` stops git
+// guessing an address from the host name. The rest of the config stays -
+// dropping ~/.gitconfig whole also dropped Windows' `core.autocrlf`, and every
+// run then read the roster as changed by every other.
+//
+// Built per run from the environment as it is then: a test points the scripts
+// at its GitHub stub through process.env after this module has loaded.
+const withoutIdentity = () => {
+  const env = { ...process.env };
+  for (const k of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"]) delete env[k];
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: "user.name",
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: "user.email",
+    GIT_CONFIG_VALUE_1: "",
+    GIT_CONFIG_KEY_2: "user.useConfigOnly",
+    GIT_CONFIG_VALUE_2: "true",
+  };
+};
+
 /**
  * One hub run, as acceptance-handler.yml makes it: decide and save, then -
  * when admitted - a provisioning stand-in, then the record script.
@@ -169,7 +202,7 @@ export async function hubRun({ remote, org, assignmentId, login, githubId, issue
   const scratch = mkdtempSync(join(tmpdir(), "pxl-run-"));
   const out = join(scratch, "out.env");
   writeFileSync(out, "");
-  const base = { ...process.env, GITHUB_RUN_ID: runId, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: join(scratch, "summary") };
+  const base = { ...withoutIdentity(), GITHUB_RUN_ID: runId, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: join(scratch, "summary") };
 
   const decided = await run("node", [join(root, "acceptance", "reserve.mjs")], {
     cwd: root,

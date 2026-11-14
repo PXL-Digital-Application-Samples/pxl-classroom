@@ -38,12 +38,22 @@ const SHA = "a".repeat(40);
 const ID = "exam";
 
 /** A stub GitHub API answering the three calls collect makes per student. */
-async function withStubApi(fn, { commitCount = 3, brokenRepos = [] } = {}) {
-  const server = createServer((req, res) => {
+async function withStubApi(fn, { commitCount = 3, brokenRepos = [], delayMs = 0, stats = null } = {}) {
+  // `delayMs`: how slowly the repository read answers, and `stats.peak` the
+  // most of those in flight at once - what tells a collector reading students
+  // one after another from one reading several together.
+  let inFlight = 0;
+  const server = createServer(async (req, res) => {
     const send = (code, body, headers = {}) => {
       res.writeHead(code, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
+    if (delayMs && /^\/repos\/[^/]+\/[^/]+$/.test(req.url.split("?")[0])) {
+      inFlight++;
+      if (stats) stats.peak = Math.max(stats.peak ?? 0, inFlight);
+      await new Promise((r) => setTimeout(r, delayMs));
+      inFlight--;
+    }
     const url = req.url.split("?")[0];
 
     if (url === "/rate_limit") return send(200, { resources: {} });
@@ -160,6 +170,34 @@ test("the observation is written, with the commit count from the Link header", a
       assert.equal(obs.type, "snapshot");
     },
     { commitCount: 7 },
+  );
+});
+
+// NetAdv's 146 students, read one after another at about a second a request,
+// ran past the job's ten minutes on 2026-11-14 and the last 35 were never
+// observed. Several are read at once now; the summary keeps the roster's order
+// and every count is still one per student.
+test("students are read several at a time, and the summary keeps their order", async () => {
+  const stats = { peak: 0 };
+  const logins = ["a1", "b2", "c3", "d4", "e5", "f6", "g7", "h8", "i9"];
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir(logins);
+      const res = await runCollect(dir, api);
+      assert.equal(res.status, 0, res.stderr);
+      assert.equal(res.outputs.collected_count, String(logins.length - 1));
+      assert.equal(res.outputs.error_count, "1", "the broken one, once");
+      assert.ok(stats.peak >= 2, `read one at a time (peak ${stats.peak})`);
+      assert.ok(stats.peak <= 4, `more than four at once (peak ${stats.peak})`);
+      const summary = readFileSync(join(dir, "summary.md"), "utf8");
+      const order = logins.map((l) => summary.indexOf(`| ${l} |`));
+      assert.ok(order.every((at) => at >= 0), summary);
+      assert.deepEqual(order, [...order].sort((x, y) => x - y), `rows out of roster order:\n${summary}`);
+      for (const l of logins.filter((x) => x !== "e5")) {
+        assert.equal(readdirSync(join(dir, "observations", ID, l)).filter((f) => f.endsWith(".json")).length, 1, l);
+      }
+    },
+    { delayMs: 150, stats, brokenRepos: [`${ID}-e5`] },
   );
 });
 

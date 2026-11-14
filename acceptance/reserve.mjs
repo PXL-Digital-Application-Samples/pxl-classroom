@@ -65,8 +65,19 @@ const namesValid = SLUG.test(assignmentId) && LOGIN.test(login);
 
 const scratch = mkdtempSync(join(tmpdir(), "pxl-reserve-"));
 
+// WHO EVERY git COMMAND HERE IS, not only the commits. A runner has no git
+// identity, and a replay (`rebase`) writes a commit as surely as `commit`
+// does: without one it failed with "Committer identity unknown" on every
+// runner, every time, so each refused push was answered by deciding all over
+// again - and in a lab accepting at once the next push was refused too. One
+// student's acceptance went round 24 times for fifteen minutes and was cut
+// off by the job's timeout with nothing saved (PXL-2TIN-DevOps-2627,
+// 2026-11-13). The race tests' checkouts were each given an identity, so no
+// test showed it; tests/acceptance-race.test.mjs now runs with none.
+const IDENTITY = ["-c", "user.name=pxl-classroom[bot]", "-c", "user.email=pxl-classroom[bot]@users.noreply.github.com"];
+
 function git(args) {
-  const r = spawnSync("git", ["-C", dataDir, ...args], { encoding: "utf8" });
+  const r = spawnSync("git", ["-C", dataDir, ...IDENTITY, ...args], { encoding: "utf8" });
   return { ok: r.status === 0, out: (r.stdout || "").trim(), err: (r.stderr || "").trim() };
 }
 
@@ -155,11 +166,7 @@ async function followRename(branch) {
     if (changed === 0) return "ok";
     const trees = MOVED_TREES.filter((p) => existsSync(join(dataDir, p)));
     git(["add", "-A", "--", ...trees]);
-    git([
-      "-c", "user.name=pxl-classroom[bot]",
-      "-c", "user.email=pxl-classroom[bot]@users.noreply.github.com",
-      "commit", "-q", "-m", `Follow the rename of ${renames.map((r) => r.from).join(", ")} to ${login}`,
-    ]);
+    git(["commit", "-q", "-m", `Follow the rename of ${renames.map((r) => r.from).join(", ")} to ${login}`]);
     for (let tries = 0; tries < 5; tries++) {
       if (git(["push", "-q", "origin", `HEAD:refs/heads/${branch}`]).ok) return "ok";
       await sleep(backoff(tries + 1));
@@ -173,6 +180,20 @@ async function followRename(branch) {
     await sleep(backoff(attempt));
   }
   return "failed";
+}
+
+/**
+ * The first path another run saved that this decision read, for the log - so
+ * "deciding again" says why, and a burst that decides again for nothing can be
+ * told from one that had to.
+ */
+function whichInput(changed, decided, readRef = "HEAD~1") {
+  if (!changed.ok) return "the change could not be listed";
+  const concerns = concernsUs(decided, readRef);
+  const path = changed.out
+    .split("\n")
+    .find((p) => decisionInputsChanged([p], { assignmentId, login, githubId }, { concerns }));
+  return path ? path.trim() : "unknown";
 }
 
 function forward({ out, sum }) {
@@ -299,7 +320,7 @@ async function main() {
             !moved.ok ||
             decisionInputsChanged(moved.out.split("\n"), { assignmentId, login, githubId }, { concerns: concernsUs(decided, "HEAD") });
           if (stale) {
-            console.log(`[ok] reserve - another run saved what this decision read; deciding again (attempt ${attempt + 1})`);
+            console.log(`[ok] reserve - another run saved what this decision read (${whichInput(moved, decided, "HEAD")}); deciding again (attempt ${attempt + 1})`);
             resetTo("FETCH_HEAD");
             decided = null;
             continue;
@@ -308,11 +329,7 @@ async function main() {
         forward(decided);
         finish(0);
       }
-      const commit = git([
-        "-c", "user.name=pxl-classroom[bot]",
-        "-c", "user.email=pxl-classroom[bot]@users.noreply.github.com",
-        "commit", "-q", "-m", `Decide ${decided.outcome} for ${login} on ${assignmentId}`,
-      ]);
+      const commit = git(["commit", "-q", "-m", `Decide ${decided.outcome} for ${login} on ${assignmentId}`]);
       if (!commit.ok) {
         console.log(`::error::Could not commit the decision for ${login}: ${commit.err}`);
         writeFileSync(decided.out, "outcome=fail:reserve\n");
@@ -345,16 +362,19 @@ async function main() {
       !changed.ok ||
       decisionInputsChanged(changed.out.split("\n"), { assignmentId, login, githubId }, { concerns: concernsUs(decided) });
     if (inputs) {
-      console.log(`[ok] reserve - another run changed what this decision read; deciding again (attempt ${attempt + 1})`);
+      console.log(`[ok] reserve - another run changed what this decision read (${whichInput(changed, decided)}); deciding again (attempt ${attempt + 1})`);
       resetTo("FETCH_HEAD");
       decided = null;
       continue;
     }
-    if (!git(["rebase", "-q", "FETCH_HEAD"]).ok) {
-      // Cannot happen when the inputs are untouched - our commit writes only
-      // inputs - but a failed replay is answered by deciding again, never by
-      // pushing something half-applied.
-      console.log(`[ok] reserve - could not replay the decision; deciding again (attempt ${attempt + 1})`);
+    const replay = git(["rebase", "-q", "FETCH_HEAD"]);
+    if (!replay.ok) {
+      // Should not happen when the inputs are untouched - our commit writes
+      // only inputs - but a failed replay is answered by deciding again, never
+      // by pushing something half-applied. GIT'S OWN WORDS GO IN THE LOG: this
+      // line said only "could not replay" for weeks while the reason was the
+      // missing identity above, on every runner.
+      console.log(`[ok] reserve - could not replay the decision (${(replay.err.split("\n").find((l) => /fatal|error|conflict/i.test(l)) || replay.err.split("\n")[0] || "no reason given").trim()}); deciding again (attempt ${attempt + 1})`);
       resetTo("FETCH_HEAD");
       decided = null;
     }

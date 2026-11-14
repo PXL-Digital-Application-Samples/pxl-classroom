@@ -386,7 +386,8 @@ test("a refusal made on an out-of-date checkout is decided again, though it save
     const res = reserve(dir, { GITHUB_LOGIN: "bob", GITHUB_ID: "7", TEAM_SLUG: "alpha", TEAM_NAME: "alpha", TEAM_ACTION: "create" });
     assert.equal(res.status, 0, res.log);
     assert.equal(res.outputs.outcome, "accepted", res.log);
-    assert.match(res.log, /another run saved what this decision read; deciding again/);
+    // And it says which file: the line alone did not say why for weeks.
+    assert.match(res.log, new RegExp(`another run saved what this decision read \\(teams/${ID}/alpha\\.json\\); deciding again`));
     assert.deepEqual([...remoteJson(remote, `teams/${ID}/alpha.json`).members].sort(), ["alice", "bob"]);
   } finally {
     probe.setRepos({});

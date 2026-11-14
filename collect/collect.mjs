@@ -46,6 +46,8 @@ async function fail(category, note) {
 }
 
 // --- Strict input validation -------------------------------------------------
+// How many students are read at once (see the loop in main()).
+const COLLECT_CONCURRENCY = 4;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const PATH = /^[A-Za-z0-9._/\\:-]+$/;
@@ -192,17 +194,41 @@ async function main() {
     }
     
     allRows.push(`\n**Assignment: ${assignmentId}**`);
-    
-    for (const rec of records) {
+
+    // A FEW STUDENTS AT A TIME, not one after another. Each student is five or
+    // six reads, and a read took about a second on a slow night: NetAdv's 146
+    // went from 5m50 to 9m20 in a day and on 2026-11-14 hit the job's ten
+    // minutes at student 111, so the rest were not observed and the whole
+    // nightly read as cancelled. Four at once, as the deadline grader does
+    // (scripts/grade-at-deadline.mjs), is a quarter of the time and still far
+    // from GitHub's secondary limits. Rows keep the roster's order.
+    const rows = new Array(records.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < records.length) {
+        const i = next++;
+        rows[i] = await collectOne(records[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(COLLECT_CONCURRENCY, records.length) }, worker));
+    for (const r of rows) {
+      totalCollected += r.collected;
+      totalErrors += r.errors;
+      if (r.row) allRows.push(r.row);
+    }
+
+    // One student: what to count and the summary row. Never throws.
+    async function collectOne(rec) {
+      const res = { collected: 0, errors: 0, row: null };
       const login = rec.github_login;
       const repoName = rec.repo_name?.split("/")?.[1] ?? rec.repo_name;
       try {
         const repoRes = await gh("GET", `/repos/${cfg.org}/${repoName}`);
         if (!repoRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
-          totalErrors++;
-          allRows.push(`| ${login} | - | error (repo ${repoRes.status}) |`);
-          continue;
+          res.errors++;
+          res.row = `| ${login} | - | error (repo ${repoRes.status}) |`;
+          return res;
         }
 
         const branch = submissionRef.startsWith("refs/heads/")
@@ -221,15 +247,15 @@ async function main() {
             ? `branch ${branch} does not exist (the repository's default branch is ${repoRes.data.default_branch}; check submission_ref)`
             : `commit HTTP ${commitRes.status}`;
           log(`snapshot ${login}`, { ok: false, note });
-          totalErrors++;
-          allRows.push(`| ${login} | - | error (commit ${commitRes.status}) |`);
-          continue;
+          res.errors++;
+          res.row = `| ${login} | - | error (commit ${commitRes.status}) |`;
+          return res;
         }
 
         const commits = Array.isArray(commitRes.data) ? commitRes.data : [];
         if (commits.length === 0) {
           log(`snapshot ${login}`, { ok: true, note: `${branch} has no commits` });
-          continue;
+          return res;
         }
 
         const latestCommit = commits[0];
@@ -320,7 +346,7 @@ async function main() {
         await writeFile(obsPath, JSON.stringify(observation, null, 2) + "\n");
 
         log(`snapshot ${login}`, { ok: true, note: `${branch}@${sha.slice(0, 12)} (${commitCount} commits)` });
-        totalCollected++;
+        res.collected++;
 
         // `sha`, not `commitRes.data.sha`. The endpoint moved from
         // `/commits/{ref}` (an object) to `/commits?sha=…&per_page=1` (a LIST)
@@ -335,12 +361,13 @@ async function main() {
         // student, in every org, every night since. The data was always
         // correct; what was broken was the report on it, which meant a real
         // collect failure was indistinguishable from the noise.
-        allRows.push(`| ${login} | \`${sha.slice(0, 12)}\` | [OK] |`);
+        res.row = `| ${login} | \`${sha.slice(0, 12)}\` | [OK] |`;
       } catch (e) {
         log(`snapshot ${login}`, { ok: false, note: e.message });
-        totalErrors++;
-        allRows.push(`| ${login} | - | exception |`);
+        res.errors++;
+        res.row = `| ${login} | - | exception |`;
       }
+      return res;
     }
   }
 

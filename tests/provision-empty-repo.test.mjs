@@ -32,7 +32,7 @@ const script = join(root, "provisioning", "provision.mjs");
  * so it is past the window in which another run may still be filling it
  * (lib/existing-repo.mjs `mayStillBeFilling`); `null` leaves it out.
  */
-async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = new Date(Date.now() - 3600_000).toISOString(), fillsAfter = Infinity } = {}) {
+async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = new Date(Date.now() - 3600_000).toISOString(), fillsAfter = Infinity, racedBy = null } = {}) {
   const calls = [];
   let state = target;
   // `fillsAfter`: how many reads of the root listing an EMPTY repository
@@ -51,6 +51,10 @@ async function withApi(fn, { target = "absent", deleteStatus = 204, createdAt = 
     if (url === "/rate_limit") return send(200, { rate: { remaining: 5000 } });
     if (url === "/repos/Org/tpl" && req.method === "GET") return send(200, { id: 7, is_template: true, private: true });
     if (url === "/repos/Org/tpl/generate") {
+      // `racedBy`: another run's create lands between this run's read and its
+      // own create - what GitHub then has at the name ("empty" or
+      // "has-commits"), and this run is told the name is taken.
+      if (racedBy) state = racedBy;
       if (state !== "absent") return send(422, { message: "Could not clone: Name already exists on this account" });
       state = "has-commits";
       return send(201, { id: 10, full_name: "Org/lab-ann", html_url: "https://github.com/Org/lab-ann" });
@@ -272,6 +276,49 @@ test("a dry run removes nothing", async () => {
     assert.equal(res.status, 0, res.log);
     assert.ok(!calls.some((c) => c.startsWith("DELETE ") || c.startsWith("POST ") || c.startsWith("PUT ")), calls.join(" | "));
   }, { target: "empty" });
+});
+
+// A DOUBLE CLICK (2026-11-13, PXL-2TIN-DevOps-2627): two runs for one student,
+// both read the name as free, the first one's create won and the second was
+// answered 422. The second failed, the first had left the record to it, and the
+// student had a repository on nobody's list.
+test("a repository another run created between our read and our create is reused, not a failure", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.outputs, /^outcome=reused$/m);
+    assert.match(res.outputs, /^repo_id=9$/m, "the repository GitHub has, for the record");
+    assert.match(res.log, /another run created it a moment ago/);
+    assert.ok(!calls.some((c) => c.startsWith("DELETE ")), calls.join(" | "));
+  }, { racedBy: "has-commits", createdAt: new Date(Date.now() - 5_000).toISOString() });
+});
+
+test("a raced repository still being filled is handed out once it has filled", async () => {
+  await withApi(async (api, calls) => {
+    const res = await provision(api);
+    assert.equal(res.status, 0, res.log);
+    assert.match(res.outputs, /^outcome=reused$/m);
+    assert.ok(calls.filter((c) => c === "GET /repos/Org/lab-ann/contents/").length >= 2, "it waited for the template to arrive");
+  }, { racedBy: "empty", fillsAfter: 1, createdAt: new Date(Date.now() - 5_000).toISOString() });
+});
+
+test("a raced repository that never fills fails, naming it - never reused empty", async () => {
+  await withApi(async (api) => {
+    const res = await provision(api);
+    assert.notEqual(res.status, 0, res.log);
+    assert.match(res.log, /fail:create/);
+    assert.match(res.log, /created a moment ago by another run and is still empty/);
+    assert.doesNotMatch(res.outputs, /^outcome=reused$/m);
+  }, { racedBy: "empty", createdAt: new Date(Date.now() - 5_000).toISOString() });
+});
+
+test("a 422 over an OLD repository at the name is somebody else's: the create fails as before", async () => {
+  await withApi(async (api) => {
+    const res = await provision(api);
+    assert.notEqual(res.status, 0, res.log);
+    assert.match(res.log, /fail:create - generate HTTP 422/);
+    assert.doesNotMatch(res.outputs, /^outcome=reused$/m);
+  }, { racedBy: "has-commits" });
 });
 
 test("nothing at the name is created as always", async () => {
