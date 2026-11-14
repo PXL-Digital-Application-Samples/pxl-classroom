@@ -250,7 +250,7 @@ The dashboard reads the **aggregate** `reports/dashboard.json` from your control
 
 The nightly run posts `unexpected-deletion` in Instructor Notifications, naming the repository and its students. Until something changes nothing in it is collected, and at the deadline nothing is locked, archived or graded.
 
-**Deleted by mistake:** an owner of the organization can restore it for 90 days: the organization's **Settings**, **Deleted repositories**, **Restore** (it can take up to an hour after the deletion to appear there). The next nightly run reads it again and stops reporting it; press **Dealt with** on the notice.
+**Deleted by mistake:** an owner of the organization can restore it for 90 days. This is GitHub's page, not PXL Classroom's (GitHub has no API for it): open `https://github.com/organizations/<org>/settings/deleted_repositories` (the notice links it), click **Restore** beside the repository, then **I understand, restore this repository**. It can take up to an hour after the deletion to appear there. Measured on the testbed (2026-11-14): it comes back with the same name and id, its commits, its template link and its pending invitations, so the records that name it are right again. The next nightly run reads it and stops reporting it; press **Dealt with** on the notice.
 
 **Deleted on purpose:** nothing is needed. The notice stays while the records name it.
 

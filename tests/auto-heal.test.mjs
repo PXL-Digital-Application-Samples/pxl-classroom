@@ -109,7 +109,15 @@ test("missingRepoNotice: one entry per repository, a team's members together, a 
   assert.match(notice.details, /- `Org\/grp-friends` \(assignment `grp`\) - students `julie`, `ann`/);
   assert.match(notice.details, /- `Org\/lab-bob` \(assignment `lab`\) - student `bob`/);
   assert.match(notice.details, /restore it for 90 days/);
-  assert.match(notice.details, /\*\*Settings\*\*, \*\*Deleted repositories\*\*, \*\*Restore\*\*/);
+  // The page itself, and every click GitHub asks for (measured on the testbed,
+  // 2026-11-14: same id, same name, pending invitation kept).
+  assert.match(notice.details, /Open https:\/\/github\.com\/organizations\/Org\/settings\/deleted_repositories, click \*\*Restore\*\* beside it, then \*\*I understand, restore this repository\*\*/);
+  assert.match(notice.details, /same name and id and its pending invitations/);
+  assert.match(
+    missingRepoNotice([{ assignmentId: "lab", login: "bob", repo: "lab-bob" }]).details,
+    /Open the organization's \*\*Settings\*\*, \*\*Deleted repositories\*\*, click \*\*Restore\*\*/,
+    "a bare name names no organization: the page in words, never a guessed link",
+  );
   assert.match(notice.dedup, /^missing-[0-9a-f]{16}$/);
   const reordered = missingRepoNotice([
     { assignmentId: "lab", login: "bob", repo: "Org/lab-bob" },
