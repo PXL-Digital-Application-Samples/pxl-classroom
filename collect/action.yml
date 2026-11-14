@@ -46,6 +46,12 @@ outputs:
   missing_dedup:
     description: The notice's dedup key, from the set of repositories
     value: ${{ steps.run.outputs.missing_dedup }}
+  unreached_count:
+    description: Students not started before the collector's time budget ran out
+    value: ${{ steps.run.outputs.unreached_count }}
+  unreached_details:
+    description: The run-failed notice naming them, when unreached_count is not 0
+    value: ${{ steps.run.outputs.unreached_details }}
 
 runs:
   using: composite

@@ -106,7 +106,7 @@ function makeControlDir(logins) {
   return dir;
 }
 
-function runCollect(dir, apiBase) {
+function runCollect(dir, apiBase, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [collectScript], {
       env: {
@@ -118,6 +118,7 @@ function runCollect(dir, apiBase) {
         DATA_DIR: dir,
         GITHUB_OUTPUT: join(dir, "out.env"),
         GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
+        ...extraEnv,
       },
     });
     let stdout = "";
@@ -198,6 +199,34 @@ test("students are read several at a time, and the summary keeps their order", a
       }
     },
     { delayMs: 150, stats, brokenRepos: [`${ID}-e5`] },
+  );
+});
+
+// Cut off by the job's timeout, the collector said nothing: GitHub calls that
+// `cancelled`, and the nightly's notice fires on `failure()` only. It stops
+// starting students at its budget instead, and names who it did not reach.
+test("past its time budget the collector starts no student, and names the ones it did not reach", async () => {
+  // 24 students, four at a time, 400ms each: about six rounds, against a
+  // budget of 1.5s that lets three or four start. Wide margins on both sides,
+  // so a slow runner still reads some and leaves some.
+  const logins = Array.from({ length: 24 }, (_, i) => `s${String(i).padStart(2, "0")}`);
+  await withStubApi(
+    async (api) => {
+      const dir = makeControlDir(logins);
+      const res = await runCollect(dir, api, { COLLECT_BUDGET_MS: "1500" });
+      assert.equal(res.status, 0, `partial, not a failure: ${res.stderr}`);
+      const reached = Number(res.outputs.collected_count);
+      const unreached = Number(res.outputs.unreached_count);
+      assert.ok(reached >= 1 && unreached >= 1, `some read, some not (read ${reached}, not ${unreached})`);
+      assert.equal(reached + unreached, logins.length, "every student is either read or named");
+      assert.equal(res.outputs.error_count, "0", "not reached is not an error of the repository");
+      assert.equal(res.outputs.outcome, "partial");
+      const out = readFileSync(join(dir, "out.env"), "utf8");
+      assert.match(out, /unreached_details<<PXL_[0-9a-f]{16}\nTonight's collection ran out of time/);
+      assert.match(out, /- `s23` \(assignment `exam`\)/, "the last on the roster is one not reached");
+      assert.match(res.stdout, /\[FAIL\] budget - \d+ student\(s\) not reached/);
+    },
+    { delayMs: 400 },
   );
 });
 

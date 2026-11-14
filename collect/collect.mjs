@@ -56,6 +56,11 @@ async function fail(category, note) {
 // --- Strict input validation -------------------------------------------------
 // How many students are read at once (see the loop in main()).
 const COLLECT_CONCURRENCY = 4;
+// No student is started after this long, so the run ends inside the nightly
+// job's ten minutes with time left to commit what it read and say who it did
+// not reach. `COLLECT_BUDGET_MS` is for the tests; no workflow sets it.
+const COLLECT_BUDGET_MS = Number(process.env.COLLECT_BUDGET_MS) > 0 ? Number(process.env.COLLECT_BUDGET_MS) : 7 * 60 * 1000;
+const startedAt = Date.now();
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 const PATH = /^[A-Za-z0-9._/\\:-]+$/;
@@ -180,6 +185,7 @@ async function main() {
   let totalErrors = 0;
   const allRows = [];
   const missing = [];
+  const unreached = [];
 
   for (const assignmentId of assignmentsToProcess) {
     const assignment = await readAssignment(assignmentId);
@@ -211,16 +217,29 @@ async function main() {
     // nightly read as cancelled. Four at once, as the deadline grader does
     // (scripts/grade-at-deadline.mjs), is a quarter of the time and still far
     // from GitHub's secondary limits. Rows keep the roster's order.
+    //
+    // AND NO STUDENT IS STARTED PAST THE BUDGET (`COLLECT_BUDGET_MS`), so the
+    // job ends by itself and says who it did not reach. Cut off by the job's
+    // own timeout instead, it said nothing: GitHub reports that as
+    // `cancelled`, which is not `failure()`, so no notice was posted.
     const rows = new Array(records.length);
     let next = 0;
     const worker = async () => {
-      while (next < records.length) {
+      while (next < records.length && Date.now() - startedAt < COLLECT_BUDGET_MS) {
         const i = next++;
         rows[i] = await collectOne(records[i]);
       }
     };
     await Promise.all(Array.from({ length: Math.min(COLLECT_CONCURRENCY, records.length) }, worker));
-    for (const r of rows) {
+    // An index loop, not `forEach`: a student never started is a HOLE in this
+    // array, and `forEach` skips holes - which dropped them silently.
+    for (let i = 0; i < records.length; i++) {
+      const r = rows[i];
+      if (!r) {
+        unreached.push({ assignmentId, login: records[i].github_login });
+        allRows.push(`| ${records[i].github_login} | - | not reached in time |`);
+        continue;
+      }
       totalCollected += r.collected;
       totalErrors += r.errors;
       if (r.row) allRows.push(r.row);
@@ -384,10 +403,23 @@ async function main() {
   }
 
   // 5. Outputs & summary
-  const outcome = totalErrors === 0 ? "collected" : totalCollected > 0 ? "partial" : "fail:all-errors";
+  const short = totalErrors + unreached.length;
+  const outcome = short === 0 ? "collected" : totalCollected > 0 ? "partial" : "fail:all-errors";
   await setOutput("collected_count", totalCollected);
   await setOutput("error_count", totalErrors);
   await setOutput("outcome", outcome);
+  await setOutput("unreached_count", unreached.length);
+  if (unreached.length) {
+    log("budget", { ok: false, note: `${unreached.length} student(s) not reached within ${Math.round(COLLECT_BUDGET_MS / 1000)}s - read again by the next run` });
+    await setOutput(
+      "unreached_details",
+      `Tonight's collection ran out of time for this organization: ${unreached.length} student(s) were not read, ` +
+        `so their latest work is not in the student list until the next run reads them.\n\n` +
+        unreached.map((u) => `- \`${u.login}\` (assignment \`${u.assignmentId}\`)`).join("\n") +
+        `\n\nNothing is lost: a deadline is judged by when the work was pushed, not by when it was read. ` +
+        `Act on this if it appears two nights running.`,
+    );
+  }
   const notice = missingRepoNotice(missing);
   await setOutput("missing_count", notice?.count ?? 0);
   if (notice) {
@@ -398,9 +430,10 @@ async function main() {
     `### Collect: \`${outcome}\`\n\n` +
     `| student | SHA | status |\n|---|---|---|\n` +
     allRows.join("\n") + "\n\n" +
-    `**${totalCollected}** collected, **${totalErrors}** errors.\n`
+    `**${totalCollected}** collected, **${totalErrors}** errors` +
+      (unreached.length ? `, **${unreached.length}** not reached in time` : "") + `.\n`
   );
-  log("done", { ok: totalErrors === 0, note: `${outcome} (${totalCollected} ok, ${totalErrors} err)` });
+  log("done", { ok: short === 0, note: `${outcome} (${totalCollected} ok, ${totalErrors} err${unreached.length ? `, ${unreached.length} not reached` : ""})` });
   process.exit(outcome.startsWith("fail:") ? 1 : 0);
 }
 

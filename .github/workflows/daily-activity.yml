@@ -263,6 +263,25 @@ jobs:
           RETRY: ${{ steps.unrecorded.outputs.retry }}
         run: node scripts/dispatch-auto-retry.mjs
 
+      # THE COLLECTOR RAN OUT OF TIME. It starts no student after its budget
+      # (`COLLECT_BUDGET_MS`, collect/collect.mjs) and names the ones it did not
+      # reach, because a leg the job's timeout cuts off is `cancelled`, not
+      # `failure()`, and the step below never fired for it (NetAdv, 2026-11-14).
+      # The same dedup key as that step: one "did not finish" comment per org.
+      - name: Tell the lecturer which students were not read in time
+        if: always() && steps.collect_action.outputs.unreached_count != '' && steps.collect_action.outputs.unreached_count != '0'
+        continue-on-error: true
+        uses: ./notify
+        with:
+          client-id: ${{ secrets.PXL_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.PXL_APP_PRIVATE_KEY }}
+          org: ${{ matrix.org }}
+          control-repo: pxl-classroom-control
+          event-type: run-failed
+          assignment-id: nightly-collect
+          details: ${{ steps.collect_action.outputs.unreached_details }}
+          dedup-key: run-failed-collect-${{ matrix.org }}
+
       # A REPOSITORY THE RECORDS NAME AND GITHUB NO LONGER HAS: deleted, or out
       # of the App's reach. Nothing in it is collected, locked or graded, and it
       # used to show only as a `[FAIL]` line in a green job
