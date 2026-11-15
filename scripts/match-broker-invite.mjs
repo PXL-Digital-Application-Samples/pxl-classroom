@@ -26,6 +26,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { gh } from "../lib/gh.mjs";
 import { assignmentPathsRead } from "../lib/control-layout.mjs";
+import { CONTROL_REPO } from "../lib/deployment.mjs";
 import { parseYaml } from "../lib/yaml.mjs";
 
 const LOGIN = /^[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}$/;
@@ -92,7 +93,7 @@ export async function main({ env = process.env, call = gh } = {}) {
   let fetched = false;
   for (let i = 0; i < 3 && !fetched; i++) fetched = git(dir, ["fetch", "-q", "origin", branch]).ok;
   if (!fetched) {
-    console.log(`::error::Could not read ${org}/pxl-classroom-control at ${branch}, so the broker of ${id} was not checked against the stored invitation. Publish again to set it.`);
+    console.log(`::error::Could not read ${org}/${CONTROL_REPO} at ${branch}, so the broker of ${id} was not checked against the stored invitation. Publish again to set it.`);
     return 1;
   }
   let want = null;
