@@ -274,6 +274,7 @@ jobs:
       # exactly the local-vs-CI drift scripts/lint.mjs exists to end.
       # Keep each block well under 4 KB. See CLAUDE.md, Linting.
       - name: Create and configure broker repo
+        id: broker
         if: inputs.dry_run != true
         shell: bash
         env:
@@ -545,6 +546,24 @@ jobs:
             scripts/git-push-with-retry.sh control
             echo "::error::Publish failed; ${ASSIGNMENT_ID} reverted to ${TARGET} so it does not claim to be published without a working invitation."
           fi
+
+      # THE BROKER CHECKS LINKS AGAINST WHAT IS STORED, whatever this run
+      # minted. The broker step above wrote this run's own invitation, and two
+      # publishes at once that each minted (two "Regenerate link" clicks, two
+      # first publishes) left the broker on one and the branch on the other:
+      # every student link refused (measured on the testbed, 2026-11-15). This
+      # reads the branch as it is now and sets the broker to it, after this
+      # run's last write to either, so the run that finishes last leaves them
+      # equal (scripts/match-broker-invite.mjs). Only where the broker step ran:
+      # a refused publish never touched the broker.
+      - name: Match the broker to the stored invitation
+        if: always() && inputs.dry_run != true && (steps.broker.outcome == 'success' || steps.broker.outcome == 'failure')
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          DATA_DIR: control
+        run: node scripts/match-broker-invite.mjs
 
       - name: Enable daily activity workflow
         if: inputs.dry_run != true
