@@ -489,6 +489,12 @@ jobs:
             git -C control add "$MARK"
           fi
           git -C control diff --cached --quiet || git -C control commit -m "Publish assignment ${ASSIGNMENT_ID}"
+          # Two publishes at once both write the mark, and the second's rebase
+          # stopped on it (2026-11-15). The later switch-on time stands
+          # (scripts/merge-broker-reopened.mjs), for this checkout only.
+          mkdir -p control/.git/info
+          echo "lockdowns/*/broker-reopened.json merge=later-mark" >> control/.git/info/attributes
+          git -C control config merge.later-mark.driver "node \"${GITHUB_WORKSPACE}/scripts/merge-broker-reopened.mjs\" %O %A %B"
           scripts/git-push-with-retry.sh control
 
       # "Save & publish" writes state: published from the SPA before dispatching,
