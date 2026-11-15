@@ -115,8 +115,14 @@ test("every failure a student can cause is ONE failure", async () => {
   // the last character carries bits that decode to nothing, so reasoning about
   // it as if every character were significant is wrong in both directions.
   // Flipping to a character that is definitely different removes the coin toss.
-  const flipLast = (s) => s.slice(0, -1) + (s.endsWith("A") ? "B" : "A");
-  const tampered = flipLast(sealedToOld);
+  // In the MIDDLE (2026-11-15): A and B differ only in the lowest bit, and in
+  // the final character that bit can be padding a lenient decoder discards -
+  // the coin toss again. A middle character carries six significant bits.
+  const flipMiddle = (s) => {
+    const at = Math.floor(s.length / 2);
+    return s.slice(0, at) + (s[at] === "A" ? "B" : "A") + s.slice(at + 1);
+  };
+  const tampered = flipMiddle(sealedToOld);
   assert.notEqual(tampered, sealedToOld, "the tamper must modify the payload, or this proves nothing");
 
   const messages = [];

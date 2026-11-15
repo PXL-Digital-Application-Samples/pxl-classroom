@@ -161,12 +161,19 @@ test("every kind of tampering is one indistinguishable failure", async () => {
     publicKey, email: "a@student.pxl.be", githubId: ID, assignmentId: ASSIGNMENT,
   });
   const [v, eph, iv, sealed] = good.split(".");
+  // A character in the MIDDLE, set to one it is not: replacing the last two
+  // with "AA" changed nothing when the random ciphertext already ended in "AA"
+  // (one run in 4096, CI 2026-11-15), and a final base64url character can
+  // carry only padding bits.
+  const at = Math.floor(sealed.length / 2);
+  const flipped = `${sealed.slice(0, at)}${sealed[at] === "A" ? "B" : "A"}${sealed.slice(at + 1)}`;
+  assert.notEqual(flipped, sealed);
 
   const bad = [
     ["not a payload at all", "nonsense"],
     ["wrong part count", `${v}.${eph}.${iv}`],
     ["unknown version", `c2.${eph}.${iv}.${sealed}`],
-    ["flipped ciphertext", `${v}.${eph}.${iv}.${sealed.slice(0, -2)}AA`],
+    ["flipped ciphertext", `${v}.${eph}.${iv}.${flipped}`],
     ["truncated ciphertext", `${v}.${eph}.${iv}.${sealed.slice(0, 8)}`],
     ["swapped iv", `${v}.${eph}.${"A".repeat(16)}.${sealed}`],
     ["non-base64url", `${v}.${eph}.${iv}.not+valid/url`],
