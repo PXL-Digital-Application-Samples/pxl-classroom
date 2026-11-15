@@ -496,7 +496,19 @@ jobs:
           mkdir -p control/.git/info
           echo "lockdowns/*/broker-reopened.json merge=later-mark" >> control/.git/info/attributes
           git -C control config merge.later-mark.driver "node \"${GITHUB_WORKSPACE}/scripts/merge-broker-reopened.mjs\" %O %A %B"
+          if scripts/git-push-with-retry.sh control; then exit 0; fi
+          # ANOTHER PUBLISH SAVED FIRST, both having minted an invitation: their
+          # lines conflict, and either is a working link (the last step sets
+          # the broker to what landed). Take theirs, mark the broker on, push.
+          # Only over another publish's work - anything else stays a failure.
+          git -C control fetch -q origin "$(git -C control rev-parse --abbrev-ref HEAD)"
+          node scripts/another-publish-landed.mjs control "$ASSIGNMENT_ID" || exit 1
+          git -C control reset -q --hard FETCH_HEAD
+          DATA_DIR=control node scripts/mark-broker-reopened.mjs
+          git -C control add "$MARK"
+          git -C control diff --cached --quiet || git -C control commit -q -m "Publish assignment ${ASSIGNMENT_ID}"
           scripts/git-push-with-retry.sh control
+          echo "::notice::Another publish of ${ASSIGNMENT_ID} saved first; its invitation stands, and the broker is set to it below."
 
       # "Save & publish" writes state: published from the SPA before dispatching,
       # and the workflow flips it again on success. When a step in between fails

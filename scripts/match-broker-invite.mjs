@@ -48,6 +48,24 @@ export function storedInvite(text, path) {
   return nonce && pubkey ? { nonce, pubkey } : null;
 }
 
+/**
+ * Is the stored document another publish's work - published, with an
+ * invitation? Only then may a publish whose save conflicted take it as it is
+ * (publish-assignment.yml): anything else, a lecturer's Back to draft landing
+ * in between say, is a conflict for a person.
+ * @param {string} text
+ * @param {string} path
+ */
+export function anotherPublishLanded(text, path) {
+  let doc;
+  try {
+    doc = path.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
+  } catch {
+    return false;
+  }
+  return doc?.state === "published" && storedInvite(text, path) !== null;
+}
+
 /** The variable writes that bring the broker to `want`, given what it holds. */
 export function writesNeeded(want, held) {
   const out = [];
