@@ -148,8 +148,30 @@ async function main() {
   // assignment restores them without anyone knowing this ran. There is
   // precedent in that same file: it already sweeps the LEGACY provisioning
   // keys off brokers this way.
+  //
+  // AND ASKED AGAIN BEFORE EACH KEY (2026-11-15). The deadline was read once,
+  // above; a lecturer who moved it later after that read published, and the
+  // publish put the key back - which this then deleted, off a broker that was
+  // on again: every acceptance booted, found no key and hung, with nothing but
+  // another publish to reopen it. A GitHub request is cut off near ten
+  // seconds and a publish restores the key about 25 seconds after its save,
+  // so a move this misses is followed by a publish that restores it after.
+  // Left in place, the key costs what it cost before the close; the
+  // finalize at the new deadline removes it.
+  const movedNow = async () => {
+    const again = await readAssignmentNow({ request: gh, org, controlRepo: CONTROL_REPO, assignmentId });
+    return again.status === "read" && deadlineAhead(again.assignment) ? again.assignment.deadline_at : null;
+  };
   let keyRemoved = true;
   for (const secret of BROKER_SECRETS) {
+    const moved = await movedNow();
+    if (moved) {
+      console.log(
+        `[ok] ${assignmentId}'s deadline moved to ${moved} while this closed it - the key stays on ${org}/${broker}, ` +
+          `and the publish that save started switches acceptance on again; the finalize at that deadline closes it.`,
+      );
+      return;
+    }
     const del = await gh("DELETE", `/repos/${org}/${broker}/actions/secrets/${secret}`);
     // 404 is the ordinary case on the second night, and on a broker that never
     // had one. It is not a failure.
