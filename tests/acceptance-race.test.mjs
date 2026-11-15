@@ -327,6 +327,39 @@ test("an individual burst: nobody decides again because somebody else accepted",
   assert.equal(Object.keys(repositories).length, 10);
 });
 
+// Since 2026-11-14 the nightly presses Retry by itself for a student whose own
+// attempt left a repository with no record (scripts/dispatch-auto-retry.mjs);
+// a lecturer reading the same notice presses it too. Two Retries for one
+// student, at once, over the double click's leftover: a failed acceptance
+// record and a repository nothing names.
+test("two Retries for one student at once - the lecturer's and the nightly's - leave one record", { timeout: 300_000 }, async () => {
+  for (let round = 0; round < 3; round++) {
+    fresh();
+    created = { "lab-student3": { rulesets: [] } };
+    probe.setRepos(created);
+    const remote = remoteWith({
+      "students/roster.yml": ROSTER,
+      [`assignments/${ID}.yml`]: INDIVIDUAL_YAML,
+      [`acceptances/${ID}/student3.json`]: {
+        schema_version: 1, assignment_id: ID, github_login: "student3", github_id: idOf("student3"),
+        accepted_at: "2026-11-13T09:58:12.000Z", status: "failed", issue_number: 11, decided_by_run_id: "43405515134",
+      },
+    });
+    const retry = () => hubRun({
+      remote, org: ORG, assignmentId: ID, login: "student3", githubId: idOf("student3"),
+      env: { SET_ASIDE: "true", PERSIST_REFUSALS: "false", BYPASS_WINDOW: "true" },
+    });
+    const results = await Promise.all([retry(), retry()]);
+    for (const r of results) assert.equal(r.status, 0, r.log);
+    assert.ok(results.some((r) => r.outcome === "accepted" || r.outcome === "already-accepted"), results.map((r) => r.log).join("\n---\n"));
+    const { acceptances, repositories } = assertConsistent(remote, { group: false });
+    assert.deepEqual(Object.keys(acceptances), ["student3"]);
+    assert.equal(acceptances.student3.status, "provisioned", "the record step landed");
+    assert.equal(acceptances.student3.issue_number, 11, "the student's own attempt is still the one on record");
+    assert.equal(repositories.student3?.repo_name, `${ORG}/lab-student3`, "the repository is on the list");
+  }
+});
+
 test("a lecturer's Retry and the student's own join at once leave one consistent record", { timeout: 120_000 }, async () => {
   const remote = groupRemote({ red: ["seed", "student4"] });
   const results = await Promise.all([
