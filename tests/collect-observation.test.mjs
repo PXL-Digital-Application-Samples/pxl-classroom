@@ -31,6 +31,8 @@ import { dirname, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 
+import { missingStillMatters } from "../lib/missing-repos.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const collectScript = join(here, "..", "collect", "collect.mjs");
 
@@ -89,13 +91,17 @@ async function withStubApi(fn, { commitCount = 3, brokenRepos = [], delayMs = 0,
   }
 }
 
-function makeControlDir(logins) {
+function makeControlDir(logins, { deadline = "2099-01-01T00:00:00.000Z", locked = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-collect-"));
   mkdirSync(join(dir, "assignments"), { recursive: true });
   writeFileSync(
     join(dir, "assignments", `${ID}.yml`),
-    `state: published\ndeadline_at: "2099-01-01T00:00:00.000Z"\nsubmission_ref: refs/heads/main\n`,
+    `state: published\ndeadline_at: "${deadline}"\nsubmission_ref: refs/heads/main\n`,
   );
+  if (locked) {
+    mkdirSync(join(dir, "lockdowns", ID), { recursive: true });
+    writeFileSync(join(dir, "lockdowns", ID, "lockdown-record.json"), JSON.stringify({ schema_version: 1, assignment_id: ID }));
+  }
   mkdirSync(join(dir, "repositories", ID), { recursive: true });
   for (const login of logins) {
     writeFileSync(
@@ -228,6 +234,34 @@ test("past its time budget the collector starts no student, and names the ones i
     },
     { delayMs: 400 },
   );
+});
+
+// A team-forming assignment finished six weeks earlier, its repository deleted
+// by a person on its first day: a notice about it every night was noise
+// (PXL-2TIN-DevOps-2627, decided 2026-11-14). Finished is the deadline passed
+// AND the lock run; the 404 is still an error in the log either way.
+test("a repository gone from a FINISHED assignment is logged, not posted to the lecturer", async () => {
+  await withStubApi(
+    async (api) => {
+      const finished = await runCollect(makeControlDir(["alice", "bob"], { deadline: "2026-10-16T21:59:00.000Z", locked: true }), api);
+      assert.equal(finished.outputs.error_count, "1", "still an error in the log");
+      assert.equal(finished.outputs.missing_count, "0", finished.stdout);
+      const notLocked = await runCollect(makeControlDir(["alice", "bob"], { deadline: "2026-10-16T21:59:00.000Z", locked: false }), api);
+      assert.equal(notLocked.outputs.missing_count, "1", "past the deadline with no lock yet is not finished");
+    },
+    { brokenRepos: [`${ID}-bob`] },
+  );
+});
+
+test("missingStillMatters: the student's own deadline and the lock, both", () => {
+  const now = new Date("2026-11-15T12:00:00Z");
+  const past = new Date("2026-10-16T21:59:00Z");
+  const ahead = new Date("2026-11-20T12:00:00Z");
+  assert.equal(missingStillMatters({ deadline: past, lockRan: true, now }), false, "finished");
+  assert.equal(missingStillMatters({ deadline: past, lockRan: false, now }), true, "not finalized yet");
+  assert.equal(missingStillMatters({ deadline: ahead, lockRan: true, now }), true, "an extension still running");
+  assert.equal(missingStillMatters({ deadline: null, lockRan: true, now }), true, "no deadline: not known to be finished");
+  assert.equal(missingStillMatters({ deadline: new Date("nope"), lockRan: true, now }), true);
 });
 
 test("a genuinely broken repository IS an error, and is the only one", async () => {

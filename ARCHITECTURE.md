@@ -813,7 +813,8 @@ find-orgs (reads participating-orgs branch)
 For each org (max 4 parallel):
    collect - snapshot observations for accepted students, four at a time, none started
              after seven minutes (the ones not reached are named in a run-failed notice)
-           - report a recorded repository that answers 404 (unexpected-deletion, lib/missing-repos.mjs)
+           - report a recorded repository that answers 404 (unexpected-deletion, lib/missing-repos.mjs),
+             while the assignment is not finished for that student
            - report student repositories no record names (find-unrecorded-repos),
              and press Retry for those whose own attempt is on record (dispatch-auto-retry)
    v

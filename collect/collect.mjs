@@ -8,7 +8,9 @@
 import { appendFile, readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { missingRepoNotice } from "../lib/missing-repos.mjs";
+import { existsSync } from "node:fs";
+import { lockdownRecordPath } from "../lib/control-layout.mjs";
+import { missingRepoNotice, missingStillMatters } from "../lib/missing-repos.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { effectiveDeadlineFor } from "../lib/effective-deadline.mjs";
 import { gh } from "../lib/gh.mjs";
@@ -200,6 +202,8 @@ async function main() {
 
     const overrides = await readOverrides(assignmentId);
     const records = await readRepoRecords(assignmentId);
+    // Whether the deadline's lock has run, for "is it finished?" below.
+    const lockRan = existsSync(join(cfg.dataDir, lockdownRecordPath(assignmentId)));
     if (records.length === 0) {
       // An assignment nobody accepted is an empty population, not an error:
       // failing here turned every nightly finalize red and buried real
@@ -255,8 +259,17 @@ async function main() {
         if (!repoRes.ok) {
           log(`snapshot ${login}`, { ok: false, note: `repo HTTP ${repoRes.status}` });
           // Gone, or out of the App's reach: said to the lecturer below
-          // (lib/missing-repos.mjs). Any other status is a failed read.
-          if (repoRes.status === 404) missing.push({ assignmentId, login, repo: rec.repo_name ?? repoName });
+          // (lib/missing-repos.mjs) while the assignment is not finished for
+          // this student. Any other status is a failed read.
+          if (repoRes.status === 404) {
+            let deadline = null;
+            try {
+              ({ deadline } = effectiveDeadlineFor(assignment, login, { overrides }));
+            } catch {
+              deadline = null;
+            }
+            if (missingStillMatters({ deadline, lockRan })) missing.push({ assignmentId, login, repo: rec.repo_name ?? repoName });
+          }
           res.errors++;
           res.row = `| ${login} | - | error (repo ${repoRes.status}) |`;
           return res;
