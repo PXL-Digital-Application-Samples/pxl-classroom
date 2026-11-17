@@ -19,6 +19,8 @@ import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, acceptancesDir, assignmentIdFromFile } from "../lib/control-layout.mjs";
 import { brokerRepoName } from "../lib/broker-repo.mjs";
 import { UNANSWERED_WINDOW_MS, unansweredAttempts } from "../lib/unanswered-attempts.mjs";
+import { brokerAllRunsPath, brokerNeverRan } from "../lib/broker-never-ran.mjs";
+import { ACTIONS_SETTINGS_URL } from "../lib/audit.mjs";
 
 async function setOutput(name, value) {
   const file = process.env.GITHUB_OUTPUT;
@@ -119,6 +121,22 @@ async function main() {
   await setOutput("count", found.length);
   if (found.length === 0) return;
 
+  // A BROKER THAT HAS NEVER RUN ANYTHING is not GitHub having a problem: its
+  // Actions are switched off, and every attempt on it is unanswered for the
+  // same reason (lib/broker-never-ran.mjs; PXL-Digital-SNE-Werkplekleren,
+  // 2026-11-17, 30 students). Asked once per broker with an attempt GitHub never
+  // started, of its public run list; unread says nothing.
+  const neverRan = [];
+  for (const broker of new Set(found.filter((f) => f.stage === "not-started").map((f) => f.broker))) {
+    if (brokerNeverRan(await gh("GET", brokerAllRunsPath(org, broker)).catch(() => null)) === true) neverRan.push(broker);
+  }
+  for (const b of neverRan) console.log(`::warning::Nothing has ever run on ${org}/${b}: GitHub Actions is switched off for it or for ${org}.`);
+  const cause = neverRan.length
+    ? `**Nothing has ever run on ${neverRan.map((b) => `\`${b}\``).join(", ")}: GitHub Actions is switched off for ${neverRan.length === 1 ? "it" : "them"} or for this organization**, ` +
+      `so nobody can accept there. An organization owner switches it on at ${ACTIONS_SETTINGS_URL(org)} (Policies: allow all actions and reusable workflows); ` +
+      `then press **Retry** for each student below, or ask them to accept again.\n\n`
+    : "";
+
   const lines = found.map((f) => {
     const when = f.created_at.slice(0, 16).replace("T", " ");
     // An address confirmation (R7-6): its link is sent again by the lecturer,
@@ -134,6 +152,7 @@ async function main() {
   });
   await setOutput(
     "details",
+    cause +
     `${found.length === 1 ? "A student's request" : `${found.length} requests`} got no answer, usually because GitHub had a problem at the time ` +
       `or the assignment's acceptance was switched off. ` +
       `Whatever ${found.length === 1 ? "it" : "each"} asked for - a repository, a place in a team, or a confirmed address - did not happen.\n\n${lines.join("\n")}`,

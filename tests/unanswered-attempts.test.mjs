@@ -21,11 +21,13 @@ async function runScript(assignments, brokers) {
       res.end(JSON.stringify(body));
     };
     const [url] = req.url.split("?");
-    const m = url.match(/^\/repos\/Org\/([^/]+)(\/issues)?$/);
+    const m = url.match(/^\/repos\/Org\/([^/]+)(\/issues|\/actions\/runs)?$/);
     const b = m && brokers[m[1]];
     if (!b || b === "gone") return send(404, { message: "Not Found" });
+    // `{ issues, runs }`: the broker's attempts, and how many runs it has ever had.
+    if (m[2] === "/actions/runs") return send(200, { total_count: b.runs ?? 1, workflow_runs: b.runs === 0 ? [] : [{ id: 1 }] });
     // 403, not a 5xx: a 5xx is retried with backoff, which only slows the test.
-    if (m[2]) return b === "unreadable" ? send(403, { message: "no" }) : send(200, []);
+    if (m[2]) return b === "unreadable" ? send(403, { message: "no" }) : send(200, b.issues ?? []);
     return send(200, { name: m[1] });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -59,6 +61,17 @@ test("a closed assignment whose broker was deleted has no attempts to check, and
 test("a published assignment with no broker is the finding: nobody can accept it", async () => {
   const res = await runScript({ live: "published" }, {});
   assert.match(res.log, /::warning::Org\/live is published but its broker broker-live does not exist, so nobody can accept it/, res.log);
+});
+
+// PXL-Digital-SNE-Werkplekleren, 2026-11-17: 30 students' requests on a broker
+// that had never run, reported as "GitHub had a problem at the time".
+test("attempts on a broker that has never run name the cause: Actions is switched off, with where to switch it on", async () => {
+  const attempt = (n, login) => ({ number: n, title: "pxl-accept:a1.AAAA.BBBB", created_at: new Date(Date.now() - 60 * 60_000).toISOString(), user: { login }, labels: [] });
+  const dead = await runScript({ live: "published" }, { "broker-live": { issues: [attempt(1, "ann"), attempt(2, "bob")], runs: 0 } });
+  assert.match(dead.log, /::warning::Nothing has ever run on Org\/broker-live: GitHub Actions is switched off/, dead.log);
+  const ran = await runScript({ live: "published" }, { "broker-live": { issues: [attempt(1, "ann")], runs: 4 } });
+  assert.match(ran.log, /1 unanswered acceptance attempt/, ran.log);
+  assert.doesNotMatch(ran.log, /Nothing has ever run/, "a broker that has run before is GitHub having a problem, as before");
 });
 
 test("a broker that exists and cannot be read is still a failed read", async () => {
