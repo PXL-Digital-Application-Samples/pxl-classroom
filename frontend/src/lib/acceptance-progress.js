@@ -30,6 +30,7 @@
 import { purposeForTitle } from '../../../lib/acceptance-signature.mjs'
 import { HANDLED_TITLE_BY_PURPOSE, REJECTED_ISSUE_TITLE, notDelivered } from '../../../lib/broker-issue-titles.mjs'
 import { acceptanceRunName } from '../../../lib/acceptance-run-name.mjs'
+import { NEVER_RAN_AFTER_MS, brokerAllRunsPath, brokerNeverRan } from '../../../lib/broker-never-ran.mjs'
 
 /** The broker usually starts in seconds; past this it is GitHub being slow. */
 export const BROKER_SLOW_MS = 90_000
@@ -105,6 +106,14 @@ export function attemptRunFromPage(data, attempt) {
 const WAITING = new Set(['queued', 'pending', 'waiting', 'requested'])
 
 /**
+ * The steps during which the page keeps waiting past its usual cap, up to
+ * GIVE_UP_MS: GitHub may still come, or (`not-running`) acceptance may be
+ * switched on meanwhile. ONE list for both pages - each had its own copy, and a
+ * new step added to one is the timeout screen on the other.
+ */
+export const STILL_COMING_STEPS = Object.freeze(['starting', 'not-started', 'queued', 'running', 'finishing', 'not-running'])
+
+/**
  * One step for the page to show.
  *
  * @param {object} args
@@ -121,7 +130,7 @@ const WAITING = new Set(['queued', 'pending', 'waiting', 'requested'])
  *   canRetry: boolean,
  * }}
  */
-export function attemptProgress({ title, run = null, runsRead = false, sentAt, now = Date.now(), brokerOff = null }) {
+export function attemptProgress({ title, run = null, runsRead = false, sentAt, now = Date.now(), brokerOff = null, neverRan = null }) {
   const waited = Number.isFinite(sentAt) ? now - sentAt : 0
   const offer = waited >= RETRY_OFFER_MS
   const stage = issueStage(title)
@@ -131,6 +140,13 @@ export function attemptProgress({ title, run = null, runsRead = false, sentAt, n
   // The broker skipped it: acceptance is switched off (R7-6, `brokerSkipped`).
   // Sending it again does the same, so it is not offered.
   if (stage === 'sent' && brokerOff === true) return { step: 'switched-off', final: true, canRetry: false }
+  // NOTHING HAS EVER RUN ON THIS BROKER: GitHub Actions is switched off for it
+  // (lib/broker-never-ran.mjs). Sending it again only adds a request that will
+  // not run either - one student sent seven (2026-11-17). Not final: the page
+  // keeps asking, so a broker switched on meanwhile is seen.
+  if (stage === 'sent' && neverRan === true && waited >= NEVER_RAN_AFTER_MS) {
+    return { step: 'not-running', final: false, canRetry: false }
+  }
   if (stage === 'sent') {
     return waited < BROKER_SLOW_MS
       ? { step: 'starting', final: false, canRetry: false }
@@ -187,11 +203,11 @@ export function mayRetryAttempt({ phase, admittedBefore, sameAcceptance = true }
  */
 export function progressSteps(step) {
   const at = {
-    starting: 1, 'not-started': 1, 'link-refused': 1, 'not-delivered': 1, 'switched-off': 1,
+    starting: 1, 'not-started': 1, 'link-refused': 1, 'not-delivered': 1, 'switched-off': 1, 'not-running': 1,
     queued: 2, running: 2, finishing: 2, stopped: 2, 'no-answer': 2,
   }[step]
   if (at === undefined) return []
-  const failed = ['link-refused', 'not-delivered', 'switched-off', 'stopped', 'no-answer'].includes(step)
+  const failed = ['link-refused', 'not-delivered', 'switched-off', 'not-running', 'stopped', 'no-answer'].includes(step)
   return ['Request sent', 'Invitation checked', 'Setting up'].map((label, i) => ({
     label,
     state: i < at ? 'done' : i === at ? (failed ? 'failed' : 'current') : 'todo',
@@ -226,6 +242,9 @@ export function progressMessage(step) {
       // Not "publishing it again switches it back on": publish refuses a
       // finished assignment, and moving the deadline is how it reopens (R7-44).
       return 'Accepting this assignment is switched off right now, so nothing was set up. Tell your lecturer, who can switch it back on.'
+    case 'not-running':
+      // Not "send it again": that only adds a request that will not run.
+      return 'Accepting this assignment is not working yet, so nothing has been set up. Tell your lecturer. Once it is fixed you can accept from your link again.'
     default:
       return null
   }
@@ -276,6 +295,21 @@ export async function readBrokerSkipped(request, { org, broker, title, sentAt })
   try {
     const res = await request('GET', brokerRunsPath({ org, broker, sentAt }))
     return res?.ok ? brokerSkipped(res.data, title) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the broker has never run anything (lib/broker-never-ran.mjs), for the
+ * pages: true, false, or null for unread.
+ *
+ * @param {(method: string, path: string) => Promise<{ok: boolean, status?: number, data?: any}>} request
+ * @param {{org: string, broker: string}} args
+ */
+export async function readBrokerNeverRan(request, { org, broker }) {
+  try {
+    return brokerNeverRan(await request('GET', brokerAllRunsPath(org, broker)))
   } catch {
     return null
   }

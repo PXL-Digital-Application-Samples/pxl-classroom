@@ -576,6 +576,10 @@ export async function setupStandardMockRoutes(page, {
   // signed title it was opened with - what GitHub does when the job-level
   // `if:` reads the variable as 'false'. On (the default), its run succeeds.
   inviteEnabled = true,
+  // GitHub Actions switched off for the broker (PXL-Digital-SNE-Werkplekleren,
+  // 2026-11-17): GitHub writes the issue and starts NOTHING, so the broker's run
+  // list stays empty, whatever the switch above says.
+  brokerActionsOff = false,
   // LABELS on a broker acceptance issue. This is how the hub answers a student:
   // acceptance-handler.yml puts `outcome:invited` or `outcome:rejected` there,
   // and it is the only channel that can tell them an invitation is waiting -
@@ -1171,11 +1175,14 @@ export async function setupStandardMockRoutes(page, {
         });
         return;
       }
-      // The broker's run for this issue, as its run list will answer (R7-6).
-      brokerRuns.push({
-        id: 900 + brokerRuns.length, event: 'issues', display_title: check.title, status: 'completed',
-        conclusion: inviteEnabled ? 'success' : 'skipped', created_at: new Date().toISOString(),
-      });
+      // The broker's run for this issue, as its run list will answer (R7-6) -
+      // none at all with Actions switched off.
+      if (!brokerActionsOff) {
+        brokerRuns.push({
+          id: 900 + brokerRuns.length, event: 'issues', display_title: check.title, status: 'completed',
+          conclusion: inviteEnabled ? 'success' : 'skipped', created_at: new Date().toISOString(),
+        });
+      }
       await route.fulfill({
         status: 201,
         body: JSON.stringify({ id: 101, number: 1, state: 'open' }),
@@ -1184,6 +1191,11 @@ export async function setupStandardMockRoutes(page, {
       // The broker's own run list (frontend/src/lib/acceptance-progress.js
       // `brokerRunsPath`): the runs of the issues opened in this test.
       await route.fulfill({ status: 200, body: JSON.stringify({ total_count: brokerRuns.length, workflow_runs: brokerRuns }) });
+    } else if (method === 'GET' && /\/repos\/[^/]+\/broker-[^/]+\/actions\/runs\?per_page=1$/.test(url)) {
+      // Has the broker EVER run? (lib/broker-never-ran.mjs `brokerAllRunsPath`.)
+      // A broker in a working org has, before this test as much as in it.
+      const ever = brokerActionsOff ? [] : [{ id: 1, event: 'issues', status: 'completed', conclusion: 'success' }, ...brokerRuns];
+      await route.fulfill({ status: 200, body: JSON.stringify({ total_count: ever.length, workflow_runs: ever.slice(0, 1) }) });
     } else if (url.includes('/repos/')) {
       // The push log (GET /repos/{o}/{r}/activity), which the hand-in count
       // reads beside the runs. Empty by default: a spec's runs already name

@@ -58,7 +58,7 @@ const group = () => ({
  * (null: the issue read fails), and the hub's run list answering `runs`
  * (null: the run list read fails). Returns a record of what the page sent.
  */
-async function setup(page, { title, run = undefined, runs = undefined, groupMode = false, teams = null, inviteEnabled = true }) {
+async function setup(page, { title, run = undefined, runs = undefined, groupMode = false, teams = null, inviteEnabled = true, brokerActionsOff = false }) {
   const sent = { issues: [] };
   await page.clock.install({ time: T0 });
   await injectAuth(page, STUDENT_1);
@@ -66,6 +66,7 @@ async function setup(page, { title, run = undefined, runs = undefined, groupMode
     currentUser: STUDENT_1,
     // Off: the broker skips every attempt and leaves its signed title (R7-6).
     inviteEnabled,
+    brokerActionsOff,
     assignments: groupMode ? { [GROUP_ID]: group() } : { [ID]: individual() },
     ...(groupMode
       ? {
@@ -155,6 +156,46 @@ test.describe('92 - acceptance switched off (review 2026-10-16, R7-6)', () => {
     await advance(page, 6_000);
     await expect(page.locator('.timeout-state')).toHaveCount(0);
     await expect(page.locator('.pending-state')).toBeVisible();
+  });
+});
+
+// PXL-Digital-SNE-Werkplekleren, 2026-11-16 and 17: Actions switched off, so the
+// broker never ran; 30 students were told GitHub was busy and offered to send it
+// again (one sent seven). On 600 real acceptances GitHub started 99% within 35 s,
+// and the three slower than three minutes were on brokers that had run before.
+test.describe('92 - a broker GitHub has never run', () => {
+  test('after three minutes: acceptance is not working, tell your lecturer, and no "send it again" or invitation to look for', async ({ page }) => {
+    const sent = await setup(page, { title: 'SIGNED', brokerActionsOff: true });
+    await accept(page);
+    await advance(page, 60_000);
+    // Under three minutes it is still the ordinary wait.
+    await expect(page.getByText('Accepting this assignment is not working yet')).toHaveCount(0);
+    await advance(page, 2.5 * 60_000);
+    await expect(page.getByText('Accepting this assignment is not working yet, so nothing has been set up. Tell your lecturer.')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.attempt-step-failed')).toContainText('Invitation checked');
+    await expect(page.getByRole('button', { name: /Send it again/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Look for a repository invitation/i })).toHaveCount(0);
+    expect(sent.issues).toHaveLength(1);
+  });
+
+  test('the team card says it too', async ({ page }) => {
+    const teams = { [GROUP_ID]: [{ team_slug: 'team-alpha', team_name: 'Team Alpha', members: [STUDENT_1.login], member_count: 1, max_members: 3, is_full: false }] };
+    await setup(page, { title: 'SIGNED', brokerActionsOff: true, groupMode: true, teams });
+    await page.goto(inviteUrl(ORG, GROUP_ID));
+    await page.getByRole('button', { name: 'Accept & Join Team' }).click();
+    await expect(page.locator('.pending-state')).toBeVisible({ timeout: 15000 });
+    await advance(page, 3.5 * 60_000);
+    await expect(page.getByText('Accepting this assignment is not working yet, so nothing has been set up. Tell your lecturer.')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: /Send it again/i })).toHaveCount(0);
+  });
+
+  test('a broker that has run before is GitHub being slow, as it always was: the offer comes at three minutes', async ({ page }) => {
+    await setup(page, { title: 'SIGNED' });
+    await accept(page);
+    await advance(page, 3.5 * 60_000);
+    await expect(page.getByText('Accepting this assignment is not working yet')).toHaveCount(0);
+    await expect(page.getByText(/GitHub has not started on your request yet/)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: /Send it again/i })).toBeVisible();
   });
 });
 

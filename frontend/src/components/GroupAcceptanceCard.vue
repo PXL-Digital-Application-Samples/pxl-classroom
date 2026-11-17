@@ -119,7 +119,8 @@
       </p>
 
       <!-- Held back past the ordinary provisioning window; see AssignmentView. -->
-      <div v-if="pollCount >= 20 && showInvitationGuess" class="invitation-hint" role="status">
+      <!-- Not when nothing will ever be created (a broker that never ran). -->
+      <div v-if="pollCount >= 20 && showInvitationGuess && progress.step !== 'not-running'" class="invitation-hint" role="status">
         <p class="text-secondary">
           This page cannot see your GitHub invitations. If <strong>{{ org }}</strong> invited you
           rather than adding you directly, your team repository is waiting behind that invitation:
@@ -645,7 +646,7 @@ import ClaimAddressCard from './ClaimAddressCard.vue'
 import TeamJoinCode from './TeamJoinCode.vue'
 import AttemptProgress from './AttemptProgress.vue'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerSkipped,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerNeverRan, readBrokerSkipped, STILL_COMING_STEPS,
 } from '../lib/acceptance-progress.js'
 
 const props = defineProps({
@@ -1039,10 +1040,14 @@ async function readAttemptProgress() {
     // Unread: says nothing.
   }
   // Still the signed title: did the broker skip it (its switch, R7-6)?
-  const brokerOff = issueStage(attemptTitle.value) === 'sent'
-    ? await readBrokerSkipped((method, path) => ghApi(getToken(), method, path), { org: props.org, broker, title: attemptTitle.value, sentAt })
+  const stillSent = issueStage(attemptTitle.value) === 'sent'
+  const ask = (method, path) => ghApi(getToken(), method, path)
+  const brokerOff = stillSent
+    ? await readBrokerSkipped(ask, { org: props.org, broker, title: attemptTitle.value, sentAt })
     : null
-  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt, brokerOff })
+  // ...or has the broker never run anything at all (Actions switched off)?
+  const neverRan = stillSent && brokerOff !== true ? await readBrokerNeverRan(ask, { org: props.org, broker }) : null
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt, brokerOff, neverRan })
   return progress.value
 }
 
@@ -1694,7 +1699,7 @@ function startPolling(teamSlug) {
     }
     // Not a timeout while GitHub says the join is still coming - bounded, so a
     // run GitHub never starts still ends somewhere. See AssignmentView.
-    const stillComing = ['starting', 'not-started', 'queued', 'running', 'finishing'].includes(progress.value.step)
+    const stillComing = STILL_COMING_STEPS.includes(progress.value.step)
     const sentAt = Date.parse(acceptanceIssueCreatedAt.value || '') || pollStartedAt
     // ...nor while it waits for a teams file that may not know a rename yet.
     const following = answeredAt !== null && mayStillFollow(answeredAt)

@@ -282,7 +282,9 @@
                  ordinary case: before that the repository probably does not
                  exist, the link 404s, and every student on the happy path would
                  be shown a worry they do not have. -->
-            <div v-if="pollCount >= 20 && showInvitationGuess" class="invitation-hint" role="status">
+            <!-- Not when nothing will ever be created: an invitation to look
+                 for does not exist on a broker that has never run. -->
+            <div v-if="pollCount >= 20 && showInvitationGuess && progress.step !== 'not-running'" class="invitation-hint" role="status">
               <p class="text-secondary">
                 This page cannot see your GitHub invitations. If <strong>{{ org }}</strong> invited
                 you rather than adding you directly, your repository is waiting behind that
@@ -650,7 +652,7 @@ import { buildAcceptanceBody, hubClaimKey, encryptClaim } from '../lib/claim.js'
 import { hasWebCrypto } from '../../../lib/acceptance-signature.mjs'
 import { invitedBefore, recentAttempt } from '../lib/broker-teams.js'
 import {
-  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerSkipped,
+  GIVE_UP_MS, attemptProgress, attemptRunFromPage, hubRunsPath, issueStage, mayRetryAttempt, progressMessage, progressSteps, readBrokerNeverRan, readBrokerSkipped, STILL_COMING_STEPS,
 } from '../lib/acceptance-progress.js'
 import { formatDate } from '../lib/format.js'
 import { countdownParts, formatDeadlineCountdown } from '../lib/countdown.js'
@@ -1408,10 +1410,14 @@ async function readAttemptProgress() {
     // Unread: says nothing.
   }
   // Still the signed title: did the broker skip it (its switch, R7-6)?
-  const brokerOff = issueStage(attemptTitle.value) === 'sent'
-    ? await readBrokerSkipped((method, path) => ghApi(getToken(), method, path), { org: props.org, broker, title: attemptTitle.value, sentAt: attemptSentAt.value })
+  const stillSent = issueStage(attemptTitle.value) === 'sent'
+  const ask = (method, path) => ghApi(getToken(), method, path)
+  const brokerOff = stillSent
+    ? await readBrokerSkipped(ask, { org: props.org, broker, title: attemptTitle.value, sentAt: attemptSentAt.value })
     : null
-  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt: attemptSentAt.value, brokerOff })
+  // ...or has the broker never run anything at all (Actions switched off)?
+  const neverRan = stillSent && brokerOff !== true ? await readBrokerNeverRan(ask, { org: props.org, broker }) : null
+  progress.value = attemptProgress({ title: attemptTitle.value, run, runsRead, sentAt: attemptSentAt.value, brokerOff, neverRan })
   return progress.value
 }
 
@@ -1573,7 +1579,7 @@ function startPolling() {
     // queue, or running, is not a timeout - giving up on it at three minutes
     // sent students into a loop of new attempts on 2026-10-02. Bounded, so a
     // run GitHub never starts still ends somewhere.
-    const stillComing = ['starting', 'not-started', 'queued', 'running', 'finishing'].includes(progress.value.step)
+    const stillComing = STILL_COMING_STEPS.includes(progress.value.step)
     const withinPatience = Date.now() - (attemptSentAt.value || pollStartedAt) < GIVE_UP_MS
 
     // Cap polling at 30 attempts
