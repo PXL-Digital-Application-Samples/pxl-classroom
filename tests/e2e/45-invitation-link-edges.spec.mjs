@@ -230,7 +230,10 @@ async function troubleshoot(page, { doc = assignment(), variables = null } = {})
   await page.locator('button', { hasText: 'Troubleshoot' }).first().click();
   const overlay = page.locator('.modal-overlay:has(.diagnostic-modal)');
   await expect(overlay).toBeVisible({ timeout: 20000 });
-  const tier = overlay.locator('.tier-card', { hasText: /Broker|Acceptance/i }).first();
+  // By the tier's own title: a check inside another tier can mention brokers
+  // (Tier 1's "GitHub Actions can run on the brokers"), and .first() then
+  // opened the wrong one.
+  const tier = overlay.locator('.tier-card', { has: page.locator('.tier-header', { hasText: /Student Acceptance Broker/i }) }).first();
   await expect(tier).toBeVisible({ timeout: 20000 });
   if (!(await tier.locator('.tier-checks').isVisible())) {
     await tier.locator('.tier-header').click();

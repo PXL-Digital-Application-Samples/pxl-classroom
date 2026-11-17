@@ -179,7 +179,7 @@ test("publish asks after the broker exists, and the weekly check, System Health 
   assert.ok(weekly, "the weekly check runs it");
 
   const diag = readFileSync(join(root, "lib", "diagnostics.mjs"), "utf8");
-  assert.match(diag, /actionsAllowedFinding\(\{ org, \.\.\.\(await readActionsSettings\(req, \{ org \}\)\) \}\)/, "System Health, organization");
+  assert.match(diag, /actionsCheck\("tier-1-org", actionsAllowedFinding\(/, "System Health, organization");
   assert.match(diag, /actionsAllowedFinding\(\{ org, broker: brokerName/, "System Health, broker");
   assert.match(diag, /brokerNeverRan\(/, "System Health, the symptom");
   assert.match(readFileSync(join(root, "scripts", "find-unanswered-attempts.mjs"), "utf8"), /brokerNeverRan\(/, "the nightly");

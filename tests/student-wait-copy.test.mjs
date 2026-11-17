@@ -97,8 +97,8 @@ test("the guessed link is held back past the ordinary provisioning window", () =
   for (const [file, label] of STUDENT_SURFACES) {
     assert.match(
       view(file),
-      /v-if="pollCount >= 20 && showInvitationGuess"/,
-      `${label}: not before ~60s`,
+      /v-if="pollCount >= 20 && showInvitationGuess && progress\.step !== 'not-running'"/,
+      `${label}: not before ~60s, and never on a broker that has never run (no invitation can exist)`,
     );
   }
 });

@@ -52,7 +52,8 @@ async function openTroubleshoot(page, brokerIssues, opts = {}) {
   await expect(overlay).toBeVisible({ timeout: 15000 });
   // A tier auto-expands only when it is not ok, so open the broker tier
   // explicitly rather than toggling blind.
-  const tier = overlay.locator('.tier-card', { hasText: /Broker|Acceptance/i }).first();
+  // By the tier's own title: a check in Tier 1 mentions brokers too.
+  const tier = overlay.locator('.tier-card', { has: page.locator('.tier-header', { hasText: /Student Acceptance Broker/i }) }).first();
   await expect(tier).toBeVisible({ timeout: 20000 });
   if (!(await tier.locator('.tier-checks').isVisible())) {
     await tier.locator('.tier-header').click();

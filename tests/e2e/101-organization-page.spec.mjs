@@ -144,6 +144,11 @@ test.describe('101 - the Organization tab', () => {
   test('Advanced stays as it was left', async ({ page }) => {
     await open(page);
     await openAdvanced(page);
+    // Saved by the section's `toggle` event, which the browser fires a moment
+    // after it opens: reloading in that moment raced it (and lost once the
+    // page did a little more on opening, 2026-11-17). A person cannot reload
+    // that fast; the spec waits for what it is about to test.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('pxl_org_advanced_open'))).toBe('1');
     await page.reload();
     await expect(page.locator('details.org-advanced')).toHaveAttribute('open', '', { timeout: 15000 });
   });
