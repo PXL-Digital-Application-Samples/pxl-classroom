@@ -58,6 +58,10 @@ function createMockRequest(customHandlers = {}) {
     // A working hub answers its run lists; unanswered, System Health says it
     // could not tell whether a run is stuck (TL-13).
     if (path.includes("/actions/runs?status=")) return { status: 200, ok: true, data: { total_count: 0, workflow_runs: [] } };
+    // A working org allows Actions, and its broker has run (lib/audit.mjs
+    // `actionsAllowedFinding`, lib/broker-never-ran.mjs).
+    if (/\/actions\/permissions$/.test(path)) return { status: 200, ok: true, data: { enabled_repositories: "all", enabled: true, allowed_actions: "all" } };
+    if (/\/actions\/runs\?per_page=1$/.test(path)) return { status: 200, ok: true, data: { total_count: 2, workflow_runs: [{ id: 1 }] } };
     // Without this the 404 fallback now reports "no such App" - the branch
     // WS6 filled in, which used to add no check at all.
     if (path === `/apps/${APP_SLUG}`) {

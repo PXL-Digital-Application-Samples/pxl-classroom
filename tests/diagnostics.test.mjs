@@ -41,8 +41,26 @@ function createMockRequest({
   brokerWorkflowStatus = 200,
   controlPublicStatus = 200,
   controlPublicJson = JSON.stringify({ assignments: { hw1: { id: "hw1", state: "published" } } }),
+  // The Actions settings (an answer, or a status number) and the broker's own
+  // run count: a working org allows all, and its broker has run.
+  actionsPolicy = { enabled_repositories: "all", allowed_actions: "all" },
+  brokerActions = { enabled: true, allowed_actions: "all" },
+  brokerRunCount = 3,
+  brokerFirstIssueAt = "2026-09-01T09:00:00Z",
 }) {
   return async (method, path) => {
+    if (path === "/orgs/TestOrg/actions/permissions") {
+      return typeof actionsPolicy === "number" ? { status: actionsPolicy, ok: false } : { status: 200, ok: true, data: actionsPolicy };
+    }
+    if (path === "/repos/TestOrg/broker-hw1/actions/permissions") {
+      return typeof brokerActions === "number" ? { status: brokerActions, ok: false } : { status: 200, ok: true, data: brokerActions };
+    }
+    if (path === "/repos/TestOrg/broker-hw1/actions/runs?per_page=1") {
+      return { status: 200, ok: true, data: { total_count: brokerRunCount, workflow_runs: brokerRunCount ? [{ id: 1 }] : [] } };
+    }
+    if (path === "/repos/TestOrg/broker-hw1/issues?state=all&per_page=1&sort=created&direction=asc") {
+      return { status: 200, ok: true, data: brokerFirstIssueAt ? [{ created_at: brokerFirstIssueAt }] : [] };
+    }
     // A working hub answers its run lists (TL-13).
     if (path.includes("/actions/runs?status=")) return { status: 200, ok: true, data: { total_count: 0, workflow_runs: [] } };
     // Tier 0
@@ -450,4 +468,38 @@ test("diagnostics - unreadable /apps adds no check and no false alarm", async ()
   });
   assert.equal(findCheck(res, "app-declaration"), undefined);
   assert.equal(findCheck(res, "app-permissions").severity, "ok");
+});
+
+// --- GitHub Actions on the broker (PXL-Digital-SNE-Werkplekleren, 2026-11-17) ---
+
+const inTier = (res, id, tierId) => res.checks.find((c) => c.id === id && c.tierId === tierId);
+const healthOf = (opts) => runDiagnostics({ request: createMockRequest(opts), org: "TestOrg", assignmentId: "hw1", hubOwner: "hub", hubRepo: "repo" });
+
+test("diagnostics - Actions switched off for the organization is red, with the settings link", async () => {
+  const res = await healthOf({ actionsPolicy: { enabled_repositories: "none" } });
+  const org = inTier(res, "actions-allowed", "tier-1-org");
+  assert.equal(org.severity, "fail");
+  assert.equal(org.fixAction.url, "https://github.com/organizations/TestOrg/settings/actions");
+  assert.equal(inTier(res, "actions-allowed", "tier-4-broker").severity, "fail", "and on the broker");
+});
+
+test("diagnostics - a viewer who cannot read the Actions settings is told it was not checked, not that it is off", async () => {
+  const res = await healthOf({ actionsPolicy: 403, brokerActions: 404 });
+  assert.equal(inTier(res, "actions-allowed", "tier-1-org").severity, "info");
+  assert.equal(inTier(res, "actions-allowed", "tier-4-broker").severity, "info");
+});
+
+test("diagnostics - a broker students have sent requests to that has never run is red, whatever the settings could say", async () => {
+  const never = await healthOf({ actionsPolicy: 403, brokerActions: 404, brokerRunCount: 0 });
+  const ran = findCheck(never, "broker-never-ran");
+  assert.equal(ran.severity, "fail");
+  assert.match(ran.message, /GitHub has never run anything there/);
+  assert.equal(ran.fixAction.url, "https://github.com/organizations/TestOrg/settings/actions");
+
+  const fresh = await healthOf({ brokerRunCount: 0, brokerFirstIssueAt: new Date().toISOString() });
+  assert.equal(findCheck(fresh, "broker-never-ran").severity, "info", "a first request under three minutes old is not yet a finding");
+  const nobody = await healthOf({ brokerRunCount: 0, brokerFirstIssueAt: null });
+  assert.equal(findCheck(nobody, "broker-never-ran").severity, "info", "nobody has accepted yet");
+  const fine = await healthOf({});
+  assert.equal(findCheck(fine, "broker-never-ran").severity, "ok");
 });
