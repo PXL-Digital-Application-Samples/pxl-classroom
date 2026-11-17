@@ -64,6 +64,12 @@ Rulesets and protected branches are Team-and-above features **on private reposit
 
 **To upgrade:** the lecturer applies once at <https://github.com/education/teachers> with their institutional address and proof of position, then upgrades from the Global Campus dashboard under *Upgrade your academic organizations*. It applies to an existing organization immediately; nothing in the course changes. Approval can lag behind the upgrade button appearing, so do it before term rather than the week of a deadline.
 
+### 1.1.2 Check GitHub Actions is allowed in the organization
+
+Every assignment's acceptance is a workflow on its broker repository. With GitHub Actions switched off for the organization, or for the broker, GitHub writes each student's request and runs nothing, and students wait on a page that cannot tell them why. An organization owner opens `https://github.com/organizations/<org>/settings/actions`, chooses **Allow all actions and reusable workflows** under **Policies**, makes sure repository access is **All repositories**, and saves.
+
+Publishing refuses while Actions cannot run on the broker, and the weekly check, System Health (*GitHub Actions can run...* and *Acceptance has run on the broker*) and the nightly's unanswered-attempts notice all say so. A setting the check cannot read is reported as not checked, never as off. If it happened anyway: §3.4.
+
 ### 1.2 Run Setup Organization
 
 In `pxl-classroom` -> Actions -> **Setup Organization** -> Run workflow:
@@ -230,7 +236,15 @@ Posted on the hub's alert issue (with the watchdog's alerts) when a Pages deploy
 2. A 5xx is GitHub. Check `https://www.githubstatus.com`. The watchdog deploys again by itself, ten minutes after the deploy that kept the organization and up to three times in a row; it stops there, because a fault that outlasts three deploys is not GitHub having a bad minute.
 3. Once fixed, the next deploy (any publish or acceptance, or the watchdog within half an hour) updates its pages; or run **Deploy frontend to Pages** by hand.
 
-The alert repeats at most once a day per organization, and is not posted at all when `pipeline_alerts.level` is `off`. The pages are kept from the newest successful deploy of **Deploy frontend to Pages** on `main`, whose copy of the site is kept for 30 days. If there is none to keep them from, the deploy fails as it always did, and the previous site stays live.
+The alert repeats at most once a day per organization, and is not posted at all when `pipeline_alerts.level` is `off`.
+
+### 3.4 Nobody can accept: GitHub Actions does not run on the broker
+
+Students see *Accepting this assignment is not working yet* after three minutes; System Health shows *Acceptance has run on the broker* in red; the nightly notice says *Nothing has ever run on broker-...*; or publishing refuses with *GitHub Actions is switched off*.
+
+1. An organization owner switches Actions on (§1.1.2). If only the broker has it off, it is `https://github.com/<org>/broker-<assignment>/settings/actions`.
+2. The requests already sent do not run by themselves. Press **Retry** for each student the notice lists (Retry runs on the hub and does not need the broker), or ask them to accept again from their link.
+3. Check one student's Retry answer on the Organization page, then open System Health: *Acceptance has run on the broker* turns green after the next acceptance. The pages are kept from the newest successful deploy of **Deploy frontend to Pages** on `main`, whose copy of the site is kept for 30 days. If there is none to keep them from, the deploy fails as it always did, and the previous site stays live.
 
 ## 4. Removing an organization
 
@@ -421,7 +435,7 @@ PXL_APP_CLIENT_ID=... PXL_APP_PRIVATE_KEY="$(cat key.pem)" node scripts/check-in
 
 Run periodically, especially after touching workflows or App settings.
 
-- [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access).
+- [ ] `pxl-classroom audit --org <org>` is clean - it now covers the two rows below automatically (App declaration and repository access), and whether GitHub Actions is allowed in the org (§1.1.2).
 - [ ] `node scripts/check-app-declaration.mjs` is clean - the live App's permissions match `MANIFEST_APP_PERMISSIONS` in `lib/audit.mjs` in **both** directions, plus account `emails: read` (§3.2).
 - [ ] `gh api /app/installations` shows the hub installation scoped to `repository_selection: selected, repositories: [pxl-classroom]`.
 - [ ] Each participating org's installation shows `repository_selection: all`.

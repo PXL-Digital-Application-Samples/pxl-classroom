@@ -221,6 +221,19 @@ jobs:
           git -C control commit -m "Weekly usage report ${WEEK_START} to ${WEEK_END}"
           scripts/git-push-with-retry.sh control
 
+      # CAN ACTIONS RUN ON THIS ORGANIZATION'S BROKERS? Switched off, every
+      # acceptance is written and never answered, and nothing else said so for
+      # nine weeks (PXL-Digital-SNE-Werkplekleren, 2026-11-17). The organization's
+      # policy, with the token above (Organization administration: read); a
+      # broker's own setting is the nightly's and System Health's to see. Red,
+      # in its own step after the report is saved.
+      - name: Check that GitHub Actions can run on the brokers
+        if: always() && steps.token.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ matrix.org }}
+        run: node scripts/check-broker-actions.mjs control --published
+
       - name: Fail run if over threshold
         if: steps.fetch.outputs.over_count != '0'
         env:

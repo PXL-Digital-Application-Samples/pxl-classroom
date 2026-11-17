@@ -63,8 +63,15 @@ function createMockRequest({
   assignmentFiles = { "hw1.yml": "schema_version: 1\nid: hw1\nstate: published\n" },
   // broker repo name -> HTTP status. Anything unlisted is 200.
   brokerStatuses = {},
+  // GET /orgs/TestOrg/actions/permissions: the answer, or a status number.
+  actionsPolicy = { enabled_repositories: "all", allowed_actions: "all" },
 }) {
   return async (method, path) => {
+    if (path === "/orgs/TestOrg/actions/permissions") {
+      return typeof actionsPolicy === "number"
+        ? { status: actionsPolicy, ok: false }
+        : { status: 200, ok: true, data: actionsPolicy };
+    }
     if (path === "/apps/pxl-classroom-provisioner") {
       return { status: appStatus, ok: appStatus === 200, data: { permissions: declaredPermissions } };
     }
@@ -130,7 +137,8 @@ test("runAudit - happy path", async () => {
   const req = createMockRequest({});
   const res = await runAudit({ request: req, org: "TestOrg", hubOwner: "hub", hubRepo: "repo" });
   assert.equal(res.overall, "ok");
-  assert.equal(res.checks.length, 8);
+  assert.equal(res.checks.length, 9);
+  assert.equal(res.checks.find((c) => c.id === "actions-allowed")?.severity, "ok");
   assert.equal(res.checks.every(c => c.severity === "ok"), true);
 });
 

@@ -411,6 +411,21 @@ jobs:
             echo "| invitation | recorded in the control repo - copy it from the Admin Panel |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # CAN ACTIONS RUN ON THE BROKER? Asked once the broker exists, so the
+      # repository's own setting can be read too. With Actions off, every
+      # acceptance is written and never answered: PXL-Digital-SNE-Werkplekleren
+      # published a broker on 2026-09-09 and its first 30 students waited in
+      # vain on 2026-11-16 and 17. A fail refuses the publish, and the revert
+      # below puts the assignment back; a setting that could not be read only
+      # says so (lib/audit.mjs `actionsAllowedFinding`).
+      - name: Check that GitHub Actions can run on the broker
+        if: inputs.dry_run != true
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          ORG: ${{ inputs.org }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: node scripts/check-broker-actions.mjs control --assignment "$ASSIGNMENT_ID"
+
       # MIGRATION, and it runs on every publish rather than once.
       #
       # Eleven brokers were already carrying PXL_APP_PRIVATE_KEY when this
