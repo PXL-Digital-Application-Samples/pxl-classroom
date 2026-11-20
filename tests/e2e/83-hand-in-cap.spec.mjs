@@ -149,6 +149,29 @@ test.describe('83 - A cap on hand-ins, and the exception that raises it', () => 
     }
   });
 
+  // 2026-11-20, PXL-2TIN-CloudEssentials-2627: without a cap a hand-in pushed
+  // after the deadline was ignored without a word, so a lecturer who pushed a
+  // corrected one saw the old score kept and no reason (late_hand_ins).
+  test('without a cap a hand-in after the deadline is still named, as after the deadline only', async ({ page }) => {
+    const late = { sha: sha(7), date: '2026-10-01T12:14:00.000Z', pushed_at: '2026-10-01T12:14:20.000Z', on_branch: true, number: null, reason: 'late' };
+    const plain = structuredClone(summaryOver);
+    delete plain.students[0].hand_ins;
+    plain.students[0].late_hand_ins = [late];
+    assignment.submission_marker = { type: 'commit_message', value: MSG, multiple: true };
+    try {
+      await setup(page, { summary: plain });
+      await toGrading(page);
+      await expect(panel(page).locator('th', { hasText: 'Hand-ins' })).toHaveCount(0);
+      const ignored = ignoredList(page);
+      await expect(ignored).toContainText('1 hand-in was not graded: after the deadline');
+      await expect(ignored).not.toContainText('over the limit');
+      await ignored.locator('summary').click();
+      await expect(ignored).toContainText(`(${sha(7).slice(0, 7)}) ignored: after the deadline`);
+    } finally {
+      assignment.submission_marker = { type: 'commit_message', value: MSG, multiple: true, max_hand_ins: 5 };
+    }
+  });
+
   test('the student dialog shows the count and the limit', async ({ page }) => {
     await setup(page);
     await openActions(page);

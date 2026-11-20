@@ -231,6 +231,14 @@ export type GradingSummary = {
         reason?: "over-limit" | "late" | "self-dispatched";
       }>;
     };
+    late_hand_ins?: Array<{
+      sha?: string;
+      date?: string;
+      pushed_at?: string;
+      on_branch?: boolean;
+      number?: number;
+      reason?: "over-limit" | "late" | "self-dispatched";
+    }>;
   }>;
   failed?: Array<{
     login?: string;
@@ -251,6 +259,14 @@ export type GradingSummary = {
         reason?: "over-limit" | "late" | "self-dispatched";
       }>;
     };
+    late_hand_ins?: Array<{
+      sha?: string;
+      date?: string;
+      pushed_at?: string;
+      on_branch?: boolean;
+      number?: number;
+      reason?: "over-limit" | "late" | "self-dispatched";
+    }>;
   }>;
 };
 

@@ -37,7 +37,7 @@ import { gh } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { gradeCohort, keepStoredOnFailedReads } from "../lib/grade-cohort.mjs";
 import { buildGradingSummary } from "../lib/grading-summary.mjs";
-import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../lib/submission-marker.mjs";
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn, ignoredHandInsOf } from "../lib/submission-marker.mjs";
 import { gradesInCi } from "../lib/autograde-source.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 import { assignmentPath, gradingSummaryPath, lockdownRecordPath, overridesDir } from "../lib/control-layout.mjs";
@@ -213,8 +213,8 @@ async function main() {
   for (const login of rows.kept) console.log(`       ${login}: could not be read - their earlier result is kept`);
   // Never silent: every hand-in the cap or the deadline left out, by name.
   for (const row of [...res.graded, ...res.failed]) {
-    for (const item of row.hand_ins?.ignored || []) {
-      console.log(`       ${row.login}: ${describeIgnoredHandIn(item, { allowed: row.hand_ins.allowed })}`);
+    for (const { item, allowed } of ignoredHandInsOf(row)) {
+      console.log(`       ${row.login}: ${describeIgnoredHandIn(item, { allowed })}`);
     }
   }
 }

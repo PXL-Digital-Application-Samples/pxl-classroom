@@ -19,6 +19,7 @@ import {
   orderHandIns,
   selectHandIn,
   describeIgnoredHandIn,
+  ignoredHandInsOf,
   handInTime,
   handInShownTime,
   PUSH_TO_RUN_ALLOWANCE_MS,
@@ -805,6 +806,53 @@ test("UNCAPPED, an unreadable run history or push log refuses the student - neve
       assert.match(res.reason, pattern);
     }
   }
+});
+
+// 2026-11-20, PXL-2TIN-CloudEssentials-2627: no cap, the student's on-time
+// hand-in scored 0, the lecturer pushed a corrected "einde examen" after the
+// deadline that scored 100, and the summary kept 0 with no word about the
+// later one - the uncapped path recorded no ignored hand-in at all.
+test("UNCAPPED, a hand-in after the deadline is named on the row, and the on-time one is still graded", async () => {
+  const handIns = [{ n: 1, min: 30 }, { n: 2, min: 240 }];
+  const res = await gradeStudent(world({ handIns }).request, { row: row(), marker: marker() });
+  assert.equal(res.verdict, "graded");
+  assert.equal(res.sha, sha(1), "the rule stands: the last on-time hand-in");
+  assert.equal(res.handIns ?? null, null, "still no count without a cap");
+  const { graded } = rowFromOutcome("ada", res, 100);
+  assert.equal(graded.hand_ins, undefined);
+  assert.deepEqual(graded.late_hand_ins.map((i) => [i.sha, i.reason, i.number]), [[sha(2), "late", null]]);
+  const doc = buildGradingSummary({ assignmentId: "exam", gradedBy: "tomcoolpxl", runner: "github_actions", students: [graded] });
+  assert.equal(validateAgainst("grading-summary", doc).valid, true);
+  // What the page, the nightly log and the CLI print for it.
+  const listed = ignoredHandInsOf(graded);
+  assert.equal(listed.length, 1);
+  assert.match(describeIgnoredHandIn(listed[0].item, { allowed: listed[0].allowed }), /^hand-in pushed 2026-10-01T13:00:00\.000Z \(02aaaaa\) ignored: after the deadline$/);
+});
+
+test("UNCAPPED, nothing after the deadline writes no late_hand_ins at all - absent, never an empty list", async () => {
+  const res = await gradeStudent(world({ handIns: [{ n: 1, min: 30 }] }).request, { row: row(), marker: marker() });
+  const { graded } = rowFromOutcome("ada", res, 100);
+  assert.equal("late_hand_ins" in graded, false);
+  assert.deepEqual(ignoredHandInsOf(graded), []);
+  // And the schema refuses an empty one, so no writer can store "none" two ways.
+  const doc = buildGradingSummary({ assignmentId: "exam", gradedBy: null, runner: "github_actions", students: [{ ...graded, late_hand_ins: [] }] });
+  assert.equal(validateAgainst("grading-summary", doc).valid, false);
+});
+
+test("UNCAPPED, a graded hand-in with no score still names the late one on its failed row", async () => {
+  const res = await gradeStudent(world({ handIns: [{ n: 1, min: 30, conclusion: "skipped" }, { n: 2, min: 240 }] }).request, { row: row(), marker: marker() });
+  assert.notEqual(res.verdict, "graded");
+  const { failed } = rowFromOutcome("ada", res, 100);
+  assert.deepEqual(failed.late_hand_ins.map((i) => i.sha), [sha(2)]);
+  const doc = buildGradingSummary({ assignmentId: "exam", gradedBy: null, runner: "github_actions", students: [], failed: [failed] });
+  assert.equal(validateAgainst("grading-summary", doc).valid, true);
+});
+
+test("UNDER A CAP the late one is in hand_ins.ignored only - never listed twice", async () => {
+  const res = await gradeStudent(world({ handIns: [{ n: 1, min: 30 }, { n: 2, min: 240 }] }).request, { row: row(), marker: capped(5) });
+  const { graded } = rowFromOutcome("ada", res, 100);
+  assert.equal("late_hand_ins" in graded, false);
+  assert.deepEqual(ignoredHandInsOf(graded).map(({ item, allowed }) => [item.sha, allowed]), [[sha(2), 5]]);
 });
 
 test("resolveHandIn names no hand-in and a late one differently under a cap", async () => {

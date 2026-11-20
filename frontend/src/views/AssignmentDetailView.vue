@@ -1004,7 +1004,7 @@
                      lib/submission-marker.mjs `describeIgnoredHandIn`, the same
                      one the nightly log and the CLI print. -->
                 <details v-if="ignoredHandIns.length" class="text-sm" data-ignored-hand-ins>
-                  <summary>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? ' was' : 's were' }} not graded: over the limit or after the deadline</summary>
+                  <summary>{{ ignoredHandIns.length }} hand-in{{ ignoredHandIns.length === 1 ? ' was' : 's were' }} not graded: {{ ignoredHandIns.every((i) => i.late) ? 'after the deadline' : 'over the limit or after the deadline' }}</summary>
                   <ul class="status-box-list">
                     <li v-for="i in ignoredHandIns" :key="`${i.login}-${i.sha}`"><code>@{{ i.login }}</code>: {{ i.text }}</li>
                   </ul>
@@ -1508,7 +1508,7 @@ import { validateAgainst } from '../lib/validate.js'
 // `findMarkedCommit` were imported here to drive the score reading inline. That
 // orchestration is lib/grade-cohort.mjs now - the workflow needs the same
 // answers - and this view only asks it questions.
-import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn, handInShownTime } from '../lib/check-run-score.js'
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn, ignoredHandInsOf, handInShownTime } from '../lib/check-run-score.js'
 import { gradesInCi } from '../lib/autograde.js'
 import { FAILED_READ_VERDICTS, failedKind, gradeCohort, gradeQueue, gradeStudent, gradingCommitFor, keepStoredOnFailedReads, oneReadReplaces, rowFromOutcome, teamOf } from '../lib/grade-cohort.js'
 import { sameLogin } from '../../../lib/github-login.mjs'
@@ -2428,14 +2428,17 @@ const handInsShown = computed(() => (autogradeSummary.value?.students || []).som
 
 // Every hand-in the cap or the deadline left out, from graded and failed rows
 // alike: a student whose graded hand-in had no run still made the ignored ones.
+// With no cap too: a hand-in pushed after the deadline (lib/submission-marker.mjs
+// `ignoredHandInsOf`).
 const ignoredHandIns = computed(() => {
   const out = []
   for (const row of [...(autogradeSummary.value?.students || []), ...(autogradeSummary.value?.failed || [])]) {
-    for (const item of row.hand_ins?.ignored || []) {
+    for (const { item, allowed } of ignoredHandInsOf(row)) {
       out.push({
         login: row.login,
         sha: item.sha,
-        text: describeIgnoredHandIn(item, { allowed: row.hand_ins.allowed, formatTime: fmt }),
+        late: item.reason === 'late',
+        text: describeIgnoredHandIn(item, { allowed, formatTime: fmt }),
       })
     }
   }

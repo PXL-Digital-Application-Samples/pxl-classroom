@@ -69,7 +69,8 @@
             "$ref": "#/definitions/decision",
             "description": "Present when a LECTURER decided this row rather than the rules: a chosen commit or a score by hand (overrides/, lib/grade-override.mjs). Absent is the rules."
           },
-          "hand_ins": { "$ref": "#/definitions/hand_ins" }
+          "hand_ins": { "$ref": "#/definitions/hand_ins" },
+          "late_hand_ins": { "$ref": "#/definitions/late_hand_ins" }
         }
       }
     },
@@ -83,7 +84,8 @@
           "login": { "type": "string", "minLength": 1 },
           "reason": { "type": "string", "minLength": 1 },
           "kind": { "type": "string", "enum": ["not-handed-in", "late", "no-result", "running"], "description": "Why there is no score. `not-handed-in`: nothing to grade (no hand-in, no commit, no repository). `late`: handed in only after the deadline. `no-result`: handed in, and no score could be read. `running`: handed in, and its grading run is still going. Absent on a row written before 2026-10-08, read from its reason by lib/grade-cohort.mjs `failedKind`." },
-          "hand_ins": { "$ref": "#/definitions/hand_ins" }
+          "hand_ins": { "$ref": "#/definitions/hand_ins" },
+          "late_hand_ins": { "$ref": "#/definitions/late_hand_ins" }
         }
       }
     }
@@ -113,20 +115,27 @@
         "graded_number": { "type": ["integer", "null"], "minimum": 1 },
         "ignored": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["sha", "reason"],
-            "additionalProperties": false,
-            "properties": {
-              "sha": { "type": "string", "minLength": 1 },
-              "date": { "type": ["string", "null"], "description": "The commit's own timestamp." },
-              "pushed_at": { "type": ["string", "null"], "description": "When GitHub started the first run for it - server time." },
-              "on_branch": { "type": "boolean", "description": "false: known only from the run history, because the branch was rewritten. Still counted." },
-              "number": { "type": ["integer", "null"], "minimum": 1, "description": "Its position among the on-time hand-ins; null for a late one." },
-              "reason": { "type": "string", "enum": ["over-limit", "late", "self-dispatched"], "description": "self-dispatched: a grading run the student started themselves (Run workflow on GitHub). It USES a slot, because it gave them a grade, and is never the graded hand-in." }
-            }
-          }
+          "items": { "$ref": "#/definitions/ignored_hand_in" }
         }
+      }
+    },
+    "late_hand_ins": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/ignored_hand_in" },
+      "description": "With NO hand-in cap: the hand-ins pushed after this student's deadline, which the rules did not grade (`reason: late`). Under a cap they are in `hand_ins.ignored` instead. Absent when there is none. Recorded because a late hand-in that was ignored without a word read, to a lecturer, as the grader keeping an old score (PXL-2TIN-CloudEssentials-2627, 2026-11-20)."
+    },
+    "ignored_hand_in": {
+      "type": "object",
+      "required": ["sha", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "sha": { "type": "string", "minLength": 1 },
+        "date": { "type": ["string", "null"], "description": "The commit's own timestamp." },
+        "pushed_at": { "type": ["string", "null"], "description": "When GitHub started the first run for it - server time." },
+        "on_branch": { "type": "boolean", "description": "false: known only from the run history, because the branch was rewritten. Still counted." },
+        "number": { "type": ["integer", "null"], "minimum": 1, "description": "Its position among the on-time hand-ins; null for a late one." },
+        "reason": { "type": "string", "enum": ["over-limit", "late", "self-dispatched"], "description": "self-dispatched: a grading run the student started themselves (Run workflow on GitHub). It USES a slot, because it gave them a grade, and is never the graded hand-in." }
       }
     }
   }

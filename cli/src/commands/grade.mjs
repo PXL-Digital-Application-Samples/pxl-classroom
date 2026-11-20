@@ -39,7 +39,7 @@ import {
 } from "../../../lib/grading-summary.mjs";
 import { decisionRecord, gradeDecisionFor } from "../../../lib/grade-override.mjs";
 import { readRunScore } from "../../../lib/grade-dispatch.mjs";
-import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn } from "../../../lib/submission-marker.mjs";
+import { readSubmissionMarker, submissionBranch, describeIgnoredHandIn, ignoredHandInsOf } from "../../../lib/submission-marker.mjs";
 import { FAILED_READ_VERDICTS, NO_COMMIT_REASON, NO_REPOSITORY_REASON, noSubmissionOutcome, archiveGradeQueue, gradeQueue, gradingCommitFor, failedKind, keepStoredOnFailedReads, mergeOneStudentRead, readScoreAtCommit as readScoreShared, resolveHandIn, teamOf } from "../../../lib/grade-cohort.mjs";
 import { gradesInCi } from "../../../lib/autograde-source.mjs";
 import { toRequest } from "../lib/gh-request.mjs";
@@ -297,6 +297,8 @@ export function registerGradeCommand(program) {
         let ciRow = null;
         // The hand-in count under a cap, carried to the summary row.
         let handIns = null;
+        // Without a cap, the hand-ins after the deadline that were not graded.
+        let lateHandIns = null;
         // The graded hand-in itself, for when GitHub recorded its push.
         let handIn = null;
         // A LECTURER'S DECISION FIRST, as every other grader does.
@@ -340,6 +342,7 @@ export function registerGradeCommand(program) {
           };
           ciRow = cached.ciRow;
           handIns = cached.handIns;
+          lateHandIns = cached.lateHandIns ?? null;
           handIn = cached.handIn;
         } else if (isGitHubActions) {
           try {
@@ -374,8 +377,9 @@ export function registerGradeCommand(program) {
                 team: teamOf(s, report.students),
               });
               handIns = found.handIns;
-              for (const item of handIns?.ignored || []) {
-                process.stderr.write(`  - ${s.github_login}: ${describeIgnoredHandIn(item, { allowed: handIns.allowed })}\n`);
+              lateHandIns = found.lateHandIns ?? null;
+              for (const { item, allowed } of ignoredHandInsOf({ hand_ins: handIns, late_hand_ins: lateHandIns })) {
+                process.stderr.write(`  - ${s.github_login}: ${describeIgnoredHandIn(item, { allowed })}\n`);
               }
               if (found.verdict !== "found") {
                 const unread = FAILED_READ_VERDICTS.includes(found.verdict);
@@ -459,7 +463,7 @@ export function registerGradeCommand(program) {
               }]
             };
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, handIn });
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, lateHandIns, handIn });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: checks API fetch failed - ${err.message}\n`);
@@ -487,7 +491,7 @@ export function registerGradeCommand(program) {
               login: s.github_login, sha: archive.sha, archive, gradedBy,
             });
             if (s.team_slug) {
-              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, handIn });
+              teamResultsCache.set(s.team_slug, { result, ciRow, handIns, lateHandIns, handIn });
             }
           } catch (err) {
             process.stderr.write(`  ! ${s.github_login}: grading failed - ${err.message}\n`);
@@ -530,6 +534,7 @@ export function registerGradeCommand(program) {
                   fallbackTotal: totalFallback,
                   gradedAt: result.graded_at,
                   handIns,
+                  lateHandIns,
                   gradedSha: result.archive_sha ?? null,
                   decidedBy: decisionRecord(decision),
                   handIn,
