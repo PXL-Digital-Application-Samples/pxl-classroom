@@ -26,10 +26,13 @@ jobs:
     # newest reads everything the others would have. It was
     # `cancel-in-progress: true`, and every acceptance dispatches a rebuild: on
     # 2026-11-20 fifty students accepted in three minutes, each rebuild (about
-    # 50 seconds) was cancelled by the next, 51 of 54 never finished, and the
-    # all-organization rebuild the nightly dispatched cancelled the last one,
-    # so PXL-2TIN-DevOps-2627's report showed one student of fifty for eight
-    # minutes. A rebuild that never gets a runner would now hold the group: the
+    # 50 seconds) was cancelled by the next, and one cancel reached a runner
+    # before it had started the job, which GitHub ends only after its 5-minute
+    # cancellation timeout - holding this group that long. 51 of 54 never
+    # finished, and PXL-2TIN-DevOps-2627's report showed one student of fifty
+    # for eight minutes (eleven such 300-second cancels since 2026-10-09, in
+    # nine organizations; LESSONS.md). A rebuild that never gets a runner would
+    # now hold the group: the
     # watchdog cancels one that has been at it past its limit and dispatches
     # a fresh one (scripts/pipeline-watchdog.mjs), as it does for the deploy.
     concurrency:
