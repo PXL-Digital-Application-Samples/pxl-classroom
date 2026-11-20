@@ -58,9 +58,15 @@ async function openEditor(page, { accepted = [STUDENT_1, STUDENT_2] } = {}) {
   });
   await page.route((url) => url.href.includes('/actions/workflows/') && url.href.includes('/dispatches'),
     (route) => route.fulfill({ status: 204, body: '' }));
+  // The page's own load lists the repository records (it lists every student
+  // who has accepted, lib/unreported-acceptances.mjs); what these tests count
+  // is the template check's read, which comes after.
+  const loadListing = page.waitForResponse((r) => new RegExp(`/contents/repositories/${ID}(\\?|$)`).test(r.url()), { timeout: 15000 });
   await page.goto(`/dashboard/${ORG}/admin?edit=${ID}`);
   await expect(page.locator('.editor-form[data-broker="present"]')).toBeVisible({ timeout: 15000 });
+  await loadListing;
   await expandSettings(page);
+  reads.length = 0;
   return { reads };
 }
 

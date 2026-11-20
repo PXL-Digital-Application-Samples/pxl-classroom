@@ -49,7 +49,7 @@ const students = (accepted = []) => roster.map((s) => ({
   submission_status: 'no-submission',
 }));
 
-async function open(page, { accepted = [], extra = {} } = {}) {
+async function open(page, { accepted = [], extra = {}, recordsAfterLoad = false } = {}) {
   const gitCommits = [];
   await injectAuth(page, LECTURER);
   await setupStandardMockRoutes(page, {
@@ -61,7 +61,16 @@ async function open(page, { accepted = [], extra = {} } = {}) {
     gitCommits,
     ...extra,
   });
+  // The page lists acceptance records when it loads (lib/unreported-acceptances.mjs),
+  // so a record seeded before the load is one the page knew from the start.
+  // "Accepted after the page loaded" hides the listing until the load is done.
+  const hidden = (url) => /\/contents\/acceptances\/[^/?#]+(\?|$)/.test(url.href);
+  if (recordsAfterLoad) await page.route(hidden, (route) => route.fulfill({ status: 200, body: '[]' }));
   await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+  if (recordsAfterLoad) {
+    await expect(page.locator('tr', { hasText: 'Krusty Krab' }).getByRole('button', { name: 'Manage' })).toBeVisible({ timeout: 15000 });
+    await page.unroute(hidden);
+  }
   return gitCommits;
 }
 
@@ -213,6 +222,7 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
   test('a member who accepted after the page loaded stops it at the click', async ({ page }) => {
     // The page read the report before stud1 accepted; their record is there now.
     const commits = await open(page, {
+      recordsAfterLoad: true,
       extra: {
         controlAcceptances: {
           [ID]: [{
@@ -271,7 +281,13 @@ test.describe('108 - Rename a team before anyone in it accepts', () => {
         roster,
         gitCommits,
       });
+      // The record lands after the page loaded (see `open`): read at load, it
+      // is known from the start and Rename is not offered at all.
+      const hidden = (url) => /\/contents\/acceptances\/[^/?#]+(\?|$)/.test(url.href);
+      await page.route(hidden, (route) => route.fulfill({ status: 200, body: '[]' }));
       await page.goto(`/dashboard/${ORG}/${ID}?tab=teams`);
+      await expect(page.locator('tr', { hasText: 'Krusty Krab' }).getByRole('button', { name: 'Manage' })).toBeVisible({ timeout: 15000 });
+      await page.unroute(hidden);
       const modal = await manage(page, 'Krusty Krab');
       await expect(modal.locator('[data-team-rename]')).not.toContainText('has accepted');
       await modal.getByRole('button', { name: 'Rename team' }).click();

@@ -1444,11 +1444,12 @@ import AdminView from './AdminView.vue'
 import { markStaff } from '../lib/org-session.js'
 import HelpButton from '../components/HelpButton.vue'
 import {
-  assignmentPath, reportPath, teamsDir,
+  assignmentPath, reportPath, teamsDir, acceptancesDir, acceptancePath,
   repositoriesDir, repositoryPath, overridesDir, overridePath,
   lockdownRecordPath, unlockRecordPath, unlockedDir, relockedRecordPath, observationPath,
 } from '../../../lib/control-layout.mjs'
 import { snapshotObservation, isBotAuthorName, commitDateOf } from '../../../lib/observation.mjs'
+import { loginsToRead, withUnreportedAcceptances } from '../../../lib/unreported-acceptances.mjs'
 import { addedCommits, noSubmissionRow, unstartedRepo } from '../../../lib/starter-commit.mjs'
 import { refreshStatus } from '../../../lib/refresh-status.mjs'
 import { syncRefusal } from '../lib/starter-sync.js'
@@ -3624,6 +3625,7 @@ async function loadAll() {
     }
 
     await mergeTeamManifests(token)
+    await mergeUnreportedAcceptances(token)
 
     if (report.value && assignment.value?.feedback_pr === true) {
       await mergeRepoRecordsIntoReport(token)
@@ -3735,6 +3737,54 @@ async function loadOverrides(token) {
   // The exception columns are joined from these; a merge that ran before they
   // arrived would have left them empty.
   mergeGradesIntoReport()
+}
+
+// Every student who has accepted, the moment the hub saved it, whether or not
+// a rebuild of the report has finished since (lib/unreported-acceptances.mjs).
+// Two directory listings, and one or two reads per student the report is
+// missing. Unreadable is not evidence: a listing that fails changes nothing,
+// and the report's rows stay as they were.
+async function mergeUnreportedAcceptances(token) {
+  if (!report.value) return
+  const names = (dir) => listRepoDir(token, props.org, config.controlRepo, dir)
+    .then((files) => (files || []).filter((f) => f.type === 'file').map((f) => f.name))
+    .catch((e) => {
+      if (e?.status === 404) return []
+      throw e
+    })
+  let acceptanceFiles, repositoryFiles
+  try {
+    ;[acceptanceFiles, repositoryFiles] = await Promise.all([
+      names(acceptancesDir(props.assignmentId)),
+      names(repositoriesDir(props.assignmentId)),
+    ])
+  } catch (e) {
+    console.warn('Could not list the acceptance records:', e.message)
+    return
+  }
+  const logins = loginsToRead(report.value.students, { acceptanceFiles, repositoryFiles })
+  if (logins.length === 0) return
+  const hasRepository = new Set(repositoryFiles)
+  const readJson = (path) => getRepoContent(token, props.org, config.controlRepo, path)
+    .then((text) => (text ? JSON.parse(text) : null))
+    .catch(() => null)
+  const records = []
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < logins.length) {
+      const login = logins[cursor++]
+      const [acceptance, repository] = await Promise.all([
+        readJson(acceptancePath(props.assignmentId, login)),
+        hasRepository.has(`${login}.json`) ? readJson(repositoryPath(props.assignmentId, login)) : null,
+      ])
+      records.push({ acceptance, repository })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(6, logins.length) }, worker))
+  if (!report.value) return
+  report.value.students = withUnreportedAcceptances(report.value.students, records, {
+    rosterEntry: (login) => rosterByLogin.value.get(String(login).toLowerCase()) ?? null,
+  })
 }
 
 // Walks repositories/<assignment-id>/*.json and stitches feedback_pr_number
@@ -4412,6 +4462,11 @@ async function refreshOne(token, s) {
 async function refreshLiveStatus() {
   const token = getToken()
   if (!token || !report.value) return
+
+  // Students who accepted since the report was rebuilt, or since this page
+  // loaded, are looked at too: Refresh read only the report's own rows, so on
+  // 2026-11-20 it re-checked one student while fifty had accepted.
+  await mergeUnreportedAcceptances(token)
 
   // Clone the students array and the student objects themselves.
   const clonedStudents = report.value.students.map(s => ({ ...s }))
