@@ -1279,13 +1279,12 @@ It appears only once the deadline has actually frozen something, and only for a 
 Central deployment and regeneration workflows (`deploy-frontend.yml`, `regenerate-dashboard.yml`) rely on GitHub Actions concurrency locks.
 
 1. **Deadlock Prevention:**
-   - `dashboard-${{ matrix.org }}` declares `cancel-in-progress: true`: a newer regeneration of an organization cancels the older one.
-   - `pages` (`deploy-frontend.yml`) declares `cancel-in-progress: false`: a running deploy always finishes, and only the newest one waits behind it. Every acceptance dispatches a deploy, so cancelling the running one meant that during a lab's acceptances no deploy ever finished, for any organization.
+   - `dashboard-${{ matrix.org }}` (`regenerate-dashboard.yml`) and `pages` (`deploy-frontend.yml`) both declare `cancel-in-progress: false`: a running rebuild or deploy always finishes, and only the newest one waits behind it. Every acceptance dispatches both, so cancelling the running one meant that during a class's acceptances none ever finished.
 
 2. **Automated Pipeline Watchdog (pipeline-watchdog.yml):**
    - A scheduled sentinel runs every 30 minutes (`*/30 * * * *`) on the hub repository.
    - Inspects hub Actions runs for zombie runs: waiting over 15 minutes, running or pending past its limit (45 minutes, or a long job's own `timeout-minutes` plus 15 for the Deadline Sentinel and starter sync), or a Pages deploy queued over 15 minutes without a runner.
-   - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A queued acceptance is never cancelled, and neither is a Deadline Sentinel: it is alerted, and you decide.
+   - Automatically cancels zombie waiting runs (and such a queued deploy) over 20 minutes and re-dispatches `deploy-frontend.yml` if frontend deployment was blocked. A rebuild (`regenerate-dashboard.yml`) running past its limit is cancelled too, and one rebuild for every organization is dispatched in its place. A queued acceptance is never cancelled, and neither is a Deadline Sentinel: it is alerted, and you decide.
    - Posts deduplicated alert comments with `@<login>` mentions on open tracking issues (`[NOTICE] PXL Classroom - Pipeline Watchdog Alerts`), triggering immediate email notifications through GitHub.
 
 3. **Alert Level Preferences & Picklists:**

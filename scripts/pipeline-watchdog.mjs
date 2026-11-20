@@ -263,7 +263,13 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
         ...r,
         ageMs,
         durationMin: Math.max(1, Math.round(ageMs / 60000)),
-        reason: "in_progress_timeout",
+        // A REBUILD PAST ITS LIMIT IS CANCELLED. regenerate-dashboard.yml lets
+        // a running rebuild finish (2026-11-20), so an organization's leg that
+        // never got a runner holds that organization's rebuilds behind it, and
+        // the run stays `in_progress` while it does. Cancelled below and
+        // dispatched again for every organization: a rebuild reads everything
+        // afresh, so nothing it was carrying is lost.
+        reason: isWorkflow(r, "regenerate-dashboard.yml") ? "waiting_timeout" : "in_progress_timeout",
       });
     }
   }
@@ -316,6 +322,17 @@ export async function runWatchdog({ owner, repo, token, alertLevel, autoCancel, 
               ghOpts
             );
             deployRedispatched = true;
+          }
+          // A stuck rebuild: every organization again, which is what the
+          // nightly's own rebuild asks for (no `org` input).
+          if (isWorkflow(r, "regenerate-dashboard.yml")) {
+            console.log("Re-dispatching regenerate-dashboard.yml following cancellation of stuck run...");
+            await gh(
+              "POST",
+              `/repos/${owner}/${repo}/actions/workflows/regenerate-dashboard.yml/dispatches`,
+              { ref: "main" },
+              ghOpts
+            );
           }
         } catch (err) {
           console.warn(`Failed to auto-cancel or re-dispatch run #${r.id}: ${err.message}`);

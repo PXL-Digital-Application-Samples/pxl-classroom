@@ -677,6 +677,35 @@ test("runWatchdog - a deploy GitHub never started is cancelled and dispatched ag
   }
 });
 
+test("runWatchdog - a rebuild running past its limit is cancelled and dispatched again for every org; nothing else running is", async () => {
+  // regenerate-dashboard.yml lets a running rebuild finish (2026-11-20), so an
+  // organization's leg that never gets a runner holds that organization's
+  // rebuilds - with the run `in_progress` all the while.
+  const gh = stubRuns([
+    [/status=in_progress/, { body: { workflow_runs: [
+      { id: 61, name: "Regenerate Dashboard Data", path: ".github/workflows/regenerate-dashboard.yml", status: "in_progress", event: "workflow_dispatch", created_at: at(50), html_url: "https://x/61" },
+      { id: 62, name: "acceptance o/broker-x#4", path: ".github/workflows/acceptance-handler.yml", status: "in_progress", event: "repository_dispatch", created_at: at(50), html_url: "https://x/62" },
+      { id: 63, name: "Regenerate Dashboard Data", path: ".github/workflows/regenerate-dashboard.yml", status: "in_progress", event: "workflow_dispatch", created_at: at(5), html_url: "https://x/63" },
+    ] } }],
+    [/actions\/runs\/61\/cancel/, { method: "POST", status: 202, body: {} }],
+    [/regenerate-dashboard\.yml\/dispatches/, { method: "POST", status: 204 }],
+    [/deploy-frontend\.yml\/dispatches/, { method: "POST", status: 204 }],
+    [/issues\?labels=pxl-tracking/, { body: [{ number: 7, title: "[NOTICE] PXL Classroom - Pipeline Watchdog Alerts" }] }],
+    [/issues\/7\/comments/, { method: "GET", body: [] }],
+    [/issues\/7\/comments/, { method: "POST", status: 201, body: { id: 1 } }],
+  ]);
+  try {
+    const res = await runWatchdog({ owner: "o", repo: "r", token: "t", alertLevel: "stuck_and_failures", autoCancel: true, notifyLogins: [] });
+    assert.deepEqual(res.cancelledRuns, [61]);
+    const dispatch = gh.calls.find((c) => c.method === "POST" && /regenerate-dashboard\.yml\/dispatches/.test(c.url));
+    assert.ok(dispatch, "a fresh rebuild was dispatched");
+    assert.deepEqual(dispatch.body, { ref: "main" }, "for every organization: no org input");
+    assert.ok(!gh.calls.some((c) => /runs\/(62|63)\/cancel/.test(c.url)), "the acceptance and the young rebuild are left alone");
+  } finally {
+    gh.restore();
+  }
+});
+
 test("runWatchdog - a stuck deploy whose replacement could not be dispatched is not reported as re-dispatched", async () => {
   const gh = stubRuns([
     [/status=waiting/, { body: { workflow_runs: [
