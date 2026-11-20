@@ -1515,6 +1515,7 @@ import { sameLogin } from '../../../lib/github-login.mjs'
 import { repositoryNameFor } from '../../../lib/repo-name.mjs'
 import { formatDate, formatRelative } from '../lib/format.js'
 import { toast } from '../lib/toast.js'
+import { refreshSaveRefusal } from '../lib/refresh-save.js'
 import { copyText } from '../lib/clipboard.js'
 import { effectiveDeadlineFor, extensionFrom } from '../lib/deadline.js'
 import { extensionEffect, extensionGrantedMessage } from '../lib/extension-effect.js'
@@ -4526,7 +4527,16 @@ async function refreshLiveStatus() {
     if (unrecorded) console.warn(`${unrecorded} refreshed observation(s) failed their schema and were not stored`)
     const reportRes = await commitFiles(token, props.org, config.controlRepo, changes, `Live refresh: ${props.assignmentId}`)
     if (!reportRes.ok) {
-      toast.error(`Refreshed locally but save failed: ${reportRes.error || 'unknown error'}`)
+      // A 403 is asked about before it is explained: read-only access and a
+      // missing App permission answer the same words (lib/refresh-save.js).
+      const canPush = reportRes.status === 403
+        ? await ghApi(token, 'GET', `/repos/${props.org}/${config.controlRepo}`)
+          .then((r) => (r.ok && typeof r.data?.permissions?.push === 'boolean' ? r.data.permissions.push : null))
+          .catch(() => null)
+        : null
+      const refusal = refreshSaveRefusal(reportRes, canPush, config.controlRepo)
+      if (refusal.readOnly) toast.warning(refusal.text)
+      else toast.error(refusal.text)
       return
     }
     await syncDashboardAggregate(token)

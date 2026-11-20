@@ -170,6 +170,34 @@ test.describe('69 - a live refresh writes what it shows', () => {
     expect(commit.files.filter((f) => f.path.startsWith('observations/'))).toHaveLength(0);
   });
 
+  // 2026-11-20, PXL-2TIN-CloudEssentials-2627, during an exam: an account that
+  // may read the course's records but not change them pressed Refresh and got
+  // "save failed: HTTP 403 (Resource not accessible by integration)". The 403
+  // is GitHub refusing the PERSON (a user token writes only where they can),
+  // and the page now says that - but only once GitHub has said so, because a
+  // missing App permission answers in the same words (lib/refresh-save.js).
+  for (const [name, canPush, expected] of [
+    ['READ-ONLY: a refused save by an account that cannot push says so, and how it gets fixed', false, /can read this course's records but not change them/],
+    ['a refused save by an account that CAN push is not called read-only', true, /save failed: HTTP 403/],
+  ]) {
+    test(name, async ({ page }) => {
+      const { contentWrites } = await openDetail(page);
+      await page.route(`**/repos/${ORG}/pxl-classroom-control/git/blobs`, (route) => route.fulfill({
+        status: 403, contentType: 'application/json',
+        body: JSON.stringify({ message: 'Resource not accessible by integration' }),
+      }));
+      await page.route(`**/repos/${ORG}/pxl-classroom-control`, (route) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ name: 'pxl-classroom-control', permissions: { admin: false, maintain: false, push: canPush, triage: false, pull: true } }),
+      }));
+      await refreshButton(page).click();
+      await expect(page.locator('.toast, [role="status"], [role="alert"]').filter({ hasText: expected }))
+        .toBeVisible({ timeout: 20000 });
+      expect(reportWrites(contentWrites)).toHaveLength(0);
+      await expect(page.locator('.toast, [role="status"], [role="alert"]').filter({ hasText: /\(saved\)/ })).toHaveCount(0);
+    });
+  }
+
   test('it does not report success it did not have', async ({ page }) => {
     // The inverse of the bug. "Refreshed locally but save failed" was at least
     // honest; the failure this test guards against is the opposite one, where a
