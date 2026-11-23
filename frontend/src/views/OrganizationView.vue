@@ -81,6 +81,9 @@
                       <span v-else>{{ l.assignmentId }}</span>
                     </div>
                     <p class="org-needs-text">{{ lineAdvice(l).text }}</p>
+                    <p v-if="lineAdvice(l).heldBy" class="org-needs-text text-sm" data-held-by>
+                      On record: <a :href="`https://github.com/${org}/${lineAdvice(l).heldBy}`" target="_blank" rel="noopener" class="mono">{{ lineAdvice(l).heldBy }}</a>
+                    </p>
                     <div v-if="retryOffered(l) || retries[lineKey(l)]" class="org-needs-actions">
                       <!-- Offered again once a retry has ENDED without adding
                            the student: a refusal the lecturer has since fixed,
@@ -310,7 +313,7 @@ import { config } from '../lib/config.js'
 import { classifyUnreadableControlRepo } from '../lib/control-repo-access.js'
 import { readTrackingIssue } from '../lib/tracking-issue.js'
 import { formatDate, formatRelative } from '../lib/format.js'
-import { DEALT_WITH_REACTION, NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, UNRECORDED_NOTICE, assignmentsToSettle, isOrgNotice, noticeLines, noticesForLecturer, unrecordedLineSettled } from '../../../lib/org-notices.mjs'
+import { DEALT_WITH_REACTION, NEEDS_YOU_DAYS, ORG_NOTICE_LABELS, UNRECORDED_NOTICE, assignmentsToSettle, isOrgNotice, noticeLines, noticesForLecturer, unrecordedLineHeldBy, unrecordedLineSettled } from '../../../lib/org-notices.mjs'
 import { ASSIGNMENTS_DIR, DASHBOARD_PATH, assignmentIdFromFile } from '../../../lib/control-layout.mjs'
 import { RUN_NAME_PREFIX } from '../../../lib/acceptance-run-name.mjs'
 import { orgFacts } from '../../../lib/org-facts.mjs'
@@ -372,6 +375,17 @@ const deadlinePassed = (l) => {
 function lineAdvice(l) {
   if (unrecordedLineSettled(l, provisioned.value)) {
     return { kind: 'added', text: "Added since: the student is on the assignment's list now." }
+  }
+  // ON THE LIST WITH ANOTHER REPOSITORY (lib/org-notices.mjs
+  // `unrecordedLineHeldBy`): Retry would hand that one back and leave this one
+  // where it is, so none is offered. The nightly does not press it either.
+  const heldBy = unrecordedLineHeldBy(l, provisioned.value)
+  if (heldBy && !assignmentGone(l) && !isOwn(l)) {
+    return {
+      kind: 'two-repos',
+      heldBy,
+      text: `@${l.login} is on the assignment's list already, with ${heldBy}: that is the repository PXL Classroom collects, locks and grades, and Retry would only hand it back. Open both. If their work is in this one, ask them to push it to ${heldBy}; then delete or archive the one not used on GitHub, and this line clears the next night.`,
+    }
   }
   if (assignmentGone(l)) {
     return { kind: 'gone', text: 'Its assignment no longer exists, so there is no list to add them to. If the repository is not needed, delete it on GitHub.' }

@@ -10,6 +10,7 @@ import {
   ORG_NOTICE_LABELS,
   STUDENT_NOTICE_PREFIXES,
   UNRECORDED_NOTICE,
+  unrecordedLineHeldBy,
   unrecordedLineSettled,
   assignmentsToSettle,
   isOrgNotice,
@@ -51,6 +52,30 @@ test("repositories nobody recorded: settled once every student on it has been ad
   assert.equal(noticesForLecturer([notice], { now, provisioned: new Map([["lab", new Set(["ann", "bo"])]]) }).length, 0, "both added");
   assert.equal(noticesForLecturer([notice], { now, provisioned: null }).length, 1, "unknown settles nothing");
   assert.equal(unrecordedLineSettled({ assignmentId: "lab", login: "ANN" }, new Map([["lab", new Set(["ann"])]])), true, "logins compared lowercased");
+});
+
+// 2026-11-23, PXL-Digital-SNE-Werkplekleren: a renamed student on the list with
+// the old name's repository, and a second one made under the new name. The
+// line said "Added since" and the notice left the page; the repository stayed.
+test("repositories nobody recorded: a student on the list with ANOTHER repository is not settled", () => {
+  const now = new Date("2026-10-08T10:00:00Z");
+  const details = "A student repository exists.\n\n- `lab-ann` - student `Ann` (assignment `lab`)\n\nAdvice.";
+  const notice = comment({ key: "unrecorded-y", type: "run-failed", assignment: UNRECORDED_NOTICE, time: "2026-10-08T02:00:00.000Z", details });
+  const line = { assignmentId: "lab", login: "Ann", repo: "lab-ann" };
+  const report = (repo) => new Map([["lab", provisionedLogins([{ github_login: "ann", acceptance_state: "provisioned", repo_name: repo }])]]);
+
+  assert.equal(unrecordedLineHeldBy(line, report("Org/lab-AnnOld")), "lab-AnnOld");
+  assert.equal(unrecordedLineSettled(line, report("Org/lab-AnnOld")), false);
+  assert.equal(noticesForLecturer([notice], { now, provisioned: report("Org/lab-AnnOld") }).length, 1, "the notice stays");
+
+  assert.equal(unrecordedLineHeldBy(line, report("Org/LAB-ANN")), null, "the same repository, whatever its case");
+  assert.equal(unrecordedLineSettled(line, report("Org/LAB-ANN")), true);
+  assert.equal(noticesForLecturer([notice], { now, provisioned: report("Org/LAB-ANN") }).length, 0);
+
+  assert.equal(unrecordedLineHeldBy(line, report(null)), null, "a row naming no repository says nothing about which");
+  assert.equal(unrecordedLineSettled(line, report(null)), true, "and settles as before");
+  assert.equal(unrecordedLineHeldBy(line, new Map([["lab", new Set(["ann"])]])), null, "a Set of logins names no repository");
+  assert.equal(unrecordedLineHeldBy(line, null), null);
 });
 
 test("the marker is the one notify.mjs writes", () => {

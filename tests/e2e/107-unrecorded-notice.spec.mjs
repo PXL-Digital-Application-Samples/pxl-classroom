@@ -36,7 +36,7 @@ const lab = (deadline) => ({
   template: { owner: ORG, repository: 'starter' }, repository_name_pattern: 'lab-3-{github_login}', deadline_at: deadline,
 });
 
-async function open(page, { deadline = new Date(Date.now() + 7 * 86400_000).toISOString(), reactions = 0 } = {}) {
+async function open(page, { deadline = new Date(Date.now() + 7 * 86400_000).toISOString(), reactions = 0, rows = null } = {}) {
   const dispatches = [];
   const reactionCalls = [];
   await injectAuth(page, LECTURER);
@@ -49,6 +49,8 @@ async function open(page, { deadline = new Date(Date.now() + 7 * 86400_000).toIS
         generated_at: new Date().toISOString(),
         assignments: { 'lab-3': { title: 'Lab 3', state: 'published', deadline_at: deadline, total_students: 3, accepted: 2, on_time: 0, late: 0, no_submission: 2 } },
       },
+      // `rows`: the lab-3 report's students, which is what says who is on the list.
+      ...(rows ? { 'lab-3': { schema_version: 1, assignment_id: 'lab-3', generated_at: new Date().toISOString(), students: rows } } : {}),
     },
     trackingIssue: ISSUE,
     trackingComments: [unrecorded(reactions)],
@@ -85,6 +87,30 @@ test.describe('107 - repositories nobody recorded', () => {
     const gone = line(page, 'old-x-ann');
     await expect(gone).toHaveAttribute('data-advice', 'gone');
     await expect(gone.getByRole('button')).toHaveCount(0);
+  });
+
+  // 2026-11-23, PXL-Digital-SNE-Werkplekleren: a renamed student on the list
+  // with the old name's repository, and a second made under the new name. The
+  // line said "Added since"; Retry would only have handed the old one back.
+  test('a student on the list with ANOTHER repository: both named, and no Retry', async ({ page }) => {
+    const { dispatches } = await open(page, {
+      rows: [{ github_login: 'bob', repo_name: `${ORG}/lab-3-bobold`, acceptance_state: 'provisioned', submission_status: 'no-submission' }],
+    });
+    const bob = line(page, 'lab-3-bob');
+    await expect(bob).toHaveAttribute('data-advice', 'two-repos');
+    await expect(bob).toContainText("on the assignment's list already, with lab-3-bobold");
+    await expect(bob.locator('[data-held-by]').getByRole('link', { name: 'lab-3-bobold' })).toHaveAttribute('href', `https://github.com/${ORG}/lab-3-bobold`);
+    await expect(bob.getByRole('button')).toHaveCount(0);
+    expect(dispatches).toHaveLength(0);
+  });
+
+  test('a student on the list with THIS repository: added since', async ({ page }) => {
+    await open(page, {
+      rows: [{ github_login: 'bob', repo_name: `${ORG}/lab-3-bob`, acceptance_state: 'provisioned', submission_status: 'no-submission' }],
+    });
+    const bob = line(page, 'lab-3-bob');
+    await expect(bob).toHaveAttribute('data-advice', 'added');
+    await expect(bob.getByRole('button')).toHaveCount(0);
   });
 
   test('Retry in the notice starts the acceptance again for that student', async ({ page }) => {

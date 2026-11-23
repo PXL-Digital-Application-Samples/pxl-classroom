@@ -197,7 +197,7 @@ export const needsYouCount = (org) => (org ? needsYouIn.value.get(normalizeLogin
  * unknown is not settled. One read per assignment, and only for those with
  * such a notice (`assignmentsToSettle`), which is usually none.
  *
- * @returns {Promise<Map<string, Set<string>>>}
+ * @returns {Promise<Map<string, Map<string, string|null>>>} assignment -> login -> repository name (`provisionedLogins`)
  */
 export async function readProvisioned(token, org, controlRepo, ids) {
   const map = new Map()
