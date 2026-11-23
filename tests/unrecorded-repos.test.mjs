@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { AUTO_RETRY_DAYS, AUTO_RETRY_MAX, autoRetryable, copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { AUTO_RETRY_DAYS, AUTO_RETRY_MAX, autoRetryable, copiedFrom, emptyLeftover, heldElsewhere, generatedFrom, lastPageFromLink, loginFromRepoName, parseUnrecordedLines, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 
 test("a notice line and its reading are one pair: every finding round-trips", () => {
   const findings = [
@@ -97,7 +97,7 @@ test("loginFromRepoName reads the login out of the ordinary pattern, and nothing
 
 const OPENS = "2026-09-01T08:00:00Z";
 
-function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {} } = {}) {
+function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {}, repoRecords = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "pxl-unrecorded-"));
   // `ownAttempts`: login -> accepted_at of that student's own acceptance
   // record for `lab`, as a failed attempt leaves it.
@@ -119,6 +119,10 @@ function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = 
   );
   mkdirSync(join(dir, "repositories", "lab"), { recursive: true });
   writeFileSync(join(dir, "repositories", "lab", "ann.json"), JSON.stringify({ github_login: "ann", repo_name: "Org/lab-ann", ...(recordFullHistory ? { full_history: true } : {}) }));
+  // `repoRecords`: login -> the repository that student's record for `lab` names.
+  for (const [login, repo] of Object.entries(repoRecords)) {
+    writeFileSync(join(dir, "repositories", "lab", `${login}.json`), JSON.stringify({ github_login: login, repo_name: `Org/${repo}` }));
+  }
   return dir;
 }
 
@@ -126,7 +130,7 @@ function controlDir({ fullHistory = false, recordFullHistory = false, opensAt = 
 const GENERATED = { sha: "gen", parents: [], committer: { login: "web-flow" }, author: { login: "pxl-classroom-provisioner[bot]" }, commit: { verification: { verified: true } } };
 const PUSHED = { sha: "work", parents: [{ sha: "gen" }], committer: { login: "web-flow" }, author: { login: "a-student" }, commit: { verification: { verified: false } } };
 
-async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {} } = {}) {
+async function run({ listStatus = 200, repos, fullHistory = false, recordFullHistory = false, opensAt = null, ownAttempts = {}, repoRecords = {} } = {}) {
   const list = repos ?? [
     { name: "lab-ann", from: "Org/starter" },
     { name: "lab-TimoHubner444", from: "Org/starter" },
@@ -172,7 +176,7 @@ async function run({ listStatus = 200, repos, fullHistory = false, recordFullHis
     return send(404, { message: "not stubbed: " + url });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const dir = controlDir({ fullHistory, recordFullHistory, opensAt, ownAttempts });
+  const dir = controlDir({ fullHistory, recordFullHistory, opensAt, ownAttempts, repoRecords });
   const out = join(dir, "out.env");
   try {
     return await new Promise((resolve, reject) => {
@@ -219,6 +223,51 @@ test("where the student's own attempt is on record, the nightly presses Retry fo
 test("an own attempt older than a week is reported, not pressed again", async () => {
   const res = await run({ ownAttempts: { TimoHubner444: new Date(Date.now() - (AUTO_RETRY_DAYS + 1) * 24 * 3600_000).toISOString() } });
   assert.match(res.outputs, /^retry=\[\]$/m, res.log);
+});
+
+// 2026-11-21..23, PXL-Digital-SNE-Werkplekleren: a renamed student's record
+// kept the old name's repository, an admission under the new name made a
+// second, and the nightly pressed Retry three nights running. Each Retry
+// handed the recorded one back, said "accepted", and left the new one where it
+// was, to be found again.
+test("a student whose record names another repository is reported, never pressed", async () => {
+  const res = await run({
+    ownAttempts: { TimoHubner444: new Date(Date.now() - 3600_000).toISOString() },
+    repoRecords: { TimoHubner444: "lab-TimoOld" },
+  });
+  assert.equal(res.status, 0, res.log);
+  assert.match(res.outputs, /^count=1$/m, "still reported: the repository has no record");
+  assert.match(res.outputs, /^retry=\[\]$/m, res.log);
+  assert.doesNotMatch(res.outputs, /has pressed \*\*Retry\*\* itself/);
+  assert.match(res.outputs, /`TimoHubner444` already has `lab-TimoOld` on record for `lab`, so \*\*Retry\*\* would hand that one back and leave `lab-TimoHubner444` unrecorded/);
+  assert.match(res.log, /Not pressed for TimoHubner444 on lab: their record already names lab-TimoOld/);
+  // The line the Organization page reads is unchanged.
+  assert.deepEqual(parseUnrecordedLines(res.outputs.match(/details<<(\w+)\n([\s\S]*?)\n\1/)[2]).map((l) => l.login), ["TimoHubner444"]);
+});
+
+test("heldElsewhere: only a record of the same student naming a different repository", () => {
+  const found = [
+    { repo: "a-ann", login: "ann", assignment_id: "a" },
+    { repo: "a-bob", login: "bob", assignment_id: "a" },
+    { repo: "a-cy", login: "cy", assignment_id: "a" },
+    { repo: "a-dee", login: "dee", assignment_id: "a" },
+    { repo: "a-eve", login: "eve", assignment_id: "a" },
+    { repo: "a-team", login: null, assignment_id: "a" },
+  ];
+  const records = {
+    "a/ann": { github_login: "Ann", repo_name: "Org/a-AnnOld" },
+    "a/bob": { github_login: "bob", repo_name: "Org/A-BOB" },
+    "a/cy": { github_login: "cy" },
+    "a/dee": { github_login: "someone-else", repo_name: "Org/a-other" },
+  };
+  const of = (id, login) => records[`${id}/${login}`] ?? null;
+  assert.deepEqual(heldElsewhere(found, of), [{ assignment_id: "a", login: "ann", repo: "a-ann", recorded_repo: "a-AnnOld" }],
+    "another repository on record; the same one whatever its case, no repo_name, another login's record, no record and a team hold nothing");
+
+  const now = new Date("2026-11-14T12:00:00Z");
+  const attempt = () => ({ github_login: "ann", accepted_at: "2026-11-14T09:00:00Z" });
+  assert.deepEqual(autoRetryable([found[0]], attempt, now), [{ assignment_id: "a", login: "ann", repo: "a-ann" }], "without the lookup: as before");
+  assert.deepEqual(autoRetryable([found[0]], attempt, now, of), [], "with it: Retry would hand the other one back, so it is not pressed");
 });
 
 test("autoRetryable: one student's own recent attempt, oldest first, capped, never a team", () => {

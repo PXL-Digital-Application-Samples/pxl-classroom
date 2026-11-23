@@ -26,7 +26,7 @@ import { gh, ghAll } from "../lib/gh.mjs";
 import { loadYaml } from "../lib/yaml.mjs";
 import { ASSIGNMENTS_DIR, acceptancesDir, assignmentIdFromFile, repositoriesDir, teamsDir } from "../lib/control-layout.mjs";
 import { sameLogin } from "../lib/github-login.mjs";
-import { autoRetryable, copiedFrom, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
+import { autoRetryable, copiedFrom, heldElsewhere, emptyLeftover, generatedFrom, lastPageFromLink, loginFromRepoName, splitByOpening, unrecordedCandidates, unrecordedNoticeLine } from "../lib/unrecorded-repos.mjs";
 import { repoTouched } from "../lib/untouched-repo.mjs";
 import { APP_SLUG } from "../lib/deployment.mjs";
 
@@ -108,12 +108,16 @@ async function main() {
   }
 
   const recorded = new Map();
+  // assignment id -> its repository records, for `heldElsewhere`: a student
+  // whose record names ANOTHER repository is not pressed for.
+  const repositoryRecords = new Map();
   // Assignments that ever copied a template with its history: the setting, or
   // a record saying so (TA-7). Turned off later, the setting alone left a copy
   // made while it was on - whose record was lost - found by nothing.
   const everCopied = new Set();
   for (const a of assignments) {
     const records = await jsonFilesIn(join(dataDir, repositoriesDir(a.id)));
+    repositoryRecords.set(a.id, records);
     const names = [...records, ...(await jsonFilesIn(join(dataDir, teamsDir(a.id))))].map((doc) => doc?.repo_name).filter(Boolean);
     recorded.set(a.id, names);
     if (a.template_full_history === true || records.some((r) => r?.full_history === true)) everCopied.add(a.id);
@@ -179,9 +183,12 @@ async function main() {
   for (const id of new Set(found.map((f) => f.assignment_id))) {
     acceptances.set(id, await jsonFilesIn(join(dataDir, acceptancesDir(id))));
   }
-  const retry = autoRetryable(found, (id, login) => (acceptances.get(id) || []).find((r) => sameLogin(r?.github_login, login)) ?? null);
+  const repositoryOf = (id, login) => (repositoryRecords.get(id) || []).find((r) => sameLogin(r?.github_login, login)) ?? null;
+  const retry = autoRetryable(found, (id, login) => (acceptances.get(id) || []).find((r) => sameLogin(r?.github_login, login)) ?? null, new Date(), repositoryOf);
+  const held = heldElsewhere(found, repositoryOf);
   await setOutput("retry", JSON.stringify(retry.map(({ assignment_id, login }) => ({ assignment_id, login }))));
   for (const r of retry) console.log(`  -> Retry is pressed tonight for ${r.login} on ${r.assignment_id}: their own attempt is on record.`);
+  for (const h of held) console.log(`  -> Not pressed for ${h.login} on ${h.assignment_id}: their record already names ${h.recorded_repo}, which Retry would hand back.`);
 
   // One line each, in the format the Organization page reads back to put a
   // Retry and the right advice beside it (lib/unrecorded-repos.mjs).
@@ -190,13 +197,20 @@ async function main() {
     ? `\n\nPXL Classroom has pressed **Retry** itself for ${retry.map((r) => `\`${r.login}\``).join(", ")}, whose own acceptance attempt is on record. ` +
       `If it worked, they are gone from tomorrow's list; if the hub refused, the reason is beside them on the Organization page.`
     : "";
+  // Retry hands back the repository the record names, so it cannot settle
+  // these; the lecturer decides which of the two is the student's.
+  const twoRepos = held.length
+    ? `\n\n${held.map((h) => `\`${h.login}\` already has \`${h.recorded_repo}\` on record for \`${h.assignment_id}\`, so **Retry** would hand that one back and leave \`${h.repo}\` unrecorded.`).join(" ")} ` +
+      `PXL Classroom has not pressed Retry for ${held.length === 1 ? "them" : "these"}: look at both repositories and keep the one with the student's work.`
+    : "";
   await setOutput(
     "details",
     `${found.length === 1 ? "A student repository exists" : `${found.length} student repositories exist`} that PXL Classroom has no record of. ` +
       `The student can work in it, but is missing from the student list and would be left out at the deadline.\n\n` +
       `${lines.join("\n")}\n\n` +
       `On the **Organization** page of PXL Classroom, **Retry** beside each one adds the student and keeps the repository and the work in it.` +
-      pressed,
+      pressed +
+      twoRepos,
   );
   await setOutput("dedup", `unrecorded-${createHash("sha256").update(found.map((f) => f.repo.toLowerCase()).sort().join("\n")).digest("hex").slice(0, 16)}`);
 }
