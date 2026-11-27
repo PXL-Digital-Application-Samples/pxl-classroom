@@ -236,6 +236,14 @@
             "type": "string",
             "description": "Acceptance status of the student for this assignment."
           },
+          "accepted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the student first accepted: the acceptance record's own accepted_at, which a repeat acceptance keeps. The Progress table sorts its Acceptance column by it, so a student who joined unexpectedly is found by sorting. Null without an acceptance record."
+          },
           "reused_existing_repo": {
             "type": [
               "boolean",

@@ -495,7 +495,7 @@
                      already says "a lecturer who cannot see it might as well
                      not have it". -->
                 <SortableTh v-if="hasClaimedEmails" :sort="progressSort" col="claimed_email">Confirmed address</SortableTh>
-                <SortableTh :sort="progressSort" col="acceptance_state">Acceptance</SortableTh>
+                <SortableTh :sort="progressSort" col="acceptance_state" title="Sort by when each student accepted, newest first">Acceptance</SortableTh>
                 <SortableTh :sort="progressSort" col="submission_status">Status</SortableTh>
                 <SortableTh :sort="progressSort" col="repo_name">Repo</SortableTh>
                 <SortableTh :sort="progressSort" col="latest_observed_at">Last commit</SortableTh>
@@ -621,7 +621,7 @@
                   </div>
                 </td>
                 <td>
-                  <span class="status-indicator">
+                  <span class="status-indicator" :title="s.accepted_at ? `Accepted ${fmt(s.accepted_at)}` : null" data-accepted-at>
                     <span class="status-dot" :class="s.acceptance_state === 'accepted' || s.acceptance_state === 'provisioned' ? 'dot-success' : (s.acceptance_state === 'declined' ? 'dot-danger' : 'dot-neutral')"></span>
                     <span class="text-sm">{{ acceptanceLabel(s.acceptance_state) || '-' }}</span>
                   </span>
@@ -1686,7 +1686,10 @@ const search = ref('')
 const statusFilter = ref('')
 // Which column each table is sorted on (composables/useTableSort.js, shared
 // with the Teams and Roster tables).
-const progressSort = useTableSort('github_login')
+// Acceptance sorts by WHEN each student accepted, newest first: a student
+// nobody expected is found at the top (asked 2026-11-24, instead of a column
+// of creation times the table has no width for, DESIGN.md §7).
+const progressSort = useTableSort('github_login', { descFirst: ['acceptance_state'] })
 const gradingSort = useTableSort('login')
 
 const autogradeSummary = ref(null)
@@ -3257,6 +3260,9 @@ const filteredStudents = computed(() => {
   const key = progressSort.sortKey.value
   const valueOf = {
     latest_observed_at: (s) => timeValue(commitTime(s)),
+    // When they accepted (report.mjs `accepted_at`); nobody who has not
+    // accepted has one, so they sort with the other blanks, last.
+    acceptance_state: (s) => timeValue(s.accepted_at),
     team: (s) => s.team_name || s.team_slug,
     repo_name: (s) => (s.repo_name ? shortRepo(s.repo_name) : null),
     score: (s) => s.earned_points ?? null,

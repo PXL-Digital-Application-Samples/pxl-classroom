@@ -27,6 +27,7 @@ What the system *is* → [ARCHITECTURE.md](ARCHITECTURE.md). Why a rule exists �
 | | |
 |---|---|
 | Watch for problems | [§2.1](#21-the-instructor-notifications-issue), [§2.2](#22-the-dashboard) |
+| A student you did not expect is on the list: who joined last | [§2.2](#22-the-dashboard) |
 | A student says "I clicked Accept and nothing happened" | [§3.6](#36-student-says-i-clicked-accept-but-nothing-happened) |
 | A student deleted their repository | [§3.1](#31-student-deleted-their-repository) |
 | A student changed their GitHub username | [§3.13](#313-a-student-changed-their-github-username) |
@@ -241,6 +242,8 @@ Make this issue your daily checklist. The **Organization** tab shows the ones th
 Same Pages URL: `/dashboard/<org>`. Per-assignment overview, per-student table, search and filter by status, CSV/JSON export.
 
 The dashboard reads the **aggregate** `reports/dashboard.json` from your control repo in one fetch with your lecturer token. It refreshes when the nightly run completes or when a student accepts (both trigger `regenerate-dashboard.yml`).
+
+**A student you did not expect is on the list.** On the assignment's **Progress** tab, click the **Acceptance** heading: the table sorts by when each student accepted, newest first, so whoever joined last is on top. Hover their *Repository ready* to see the date and time. Click again for the earliest first; students who have not accepted stay at the bottom either way. Their repository and the Confirmed address column (when the assignment asks for one) say who it is.
 
 ---
 

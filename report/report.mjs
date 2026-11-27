@@ -682,6 +682,10 @@ async function main() {
       author_name: historyCopy ? null : latestAuthorName ?? null,
       author_email: historyCopy ? null : latestAuthorEmail ?? null,
       acceptance_state: acceptance?.status ?? "not-accepted",
+      // When they first accepted (a repeat acceptance keeps it, accept.mjs):
+      // the Progress table sorts its Acceptance column by it, which is how a
+      // student nobody expected is found (asked 2026-11-24).
+      accepted_at: typeof acceptance?.accepted_at === "string" ? acceptance.accepted_at : null,
       // What this acceptance was admitted on. accept.mjs has written these
       // since roster_mode: claim shipped and NOTHING had ever read them - the
       // `preserved_sha` shape again, a field written at one end with nobody at

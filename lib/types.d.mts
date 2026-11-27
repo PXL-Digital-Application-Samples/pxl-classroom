@@ -444,6 +444,7 @@ export type Report = {
     author_name?: string;
     author_email?: string;
     acceptance_state?: string;
+    accepted_at?: string;
     reused_existing_repo?: boolean;
     claimed_email?: string;
     claim_verified?: boolean;
