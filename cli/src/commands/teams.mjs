@@ -18,8 +18,10 @@ import {
   getRoster,
   listAssignments,
   listAcceptedLogins,
+  listClaims,
   CONTROL_REPO,
 } from "../lib/control-repo.mjs";
+import { claimedLogins } from "../../../lib/claim-bindings.mjs";
 import { planSeed, planUnseed, teamsFromRoster, seedCommitMessage, seedSignature } from "../../../lib/seed-teams.mjs";
 import { contentsAt, seedRefusalAt, unseedRefusalAt } from "../../../lib/team-write-guard.mjs";
 import { decodeBase64 } from "../../../lib/grade-dispatch.mjs";
@@ -114,12 +116,27 @@ export function registerTeamsCommand(program, context = {}) {
 
       const existingTeams = await listTeams(octokit, { org, assignmentId: targetAssignment.id });
 
+      // Where a claim student's login lives until the nightly folds it into the
+      // roster (lib/claim-bindings.mjs `claimedLogins`), as Copy teams reads it.
+      // Best-effort: unreadable claims plan from the roster's own column.
+      let extraLogins = null;
+      try {
+        const { records, unreadable } = await listClaims(octokit, { org });
+        extraLogins = claimedLogins(roster, records);
+        if (unreadable.length) {
+          process.stderr.write(`  ! ${unreadable.length} claim file(s) could not be read - those students are planned from the roster's GitHub logins only\n`);
+        }
+      } catch (e) {
+        process.stderr.write(`  ! could not read students/claims (${e.message}) - planning from the roster's GitHub logins only\n`);
+      }
+
       const plan = planSeed({
         sourceTeams,
         existingTeams,
         targetAssignment,
         sourceAssignment,
         roster,
+        extraLogins,
         now: new Date().toISOString(),
         actor: "cli",
         source: opts.fromRoster ? "roster" : "assignment",
@@ -174,6 +191,7 @@ export function registerTeamsCommand(program, context = {}) {
         targetAssignment,
         sourceAssignment,
         roster,
+        extraLogins,
         now: new Date().toISOString(),
         actor: "cli",
         source: opts.fromRoster ? "roster" : "assignment",

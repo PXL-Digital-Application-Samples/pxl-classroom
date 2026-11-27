@@ -194,7 +194,7 @@ import {
 } from '../lib/api.js'
 import { republishStudentPages } from '../lib/student-pages.js'
 import { config } from '../lib/config.js'
-import { indexClaims, bindingForEntry } from '../lib/claim-bindings.js'
+import { claimedLogins } from '../lib/claim-bindings.js'
 import { ROSTER_PATH } from '../lib/roster.js'
 import { toast } from '../lib/toast.js'
 import HelpButton from './HelpButton.vue'
@@ -389,13 +389,8 @@ async function computePlan() {
     // they do not stop the seed.
     let extraLogins = null
     try {
-      const claims = await listClaims(token, props.org, config.controlRepo)
-      const index = indexClaims(claims)
-      extraLogins = new Map()
-      for (const s of roster?.students || []) {
-        const login = bindingForEntry(s, index)?.login
-        if (login) extraLogins.set(String(login).toLowerCase(), s)
-      }
+      const { records } = await listClaims(token, props.org, config.controlRepo)
+      extraLogins = claimedLogins(roster, records)
     } catch {
       // No claims readable - fall back to the roster's own column.
     }

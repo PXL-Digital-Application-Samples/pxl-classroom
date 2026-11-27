@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ORG, LECTURER, STUDENT_1, STUDENT_2, injectAuth, setupStandardMockRoutes, inviteUrl, expandSettings, answerConfirm } from '../fixtures/e2e-fixtures.mjs';
+import { buildClaimRecord } from '../../lib/claim.mjs';
 
 // Carrying groups forward from one assignment to the next: the lecturer seeds
 // teams from a previous grouping, and the student confirms the group they
@@ -374,6 +375,37 @@ test.describe('26 - Carrying groups forward between assignments', () => {
     await expect(page.locator('.seed-banner-warn')).toContainText('@graduated-student');
     // A warning does not block: the seed is still applicable.
     await expect(page.locator('.modal-foot .btn-primary')).toBeEnabled();
+  });
+
+  test('A student whose roster row has only an address is recognised through their confirmed address, not warned about', async ({ page }) => {
+    // Under `claim` the roster's GitHub login column is empty until the nightly
+    // folds the claim in. Copy teams handed the claim reader's wrapper to the
+    // claim index, which read it as no claims at all, so a student who had
+    // confirmed their address was listed as not on the roster (found
+    // 2026-11-27; lib/claim-bindings.mjs `claimedLogins`).
+    await injectAuth(page, LECTURER);
+    await setupStandardMockRoutes(page, {
+      currentUser: LECTURER,
+      assignments: { [PREV]: groupAssignment(PREV), [NEXT]: groupAssignment(NEXT) },
+      reports: { [NEXT]: emptyReport(NEXT) },
+      roster: [
+        { student_number: '1', full_name: 'Student One', github_login: STUDENT_1.login },
+        { student_number: '2', full_name: 'Clara Claim', email: 'clara.claim@student.pxl.be' },
+      ],
+      claims: [buildClaimRecord({
+        githubLogin: 'clara-claim', githubId: 4242, email: 'clara.claim@student.pxl.be',
+        claimVerified: true, assignmentId: PREV, now: '2026-09-01T10:00:00.000Z',
+      })],
+      controlTeams: {
+        [PREV]: [controlTeam(PREV, 'alpha', 'Alpha Team', [STUDENT_1.login, 'clara-claim', 'graduated-student'])],
+      },
+    });
+
+    await openSeedModal(page, NEXT);
+    await page.locator('#seed-source').selectOption(`assignment:${PREV}`);
+    const warning = page.locator('.seed-banner-warn');
+    await expect(warning).toContainText('@graduated-student', { timeout: 10000 });
+    await expect(warning).not.toContainText('clara-claim');
   });
 
   test('Roster team columns work as a source when no previous assignment exists', async ({ page }) => {

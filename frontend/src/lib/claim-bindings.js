@@ -18,6 +18,7 @@ export {
   indexClaims,
   bindingForEntry,
   rosterBindings,
+  claimedLogins,
   orphanClaims,
   claimSummary,
   describeBinding,

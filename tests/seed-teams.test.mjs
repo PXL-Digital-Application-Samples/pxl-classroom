@@ -5,6 +5,8 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
 import { planSeed, planUnseed, teamsFromRoster, DEFAULT_MAX_TEAM_SIZE, SEED_SKIP_REASONS } from "../lib/seed-teams.mjs";
+import { claimedLogins } from "../lib/claim-bindings.mjs";
+import { buildClaimRecord } from "../lib/claim.mjs";
 import { validateAgainst } from "../lib/validate.mjs";
 
 const NOW = "2026-09-01T10:00:00.000Z";
@@ -408,6 +410,36 @@ test("a claim student's login is resolved, not reported as a stranger", () => {
   const resolved = plan({ targetAssignment, roster, extraLogins });
   assert.equal(resolved.warnings.some((w) => w.code === "not-on-roster"), false);
   assert.equal(resolved.warnings.some((w) => w.code === "not-in-cohort"), false);
+});
+
+test("the bindings come from the claim RECORDS: claimedLogins builds them, and the reader's wrapper is refused", () => {
+  // Both claim readers (the SPA's api.js and the CLI's control-repo.mjs)
+  // return `{ records, ... }`. Copy teams handed that wrapper to the claim
+  // index, which read it as no claims at all, and `teams seed` passed no
+  // bindings: neither ever used one (found 2026-11-27). The map above is built
+  // by hand; this one is built the way both callers build it now.
+  const roster = {
+    students: [
+      { student_number: "1", full_name: "Alice", email: "alice@student.pxl.be" },
+      { student_number: "2", full_name: "Bob", email: "Bob@Student.pxl.be" },
+      { student_number: "3", full_name: "Carol", email: "carol@student.pxl.be" },
+    ],
+  };
+  const claim = (login, id, email) => buildClaimRecord({
+    githubLogin: login, githubId: id, email, claimVerified: true, assignmentId: "hw-1", now: "2026-09-01T10:00:00.000Z",
+  });
+  const records = [claim("Alice", 1, "alice@student.pxl.be"), claim("bob", 2, "bob@student.pxl.be"), claim("carol", 3, "carol@student.pxl.be")];
+
+  const extraLogins = claimedLogins(roster, records);
+  assert.deepEqual([...extraLogins.keys()].sort(), ["alice", "bob", "carol"], "keyed by the lowercased login");
+  assert.equal(extraLogins.get("bob"), roster.students[1], "the roster entry, matched by address case-insensitively");
+
+  const targetAssignment = target({ roster_mode: "claim" });
+  const resolved = plan({ targetAssignment, roster, extraLogins });
+  assert.equal(resolved.warnings.some((w) => w.code === "not-on-roster"), false);
+
+  assert.throws(() => claimedLogins(roster, { records, failed: 0 }), TypeError, "the wrapper is not the records");
+  assert.equal(claimedLogins(roster, []).size, 0, "no claims, no bindings");
 });
 
 test("unplaced counts the cohort, not the organization", () => {
